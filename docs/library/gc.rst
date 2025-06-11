@@ -67,11 +67,50 @@ Functions
 
 .. function:: info()
 
-   Return a tuple ``(total, used, free, max_free, num_1block, num_2block, max_block[, max_new_split])``
-   describing the current state of the heap. The optional ``max_new_split``
-   value is included only when ``MICROPY_GC_SPLIT_HEAP_AUTO`` is enabled.
+   Return a dictionary describing the current state of the heap with
+   the following fields:
+
+   ``total``
+       Total heap size in bytes.
+
+   ``used``
+       Currently allocated bytes.
+
+   ``free``
+       Free bytes in the heap.
+
+   ``max_free``
+       Size of the largest contiguous free block.
+
+   ``num_1block`` ``num_2block``
+       Number of 1 and 2 block fragments.
+
+   ``max_block``
+       Maximum allocatable block size.
+
+   When ``MICROPY_GC_SPLIT_HEAP_AUTO`` is enabled an additional
+   ``max_new_split`` field is present.
+
+   Example usage::
+
+       >>> import gc
+       >>> gc.info()
+       {'total': 8504576, 'used': 102400, 'free': 8402176,
+        'max_free': 5000000, 'num_1block': 5, 'num_2block': 2, 'max_block': 3000000}
 
    .. admonition:: Difference to CPython
       :class: attention
 
       This function is a MicroPython extension.
+
+.. rubric:: GC mark-stack overflow
+
+When the number of objects to mark during a collection exceeds
+``MICROPY_ALLOC_GC_STACK_SIZE`` (default value is 64) the flag
+``gc_stack_overflow`` is set and the collector performs a full heap
+rescan instead of aborting the collection.
+
+If this overflow occurs often consider increasing
+``MICROPY_ALLOC_GC_STACK_SIZE`` in ``mpconfigport.h``::
+
+    #define MICROPY_ALLOC_GC_STACK_SIZE 128

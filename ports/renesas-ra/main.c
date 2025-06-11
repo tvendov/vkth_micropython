@@ -64,6 +64,12 @@
 #include "usrsw.h"
 #include "rtc.h"
 #include "storage.h"
+#if MICROPY_ENABLE_GC
+extern char _heap_internal_start, _heap_internal_end;
+#if MICROPY_HW_HAS_OSPI_RAM
+extern char _ospi_ram_start, _ospi_ram_end;
+#endif
+#endif
 #if MICROPY_PY_LWIP
 #include "lwip/init.h"
 #include "lwip/apps/mdns.h"
@@ -310,14 +316,9 @@ soft_reset:
 
     // GC init
     #if MICROPY_ENABLE_GC
-    gc_init(MICROPY_HEAP_START, MICROPY_HEAP_END);
-    #if MICROPY_GC_SPLIT_HEAP
-    assert(MICROPY_GC_SPLIT_HEAP_N_HEAPS > 0);
+    gc_init(&_heap_internal_start, &_heap_internal_end);
     #if MICROPY_HW_HAS_OSPI_RAM
-    if (FSP_SUCCESS == R_OSPI_Open(&g_ospi_ram0_ctrl, &g_ospi_ram0_cfg)) {
-        gc_add(MICROPY_EXTRA_HEAP_START, MICROPY_EXTRA_HEAP_END);
-    }
-    #endif
+    gc_init(&_ospi_ram_start, &_ospi_ram_end);
     #endif
     #endif
 
