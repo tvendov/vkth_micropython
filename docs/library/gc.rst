@@ -64,3 +64,14 @@ Functions
       This function is a MicroPython extension. CPython has a similar
       function - ``set_threshold()``, but due to different GC
       implementations, its signature and semantics are different.
+
+.. function:: info()
+
+   Return a tuple ``(total, used, free, max_free, num_1block, num_2block, max_block[, max_new_split])``
+   describing the current state of the heap. The optional ``max_new_split``
+   value is included only when ``MICROPY_GC_SPLIT_HEAP_AUTO`` is enabled.
+
+   .. admonition:: Difference to CPython
+      :class: attention
+
+      This function is a MicroPython extension.
