@@ -112,7 +112,14 @@ static void vstr_ensure_extra(vstr_t *vstr, size_t size) {
             mp_raise_msg(&mp_type_RuntimeError, NULL);
         }
         size_t new_alloc = ROUND_ALLOC((vstr->len + size) + 16);
+        // DEBUG: Print allocation attempt
+        if (new_alloc > 50000) { // Only for large allocations
+            mp_printf(&mp_plat_print, "[DEBUG] vstr realloc: old=%u, new=%u, len=%u\n", vstr->alloc, new_alloc, vstr->len);
+        }
         char *new_buf = m_renew(char, vstr->buf, vstr->alloc, new_alloc);
+        if (new_buf == NULL && new_alloc > 50000) {
+            mp_printf(&mp_plat_print, "[DEBUG] vstr realloc FAILED: old=%u, new=%u\n", vstr->alloc, new_alloc);
+        }
         vstr->alloc = new_alloc;
         vstr->buf = new_buf;
     }

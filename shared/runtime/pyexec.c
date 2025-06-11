@@ -376,6 +376,11 @@ static int pyexec_friendly_repl_process_char(int c) {
             goto input_restart;
         } else {
             // add char to buffer and echo
+            // DEBUG: Print buffer size in paste mode
+            if (MP_STATE_VM(repl_line)->len > 0 && (MP_STATE_VM(repl_line)->len % 10240) == 0) { // Every 10KB
+                mp_printf(&mp_plat_print, "[DEBUG] Paste mode buffer: len=%u, alloc=%u\n",
+                         MP_STATE_VM(repl_line)->len, MP_STATE_VM(repl_line)->alloc);
+            }
             vstr_add_byte(MP_STATE_VM(repl_line), c);
             if (c == '\r') {
                 mp_hal_stdout_tx_str("\r\n=== ");
@@ -529,6 +534,10 @@ raw_repl_reset:
                 break;
             } else {
                 // let through any other raw 8-bit value
+                // DEBUG: Print buffer size before adding byte
+                if (line.len > 0 && (line.len % 10240) == 0) { // Every 10KB
+                    mp_printf(&mp_plat_print, "[DEBUG] Raw REPL buffer: len=%u, alloc=%u\n", line.len, line.alloc);
+                }
                 vstr_add_byte(&line, c);
             }
         }
