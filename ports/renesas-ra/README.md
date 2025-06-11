@@ -71,7 +71,14 @@ the `boards/<BOARD_NAME>/ra_cfg` and `boards/<BOARD_NAME>/ra_gen` folders.
 These are generated with the [RA Smart Configurator](https://www.renesas.com/us/en/software-tool/ra-smart-configurator)
 tool which is used to define peripheral configuration, pinouts, interrupts etc. for each board.
 
-This tool can be installed either as part of the "Renesas e² studio", or separately with
+
+## Heap configuration
+
+The size of the MicroPython heap is controlled by the value of `BSP_CFG_HEAP_BYTES` in `ra_cfg/fsp_cfg/bsp/bsp_cfg.h`. This value sets the distance between the linker symbols `_heap_start` and `_heap_end`, which bound the `.heap` section in the linker scripts. By default this section resides in the internal `RAM` region.
+
+Adjusting `BSP_CFG_HEAP_BYTES` and regenerating the FSP configuration will grow or shrink the heap. If the heap is moved to a custom memory region (for example OSPI RAM) then the linker script must be updated accordingly and the `MICROPY_HEAP_START`/`MICROPY_HEAP_END` symbols changed to point to the new addresses.
+
+This tool can be installed either as part of the "Renesas eÂ² studio", or separately with
 the fsp driver package from https://github.com/renesas/fsp/releases eg.
 * [setup_fsp_v4_4_0_rasc_v2023-04.exe](https://github.com/renesas/fsp/releases/download/v4.4.0/setup_fsp_v4_4_0_rasc_v2023-04.exe)
 * [setup_fsp_v4_4_0_rasc_v2023-04.exe](https://github.com/renesas/fsp/releases/download/v4.4.0/setup_fsp_v4_4_0_rasc_v2023-04.AppImage)
