@@ -81,6 +81,37 @@ static mp_obj_t gc_mem_alloc(void) {
 }
 MP_DEFINE_CONST_FUN_OBJ_0(gc_mem_alloc_obj, gc_mem_alloc);
 
+// info(): return a tuple with GC state information
+static mp_obj_t gc_info_wrapper(void) {
+    gc_info_t info;
+    gc_info(&info);
+#if MICROPY_GC_SPLIT_HEAP_AUTO
+    mp_obj_t tuple[8] = {
+        mp_obj_new_int_from_uint(info.total),
+        mp_obj_new_int_from_uint(info.used),
+        mp_obj_new_int_from_uint(info.free),
+        mp_obj_new_int_from_uint(info.max_free),
+        mp_obj_new_int_from_uint(info.num_1block),
+        mp_obj_new_int_from_uint(info.num_2block),
+        mp_obj_new_int_from_uint(info.max_block),
+        mp_obj_new_int_from_uint(info.max_new_split),
+    };
+    return mp_obj_new_tuple(8, tuple);
+#else
+    mp_obj_t tuple[7] = {
+        mp_obj_new_int_from_uint(info.total),
+        mp_obj_new_int_from_uint(info.used),
+        mp_obj_new_int_from_uint(info.free),
+        mp_obj_new_int_from_uint(info.max_free),
+        mp_obj_new_int_from_uint(info.num_1block),
+        mp_obj_new_int_from_uint(info.num_2block),
+        mp_obj_new_int_from_uint(info.max_block),
+    };
+    return mp_obj_new_tuple(7, tuple);
+#endif
+}
+MP_DEFINE_CONST_FUN_OBJ_0(gc_info_obj, gc_info_wrapper);
+
 #if MICROPY_GC_ALLOC_THRESHOLD
 static mp_obj_t gc_threshold(size_t n_args, const mp_obj_t *args) {
     if (n_args == 0) {
@@ -108,9 +139,10 @@ static const mp_rom_map_elem_t mp_module_gc_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_isenabled), MP_ROM_PTR(&gc_isenabled_obj) },
     { MP_ROM_QSTR(MP_QSTR_mem_free), MP_ROM_PTR(&gc_mem_free_obj) },
     { MP_ROM_QSTR(MP_QSTR_mem_alloc), MP_ROM_PTR(&gc_mem_alloc_obj) },
-    #if MICROPY_GC_ALLOC_THRESHOLD
+    { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&gc_info_obj) },
+#if MICROPY_GC_ALLOC_THRESHOLD
     { MP_ROM_QSTR(MP_QSTR_threshold), MP_ROM_PTR(&gc_threshold_obj) },
-    #endif
+#endif
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_gc_globals, mp_module_gc_globals_table);
