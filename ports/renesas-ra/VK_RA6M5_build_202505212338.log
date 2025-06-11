@@ -1,0 +1,23 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+patch LVGL...
+git -C ../../lib/lv_bindings apply --directory lvgl ../../lib/lv_bindings/patch/fix_GC.patch || true
+fatal: not a git repository: /home/teodor/vkth_micropython/lib/lv_bindings/../../.git/modules/lib/lv_bindings
+makeversionhdr.py: Warning: No git repo or tag info available, falling back to mpconfig.h version info.
+GEN build-VK_RA6M5/genhdr/qstr.i.last
+GEN build-VK_RA6M5/genhdr/qstr.split
+GEN build-VK_RA6M5/genhdr/moduledefs.split
+GEN build-VK_RA6M5/genhdr/root_pointers.split
+GEN build-VK_RA6M5/genhdr/compressed.split
+GEN build-VK_RA6M5/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M5/genhdr/moduledefs.collected
+GEN build-VK_RA6M5/genhdr/root_pointers.collected
+GEN build-VK_RA6M5/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC boards/VK_RA6M5/ra_gen/common_data.c
+  GEN     objects.rsp
+LINK build-VK_RA6M5/firmware.elf
+GEN build-VK_RA6M5/firmware.hex
+GEN build-VK_RA6M5/firmware.bin

@@ -1,0 +1,46 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+patch LVGL...
+git -C ../../lib/lv_bindings apply --directory lvgl ../../lib/lv_bindings/patch/fix_GC.patch || true
+LVGL-GEN build-VK_RA6M5/lvgl/lv_mpy.c
+fatal: not a git repository: /home/teodor/vkth_micropython/lib/lv_bindings/../../.git/modules/lib/lv_bindings
+makeversionhdr.py: Warning: No git repo or tag info available, falling back to mpconfig.h version info.
+GEN build-VK_RA6M5/genhdr/mpversion.h
+GEN build-VK_RA6M5/genhdr/qstr.i.last
+In file included from ../../lib/fsp/ra/fsp/inc/api/bsp_api.h:44,
+                 from boards/VK_RA6M5/ra_gen/vector_data.c:2:
+boards/VK_RA6M5/ra_gen/vector_data.h:89: error: "VECTOR_NUMBER_ICU_IRQ11" redefined [-Werror]
+   89 | #define VECTOR_NUMBER_ICU_IRQ11  ((IRQn_Type)24)
+      | 
+boards/VK_RA6M5/ra_gen/vector_data.h:77: note: this is the location of the previous definition
+   77 | #define VECTOR_NUMBER_ICU_IRQ11 ((IRQn_Type)18)  /* ICU IRQ11 (External pin interrupt 11) */
+      | 
+boards/VK_RA6M5/ra_gen/vector_data.h:90: error: "ICU_IRQ11_IRQn" redefined [-Werror]
+   90 | #define ICU_IRQ11_IRQn           ((IRQn_Type)24)
+      | 
+boards/VK_RA6M5/ra_gen/vector_data.h:78: note: this is the location of the previous definition
+   78 | #define ICU_IRQ11_IRQn          ((IRQn_Type)18)  /* ICU IRQ11 (External pin interrupt 11) */
+      | 
+In file included from ../../lib/fsp/ra/fsp/inc/api/bsp_api.h:44,
+                 from ./RA6M5_hal.h:33,
+                 from ./mpconfigboard_common.h:32,
+                 from ./mpconfigport.h:34,
+                 from ../../py/mpconfig.h:91,
+                 from ../../py/obj.h:31,
+                 from build-VK_RA6M5/lvgl/lv_mpy.c:20:
+boards/VK_RA6M5/ra_gen/vector_data.h:89: error: "VECTOR_NUMBER_ICU_IRQ11" redefined [-Werror]
+   89 | #define VECTOR_NUMBER_ICU_IRQ11  ((IRQn_Type)24)
+      | 
+boards/VK_RA6M5/ra_gen/vector_data.h:77: note: this is the location of the previous definition
+   77 | #define VECTOR_NUMBER_ICU_IRQ11 ((IRQn_Type)18)  /* ICU IRQ11 (External pin interrupt 11) */
+      | 
+boards/VK_RA6M5/ra_gen/vector_data.h:90: error: "ICU_IRQ11_IRQn" redefined [-Werror]
+   90 | #define ICU_IRQ11_IRQn           ((IRQn_Type)24)
+      | 
+boards/VK_RA6M5/ra_gen/vector_data.h:78: note: this is the location of the previous definition
+   78 | #define ICU_IRQ11_IRQn          ((IRQn_Type)18)  /* ICU IRQ11 (External pin interrupt 11) */
+      | 
+cc1.exe: all warnings being treated as errors
+cc1.exe: all warnings being treated as errors
+Command '['arm-none-eabi-gcc', '-E', '-DCFG_TUH_MAX_SPEED=OPT_MODE_HIGH_SPEED', '-DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED', '-DCFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE', '-DCFG_TUSB_RHPORT1_MODE=0', '-DDEFAULT_DBG_CH=9', '-DMICROPY_PY_LVGL', '-DLV_COLOR_DEPTH=16', '-DLV_USE_TINY_TTF=0', '-DMICROPY_VFS_FAT=1', '-DMICROPY_PY_SSL=1', '-DMBEDTLS_CONFIG_FILE="mbedtls/mbedtls_config_port.h"', '-DMICROPY_SSL_MBEDTLS=1', '-I../../lib/mbedtls/include', '-DMICROPY_PY_LWIP=1', '-DFFCONF_H="lib/oofatfs/ffconf.h"', '-DRA6M5', '-DRA_HAL_H=<RA6M5_hal.h>', '-DRA_CFG_H=<vk_ra6m5_conf.h>', '-DCFG_TUSB_MCU=OPT_MCU_RAXXX', '-include', 'limits.h', '-I../..', '-I../../lib/lv_bindings', '-I../../lib/lwip/src/include', '-imacros', 'boards/compiler_barrier.h', '-I.', '-Ifsp_cfg', '-I../..', '-Ibuild-VK_RA6M5', '-I../../lib/cmsis/inc', '-I../../lib/fsp', '-I../../lib/fsp/ra/fsp/inc', '-I../../lib/fsp/ra/fsp/inc/api', '-I../../lib/fsp/ra/fsp/inc/instances', '-I../../lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Include', '-I../../lib/tinyusb/hw', '-I../../lib/tinyusb/src', '-I../../shared/tinyusb', '-Ilwip_inc', '-Ira', '-Iboards/VK_RA6M5/ra_gen', '-Iboards/VK_RA6M5/ra_cfg/driver', '-Iboards/VK_RA6M5/ra_cfg/fsp_cfg', '-Iboards/VK_RA6M5/ra_cfg/fsp_cfg/bsp', '-Idebug', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//inc', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//inc/api', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//private/inc', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//inc/instances', '-Wall', '-Wpointer-arith', '-Werror', '-Wdouble-promotion', '-Wfloat-conversion', '-std=gnu99', '-nostdlib', '-I../..', '-DSTATIC=static', '-mthumb', '-mfpu=fpv5-sp-d16', '-mfloat-abi=hard', '-mtune=cortex-m33', '-mcpu=cortex-m33', '-O3', '-DNDEBUG', '-Iboards/VK_RA6M5', '-DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT', '-fsingle-precision-constant', '-fdata-sections', '-ffunction-sections', '-g', '-DUSE_FSP_QSPI', '-DUSE_FSP_SDHI', '-DUSE_FSP_ETH', '-DUSE_FSP_LPM', '-DUSE_FSP_FLASH', '-DMICROPY_ROM_TEXT_COMPRESSION=1', '-DNO_QSTR', 'build-VK_RA6M5/lvgl/lv_mpy.c']' returned non-zero exit status 1.
+make: *** [../../py/mkrules.mk:122: build-VK_RA6M5/genhdr/qstr.i.last] Error 1
+make: *** Deleting file 'build-VK_RA6M5/genhdr/qstr.i.last'

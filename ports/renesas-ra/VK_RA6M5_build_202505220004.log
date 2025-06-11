@@ -1,0 +1,5 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+patch LVGL...
+git -C ../../lib/lv_bindings apply --directory lvgl ../../lib/lv_bindings/patch/fix_GC.patch || true
+fatal: not a git repository: /home/teodor/vkth_micropython/lib/lv_bindings/../../.git/modules/lib/lv_bindings
+makeversionhdr.py: Warning: No git repo or tag info available, falling back to mpconfig.h version info.

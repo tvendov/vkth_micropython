@@ -1,0 +1,241 @@
+RA6M5 Network Testing - Step by Step Manual Instructions
+=========================================================
+
+Follow these steps to test the network capabilities of your VK-RA6M5 board.
+
+PREPARATION:
+1. Connect Ethernet cable to VK-RA6M5 board
+2. Ensure DHCP server is available on your network
+3. Connect to board via serial terminal (COM4, 115200 baud)
+4. Make sure MicroPython is running
+
+STEP 1: Basic Network Setup
+===========================
+Copy and paste these commands one by one into the MicroPython REPL:
+
+import network
+import time
+import gc
+
+# Initialize LAN interface
+lan = network.LAN()
+print("LAN interface created")
+
+# Activate the interface
+lan.active(True)
+print("Interface activated")
+
+# Wait for DHCP and check configuration
+for i in range(15):
+    config = lan.ifconfig()
+    if config[0] != '0.0.0.0':
+        break
+    time.sleep(1)
+    print(f"Waiting for DHCP... {15-i}s")
+
+# Display network configuration
+config = lan.ifconfig()
+print(f"IP Address: {config[0]}")
+print(f"Subnet Mask: {config[1]}")
+print(f"Gateway: {config[2]}")
+print(f"DNS: {config[3]}")
+
+if config[0] == '0.0.0.0':
+    print("ERROR: No IP address obtained!")
+else:
+    print("✓ Network setup successful!")
+    ip_address = config[0]
+
+STEP 2: Memory Test
+==================
+Copy and paste these commands:
+
+# Check available memory
+gc.collect()
+free_mem = gc.mem_free()
+print(f"Free memory: {free_mem:,} bytes ({free_mem/(1024*1024):.1f}MB)")
+
+# Test memory allocation
+try:
+    test_data = bytearray(1024*1024)  # 1MB
+    print("✓ 1MB memory allocation successful")
+    del test_data
+    gc.collect()
+except:
+    print("✗ 1MB memory allocation failed")
+
+STEP 3: File Creation Test
+=========================
+Copy and paste these commands:
+
+import os
+
+# Test creating files of different sizes
+test_sizes = [0.5, 1, 2]  # MB
+
+for size_mb in test_sizes:
+    filename = f"test_{size_mb}mb.bin"
+    size_bytes = int(size_mb * 1024 * 1024)
+    
+    print(f"Creating {size_mb}MB file...")
+    try:
+        with open(filename, 'wb') as f:
+            for i in range(size_bytes):
+                f.write(bytes([i & 0xFF]))
+        
+        actual_size = os.stat(filename)[6]
+        print(f"✓ Created {filename}: {actual_size:,} bytes")
+        
+        # Verify file integrity
+        with open(filename, 'rb') as f:
+            first_bytes = f.read(10)
+            expected = bytes([i for i in range(10)])
+            if first_bytes == expected:
+                print("✓ File integrity verified")
+            else:
+                print("✗ File integrity check failed")
+        
+    except Exception as e:
+        print(f"✗ Failed to create {size_mb}MB file: {e}")
+        break
+
+STEP 4: Simple Web Server
+========================
+Copy and paste these commands (replace IP_ADDRESS with your board's IP):
+
+import socket
+
+# Create a simple web server
+def start_simple_server(ip_address, port=8080):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(('0.0.0.0', port))
+    server.listen(1)
+    
+    print(f"Server started: http://{ip_address}:{port}/")
+    print("Open this URL in your browser")
+    print("Press Ctrl+C to stop")
+    
+    request_count = 0
+    while request_count < 5:  # Handle 5 requests
+        try:
+            client, addr = server.accept()
+            print(f"Connection from {addr[0]}")
+            
+            # Read request
+            request = client.recv(1024).decode('utf-8')
+            
+            # Send response with file download
+            if 'test_1mb.bin' in request:
+                # Serve the 1MB file
+                try:
+                    file_size = os.stat('test_1mb.bin')[6]
+                    headers = f"""HTTP/1.1 200 OK\r
+Content-Type: application/octet-stream\r
+Content-Length: {file_size}\r
+Content-Disposition: attachment; filename="test_1mb.bin"\r
+Connection: close\r
+\r
+"""
+                    client.send(headers.encode())
+                    
+                    # Send file
+                    with open('test_1mb.bin', 'rb') as f:
+                        sent = 0
+                        while sent < file_size:
+                            chunk = f.read(8192)
+                            if not chunk:
+                                break
+                            client.send(chunk)
+                            sent += len(chunk)
+                            if sent % (256*1024) == 0:
+                                print(f"Sent {sent//1024}KB")
+                    
+                    print(f"✓ File transfer complete: {sent:,} bytes")
+                    
+                except Exception as e:
+                    print(f"File transfer error: {e}")
+            else:
+                # Send HTML page
+                html = f"""<!DOCTYPE html>
+<html>
+<head><title>RA6M5 Test</title></head>
+<body>
+<h1>RA6M5 Network Test</h1>
+<p>Board IP: {ip_address}</p>
+<p>Free Memory: {gc.mem_free():,} bytes</p>
+<p><a href="/test_1mb.bin">Download 1MB test file</a></p>
+</body>
+</html>"""
+                
+                response = f"""HTTP/1.1 200 OK\r
+Content-Type: text/html\r
+Content-Length: {len(html)}\r
+Connection: close\r
+\r
+{html}"""
+                
+                client.send(response.encode())
+            
+            client.close()
+            request_count += 1
+            
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"Server error: {e}")
+    
+    server.close()
+    print("Server stopped")
+
+# Start the server (use your board's IP address)
+start_simple_server(ip_address)
+
+STEP 5: Testing from Computer
+============================
+Once the web server is running:
+
+1. Open web browser
+2. Go to: http://[BOARD_IP]:8080/
+3. Click "Download 1MB test file"
+4. Monitor transfer speed and success
+
+Alternative testing with command line tools:
+- wget http://[BOARD_IP]:8080/test_1mb.bin
+- curl -O http://[BOARD_IP]:8080/test_1mb.bin
+
+STEP 6: Cleanup
+==============
+Copy and paste these commands to clean up:
+
+# Remove test files
+import os
+test_files = ['test_0.5mb.bin', 'test_1mb.bin', 'test_2mb.bin']
+for filename in test_files:
+    try:
+        os.remove(filename)
+        print(f"Removed {filename}")
+    except:
+        pass
+
+# Final memory check
+gc.collect()
+print(f"Final free memory: {gc.mem_free():,} bytes")
+
+EXPECTED RESULTS:
+================
+- Network setup should obtain IP via DHCP
+- Memory allocation of 1MB should succeed
+- File creation up to 2MB should work
+- Web server should serve files successfully
+- Transfer speeds should be 1-10 MB/s depending on network
+
+TROUBLESHOOTING:
+===============
+- If no IP: Check Ethernet cable and DHCP server
+- If memory errors: Reduce file sizes, run gc.collect()
+- If file creation fails: Check available storage space
+- If web server fails: Check firewall, try different port
+
+Maximum expected file size: 4-8MB (limited by available memory)
+Board specifications: 512KB internal RAM + 8MB OSPI RAM
