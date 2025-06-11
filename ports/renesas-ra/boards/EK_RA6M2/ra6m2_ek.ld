@@ -5,11 +5,11 @@
 /* Linker script to configure memory regions. */
 MEMORY
 {
-  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x000e0000  /* 896KB/1MB */
-  FLASH_FS (r)       : ORIGIN = 0x000e0000, LENGTH = 0x00020000  /* 128KB/1MB */
-  RAM (rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x00060000  /* 384KB */
-  DATA_FLASH (rx)    : ORIGIN = 0x40100000, LENGTH = 0x00008000  /* 32KB */
-  ID_CODE (rx)       : ORIGIN = 0x0100A150, LENGTH = 0x00000010  /* 32bytes */
+    FLASH(rx)         : ORIGIN = 0x00000000, LENGTH = 0x000e0000 /* 896KB/1MB */
+            FLASH_FS(r)       : ORIGIN = 0x000e0000, LENGTH = 0x00020000/* 128KB/1MB */
+                    RAM(rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x00060000/* 384KB */
+                            DATA_FLASH(rx)    : ORIGIN = 0x40100000, LENGTH = 0x00008000/* 32KB */
+                                    ID_CODE(rx)       : ORIGIN = 0x0100A150, LENGTH = 0x00000010/* 32bytes */
 }
 
 /* Library configurations */
@@ -51,7 +51,7 @@ ENTRY(Reset_Handler)
 
 SECTIONS
 {
-    .text :
+    .text:
     {
         _stext = .;
         __ROM_Start = .;
@@ -59,71 +59,71 @@ SECTIONS
         /* Even though the vector table is not 256 entries (1KB) long, we still allocate that much
          * space because ROM registers are at address 0x400 and there is very little space
          * in between. */
-        KEEP(*(.fixed_vectors*))
-        KEEP(*(.application_vectors*))
+        KEEP(*(.fixed_vectors *))
+        KEEP(*(.application_vectors *))
         __Vectors_End = .;
         __end__ = .;
 
         /* ROM Registers start at address 0x00000400 */
         . = __ROM_Start + 0x400;
-        KEEP(*(.rom_registers*))
+        KEEP(*(.rom_registers *))
 
         /* Reserving 0x100 bytes of space for ROM registers. */
         . = __ROM_Start + 0x500;
 
-        *(.text*)
+        *(.text *)
 
         KEEP(*(.version))
         KEEP(*(.init))
         KEEP(*(.fini))
 
         /* .ctors */
-        *crtbegin.o(.ctors)
-        *crtbegin?.o(.ctors)
-        *(EXCLUDE_FILE(*crtend?.o *crtend.o) .ctors)
-        *(SORT(.ctors.*))
-        *(.ctors)
+        * crtbegin.o(.ctors)
+        * crtbegin?.o(.ctors)
+        * (EXCLUDE_FILE(*crtend?.o * crtend.o).ctors)
+        * (SORT(.ctors.*))
+        * (.ctors)
 
         /* .dtors */
-        *crtbegin.o(.dtors)
-        *crtbegin?.o(.dtors)
-        *(EXCLUDE_FILE(*crtend?.o *crtend.o) .dtors)
-        *(SORT(.dtors.*))
-        *(.dtors)
+        * crtbegin.o(.dtors)
+        * crtbegin?.o(.dtors)
+        * (EXCLUDE_FILE(*crtend?.o * crtend.o).dtors)
+        * (SORT(.dtors.*))
+        * (.dtors)
 
-        *(.rodata*)
+        * (.rodata *)
         __usb_dev_descriptor_start_fs = .;
-        KEEP(*(.usb_device_desc_fs*))
+        KEEP(*(.usb_device_desc_fs *))
         __usb_cfg_descriptor_start_fs = .;
-        KEEP(*(.usb_config_desc_fs*))
+        KEEP(*(.usb_config_desc_fs *))
         __usb_interface_descriptor_start_fs = .;
-        KEEP(*(.usb_interface_desc_fs*))
+        KEEP(*(.usb_interface_desc_fs *))
         __usb_descriptor_end_fs = .;
         __usb_dev_descriptor_start_hs = .;
-        KEEP(*(.usb_device_desc_hs*))
+        KEEP(*(.usb_device_desc_hs *))
         __usb_cfg_descriptor_start_hs = .;
-        KEEP(*(.usb_config_desc_hs*))
+        KEEP(*(.usb_config_desc_hs *))
         __usb_interface_descriptor_start_hs = .;
-        KEEP(*(.usb_interface_desc_hs*))
+        KEEP(*(.usb_interface_desc_hs *))
         __usb_descriptor_end_hs = .;
 
-        KEEP(*(.eh_frame*))
+        KEEP(*(.eh_frame *))
 
         __ROM_End = .;
         _etext = .;
     } > FLASH = 0xFF
 
-    __Vectors_Size = __Vectors_End - __Vectors;
+        __Vectors_Size = __Vectors_End - __Vectors;
 
-    .ARM.extab :
+    .ARM.extab:
     {
-        *(.ARM.extab* .gnu.linkonce.armextab.*)
+        *(.ARM.extab *.gnu.linkonce.armextab.*)
     } > FLASH
 
     __exidx_start = .;
-    .ARM.exidx :
+    .ARM.exidx:
     {
-        *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+        *(.ARM.exidx *.gnu.linkonce.armexidx.*)
     } > FLASH
     __exidx_end = .;
 
@@ -165,48 +165,48 @@ SECTIONS
 
     /* If DTC is used, put the DTC vector table at the start of SRAM.
        This avoids memory holes due to 1K alignment required by it. */
-    .fsp_dtc_vector_table (NOLOAD) :
+    .fsp_dtc_vector_table(NOLOAD) :
     {
         . = ORIGIN(RAM);
         *(.fsp_dtc_vector_table)
     } > RAM
 
     /* Initialized data section. */
-    .data :
+    .data:
     {
         _sidata = .;
         _sdata = .;
         __data_start__ = .;
         *(vtable)
-        *(.data.*)
+        * (.data.*)
 
         . = ALIGN(4);
         /* preinit data */
-        PROVIDE_HIDDEN (__preinit_array_start = .);
+        PROVIDE_HIDDEN(__preinit_array_start = .);
         KEEP(*(.preinit_array))
-        PROVIDE_HIDDEN (__preinit_array_end = .);
+        PROVIDE_HIDDEN(__preinit_array_end = .);
 
         . = ALIGN(4);
         /* init data */
-        PROVIDE_HIDDEN (__init_array_start = .);
+        PROVIDE_HIDDEN(__init_array_start = .);
         KEEP(*(SORT(.init_array.*)))
         KEEP(*(.init_array))
-        PROVIDE_HIDDEN (__init_array_end = .);
+        PROVIDE_HIDDEN(__init_array_end = .);
 
 
         . = ALIGN(4);
         /* finit data */
-        PROVIDE_HIDDEN (__fini_array_start = .);
+        PROVIDE_HIDDEN(__fini_array_start = .);
         KEEP(*(SORT(.fini_array.*)))
         KEEP(*(.fini_array))
-        PROVIDE_HIDDEN (__fini_array_end = .);
+        PROVIDE_HIDDEN(__fini_array_end = .);
 
-        KEEP(*(.jcr*))
+        KEEP(*(.jcr *))
         . = ALIGN(4);
 
         __Code_In_RAM_Start = .;
 
-        KEEP(*(.code_in_ram*))
+        KEEP(*(.code_in_ram *))
         __Code_In_RAM_End = .;
 
         /* All data end */
@@ -217,38 +217,38 @@ SECTIONS
 
 
 
-    .noinit (NOLOAD):
+    .noinit(NOLOAD) :
     {
         . = ALIGN(4);
         __noinit_start = .;
-        KEEP(*(.noinit*))
+        KEEP(*(.noinit *))
         __noinit_end = .;
     } > RAM
 
-    .bss :
+    .bss:
     {
         . = ALIGN(4);
         _sbss = .;
         __bss_start__ = .;
-        *(.bss*)
-        *(COMMON)
+        *(.bss *)
+        * (COMMON)
         . = ALIGN(4);
         __bss_end__ = .;
         _ebss = .;
     } > RAM
 
-    .heap (NOLOAD):
+    .heap(NOLOAD) :
     {
         . = ALIGN(8);
         __HeapBase = .;
         __end__ = .;
         end = __end__;
-        KEEP(*(.heap*))
-        __HeapLimit = .;
+        KEEP(*(.heap *))
+        __HeapLimit = .; /* size from BSP_CFG_HEAP_BYTES (0x4d000 default) */
     } > RAM
 
     /* Stacks are stored in this section. */
-    .stack_dummy (NOLOAD):
+    .stack_dummy(NOLOAD) :
     {
         . = ALIGN(8);
         _sstack = .;
@@ -257,7 +257,7 @@ SECTIONS
         KEEP(*(.stack))
         __StackTop = .;
         /* Thread stacks */
-        KEEP(*(.stack*))
+        KEEP(*(.stack *))
         __StackTopAll = .;
         _estack = .;
     } > RAM
@@ -266,20 +266,20 @@ SECTIONS
 
     /* This symbol represents the end of user allocated RAM. The RAM after this symbol can be used
        at run time for things such as ThreadX memory pool allocations. */
-    __RAM_segment_used_end__ = ALIGN(__StackTopAll , 4);
+    __RAM_segment_used_end__ = ALIGN(__StackTopAll, 4);
 
     /* Data flash. */
-    .data_flash :
+    .data_flash:
     {
         __Data_Flash_Start = .;
-        KEEP(*(.data_flash*))
+        KEEP(*(.data_flash *))
         __Data_Flash_End = .;
     } > DATA_FLASH
 
-    .id_code :
+    .id_code:
     {
         __ID_Code_Start = .;
-        KEEP(*(.id_code*))
+        KEEP(*(.id_code *))
         __ID_Code_End = .;
     } > ID_CODE
 }
@@ -295,8 +295,8 @@ _estack = ORIGIN(RAM) + LENGTH(RAM);
 /* RAM extents for the garbage collector */
 _ram_start = ORIGIN(RAM);
 _ram_end = ORIGIN(RAM) + LENGTH(RAM);
-_heap_start = __HeapBase;	/* heap starts just after statically allocated memory */
-_heap_end = __HeapLimit;	/* tunable */
+_heap_start = __HeapBase;       /* heap starts just after statically allocated memory */
+_heap_end = __HeapLimit;        /* tunable, default 0x4d000 bytes */
 
 _micropy_hw_internal_flash_storage_start = ORIGIN(FLASH_FS);
-_micropy_hw_internal_flash_storage_end   = ORIGIN(FLASH_FS) + LENGTH(FLASH_FS);
+_micropy_hw_internal_flash_storage_end = ORIGIN(FLASH_FS) + LENGTH(FLASH_FS);
