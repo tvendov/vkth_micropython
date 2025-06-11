@@ -800,6 +800,16 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
                 continue;
             }
             #endif
+
+            // ----- DIAGNOSTIC LOGGING START -----
+            // Неуспешна алокация след GC collection
+            gc_info_t info;
+            gc_info(&info);
+            mp_printf(&mp_plat_print,
+                "[GC LOG] ALLOCATION FAILED: req=%u bytes, total=%u, used=%u, free=%u, max_free=%u\n",
+                (uint)n_bytes, (uint)info.total, (uint)info.used, (uint)info.free, (uint)info.max_free);
+            // ----- DIAGNOSTIC LOGGING END -------
+
             return NULL;
         }
         DEBUG_printf("gc_alloc(" UINT_FMT "): no free mem, triggering GC\n", n_bytes);
