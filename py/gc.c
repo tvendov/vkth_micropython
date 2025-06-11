@@ -438,6 +438,7 @@ static void gc_mark_subtree(size_t block)
                 #endif
                 sp += 1;
             } else {
+                // Mark-stack overflowed, signal for a full heap rescan.
                 MP_STATE_MEM(gc_stack_overflow) = 1;
             }
         }
@@ -456,6 +457,8 @@ static void gc_mark_subtree(size_t block)
     }
 }
 
+// When gc_stack_overflow is set, perform a full rescan of the heap to
+// ensure all reachable objects are marked.
 static void gc_deal_with_stack_overflow(void) {
     while (MP_STATE_MEM(gc_stack_overflow)) {
         MP_STATE_MEM(gc_stack_overflow) = 0;
