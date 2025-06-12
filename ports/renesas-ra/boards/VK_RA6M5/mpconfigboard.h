@@ -27,7 +27,7 @@
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 #define MICROPY_HW_HAS_QSPI_FLASH   (1)
 #define MICROPY_HW_HAS_SDHI_CARD    (1)
-#define MICROPY_HW_HAS_OSPI_RAM     (0)
+#define MICROPY_HW_HAS_OSPI_RAM     (1)
 
 // board config
 

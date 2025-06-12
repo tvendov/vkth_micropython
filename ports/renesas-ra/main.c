@@ -80,9 +80,8 @@ extern char _ospi_ram_start, _ospi_ram_end;
 #endif
 #include "extmod/modnetwork.h"
 #if MICROPY_HW_HAS_OSPI_RAM
-#include "r_ospi.h"
-extern ospi_instance_ctrl_t g_ospi_ram0_ctrl;
-extern const spi_flash_cfg_t g_ospi_ram0_cfg;
+#include "r_spi_flash_api.h"
+extern const spi_flash_instance_t g_ospi_ram0;
 #endif
 #define RA_EARLY_PRINT  1       /* for enabling mp_print in boardctrl. */
 
@@ -316,9 +315,14 @@ soft_reset:
 
     // GC init
     #if MICROPY_ENABLE_GC
-    gc_init(&_heap_internal_start, &_heap_internal_end);
+    gc_init(MICROPY_HEAP_START, MICROPY_HEAP_END);
+    #if MICROPY_GC_SPLIT_HEAP
+    assert(MICROPY_GC_SPLIT_HEAP_N_HEAPS > 0);
     #if MICROPY_HW_HAS_OSPI_RAM
-    gc_init(&_ospi_ram_start, &_ospi_ram_end);
+    if (FSP_SUCCESS == g_ospi_ram0.p_api->open(g_ospi_ram0.p_ctrl, g_ospi_ram0.p_cfg)) {
+        gc_add((void*)&_octa_ram_start, (void*)&_octa_ram_end);
+    }
+    #endif
     #endif
     #endif
 

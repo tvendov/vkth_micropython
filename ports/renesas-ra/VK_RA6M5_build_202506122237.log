@@ -1,0 +1,12 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+patch LVGL...
+git -C ../../lib/lv_bindings apply --directory lvgl ../../lib/lv_bindings/patch/fix_GC.patch || true
+fatal: not a git repository: /home/teodor/vkth_micropython/lib/lv_bindings/../../.git/modules/lib/lv_bindings
+GEN build-VK_RA6M5/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M5/genhdr/moduledefs.collected
+GEN build-VK_RA6M5/genhdr/root_pointers.collected
+GEN build-VK_RA6M5/genhdr/compressed.collected
+Root pointer registrations not updated
+Module registrations not updated
+Compressed data not updated
+QSTR not updated

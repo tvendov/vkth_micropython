@@ -82,7 +82,7 @@ static mp_obj_t gc_mem_alloc(void) {
 MP_DEFINE_CONST_FUN_OBJ_0(gc_mem_alloc_obj, gc_mem_alloc);
 
 // info(): return a tuple with GC state information
-STATIC mp_obj_t gc_info(void) {
+STATIC mp_obj_t gc_info_func(void) {
     gc_info_t info;
     gc_info(&info);
     #if MICROPY_GC_SPLIT_HEAP_AUTO
@@ -107,7 +107,7 @@ STATIC mp_obj_t gc_info(void) {
     #endif
     return dict;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(gc_info_obj, gc_info);
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(gc_info_obj, gc_info_func);
 
 #if MICROPY_GC_ALLOC_THRESHOLD
 static mp_obj_t gc_threshold(size_t n_args, const mp_obj_t *args) {

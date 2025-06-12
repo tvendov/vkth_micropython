@@ -310,6 +310,12 @@ _octa_ram_end = ORIGIN(OSPI_RAM) + LENGTH(OSPI_RAM);
 _heap_start = __HeapBase; /* heap starts just after statically allocated memory */
 _heap_end = __HeapLimit; /* tunable */
 
+/* Split-heap symbols for main.c */
+_heap_internal_start = __HeapBase;
+_heap_internal_end = __HeapLimit;
+_ospi_ram_start = ORIGIN(OSPI_RAM);
+_ospi_ram_end = ORIGIN(OSPI_RAM) + LENGTH(OSPI_RAM);
+
 _micropy_hw_internal_flash_storage_start = ORIGIN(FLASH_FS);
 _micropy_hw_internal_flash_storage_end   = ORIGIN(FLASH_FS) + LENGTH(FLASH_FS);
 

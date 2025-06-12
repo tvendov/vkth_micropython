@@ -1,0 +1,18 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+patch LVGL...
+git -C ../../lib/lv_bindings apply --directory lvgl ../../lib/lv_bindings/patch/fix_GC.patch || true
+fatal: not a git repository: /home/teodor/vkth_micropython/lib/lv_bindings/../../.git/modules/lib/lv_bindings
+CC ../../py/builtinimport.c
+CC main.c
+CC rng.c
+CC mphalport.c
+CC mpnetworkport.c
+main.c: In function 'main':
+main.c:319:24: error: 'g_ospi_ram0' undeclared (first use in this function); did you mean 'g_ospi_ram0_cfg'?
+  319 |     if (FSP_SUCCESS == g_ospi_ram0.p_api->open(g_ospi_ram0.p_ctrl, g_ospi_ram0.p_cfg)) {
+      |                        ^~~~~~~~~~~
+      |                        g_ospi_ram0_cfg
+main.c:319:24: note: each undeclared identifier is reported only once for each function it appears in
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:90: build-VK_RA6M5/main.o] Error 1
+make: *** Waiting for unfinished jobs....
