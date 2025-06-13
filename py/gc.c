@@ -36,6 +36,10 @@
 #include <valgrind/memcheck.h>
 #endif
 
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+#include "ospi_heap.h"
+#endif
+
 #if MICROPY_ENABLE_GC
 
 #if MICROPY_DEBUG_VERBOSE // print debugging info
@@ -736,6 +740,15 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
         return NULL;
     }
 
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+    if (n_bytes >= MICROPY_OSPI_ALLOC_THRESHOLD) {
+        void *ptr = ospi_malloc(n_bytes);
+        if (ptr != NULL) {
+            return ptr; // 🎉 big chunk in PSRAM
+        }
+    }
+#endif
+
     // check if GC is locked
     if (MP_STATE_THREAD(gc_lock_depth) > 0) {
         return NULL;
@@ -1311,5 +1324,11 @@ void gc_dump_alloc_table(const mp_print_t *print) {
     }
     GC_EXIT();
 }
+
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+void gc_free_ospi(void *ptr) {
+    ospi_free(ptr);
+}
+#endif
 
 #endif // MICROPY_ENABLE_GC
