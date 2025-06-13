@@ -1,0 +1,6 @@
+vk_ra6m5.name=VK-RA6M5
+vk_ra6m5.build.f_cpu=200000000L
+vk_ra6m5.upload.maximum_size=1638400
+vk_ra6m5.upload.maximum_data_size=524288
+vk_ra6m5.build.variant=VK_RA6M5
+vk_ra6m5.build.ldscript={build.variant.path}/linker.ld
