@@ -765,13 +765,31 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
     for (;;) {
 
         #if MICROPY_GC_SPLIT_HEAP
-        area = MP_STATE_MEM(gc_last_free_area);
+        // За големи allocations (>50KB) започваме от втория heap (OSPI RAM)
+        if (n_bytes > 50 * 1024 && MP_STATE_MEM(area).next != NULL) {
+            area = MP_STATE_MEM(area).next;  // Започни от OSPI RAM
+            DEBUG_printf("gc_alloc: Large allocation (%u bytes), starting from OSPI RAM\n", n_bytes);
+            printf("[GC FIX] Large allocation %u bytes -> OSPI RAM first\n", n_bytes);
+        } else {
+            // За малки allocations започваме от първия heap (Internal SRAM)
+            // Fallback към OSPI RAM ще се случи автоматично ако Internal SRAM е пълен
+            area = &MP_STATE_MEM(area);  // Винаги започваме от първия area
+            if (n_bytes > 50 * 1024) {
+                printf("[GC FIX] Large allocation %u bytes -> Internal SRAM first (no OSPI)\n", n_bytes);
+            }
+            // Премахнах debug за малки allocations - твърде много съобщения!
+        }
         #else
         area = &MP_STATE_MEM(area);
         #endif
 
         // look for a run of n_blocks available blocks
         for (; area != NULL; area = NEXT_AREA(area), i = 0) {
+            // Debug: показваме в кой area търсим
+            if (n_bytes > 50 * 1024) {
+                printf("[GC DEBUG] Searching in area: pool_start=0x%08x, pool_end=0x%08x\n",
+                       (unsigned int)area->gc_pool_start, (unsigned int)area->gc_pool_end);
+            }
             n_free = 0;
             for (i = area->gc_last_free_atb_index; i < area->gc_alloc_table_byte_len; i++) {
                 MICROPY_GC_HOOK_LOOP(i);
@@ -854,6 +872,13 @@ found:
     // we must create this pointer before unlocking the GC so a collection can find it
     void *ret_ptr = (void *)(area->gc_pool_start + start_block * BYTES_PER_BLOCK);
     DEBUG_printf("gc_alloc(%p)\n", ret_ptr);
+
+    // Debug: показваме къде е allocated обектът
+    if (n_bytes > 50 * 1024) {
+        printf("[GC DEBUG] Allocated at: 0x%08x (area pool_start=0x%08x, block=%u)\n",
+               (unsigned int)ret_ptr, (unsigned int)area->gc_pool_start, start_block);
+        printf("[GC DEBUG] Returning pointer: 0x%08x\n", (unsigned int)ret_ptr);
+    }
 
     #if MICROPY_GC_ALLOC_THRESHOLD
     MP_STATE_MEM(gc_alloc_amount) += n_blocks;

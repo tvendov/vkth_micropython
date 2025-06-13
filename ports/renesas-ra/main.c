@@ -319,8 +319,17 @@ soft_reset:
     #if MICROPY_GC_SPLIT_HEAP
     assert(MICROPY_GC_SPLIT_HEAP_N_HEAPS > 0);
     #if MICROPY_HW_HAS_OSPI_RAM
-    if (FSP_SUCCESS == g_ospi_ram0.p_api->open(g_ospi_ram0.p_ctrl, g_ospi_ram0.p_cfg)) {
+    printf("[OSPI] Attempting to open OSPI RAM...\n");
+    fsp_err_t ospi_result = g_ospi_ram0.p_api->open(g_ospi_ram0.p_ctrl, g_ospi_ram0.p_cfg);
+    if (FSP_SUCCESS == ospi_result) {
+        printf("[OSPI] SUCCESS: OSPI RAM opened, adding to GC heap\n");
+        printf("[OSPI] OSPI RAM range: %p - %p (%lu bytes)\n",
+               (void*)&_octa_ram_start, (void*)&_octa_ram_end,
+               (unsigned long)((char*)&_octa_ram_end - (char*)&_octa_ram_start));
         gc_add((void*)&_octa_ram_start, (void*)&_octa_ram_end);
+        printf("[OSPI] GC heap extended with OSPI RAM\n");
+    } else {
+        printf("[OSPI] FAILED: OSPI RAM open failed with error %d\n", ospi_result);
     }
     #endif
     #endif
