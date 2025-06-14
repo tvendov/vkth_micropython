@@ -7,7 +7,7 @@ lv.init()
 
 # Initialize ILI9341 display
 
-import espidf as esp
+#import espidf as esp
 from ili9XXX import ili9341,COLOR_MODE_BGR,LANDSCAPE,PORTRAIT
     
 disp = ili9341(dc=32, cs=33, power=-1, backlight=-1)
@@ -78,7 +78,7 @@ class Tpcal():
         style_transp = lv.style_t()
         style_transp.init()
         style_transp.set_bg_opa(lv.OPA.TRANSP)
-        self.big_btn = lv.btn(lv.scr_act())
+        self.big_btn = lv.button(lv.scr_act())
         self.big_btn.set_size(TP_MAX_VALUE, TP_MAX_VALUE)
         self.big_btn.add_style(style_transp, lv.PART.MAIN)
         self.big_btn.add_style(style_transp, lv.PART.MAIN)

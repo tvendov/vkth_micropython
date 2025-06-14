@@ -1,5 +1,6 @@
 #if LV_BUILD_TEST
 #include "../lvgl.h"
+#include "../../lvgl_private.h"
 
 #include "unity/unity.h"
 
@@ -73,7 +74,6 @@ static float lv_cubic_bezier_f(float x, float x1, float y1, float x2, float y2)
 found:
     return do_cubic_bezier_f(t, ay, by, cy);
 }
-
 
 static int test_cubic_bezier_ease_functions(float fx1, float fy1, float fx2, float fy2)
 {

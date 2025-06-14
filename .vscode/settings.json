@@ -1,0 +1,44 @@
+{
+    "terminal.integrated.defaultProfile.windows": "MSYS2 MinGW64",
+    "terminal.integrated.profiles.windows": {
+        "MSYS2 MinGW64": {
+            "path": "C:\\msys64\\msys2_shell.cmd",
+            "args": [
+                "-defterm",
+                "-here",
+                "-no-start",
+                "-mingw64"
+            ],
+            "env": {
+                "MSYSTEM": "MINGW64",
+                "CHERE_INVOKING": "1"
+            },
+            "icon": "terminal-bash"
+        },
+        "PowerShell": {
+            "source": "PowerShell",
+            "icon": "terminal-powershell"
+        },
+        "Command Prompt": {
+            "path": [
+                "${env:windir}\\Sysnative\\cmd.exe",
+                "${env:windir}\\System32\\cmd.exe"
+            ],
+            "args": [],
+            "icon": "terminal-cmd"
+        }
+    },
+    "terminal.integrated.automationProfile.windows": {
+        "path": "C:\\msys64\\msys2_shell.cmd",
+        "args": [
+            "-defterm",
+            "-here",
+            "-no-start",
+            "-mingw64"
+        ]
+    },
+    "terminal.integrated.env.windows": {
+        "MSYSTEM": "MINGW64",
+        "PATH": "C:\\msys64\\mingw64\\bin;C:\\msys64\\usr\\bin;${env:PATH}"
+    }
+}

@@ -1,5 +1,5 @@
 /**
- * @file lv_qrcode
+ * @file lv_qrcode.h
  *
  */
 
@@ -13,7 +13,12 @@ extern "C" {
 /*********************
  *      INCLUDES
  *********************/
-#include "../../../lvgl.h"
+#include "../../lv_conf_internal.h"
+#include "../../misc/lv_color.h"
+#include "../../misc/lv_types.h"
+#include "../../widgets/canvas/lv_canvas.h"
+#include LV_STDBOOL_INCLUDE
+#include LV_STDINT_INCLUDE
 #if LV_USE_QRCODE
 
 /*********************
@@ -24,14 +29,7 @@ extern "C" {
  *      TYPEDEFS
  **********************/
 
-/*Data of qrcode*/
-typedef struct {
-    lv_canvas_t canvas;
-    lv_color_t dark_color;
-    lv_color_t light_color;
-} lv_qrcode_t;
-
-extern const lv_obj_class_t lv_qrcode_class;
+LV_ATTRIBUTE_EXTERN_DATA extern const lv_obj_class_t lv_qrcode_class;
 
 /**********************
  * GLOBAL PROTOTYPES
@@ -49,7 +47,7 @@ lv_obj_t * lv_qrcode_create(lv_obj_t * parent);
  * @param obj pointer to a QR code object
  * @param size width and height of the QR code
  */
-void lv_qrcode_set_size(lv_obj_t * obj, lv_coord_t size);
+void lv_qrcode_set_size(lv_obj_t * obj, int32_t size);
 
 /**
  * Set QR code dark color.
@@ -70,9 +68,9 @@ void lv_qrcode_set_light_color(lv_obj_t * obj, lv_color_t color);
  * @param obj pointer to a QR code object
  * @param data data to display
  * @param data_len length of data in bytes
- * @return LV_RES_OK: if no error; LV_RES_INV: on error
+ * @return LV_RESULT_OK: if no error; LV_RESULT_INVALID: on error
  */
-lv_res_t lv_qrcode_update(lv_obj_t * obj, const void * data, uint32_t data_len);
+lv_result_t lv_qrcode_update(lv_obj_t * obj, const void * data, uint32_t data_len);
 
 /**********************
  *      MACROS

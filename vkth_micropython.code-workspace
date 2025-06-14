@@ -1,0 +1,75 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "terminal.integrated.defaultProfile.windows": "MSYS2 MinGW64",
+        "terminal.integrated.profiles.windows": {
+            "MSYS2 MinGW64": {
+                "path": "C:\\msys64\\msys2_shell.cmd",
+                "args": [
+                    "-defterm",
+                    "-here",
+                    "-no-start",
+                    "-mingw64"
+                ],
+                "env": {
+                    "MSYSTEM": "MINGW64",
+                    "CHERE_INVOKING": "1"
+                },
+                "icon": "terminal-bash"
+            }
+        },
+        "terminal.integrated.cwd": "${workspaceFolder}",
+        "files.associations": {
+            "*.h": "c",
+            "*.c": "c",
+            "*.py": "python",
+            "Makefile": "makefile"
+        },
+        "C_Cpp.default.includePath": [
+            "${workspaceFolder}/**",
+            "C:/msys64/mingw64/include/**"
+        ],
+        "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/gcc.exe"
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "Build VK-RA6M5",
+                "type": "shell",
+                "command": "make",
+                "args": ["BOARD=VK_RA6M5"],
+                "group": {
+                    "kind": "build",
+                    "isDefault": true
+                },
+                "options": {
+                    "cwd": "${workspaceFolder}/ports/renesas-ra",
+                    "shell": {
+                        "executable": "C:\\msys64\\msys2_shell.cmd",
+                        "args": ["-defterm", "-here", "-no-start", "-mingw64", "-c"]
+                    }
+                },
+                "problemMatcher": ["$gcc"]
+            },
+            {
+                "label": "Clean VK-RA6M5",
+                "type": "shell",
+                "command": "make",
+                "args": ["BOARD=VK_RA6M5", "clean"],
+                "group": "build",
+                "options": {
+                    "cwd": "${workspaceFolder}/ports/renesas-ra",
+                    "shell": {
+                        "executable": "C:\\msys64\\msys2_shell.cmd",
+                        "args": ["-defterm", "-here", "-no-start", "-mingw64", "-c"]
+                    }
+                }
+            }
+        ]
+    }
+}

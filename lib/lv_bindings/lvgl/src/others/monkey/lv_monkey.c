@@ -6,9 +6,14 @@
 /*********************
  *      INCLUDES
  *********************/
-#include "lv_monkey.h"
+#include "lv_monkey_private.h"
 
 #if LV_USE_MONKEY != 0
+
+#include "../../misc/lv_math.h"
+#include "../../misc/lv_assert.h"
+#include "../../stdlib/lv_mem.h"
+#include "../../display/lv_display.h"
 
 /*********************
  *      DEFINES
@@ -19,7 +24,7 @@
 /**********************
  *      TYPEDEFS
  **********************/
-struct _lv_monkey {
+struct _lv_monkey_t {
     lv_monkey_config_t config;
     lv_indev_data_t indev_data;
     lv_indev_t * indev;
@@ -64,10 +69,8 @@ void lv_monkey_config_init(lv_monkey_config_t * config)
 
 lv_monkey_t * lv_monkey_create(const lv_monkey_config_t * config)
 {
-    lv_monkey_t * monkey = lv_malloc(sizeof(lv_monkey_t));
+    lv_monkey_t * monkey = lv_malloc_zeroed(sizeof(lv_monkey_t));
     LV_ASSERT_MALLOC(monkey);
-
-    lv_memzero(monkey, sizeof(lv_monkey_t));
 
     monkey->config = *config;
     monkey->timer = lv_timer_create(lv_monkey_timer_cb, monkey->config.period_range.min, monkey);
@@ -95,7 +98,7 @@ void lv_monkey_set_enable(lv_monkey_t * monkey, bool en)
 bool lv_monkey_get_enable(lv_monkey_t * monkey)
 {
     LV_ASSERT_NULL(monkey);
-    return !monkey->timer->paused;
+    return !lv_timer_get_paused(monkey->timer);
 }
 
 void lv_monkey_set_user_data(lv_monkey_t * monkey, void * user_data)
@@ -110,11 +113,11 @@ void * lv_monkey_get_user_data(lv_monkey_t * monkey)
     return monkey->user_data;
 }
 
-void lv_monkey_del(lv_monkey_t * monkey)
+void lv_monkey_delete(lv_monkey_t * monkey)
 {
     LV_ASSERT_NULL(monkey);
 
-    lv_timer_del(monkey->timer);
+    lv_timer_delete(monkey->timer);
     lv_indev_delete(monkey->indev);
     lv_free(monkey);
 }
@@ -125,7 +128,7 @@ void lv_monkey_del(lv_monkey_t * monkey)
 
 static void lv_monkey_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
 {
-    lv_monkey_t * monkey = indev->user_data;
+    lv_monkey_t * monkey = lv_indev_get_user_data(indev);
 
     data->btn_id = monkey->indev_data.btn_id;
     data->point = monkey->indev_data.point;
@@ -144,13 +147,13 @@ static int32_t lv_monkey_random(int32_t howsmall, int32_t howbig)
 
 static void lv_monkey_timer_cb(lv_timer_t * timer)
 {
-    lv_monkey_t * monkey = timer->user_data;
+    lv_monkey_t * monkey = lv_timer_get_user_data(timer);
     lv_indev_data_t * data = &monkey->indev_data;
 
     switch(lv_indev_get_type(monkey->indev)) {
         case LV_INDEV_TYPE_POINTER:
-            data->point.x = (lv_coord_t)lv_monkey_random(0, LV_HOR_RES - 1);
-            data->point.y = (lv_coord_t)lv_monkey_random(0, LV_VER_RES - 1);
+            data->point.x = (int32_t)lv_monkey_random(0, LV_HOR_RES - 1);
+            data->point.y = (int32_t)lv_monkey_random(0, LV_VER_RES - 1);
             break;
         case LV_INDEV_TYPE_ENCODER:
             data->enc_diff = (int16_t)lv_monkey_random(monkey->config.input_range.min, monkey->config.input_range.max);

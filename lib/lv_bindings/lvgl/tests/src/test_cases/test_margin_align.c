@@ -1,5 +1,6 @@
 #if LV_BUILD_TEST
 #include "../lvgl.h"
+#include "../../lvgl_private.h"
 
 #include "unity/unity.h"
 
@@ -7,7 +8,7 @@ static lv_obj_t * active_screen = NULL;
 
 void setUp(void)
 {
-    active_screen = lv_scr_act();
+    active_screen = lv_screen_active();
 }
 
 void tearDown(void)
@@ -25,7 +26,7 @@ lv_obj_t * obj_create(lv_obj_t * parent, lv_color_t color)
     return obj;
 }
 
-void obj_set_margin(lv_obj_t * obj, lv_coord_t left, lv_coord_t top, lv_coord_t right, lv_coord_t bottom)
+void obj_set_margin(lv_obj_t * obj, int32_t left, int32_t top, int32_t right, int32_t bottom)
 {
     lv_obj_set_style_margin_left(obj, left, LV_PART_MAIN);
     lv_obj_set_style_margin_top(obj, top, LV_PART_MAIN);
@@ -33,7 +34,7 @@ void obj_set_margin(lv_obj_t * obj, lv_coord_t left, lv_coord_t top, lv_coord_t 
     lv_obj_set_style_margin_bottom(obj, bottom, LV_PART_MAIN);
 }
 
-// takes no effect on postiton but size.
+// takes no effect on position but size.
 void test_align(void)
 {
     lv_obj_t * obj0 = active_screen;
@@ -66,7 +67,6 @@ void test_align(void)
     lv_obj_set_style_width(obj0s[3], LV_PCT(100), LV_PART_MAIN);
     TEST_ASSERT_EQUAL_SCREENSHOT("margin_align_0.png");
     obj_set_margin(obj0s[4], 6, 100, 100, 100);
-
 
     lv_obj_set_style_radius(obj0s[0], 0, LV_PART_MAIN);
 

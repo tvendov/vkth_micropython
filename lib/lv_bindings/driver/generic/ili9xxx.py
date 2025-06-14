@@ -101,10 +101,7 @@ ILI9XXX_INV_LANDSCAPE = st77xx.ST77XX_INV_LANDSCAPE
 
 class Ili9341_hw(st77xx.St77xx_hw):
     def __init__(self, **kw):
-        """ILI9341 TFT Display Driver.
-
-        Requires ``LV_COLOR_DEPTH=16`` when building lv_micropython to function.
-        """
+        """ILI9341 TFT Display Driver."""
         super().__init__(
             res=(240, 320),
             suppRes=[
@@ -164,7 +161,6 @@ class Ili9341_hw(st77xx.St77xx_hw):
 class Ili9341(Ili9341_hw, st77xx.St77xx_lvgl):
     def __init__(self, doublebuffer=True, factor=4, **kw):
         """See :obj:`Ili9341_hw` for the meaning of the parameters."""
-        import lvgl as lv
 
         Ili9341_hw.__init__(self, **kw)
         st77xx.St77xx_lvgl.__init__(self, doublebuffer, factor)

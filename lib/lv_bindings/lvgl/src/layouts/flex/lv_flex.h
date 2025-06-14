@@ -13,26 +13,24 @@ extern "C" {
 /*********************
  *      INCLUDES
  *********************/
-#include "../../core/lv_obj.h"
+#include "../../lv_conf_internal.h"
+#include "../../misc/lv_area.h"
+
 #if LV_USE_FLEX
 
 /*********************
  *      DEFINES
  *********************/
 
-#define LV_OBJ_FLAG_FLEX_IN_NEW_TRACK   LV_OBJ_FLAG_LAYOUT_1
-LV_EXPORT_CONST_INT(LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
-
-#define _LV_FLEX_COLUMN        (1 << 0)
-#define _LV_FLEX_WRAP       (1 << 2)
-#define _LV_FLEX_REVERSE    (1 << 3)
+#define LV_FLEX_COLUMN        (1 << 0)
+#define LV_FLEX_WRAP       (1 << 2)
+#define LV_FLEX_REVERSE    (1 << 3)
 
 /**********************
  *      TYPEDEFS
  **********************/
 
 /*Can't include lv_obj.h because it includes this header file*/
-struct _lv_obj_t;
 
 typedef enum {
     LV_FLEX_ALIGN_START,
@@ -45,32 +43,25 @@ typedef enum {
 
 typedef enum {
     LV_FLEX_FLOW_ROW                 = 0x00,
-    LV_FLEX_FLOW_COLUMN              = _LV_FLEX_COLUMN,
-    LV_FLEX_FLOW_ROW_WRAP            = LV_FLEX_FLOW_ROW | _LV_FLEX_WRAP,
-    LV_FLEX_FLOW_ROW_REVERSE         = LV_FLEX_FLOW_ROW | _LV_FLEX_REVERSE,
-    LV_FLEX_FLOW_ROW_WRAP_REVERSE    = LV_FLEX_FLOW_ROW | _LV_FLEX_WRAP | _LV_FLEX_REVERSE,
-    LV_FLEX_FLOW_COLUMN_WRAP         = LV_FLEX_FLOW_COLUMN | _LV_FLEX_WRAP,
-    LV_FLEX_FLOW_COLUMN_REVERSE      = LV_FLEX_FLOW_COLUMN | _LV_FLEX_REVERSE,
-    LV_FLEX_FLOW_COLUMN_WRAP_REVERSE = LV_FLEX_FLOW_COLUMN | _LV_FLEX_WRAP | _LV_FLEX_REVERSE,
+    LV_FLEX_FLOW_COLUMN              = LV_FLEX_COLUMN,
+    LV_FLEX_FLOW_ROW_WRAP            = LV_FLEX_FLOW_ROW | LV_FLEX_WRAP,
+    LV_FLEX_FLOW_ROW_REVERSE         = LV_FLEX_FLOW_ROW | LV_FLEX_REVERSE,
+    LV_FLEX_FLOW_ROW_WRAP_REVERSE    = LV_FLEX_FLOW_ROW | LV_FLEX_WRAP | LV_FLEX_REVERSE,
+    LV_FLEX_FLOW_COLUMN_WRAP         = LV_FLEX_FLOW_COLUMN | LV_FLEX_WRAP,
+    LV_FLEX_FLOW_COLUMN_REVERSE      = LV_FLEX_FLOW_COLUMN | LV_FLEX_REVERSE,
+    LV_FLEX_FLOW_COLUMN_WRAP_REVERSE = LV_FLEX_FLOW_COLUMN | LV_FLEX_WRAP | LV_FLEX_REVERSE,
 } lv_flex_flow_t;
 
 /**********************
  * GLOBAL VARIABLES
  **********************/
-extern uint16_t LV_LAYOUT_FLEX;
-extern lv_style_prop_t LV_STYLE_FLEX_FLOW;
-extern lv_style_prop_t LV_STYLE_FLEX_MAIN_PLACE;
-extern lv_style_prop_t LV_STYLE_FLEX_CROSS_PLACE;
-extern lv_style_prop_t LV_STYLE_FLEX_TRACK_PLACE;
-extern lv_style_prop_t LV_STYLE_FLEX_GROW;
 
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
 
 /**
- * Initialize a flex layout the default values
- * @param flex pointer to a flex layout descriptor
+ * Initialize a flex layout to default values
  */
 void lv_flex_init(void);
 
@@ -98,71 +89,9 @@ void lv_obj_set_flex_align(lv_obj_t * obj, lv_flex_align_t main_place, lv_flex_a
  */
 void lv_obj_set_flex_grow(lv_obj_t * obj, uint8_t grow);
 
-void lv_style_set_flex_flow(lv_style_t * style, lv_flex_flow_t value);
-void lv_style_set_flex_main_place(lv_style_t * style, lv_flex_align_t value);
-void lv_style_set_flex_cross_place(lv_style_t * style, lv_flex_align_t value);
-void lv_style_set_flex_track_place(lv_style_t * style, lv_flex_align_t value);
-void lv_style_set_flex_grow(lv_style_t * style, uint8_t value);
-void lv_obj_set_style_flex_flow(lv_obj_t * obj, lv_flex_flow_t value, lv_style_selector_t selector);
-void lv_obj_set_style_flex_main_place(lv_obj_t * obj, lv_flex_align_t value, lv_style_selector_t selector);
-void lv_obj_set_style_flex_cross_place(lv_obj_t * obj, lv_flex_align_t value, lv_style_selector_t selector);
-void lv_obj_set_style_flex_track_place(lv_obj_t * obj, lv_flex_align_t value, lv_style_selector_t selector);
-void lv_obj_set_style_flex_grow(lv_obj_t * obj, uint8_t value, lv_style_selector_t selector);
-
-static inline lv_flex_flow_t lv_obj_get_style_flex_flow(const lv_obj_t * obj, uint32_t part)
-{
-    lv_style_value_t v = lv_obj_get_style_prop(obj, part, LV_STYLE_FLEX_FLOW);
-    return (lv_flex_flow_t)v.num;
-}
-
-static inline lv_flex_align_t lv_obj_get_style_flex_main_place(const lv_obj_t * obj, uint32_t part)
-{
-    lv_style_value_t v = lv_obj_get_style_prop(obj, part, LV_STYLE_FLEX_MAIN_PLACE);
-    return (lv_flex_align_t)v.num;
-}
-
-static inline lv_flex_align_t lv_obj_get_style_flex_cross_place(const lv_obj_t * obj, uint32_t part)
-{
-    lv_style_value_t v = lv_obj_get_style_prop(obj, part, LV_STYLE_FLEX_CROSS_PLACE);
-    return (lv_flex_align_t)v.num;
-}
-
-static inline lv_flex_align_t lv_obj_get_style_flex_track_place(const lv_obj_t * obj, uint32_t part)
-{
-    lv_style_value_t v = lv_obj_get_style_prop(obj, part, LV_STYLE_FLEX_TRACK_PLACE);
-    return (lv_flex_align_t)v.num;
-}
-
-static inline uint8_t lv_obj_get_style_flex_grow(const lv_obj_t * obj, uint32_t part)
-{
-    lv_style_value_t v = lv_obj_get_style_prop(obj, part, LV_STYLE_FLEX_GROW);
-    return (uint8_t)v.num;
-}
-
 /**********************
  *      MACROS
  **********************/
-
-#define LV_STYLE_CONST_FLEX_FLOW(val) \
-    { \
-        .prop_ptr = &LV_STYLE_FLEX_FLOW, .value = { .num = (lv_flex_flow_t)val } \
-    }
-
-#define LV_STYLE_CONST_FLEX_MAIN_PLACE(val) \
-    { \
-        .prop_ptr = &LV_STYLE_FLEX_MAIN_PLACE, .value = { .num = (lv_flex_flow_t)val } \
-    }
-
-#define LV_STYLE_CONST_FLEX_TRACK_PLACE(val) \
-    { \
-        .prop_ptr = &LV_STYLE_FLEX_TRACK_PLACE, .value = { .num = (lv_flex_flow_t)val } \
-    }
-
-#define LV_STYLE_CONST_FLEX_CROSS_PLACE(val) \
-    { \
-        .prop_ptr = &LV_STYLE_FLEX_CROSS_PLACE, .value = { .num = (lv_flex_flow_t)val } \
-    }
-
 
 #endif  /*LV_USE_FLEX*/
 

@@ -7,7 +7,7 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Install Dependencies
@@ -20,11 +20,11 @@ jobs:
         git clone https://github.com/lvgl/lv_micropython.git .
         git checkout master
     - name: Initialize lv_bindings submodule
-      run: git submodule update --init --recursive lib/lv_bindings
+      run: git submodule update --init --recursive user_modules/lv_binding_micropython
     - name: Update Unix port submodules
       run: make -C ports/unix DEBUG=1 submodules
     - name: Checkout lv_bindings
-      working-directory: ./lib/lv_bindings
+      working-directory: ./user_modules/lv_binding_micropython
       run: |
         git fetch --force ${{ github.event.repository.html_url }} "+refs/heads/*:refs/remotes/origin/*"
         git fetch --force ${{ github.event.repository.html_url }} "+refs/pull/*:refs/remotes/origin/pr/*"
@@ -33,8 +33,8 @@ jobs:
     - name: Build mpy-cross
       run: make -j $(nproc) -C mpy-cross
     - name: Build the unix port
-      run: make -j $(nproc) -C ports/unix DEBUG=1
+      run: make -j $(nproc) -C ports/unix DEBUG=1 VARIANT=lvgl
     - name: Run tests      
       run: |
         export XDG_RUNTIME_DIR=/tmp
-        lib/lv_bindings/tests/run.sh
+        user_modules/lv_binding_micropython/tests/run.sh

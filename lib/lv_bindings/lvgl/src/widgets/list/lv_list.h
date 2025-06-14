@@ -1,5 +1,5 @@
 /**
- * @file lv_win.h
+ * @file lv_list.h
  *
  */
 
@@ -17,6 +17,10 @@ extern "C" {
 
 #if LV_USE_LIST
 
+#if LV_USE_FLEX == 0
+#error "lv_list: lv_flex is required. Enable it in lv_conf.h (LV_USE_FLEX 1)"
+#endif
+
 /*********************
  *      DEFINES
  *********************/
@@ -25,9 +29,9 @@ extern "C" {
  *      TYPEDEFS
  **********************/
 
-extern const lv_obj_class_t lv_list_class;
-extern const lv_obj_class_t lv_list_text_class;
-extern const lv_obj_class_t lv_list_btn_class;
+LV_ATTRIBUTE_EXTERN_DATA extern const lv_obj_class_t lv_list_class;
+LV_ATTRIBUTE_EXTERN_DATA extern const lv_obj_class_t lv_list_text_class;
+LV_ATTRIBUTE_EXTERN_DATA extern const lv_obj_class_t lv_list_button_class;
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
@@ -42,7 +46,7 @@ lv_obj_t * lv_list_create(lv_obj_t * parent);
 /**
  * Add text to a list
  * @param list      pointer to a list, it will be the parent of the new label
- * @param txt       Text of the new label
+ * @param txt       text of the new label
  * @return          pointer to the created label
  */
 lv_obj_t * lv_list_add_text(lv_obj_t * list, const char * txt);
@@ -51,27 +55,26 @@ lv_obj_t * lv_list_add_text(lv_obj_t * list, const char * txt);
  * Add button to a list
  * @param list      pointer to a list, it will be the parent of the new button
  * @param icon      icon for the button, when NULL it will have no icon
- * @param txt       Text of the new button, when NULL no text will be added
+ * @param txt       text of the new button, when NULL no text will be added
  * @return          pointer to the created button
  */
-lv_obj_t * lv_list_add_btn(lv_obj_t * list, const void * icon, const char * txt);
+lv_obj_t * lv_list_add_button(lv_obj_t * list, const void * icon, const char * txt);
 
 /**
  * Get text of a given list button
  * @param list      pointer to a list
  * @param btn       pointer to the button
- * @return          Text of btn, if btn doesn't have text "" will be returned
+ * @return          text of btn, if btn doesn't have text "" will be returned
  */
-const char * lv_list_get_btn_text(lv_obj_t * list, lv_obj_t * btn);
+const char * lv_list_get_button_text(lv_obj_t * list, lv_obj_t * btn);
 
 /**
  * Set text of a given list button
  * @param list      pointer to a list
  * @param btn       pointer to the button
  * @param txt       pointer to the text
- * @return          Text of btn, if btn doesn't have text "" will be returned
  */
-void lv_list_set_btn_text(lv_obj_t * list, lv_obj_t * btn, const char * txt);
+void lv_list_set_button_text(lv_obj_t * list, lv_obj_t * btn, const char * txt);
 
 /**********************
  *      MACROS
