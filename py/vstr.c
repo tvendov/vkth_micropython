@@ -34,6 +34,10 @@
 #include "py/runtime.h"
 #include "py/mpprint.h"
 
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+#include "ospi_heap.h"
+#endif
+
 // returned value is always at least 1 greater than argument
 #define ROUND_ALLOC(a) (((a) & ((~0U) - 7)) + 8)
 
@@ -112,14 +116,22 @@ static void vstr_ensure_extra(vstr_t *vstr, size_t size) {
             mp_raise_msg(&mp_type_RuntimeError, NULL);
         }
         size_t new_alloc = ROUND_ALLOC((vstr->len + size) + 16);
-        // DEBUG: Print allocation attempt
-        if (new_alloc > 50000) { // Only for large allocations
-            mp_printf(&mp_plat_print, "[DEBUG] vstr realloc: old=%u, new=%u, len=%u\n", vstr->alloc, new_alloc, vstr->len);
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+        char *new_buf;
+        if (new_alloc >= MICROPY_OSPI_ALLOC_THRESHOLD) {
+            new_buf = ospi_malloc(new_alloc);
+            if (new_buf) {
+                memcpy(new_buf, vstr->buf, vstr->len);
+                m_free(vstr->buf);
+            } else {
+                new_buf = m_renew(char, vstr->buf, vstr->alloc, new_alloc);
+            }
+        } else {
+            new_buf = m_renew(char, vstr->buf, vstr->alloc, new_alloc);
         }
+#else
         char *new_buf = m_renew(char, vstr->buf, vstr->alloc, new_alloc);
-        if (new_buf == NULL && new_alloc > 50000) {
-            mp_printf(&mp_plat_print, "[DEBUG] vstr realloc FAILED: old=%u, new=%u\n", vstr->alloc, new_alloc);
-        }
+#endif
         vstr->alloc = new_alloc;
         vstr->buf = new_buf;
     }

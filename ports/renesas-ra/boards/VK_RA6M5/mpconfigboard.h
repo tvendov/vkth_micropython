@@ -41,6 +41,18 @@
 #define MICROPY_HW_UART_REPL        HW_UART_9
 #define MICROPY_HW_UART_REPL_BAUD   115200
 
+/* --- MicroPython tuning -------------------------------------------------- */
+
+/* 1)  Raw‑REPL sliding window – bigger buffer → fewer reallocs during upload */
+#ifndef MICROPY_REPL_STDIN_BUFFER_MAX
+#define MICROPY_REPL_STDIN_BUFFER_MAX      (32 * 1024)     /* ↑ to 32KB for large transfers */
+#endif
+#define MICROPY_REPL_STDIN_BUFFER_RESERVE  (64)
+
+/* 2)  Global large‑allocation policy – anything ≥64 KiB отива в 8 MiB OSPI */
+#define MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS (1)
+#define MICROPY_OSPI_ALLOC_THRESHOLD        (64 * 1024)
+
 // I2C
 #define MICROPY_HW_I2C2_SCL         (pin_P415)
 #define MICROPY_HW_I2C2_SDA         (pin_P414)

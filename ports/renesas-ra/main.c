@@ -83,6 +83,10 @@ extern char _ospi_ram_start, _ospi_ram_end;
 #include "r_spi_flash_api.h"
 extern const spi_flash_instance_t g_ospi_ram0;
 #endif
+
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+#include "ospi_heap.h"
+#endif
 #define RA_EARLY_PRINT  1       /* for enabling mp_print in boardctrl. */
 
 #if MICROPY_PY_THREAD
@@ -328,6 +332,11 @@ soft_reset:
                (unsigned long)((char*)&_octa_ram_end - (char*)&_octa_ram_start));
         gc_add((void*)&_octa_ram_start, (void*)&_octa_ram_end);
         printf("[OSPI] GC heap extended with OSPI RAM\n");
+
+#if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS
+        ospi_heap_init();          // zero bitmap
+        printf("[OSPI] OSPI heap ready: 8MB available for large allocations\n");
+#endif
     } else {
         printf("[OSPI] FAILED: OSPI RAM open failed with error %d\n", ospi_result);
     }
