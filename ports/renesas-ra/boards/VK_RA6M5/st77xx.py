@@ -194,11 +194,10 @@ class St77xx_hw(object):
         self.buf2 = bytearray(2)
         self.buf4 = bytearray(4)
 
-        self.cs,self.dc,self.rst=[(machine.Pin(p,machine.Pin.OUT) if isinstance(p,(int,str)) else p) for p in (cs,dc,rst)]
+        self.cs,self.dc,self.rst=[(machine.Pin(p,machine.Pin.OUT) if isinstance(p,int) else p) for p in (cs,dc,rst)]
         self.bl=bl
         if hasattr(machine, "PWM"):
             if isinstance(self.bl,int): self.bl=machine.PWM(machine.Pin(self.bl,machine.Pin.OUT))
-            elif isinstance(self.bl,str): self.bl=machine.PWM(machine.Pin(self.bl,machine.Pin.OUT))  # Fix: Handle string pins
             elif isinstance(self.bl,machine.Pin): self.bl=machine.PWM(self.bl)
             assert isinstance(self.bl,(machine.PWM,type(None)))
         self.set_backlight(10) # set some backlight
@@ -271,9 +270,7 @@ class St77xx_hw(object):
         self.spi.write(self.buf1)
         if buf is not None:
             self.dc.value(1)
-            # Fix: Ensure buf has buffer protocol
-            if hasattr(buf, '__len__') and len(buf) > 0:
-                self.spi.write(buf)
+            self.spi.write(buf)
         self.cs.value(1)
 
     def _rp2_write_register_dma(self, reg, buf, is_blocking=True):
