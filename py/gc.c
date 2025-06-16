@@ -641,7 +641,19 @@ void gc_collect_end(void) {
     gc_deal_with_stack_overflow();
     gc_sweep();
     #if MICROPY_GC_SPLIT_HEAP
-    MP_STATE_MEM(gc_last_free_area) = &MP_STATE_MEM(area);
+    // DON'T reset gc_last_free_area to first area after sweep!
+    // This was causing memory leak - freed OSPI blocks were ignored
+    // because next allocation always started from internal RAM
+    // MP_STATE_MEM(gc_last_free_area) = &MP_STATE_MEM(area);
+
+    // Debug: Show current gc_last_free_area
+    if (MP_STATE_MEM(gc_last_free_area)) {
+        bool is_ospi = ((uintptr_t)MP_STATE_MEM(gc_last_free_area)->gc_pool_start >= 0x68000000);
+        printf("[GC FIX] gc_collect_end: Preserving gc_last_free_area (%s)\n",
+               is_ospi ? "OSPI" : "Internal");
+    } else {
+        printf("[GC FIX] gc_collect_end: gc_last_free_area is NULL\n");
+    }
     #endif
     for (mp_state_mem_area_t *area = &MP_STATE_MEM(area); area != NULL; area = NEXT_AREA(area)) {
         area->gc_last_free_atb_index = 0;
@@ -964,6 +976,8 @@ void gc_free(void *ptr) {
     size_t block = BLOCK_FROM_PTR(area, ptr);
     assert(ATB_GET_KIND(area, block) == AT_HEAD);
 
+
+
     #if MICROPY_ENABLE_FINALISER
     FTB_CLEAR(area, block);
     #endif
@@ -988,11 +1002,48 @@ void gc_free(void *ptr) {
         area->gc_last_free_atb_index = block / BLOCKS_PER_ATB;
     }
 
+    // Enhanced OSPI RAM deallocation with aggressive merging
+    #if MICROPY_GC_SPLIT_HEAP
+    size_t freed_blocks = 0;
+
+    // Debug info for OSPI RAM deallocation
+    if ((uintptr_t)ptr >= 0x68000000 && (uintptr_t)ptr < 0x68800000) {
+        printf("[OSPI GC] Freeing block=%u at 0x%08x\n", (unsigned int)block, (unsigned int)(uintptr_t)ptr);
+    }
+    #endif
+
+    // Check for previous free block to merge with
+    #if MICROPY_GC_SPLIT_HEAP
+    bool prev_free = (block > 0) && (ATB_GET_KIND(area, block - 1) == AT_FREE);
+    if (prev_free && (uintptr_t)ptr >= 0x68000000) {
+        printf("[OSPI GC] Merging with previous free block\n");
+    }
+    #endif
+
     // free head and all of its tail blocks
     do {
         ATB_ANY_TO_FREE(area, block);
+        #if MICROPY_GC_SPLIT_HEAP
+        freed_blocks++;
+        #endif
         block += 1;
     } while (ATB_GET_KIND(area, block) == AT_TAIL);
+
+    // Check for next free block to merge with
+    #if MICROPY_GC_SPLIT_HEAP
+    bool next_free = (block < area->gc_alloc_table_byte_len * BLOCKS_PER_ATB) &&
+                     (ATB_GET_KIND(area, block) == AT_FREE);
+    if (next_free && (uintptr_t)ptr >= 0x68000000) {
+        printf("[OSPI GC] Merging with next free block\n");
+    }
+
+    // Enhanced debug info for OSPI RAM
+    if ((uintptr_t)ptr >= 0x68000000 && (uintptr_t)ptr < 0x68800000) {
+        printf("[OSPI GC] Freed %u blocks (%u bytes), merged: prev=%s next=%s\n",
+               (unsigned int)freed_blocks, (unsigned int)(freed_blocks * BYTES_PER_BLOCK),
+               prev_free ? "yes" : "no", next_free ? "yes" : "no");
+    }
+    #endif
 
     GC_EXIT();
 

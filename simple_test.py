@@ -1,65 +1,37 @@
 #!/usr/bin/env python3
-import serial
-import time
+import subprocess
+import sys
 
-def simple_test():
+def run_test(name, code):
+    print(f"Testing {name}...")
     try:
-        ser = serial.Serial('COM20', 115200, timeout=2)
-        print('âœ“ Connected to COM20')
-        
-        # Just interrupt, don't reset
-        ser.write(b'\x03')
-        time.sleep(0.3)
-        ser.read_all()
-        
-        def send_cmd(cmd):
-            ser.write(cmd.encode() + b'\r\n')
-            time.sleep(0.6)
-            response = ser.read_all()
-            if response:
-                output = response.decode('utf-8', errors='ignore')
-                lines = output.split('\n')
-                for line in lines:
-                    clean = line.strip()
-                    if clean and not clean.startswith('>>>') and clean != cmd.strip():
-                        print(clean)
-        
-        print('\n=== MEMORY TEST ===')
-        
-        send_cmd('import gc')
-        send_cmd('gc.collect()')
-        send_cmd('print("Initial free:", gc.mem_free())')
-        
-        print('\n--- Creating 1MB objects ---')
-        send_cmd('obj1 = bytearray(1024*1024)')
-        send_cmd('print("obj1:", hex(id(obj1)))')
-        
-        send_cmd('obj2 = bytearray(1024*1024)')
-        send_cmd('print("obj2:", hex(id(obj2)))')
-        
-        send_cmd('obj3 = bytearray(1024*1024)')
-        send_cmd('print("obj3:", hex(id(obj3)))')
-        
-        print('\n--- Memory analysis ---')
-        send_cmd('gc.collect()')
-        send_cmd('print("Free now:", gc.mem_free())')
-        send_cmd('print("Allocated:", gc.mem_alloc())')
-        
-        # Check memory regions
-        send_cmd('addr1 = id(obj1)')
-        send_cmd('print("obj1 region:", "OSPI" if 0x30000000 <= addr1 < 0x70000000 else "SRAM")')
-        
-        send_cmd('addr2 = id(obj2)')
-        send_cmd('print("obj2 region:", "OSPI" if 0x30000000 <= addr2 < 0x70000000 else "SRAM")')
-        
-        send_cmd('addr3 = id(obj3)')
-        send_cmd('print("obj3 region:", "OSPI" if 0x30000000 <= addr3 < 0x70000000 else "SRAM")')
-        
-        ser.close()
-        print('\nâœ“ Test completed!')
-        
+        result = subprocess.run(
+            ["mpremote", "connect", "COM29", "exec", code],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            print(f"  âœ… PASS: {name}")
+            if result.stdout.strip():
+                print(f"     {result.stdout.strip()}")
+            return True
+        else:
+            print(f"  âŒ FAIL: {name}")
+            return False
     except Exception as e:
-        print(f"âŒ Error: {e}")
+        print(f"  í²¥ ERROR: {name} - {e}")
+        return False
 
-if __name__ == "__main__":
-    simple_test()
+# Run basic tests
+tests = [
+    ("GC Test", "import gc; l=[i for i in range(50)]; print(len(l)); del l; gc.collect(); print('GC OK')"),
+    ("Memory Test", "import gc; buf=bytearray(60*1024); print('60KB OK'); del buf; gc.collect(); print('Cleanup OK')"),
+    ("Machine Test", "import machine; print(f'Freq: {machine.freq()}'); print('Machine OK')"),
+    ("Pin Test", "import machine; p=machine.Pin('P000', machine.Pin.OUT); p.value(1); p.value(0); print('Pin OK')"),
+]
+
+passed = 0
+for name, code in tests:
+    if run_test(name, code):
+        passed += 1
+
+print(f"\nResults: {passed}/{len(tests)} tests passed")

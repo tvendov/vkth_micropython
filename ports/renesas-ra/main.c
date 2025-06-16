@@ -328,9 +328,9 @@ soft_reset:
     if (FSP_SUCCESS == ospi_result) {
         printf("[OSPI] SUCCESS: OSPI RAM opened, adding to GC heap\n");
         printf("[OSPI] OSPI RAM range: %p - %p (%lu bytes)\n",
-               (void*)&_octa_ram_start, (void*)&_octa_ram_end,
-               (unsigned long)((char*)&_octa_ram_end - (char*)&_octa_ram_start));
-        gc_add((void*)&_octa_ram_start, (void*)&_octa_ram_end);
+               (void*)&_ospi_ram_start, (void*)&_ospi_ram_end,
+               (unsigned long)((char*)&_ospi_ram_end - (char*)&_ospi_ram_start));
+        gc_add((void*)&_ospi_ram_start, (void*)&_ospi_ram_end);
         printf("[OSPI] GC heap extended with OSPI RAM\n");
 
 #if MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS

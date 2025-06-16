@@ -581,7 +581,14 @@ MP_DEFINE_CONST_FUN_OBJ_2(mp_builtin_delattr_obj, mp_builtin_delattr);
 static mp_obj_t mp_builtin_hasattr(mp_obj_t object_in, mp_obj_t attr_in) {
     qstr attr = mp_obj_str_get_qstr(attr_in);
     mp_obj_t dest[2];
-    mp_load_method_protected(object_in, attr, dest, false);
+
+    // HASATTR FIX: Use mp_load_method_maybe instead of mp_load_method_protected
+    // to properly detect built-in methods like __len__, __getitem__, etc.
+    // mp_load_method_protected can fail to find built-in methods that exist
+    dest[0] = MP_OBJ_NULL;
+    dest[1] = MP_OBJ_NULL;
+    mp_load_method_maybe(object_in, attr, dest);
+
     return mp_obj_new_bool(dest[0] != MP_OBJ_NULL);
 }
 MP_DEFINE_CONST_FUN_OBJ_2(mp_builtin_hasattr_obj, mp_builtin_hasattr);
