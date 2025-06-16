@@ -559,37 +559,54 @@ static void gc_sweep(void) {
                         FTB_CLEAR(area, block);
                     }
                     #endif
-                    free_tail = 1;
-                    DEBUG_printf("gc_sweep(%p)\n", (void *)PTR_FROM_BLOCK(area, block));
 
-                    #if DEBUG_OSPI_GC
-                    void *ptr = (void *)PTR_FROM_BLOCK(area, block);
-                    if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-                        printf("[GC SWEEP] Freeing OSPI block=%u, ptr=%p\n", (unsigned int)block, ptr);
-                    }
-                    #endif
+                    // FIXED: Count HEAD block and all its TAIL blocks properly
+                    {
+                        size_t start_block = block;
+                        size_t tail_count = 0;
 
-                    #if MICROPY_PY_GC_COLLECT_RETVAL
-                    MP_STATE_MEM(gc_collected)++;
-                    #endif
-                    // fall through to free the head
-                    MP_FALLTHROUGH
-
-                case AT_TAIL:
-                    if (free_tail) {
-                        ATB_ANY_TO_FREE(area, block);
-                        #if CLEAR_ON_SWEEP
-                        memset((void *)PTR_FROM_BLOCK(area, block), 0, BYTES_PER_BLOCK);
-                        #endif
+                        // Count TAIL blocks that follow this HEAD
+                        size_t scan_block = block + 1;
+                        size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
+                        while (scan_block < max_blocks && ATB_GET_KIND(area, scan_block) == AT_TAIL) {
+                            tail_count++;
+                            scan_block++;
+                        }
 
                         #if DEBUG_OSPI_GC
                         if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-                            printf("[GC SWEEP] Freed OSPI tail block=%u\n", (unsigned int)block);
+                            printf("[GC SWEEP] Freeing OSPI HEAD block=%u + %u TAIL blocks\n",
+                                        (unsigned int)start_block, (unsigned int)tail_count);
                         }
                         #endif
-                    } else {
-                        last_used_block = block;
+
+                        // Free HEAD block
+                        ATB_ANY_TO_FREE(area, start_block);
+                        #if CLEAR_ON_SWEEP
+                        memset((void *)PTR_FROM_BLOCK(area, start_block), 0, BYTES_PER_BLOCK);
+                        #endif
+
+                        // Free all TAIL blocks
+                        for (size_t i = 0; i < tail_count; i++) {
+                            ATB_ANY_TO_FREE(area, start_block + 1 + i);
+                            #if CLEAR_ON_SWEEP
+                            memset((void *)PTR_FROM_BLOCK(area, start_block + 1 + i), 0, BYTES_PER_BLOCK);
+                            #endif
+                        }
+
+                        #if MICROPY_PY_GC_COLLECT_RETVAL
+                        MP_STATE_MEM(gc_collected)++;
+                        #endif
+
+                        // Skip the TAIL blocks we just processed
+                        block += tail_count;
                     }
+                    break;
+
+                case AT_TAIL:
+                    // TAIL blocks are now handled in AT_HEAD case
+                    // This case should not be reached for TAIL blocks following HEAD
+                    last_used_block = block;
                     break;
 
                 case AT_MARK:
