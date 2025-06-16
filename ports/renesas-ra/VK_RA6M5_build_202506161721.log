@@ -1,0 +1,27 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+patch LVGL...
+git -C ../../lib/lv_bindings apply --directory lvgl ../../lib/lv_bindings/patch/fix_GC.patch || true
+error: can't open patch '../../lib/lv_bindings/patch/fix_GC.patch': No such file or directory
+GEN build-VK_RA6M5/genhdr/mpversion.h
+GEN build-VK_RA6M5/genhdr/qstr.i.last
+GEN build-VK_RA6M5/genhdr/qstr.split
+GEN build-VK_RA6M5/genhdr/moduledefs.split
+GEN build-VK_RA6M5/genhdr/root_pointers.split
+GEN build-VK_RA6M5/genhdr/compressed.split
+GEN build-VK_RA6M5/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M5/genhdr/moduledefs.collected
+GEN build-VK_RA6M5/genhdr/root_pointers.collected
+GEN build-VK_RA6M5/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC ../../py/gc.c
+CC ../../py/modsys.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../shared/runtime/pyexec.c
+  GEN     objects.rsp
+LINK build-VK_RA6M5/firmware.elf
+GEN build-VK_RA6M5/firmware.hex
+GEN build-VK_RA6M5/firmware.bin

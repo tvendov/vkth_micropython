@@ -511,7 +511,17 @@ static void gc_sweep(void) {
     #if MICROPY_GC_SPLIT_HEAP_AUTO
     mp_state_mem_area_t *prev_area = NULL;
     #endif
+
+    #if DEBUG_OSPI_GC
+    printf("[GC SWEEP] Starting gc_sweep()\n");
+    #endif
+
     for (mp_state_mem_area_t *area = &MP_STATE_MEM(area); area != NULL; area = NEXT_AREA(area)) {
+        #if DEBUG_OSPI_GC
+        bool is_ospi = ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR);
+        printf("[GC SWEEP] Processing area: pool_start=%p, pool_end=%p (%s)\n",
+                    area->gc_pool_start, area->gc_pool_end, is_ospi ? "OSPI" : "Internal");
+        #endif
         size_t end_block = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
         if (area->gc_last_used_block < end_block) {
             end_block = area->gc_last_used_block + 1;
@@ -547,6 +557,14 @@ static void gc_sweep(void) {
                     #endif
                     free_tail = 1;
                     DEBUG_printf("gc_sweep(%p)\n", (void *)PTR_FROM_BLOCK(area, block));
+
+                    #if DEBUG_OSPI_GC
+                    void *ptr = (void *)PTR_FROM_BLOCK(area, block);
+                    if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
+                        printf("[GC SWEEP] Freeing OSPI block=%u, ptr=%p\n", (unsigned int)block, ptr);
+                    }
+                    #endif
+
                     #if MICROPY_PY_GC_COLLECT_RETVAL
                     MP_STATE_MEM(gc_collected)++;
                     #endif
@@ -701,11 +719,10 @@ STATIC void *gc_alloc_from_area(mp_state_mem_area_t *area, size_t n_bytes, unsig
         if (found) {
             void *ptr = (void *)((uintptr_t)area->gc_pool_start + start_block * BYTES_PER_BLOCK);
 
+            // Mark blocks as allocated (HEAD/TAIL, not MARK)
             ATB_FREE_TO_HEAD(area, start_block);
-            ATB_HEAD_TO_MARK(area, start_block);
             for (size_t i = 1; i < n_blocks; i++) {
                 ATB_FREE_TO_TAIL(area, start_block + i);
-                ATB_HEAD_TO_MARK(area, start_block + i); // mark tail
             }
 
             area->gc_last_free_atb_index = (start_block + n_blocks) / BLOCKS_PER_ATB;
