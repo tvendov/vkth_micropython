@@ -108,7 +108,11 @@ STATIC ospi_gc_stats_t ospi_gc_stats;
 
 #define BLOCK_SHIFT(block) (2 * ((block) & (BLOCKS_PER_ATB - 1)))
 #define ATB_GET_KIND(area, block) (((area)->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] >> BLOCK_SHIFT(block)) & 3)
-#define ATB_ANY_TO_FREE(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] &= (~(AT_MARK << BLOCK_SHIFT(block))); } while (0)
+// FIXED: This macro now clears ALL bits (both HEAD/TAIL and MARK bits)
+#define ATB_ANY_TO_FREE(area, block) do { \
+    area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] &= \
+    ~(3 << BLOCK_SHIFT(block)); \
+} while (0)
 #define ATB_FREE_TO_HEAD(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] |= (AT_HEAD << BLOCK_SHIFT(block)); } while (0)
 #define ATB_FREE_TO_TAIL(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] |= (AT_TAIL << BLOCK_SHIFT(block)); } while (0)
 #define ATB_HEAD_TO_MARK(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] |= (AT_MARK << BLOCK_SHIFT(block)); } while (0)
@@ -577,6 +581,12 @@ static void gc_sweep(void) {
                         #if CLEAR_ON_SWEEP
                         memset((void *)PTR_FROM_BLOCK(area, block), 0, BYTES_PER_BLOCK);
                         #endif
+
+                        #if DEBUG_OSPI_GC
+                        if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
+                            printf("[GC SWEEP] Freed OSPI tail block=%u\n", (unsigned int)block);
+                        }
+                        #endif
                     } else {
                         last_used_block = block;
                     }
@@ -591,6 +601,46 @@ static void gc_sweep(void) {
         }
 
         area->gc_last_used_block = last_used_block;
+
+        #if DEBUG_OSPI_GC
+        // OSPI area post-sweep coalescing
+        if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
+            printf("[GC SWEEP] OSPI area sweep complete - performing coalescing\n");
+
+            size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
+            size_t coalesced_regions = 0;
+
+            // Scan for free regions and coalesce them
+            for (size_t block = 0; block < max_blocks; block++) {
+                if (ATB_GET_KIND(area, block) == AT_FREE) {
+                    // Found start of free region
+                    size_t start = block;
+                    size_t end = block + 1;
+
+                    // Find end of free region
+                    while (end < max_blocks && ATB_GET_KIND(area, end) == AT_TAIL) {
+                        end++;
+                    }
+
+                    // Re-mark the region properly
+                    ATB_FREE_TO_HEAD(area, start);
+                    for (size_t i = start + 1; i < end; i++) {
+                        ATB_FREE_TO_TAIL(area, i);
+                    }
+
+                    coalesced_regions++;
+                    printf("[GC SWEEP] Coalesced OSPI region blocks %u-%u (%u blocks)\n",
+                                (unsigned int)start, (unsigned int)(end-1), (unsigned int)(end-start));
+
+                    // Skip to end of this region
+                    block = end - 1;
+                }
+            }
+
+            printf("[GC SWEEP] OSPI coalescing complete - %u regions processed\n",
+                        (unsigned int)coalesced_regions);
+        }
+        #endif
 
         #if MICROPY_GC_SPLIT_HEAP_AUTO
         // Free any empty area, aside from the first one
