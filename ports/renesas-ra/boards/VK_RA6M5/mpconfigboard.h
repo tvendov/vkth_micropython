@@ -49,9 +49,7 @@
 #endif
 #define MICROPY_REPL_STDIN_BUFFER_RESERVE  (64)
 
-/* 2)  Global large‑allocation policy – anything ≥64 KiB отива в 8 MiB OSPI */
-#define MICROPY_PREFER_OSPI_FOR_LARGE_ALLOCS (1)
-#define MICROPY_OSPI_ALLOC_THRESHOLD        (64 * 1024)
+
 
 // I2C
 #define MICROPY_HW_I2C2_SCL         (pin_P415)
