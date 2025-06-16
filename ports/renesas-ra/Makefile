@@ -361,7 +361,6 @@ SRC_C += \
 	storage.c \
 	fatfs_port.c \
 	usbd.c \
-	ospi_heap.c \
 	$(wildcard $(BOARD_DIR)/*.c)
 
 SRC_C += $(addprefix $(BOARD_DIR)/ra_gen/,\
