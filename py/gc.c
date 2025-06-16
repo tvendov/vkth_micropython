@@ -663,60 +663,48 @@ STATIC void *gc_alloc_from_area(mp_state_mem_area_t *area, size_t n_bytes, unsig
     size_t n_blocks = (n_bytes + BYTES_PER_BLOCK - 1) / BYTES_PER_BLOCK;
     size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
 
-    // Search for n_blocks of consecutive free blocks
-    size_t start_block = 0;
-    size_t n_free = 0;
+    DEBUG_printf("[GC ALLOC] Searching area %p for %u blocks\n", area->gc_pool_start, n_blocks);
 
-    for (size_t block = 0; block < max_blocks; block++) {
-        byte block_type = ATB_GET_KIND(area, block);
+    // Search for n consecutive free blocks
+    for (size_t start_block = 0; start_block < max_blocks - n_blocks + 1; start_block++) {
+        if (ATB_GET_KIND(area, start_block) != AT_FREE) {
+            continue;
+        }
 
-        if (block_type == AT_FREE) {
-            // Start of a free region
-            start_block = block;
-            n_free = 1;
+        bool found = true;
+        for (size_t i = 1; i < n_blocks; i++) {
+            byte kind = ATB_GET_KIND(area, start_block + i);
+            if (kind != AT_FREE && kind != AT_TAIL) {
+                found = false;
+                break;
+            }
+        }
 
-            // Count consecutive free blocks
-            for (size_t i = 1; i < n_blocks && block + i < max_blocks; i++) {
-                if (ATB_GET_KIND(area, block + i) == AT_FREE) {
-                    n_free++;
-                } else {
-                    break;
-                }
+        if (found) {
+            void *ptr = (void*)((uintptr_t)area->gc_pool_start + start_block * BYTES_PER_BLOCK);
+
+            ATB_FREE_TO_HEAD(area, start_block);
+            ATB_HEAD_TO_MARK(area, start_block);
+            for (size_t i = 1; i < n_blocks; i++) {
+                ATB_FREE_TO_TAIL(area, start_block + i);
+                ATB_HEAD_TO_MARK(area, start_block + i); // mark tail
             }
 
-            if (n_free >= n_blocks) {
-                // Found enough consecutive free blocks
-                void *ptr = (void*)((uintptr_t)area->gc_pool_start + start_block * BYTES_PER_BLOCK);
+            area->gc_last_free_atb_index = (start_block + n_blocks) / BLOCKS_PER_ATB;
 
-                // Mark blocks as allocated
-                ATB_FREE_TO_HEAD(area, start_block);
-                for (size_t i = 1; i < n_blocks; i++) {
-                    ATB_FREE_TO_TAIL(area, start_block + i);
-                }
-
-                // Mark blocks as allocated (no need to set MARK bit during allocation)
-                // ATB_HEAD_TO_MARK and ATB_TAIL_TO_MARK are used during GC marking phase
-
-                #if DEBUG_OSPI_GC
-                if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-                    printf("[GC ALLOC] Allocated %u bytes in OSPI at %p (block %u)\n",
-                                (unsigned int)n_bytes, ptr, (unsigned int)start_block);
-                }
-                #endif
-
-                // Update allocation statistics
-                area->gc_last_free_atb_index = (start_block + n_blocks) / BLOCKS_PER_ATB;
-
-                return ptr;
+            #if DEBUG_OSPI_GC
+            if ((uintptr_t)area->gc_pool_start >= 0x68000000) {
+                DEBUG_printf("[GC ALLOC] SUCCESS: Allocated %u bytes at %p (OSPI block %u)\n",
+                            n_bytes, ptr, start_block);
             }
+            #endif
 
-            // Skip past this free region
-            block += n_free - 1;
-            n_free = 0;
+            return ptr;
         }
     }
 
-    return NULL;  // No suitable space found
+    DEBUG_printf("[GC ALLOC] FAILED: No space in area %p\n", area->gc_pool_start);
+    return NULL;
 }
 #endif
 
@@ -1055,40 +1043,46 @@ void gc_free(void *ptr) {
         ATB_ANY_TO_FREE(area, block + i);
     }
 
-    #if MICROPY_GC_SPLIT_HEAP && defined(MICROPY_PORT_RA6M5_OSPI)
-    // Aggressive coalescing for OSPI RAM
-    if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
+    #if MICROPY_GC_SPLIT_HEAP
+    // Special handling for OSPI RAM - aggressive coalescing
+    if ((uintptr_t)area->gc_pool_start >= 0x68000000) {
+        DEBUG_printf("[GC FREE] OSPI coalescing for block %u\n", block);
+
         size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
 
-        // Find start of free region (merge with previous free blocks)
+        // Find the start of the free region (merge backwards)
         size_t start = block;
-        while (start > 0 && (ATB_GET_KIND(area, start - 1) == AT_FREE ||
-                            ATB_GET_KIND(area, start - 1) == AT_TAIL)) {
-            start--;
-            if (ATB_GET_KIND(area, start) == AT_FREE) {
-                break;  // Found the head of previous free region
+        while (start > 0) {
+            byte prev_kind = ATB_GET_KIND(area, start - 1);
+            if (prev_kind == AT_FREE || prev_kind == AT_TAIL) {
+                start--;
+                if (prev_kind == AT_FREE) {
+                    break;
+                }
+            } else {
+                break;
             }
         }
 
-        // Find end of free region (merge with next free blocks)
+        // Find the end of the free region (merge forwards)
         size_t end = block + n_blocks;
-        while (end < max_blocks && (ATB_GET_KIND(area, end) == AT_FREE ||
-                                   ATB_GET_KIND(area, end) == AT_TAIL)) {
-            end++;
+        while (end < max_blocks) {
+            byte next_kind = ATB_GET_KIND(area, end);
+            if (next_kind == AT_FREE || next_kind == AT_TAIL) {
+                end++;
+            } else {
+                break;
+            }
         }
 
-        // Re-mark the coalesced region
         ATB_FREE_TO_HEAD(area, start);
         for (size_t i = start + 1; i < end; i++) {
             ATB_FREE_TO_TAIL(area, i);
         }
 
-        #if DEBUG_OSPI_GC
-        printf("[GC FREE] Coalesced OSPI blocks %u-%u (%u blocks)\n",
-                    (unsigned int)start, (unsigned int)(end - 1), (unsigned int)(end - start));
-        #endif
+        DEBUG_printf("[GC FREE] Coalesced OSPI blocks %u-%u (%u blocks, %u bytes)\n",
+                    start, end - 1, end - start, (end - start) * BYTES_PER_BLOCK);
 
-        // Update last free pointer to the coalesced region
         if (start / BLOCKS_PER_ATB < area->gc_last_free_atb_index) {
             area->gc_last_free_atb_index = start / BLOCKS_PER_ATB;
         }
