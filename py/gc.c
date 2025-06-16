@@ -603,10 +603,8 @@ static void gc_sweep(void) {
         area->gc_last_used_block = last_used_block;
 
         #if DEBUG_OSPI_GC
-        // OSPI area post-sweep coalescing
+        // OSPI area post-sweep coalescing (silent - no verbose output)
         if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-            printf("[GC SWEEP] OSPI area sweep complete - performing coalescing\n");
-
             size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
             size_t coalesced_regions = 0;
 
@@ -622,23 +620,25 @@ static void gc_sweep(void) {
                         end++;
                     }
 
-                    // Re-mark the region properly
-                    ATB_FREE_TO_HEAD(area, start);
-                    for (size_t i = start + 1; i < end; i++) {
-                        ATB_FREE_TO_TAIL(area, i);
+                    // Re-mark the region properly (only if multi-block)
+                    if (end - start > 1) {
+                        ATB_FREE_TO_HEAD(area, start);
+                        for (size_t i = start + 1; i < end; i++) {
+                            ATB_FREE_TO_TAIL(area, i);
+                        }
+                        coalesced_regions++;
                     }
-
-                    coalesced_regions++;
-                    printf("[GC SWEEP] Coalesced OSPI region blocks %u-%u (%u blocks)\n",
-                                (unsigned int)start, (unsigned int)(end-1), (unsigned int)(end-start));
 
                     // Skip to end of this region
                     block = end - 1;
                 }
             }
 
-            printf("[GC SWEEP] OSPI coalescing complete - %u regions processed\n",
-                        (unsigned int)coalesced_regions);
+            // Only print summary if significant coalescing happened
+            if (coalesced_regions > 0) {
+                printf("[GC SWEEP] OSPI coalesced %u multi-block regions\n",
+                            (unsigned int)coalesced_regions);
+            }
         }
         #endif
 
