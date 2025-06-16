@@ -1072,6 +1072,7 @@ void gc_free(void *ptr) {
     if ((uintptr_t)area->gc_pool_start >= 0x68000000) {
         DEBUG_printf("[GC FREE] OSPI coalescing for block %u\n", block);
 
+
         #ifdef MICROPY_PORT_RA6M5_OSPI
         ospi_gc_stats.free_count++;
         #endif
@@ -1109,6 +1110,7 @@ void gc_free(void *ptr) {
         }
 
         DEBUG_printf("[GC FREE] Coalesced OSPI blocks %u-%u (%u blocks, %u bytes)\n",
+
             start, end - 1, end - start, (end - start) * BYTES_PER_BLOCK);
 
         #ifdef MICROPY_PORT_RA6M5_OSPI
@@ -1118,8 +1120,7 @@ void gc_free(void *ptr) {
             ospi_gc_stats.max_free_block = free_bytes;
         }
         #endif
-
-        if (start / BLOCKS_PER_ATB < area->gc_last_free_atb_index) {
+           if (start / BLOCKS_PER_ATB < area->gc_last_free_atb_index) {
             area->gc_last_free_atb_index = start / BLOCKS_PER_ATB;
         }
     } else
