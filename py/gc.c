@@ -24,6 +24,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#ifdef MICROPY_PORT_RA6M5_OSPI 
+#include "py/gc_ospi.h" 
+#endif
 
 #include <assert.h>
 #include <stdio.h>
@@ -36,8 +39,6 @@
 #include <valgrind/memcheck.h>
 #endif
 
-
-
 #if MICROPY_ENABLE_GC
 
 #if MICROPY_DEBUG_VERBOSE // print debugging info
@@ -46,26 +47,6 @@
 #else // don't print debugging info
 #define DEBUG_PRINT (0)
 #define DEBUG_printf(...) (void)0
-#endif
-
-// OSPI RAM configuration for RA6M5
-#ifdef MICROPY_PORT_RA6M5_OSPI
-#define OSPI_RAM_START_ADDR 0x68000000
-#define OSPI_ALLOCATION_THRESHOLD (64 * 1024)  // 64KB - use OSPI for large allocations
-#ifndef DEBUG_OSPI_GC
-#define DEBUG_OSPI_GC 1
-#endif
-// Cache-line size for OSPI allocations
-#define OSPI_CACHE_LINE (32)
-
-typedef struct {
-    uint32_t alloc_count;
-    uint32_t free_count;
-    uint32_t coalesce_count;
-    size_t max_free_block;
-} ospi_gc_stats_t;
-
-STATIC ospi_gc_stats_t ospi_gc_stats;
 #endif
 
 // make this 1 to dump the heap each time it changes
@@ -95,10 +76,10 @@ STATIC ospi_gc_stats_t ospi_gc_stats;
 #define ATB_MASK_2 (0x30)
 #define ATB_MASK_3 (0xc0)
 
-#define ATB_0_IS_FREE(a) (((a)&ATB_MASK_0) == 0)
-#define ATB_1_IS_FREE(a) (((a)&ATB_MASK_1) == 0)
-#define ATB_2_IS_FREE(a) (((a)&ATB_MASK_2) == 0)
-#define ATB_3_IS_FREE(a) (((a)&ATB_MASK_3) == 0)
+#define ATB_0_IS_FREE(a) (((a) & ATB_MASK_0) == 0)
+#define ATB_1_IS_FREE(a) (((a) & ATB_MASK_1) == 0)
+#define ATB_2_IS_FREE(a) (((a) & ATB_MASK_2) == 0)
+#define ATB_3_IS_FREE(a) (((a) & ATB_MASK_3) == 0)
 
 #if MICROPY_GC_SPLIT_HEAP
 #define NEXT_AREA(area) ((area)->next)
@@ -108,11 +89,7 @@ STATIC ospi_gc_stats_t ospi_gc_stats;
 
 #define BLOCK_SHIFT(block) (2 * ((block) & (BLOCKS_PER_ATB - 1)))
 #define ATB_GET_KIND(area, block) (((area)->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] >> BLOCK_SHIFT(block)) & 3)
-// FIXED: This macro now clears ALL bits (both HEAD/TAIL and MARK bits)
-#define ATB_ANY_TO_FREE(area, block) do { \
-    area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] &= \
-    ~(3 << BLOCK_SHIFT(block)); \
-} while (0)
+#define ATB_ANY_TO_FREE(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] &= (~(AT_MARK << BLOCK_SHIFT(block))); } while (0)
 #define ATB_FREE_TO_HEAD(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] |= (AT_HEAD << BLOCK_SHIFT(block)); } while (0)
 #define ATB_FREE_TO_TAIL(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] |= (AT_TAIL << BLOCK_SHIFT(block)); } while (0)
 #define ATB_HEAD_TO_MARK(area, block) do { area->gc_alloc_table_start[(block) / BLOCKS_PER_ATB] |= (AT_MARK << BLOCK_SHIFT(block)); } while (0)
@@ -145,6 +122,22 @@ STATIC ospi_gc_stats_t ospi_gc_stats;
 #define GC_ENTER()
 #define GC_EXIT()
 #endif
+
+// -----------------------------------------------------------------------------
+//  Aliases: силните дефиниции от gc.c, но с друго име за да не влезем в рекурсия
+// -----------------------------------------------------------------------------
+#if defined(__GNUC__)
+extern void  *gc_alloc(size_t, unsigned int);                 // strong
+extern void   gc_free(void *);
+extern void  *gc_realloc(void *, size_t, bool);
+
+__attribute__((alias("gc_alloc")))   void *gc_alloc_default  (size_t, unsigned int);
+__attribute__((alias("gc_free")))    void  gc_free_default   (void *);
+__attribute__((alias("gc_realloc"))) void *gc_realloc_default(void *, size_t, bool);
+#else
+    #error "Need GCC‐style alias attributes for gc_ospi.c"
+#endif
+
 
 // TODO waste less memory; currently requires that all entries in alloc_table have a corresponding block in pool
 static void gc_setup_area(mp_state_mem_area_t *area, void *start, void *end) {
@@ -239,7 +232,14 @@ void gc_init(void *start, void *end) {
     #if MICROPY_PY_THREAD && !MICROPY_PY_THREAD_GIL
     mp_thread_mutex_init(&MP_STATE_MEM(gc_mutex));
     #endif
+    
+    #ifdef MICROPY_PORT_RA6M5_OSPI
+    extern void gc_ospi_on_init(void);
+    gc_ospi_on_init();
+    #endif
 }
+
+
 
 #if MICROPY_GC_SPLIT_HEAP
 void gc_add(void *start, void *end) {
@@ -464,7 +464,6 @@ static void gc_mark_subtree(size_t block)
                 #endif
                 sp += 1;
             } else {
-                // Mark-stack overflowed, signal for a full heap rescan.
                 MP_STATE_MEM(gc_stack_overflow) = 1;
             }
         }
@@ -483,8 +482,6 @@ static void gc_mark_subtree(size_t block)
     }
 }
 
-// When gc_stack_overflow is set, perform a full rescan of the heap to
-// ensure all reachable objects are marked.
 static void gc_deal_with_stack_overflow(void) {
     while (MP_STATE_MEM(gc_stack_overflow)) {
         MP_STATE_MEM(gc_stack_overflow) = 0;
@@ -515,17 +512,7 @@ static void gc_sweep(void) {
     #if MICROPY_GC_SPLIT_HEAP_AUTO
     mp_state_mem_area_t *prev_area = NULL;
     #endif
-
-    #if DEBUG_OSPI_GC
-    printf("[GC SWEEP] Starting gc_sweep()\n");
-    #endif
-
     for (mp_state_mem_area_t *area = &MP_STATE_MEM(area); area != NULL; area = NEXT_AREA(area)) {
-        #if DEBUG_OSPI_GC
-        bool is_ospi = ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR);
-        printf("[GC SWEEP] Processing area: pool_start=%p, pool_end=%p (%s)\n",
-                    area->gc_pool_start, area->gc_pool_end, is_ospi ? "OSPI" : "Internal");
-        #endif
         size_t end_block = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
         if (area->gc_last_used_block < end_block) {
             end_block = area->gc_last_used_block + 1;
@@ -559,54 +546,23 @@ static void gc_sweep(void) {
                         FTB_CLEAR(area, block);
                     }
                     #endif
-
-                    // FIXED: Count HEAD block and all its TAIL blocks properly
-                    {
-                        size_t start_block = block;
-                        size_t tail_count = 0;
-
-                        // Count TAIL blocks that follow this HEAD
-                        size_t scan_block = block + 1;
-                        size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
-                        while (scan_block < max_blocks && ATB_GET_KIND(area, scan_block) == AT_TAIL) {
-                            tail_count++;
-                            scan_block++;
-                        }
-
-                        #if DEBUG_OSPI_GC
-                        if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-                            printf("[GC SWEEP] Freeing OSPI HEAD block=%u + %u TAIL blocks\n",
-                                        (unsigned int)start_block, (unsigned int)tail_count);
-                        }
-                        #endif
-
-                        // Free HEAD block
-                        ATB_ANY_TO_FREE(area, start_block);
-                        #if CLEAR_ON_SWEEP
-                        memset((void *)PTR_FROM_BLOCK(area, start_block), 0, BYTES_PER_BLOCK);
-                        #endif
-
-                        // Free all TAIL blocks
-                        for (size_t i = 0; i < tail_count; i++) {
-                            ATB_ANY_TO_FREE(area, start_block + 1 + i);
-                            #if CLEAR_ON_SWEEP
-                            memset((void *)PTR_FROM_BLOCK(area, start_block + 1 + i), 0, BYTES_PER_BLOCK);
-                            #endif
-                        }
-
-                        #if MICROPY_PY_GC_COLLECT_RETVAL
-                        MP_STATE_MEM(gc_collected)++;
-                        #endif
-
-                        // Skip the TAIL blocks we just processed
-                        block += tail_count;
-                    }
-                    break;
+                    free_tail = 1;
+                    DEBUG_printf("gc_sweep(%p)\n", (void *)PTR_FROM_BLOCK(area, block));
+                    #if MICROPY_PY_GC_COLLECT_RETVAL
+                    MP_STATE_MEM(gc_collected)++;
+                    #endif
+                    // fall through to free the head
+                    MP_FALLTHROUGH
 
                 case AT_TAIL:
-                    // TAIL blocks are now handled in AT_HEAD case
-                    // This case should not be reached for TAIL blocks following HEAD
-                    last_used_block = block;
+                    if (free_tail) {
+                        ATB_ANY_TO_FREE(area, block);
+                        #if CLEAR_ON_SWEEP
+                        memset((void *)PTR_FROM_BLOCK(area, block), 0, BYTES_PER_BLOCK);
+                        #endif
+                    } else {
+                        last_used_block = block;
+                    }
                     break;
 
                 case AT_MARK:
@@ -618,46 +574,6 @@ static void gc_sweep(void) {
         }
 
         area->gc_last_used_block = last_used_block;
-
-        #if DEBUG_OSPI_GC
-        // OSPI area post-sweep coalescing (silent - no verbose output)
-        if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-            size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
-            size_t coalesced_regions = 0;
-
-            // Scan for free regions and coalesce them
-            for (size_t block = 0; block < max_blocks; block++) {
-                if (ATB_GET_KIND(area, block) == AT_FREE) {
-                    // Found start of free region
-                    size_t start = block;
-                    size_t end = block + 1;
-
-                    // Find end of free region
-                    while (end < max_blocks && ATB_GET_KIND(area, end) == AT_TAIL) {
-                        end++;
-                    }
-
-                    // Re-mark the region properly (only if multi-block)
-                    if (end - start > 1) {
-                        ATB_FREE_TO_HEAD(area, start);
-                        for (size_t i = start + 1; i < end; i++) {
-                            ATB_FREE_TO_TAIL(area, i);
-                        }
-                        coalesced_regions++;
-                    }
-
-                    // Skip to end of this region
-                    block = end - 1;
-                }
-            }
-
-            // Only print summary if significant coalescing happened
-            if (coalesced_regions > 0) {
-                printf("[GC SWEEP] OSPI coalesced %u multi-block regions\n",
-                            (unsigned int)coalesced_regions);
-            }
-        }
-        #endif
 
         #if MICROPY_GC_SPLIT_HEAP_AUTO
         // Free any empty area, aside from the first one
@@ -753,69 +669,6 @@ void gc_collect_end(void) {
     GC_EXIT();
 }
 
-#if MICROPY_GC_SPLIT_HEAP
-// Helper function to allocate from a specific memory area
-STATIC void *gc_alloc_from_area(mp_state_mem_area_t *area, size_t n_bytes, unsigned int alloc_flags) {
-    size_t n_blocks = (n_bytes + BYTES_PER_BLOCK - 1) / BYTES_PER_BLOCK;
-    size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
-
-    DEBUG_printf("[GC ALLOC] Searching area %p for %u blocks\n", area->gc_pool_start, n_blocks);
-
-    // Search for n consecutive free blocks
-    size_t start_block = 0;
-    #ifdef MICROPY_PORT_RA6M5_OSPI
-    if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-        start_block = (start_block + (OSPI_CACHE_LINE / BYTES_PER_BLOCK - 1))
-            & ~(OSPI_CACHE_LINE / BYTES_PER_BLOCK - 1);
-    }
-    #endif
-    for (; start_block < max_blocks - n_blocks + 1; start_block++) {
-        if (ATB_GET_KIND(area, start_block) != AT_FREE) {
-            continue;
-        }
-
-        bool found = true;
-        for (size_t i = 1; i < n_blocks; i++) {
-            byte kind = ATB_GET_KIND(area, start_block + i);
-            if (kind != AT_FREE && kind != AT_TAIL) {
-                found = false;
-                break;
-            }
-        }
-
-        if (found) {
-            void *ptr = (void *)((uintptr_t)area->gc_pool_start + start_block * BYTES_PER_BLOCK);
-
-            // Mark blocks as allocated (HEAD/TAIL, not MARK)
-            ATB_FREE_TO_HEAD(area, start_block);
-            for (size_t i = 1; i < n_blocks; i++) {
-                ATB_FREE_TO_TAIL(area, start_block + i);
-            }
-
-            area->gc_last_free_atb_index = (start_block + n_blocks) / BLOCKS_PER_ATB;
-
-            #if DEBUG_OSPI_GC
-            if ((uintptr_t)area->gc_pool_start >= 0x68000000) {
-                DEBUG_printf("[GC ALLOC] SUCCESS: Allocated %u bytes at %p (OSPI block %u)\n",
-                    n_bytes, ptr, start_block);
-            }
-            #endif
-
-            #ifdef MICROPY_PORT_RA6M5_OSPI
-            if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-                ospi_gc_stats.alloc_count++;
-            }
-            #endif
-
-            return ptr;
-        }
-    }
-
-    DEBUG_printf("[GC ALLOC] FAILED: No space in area %p\n", area->gc_pool_start);
-    return NULL;
-}
-#endif
-
 void gc_sweep_all(void) {
     GC_ENTER();
     MP_STATE_THREAD(gc_lock_depth)++;
@@ -906,33 +759,6 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
         return NULL;
     }
 
-    #if MICROPY_GC_SPLIT_HEAP && defined(OSPI_RAM_START_ADDR)
-    // For large allocations, try OSPI RAM first
-    if (n_bytes >= OSPI_ALLOCATION_THRESHOLD) {
-        printf("[GC FIX] Large allocation %u bytes -> OSPI RAM first\n", (unsigned int)n_bytes);
-
-        // Search for OSPI area and try to allocate there
-        for (mp_state_mem_area_t *area = &MP_STATE_MEM(area);
-             area != NULL;
-             area = NEXT_AREA(area)) {
-
-            if ((uintptr_t)area->gc_pool_start >= OSPI_RAM_START_ADDR) {
-                printf("[GC DEBUG] Searching in area: pool_start=%p, pool_end=%p\n",
-                    area->gc_pool_start, area->gc_pool_end);
-
-                void *ptr = gc_alloc_from_area(area, n_bytes, alloc_flags);
-                if (ptr != NULL) {
-                    printf("[GC DEBUG] Allocated at: %p (area pool_start=%p, block=%u)\n",
-                        ptr, area->gc_pool_start,
-                        ((uintptr_t)ptr - (uintptr_t)area->gc_pool_start) / BYTES_PER_BLOCK);
-                    printf("[GC DEBUG] Returning pointer: %p\n", ptr);
-                    return ptr;
-                }
-            }
-        }
-    }
-    #endif
-
     // check if GC is locked
     if (MP_STATE_THREAD(gc_lock_depth) > 0) {
         return NULL;
@@ -962,7 +788,7 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
     for (;;) {
 
         #if MICROPY_GC_SPLIT_HEAP
-        area = &MP_STATE_MEM(area);
+        area = MP_STATE_MEM(gc_last_free_area);
         #else
         area = &MP_STATE_MEM(area);
         #endif
@@ -1000,16 +826,6 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
                 continue;
             }
             #endif
-
-            // ----- DIAGNOSTIC LOGGING START -----
-            // Неуспешна алокация след GC collection
-            gc_info_t info;
-            gc_info(&info);
-            mp_printf(&mp_plat_print,
-                "[GC LOG] ALLOCATION FAILED: req=%u bytes, total=%u, used=%u, free=%u, max_free=%u\n",
-                (uint)n_bytes, (uint)info.total, (uint)info.used, (uint)info.free, (uint)info.max_free);
-            // ----- DIAGNOSTIC LOGGING END -------
-
             return NULL;
         }
         DEBUG_printf("gc_alloc(" UINT_FMT "): no free mem, triggering GC\n", n_bytes);
@@ -1110,118 +926,48 @@ void gc_free(void *ptr) {
         return;
     }
 
+    // get the GC block number corresponding to this pointer
     mp_state_mem_area_t *area;
     #if MICROPY_GC_SPLIT_HEAP
     area = gc_get_ptr_area(ptr);
-    if (area == NULL) {
-        // Not a GC-managed pointer
-        GC_EXIT();
-        return;
-    }
+    assert(area);
     #else
     assert(VERIFY_PTR(ptr));
     area = &MP_STATE_MEM(area);
     #endif
 
     size_t block = BLOCK_FROM_PTR(area, ptr);
-    if (ATB_GET_KIND(area, block) != AT_HEAD) {
-        // Not a head block - something is wrong
-        GC_EXIT();
-        return;
-    }
-
-    #if DEBUG_OSPI_GC
-    if ((uintptr_t)ptr >= OSPI_RAM_START_ADDR) {
-        printf("[GC FREE] Freeing OSPI ptr=%p, block=%u\n", ptr, (unsigned int)block);
-    }
-    #endif
-
-    // Count the number of blocks to free
-    size_t n_blocks = 1;
-    while (ATB_GET_KIND(area, block + n_blocks) == AT_TAIL) {
-        n_blocks++;
-    }
+    assert(ATB_GET_KIND(area, block) == AT_HEAD);
 
     #if MICROPY_ENABLE_FINALISER
     FTB_CLEAR(area, block);
     #endif
 
-    // Free the blocks
-    for (size_t i = 0; i < n_blocks; i++) {
-        ATB_ANY_TO_FREE(area, block + i);
-    }
-
     #if MICROPY_GC_SPLIT_HEAP
-    // Special handling for OSPI RAM - aggressive coalescing
-    if ((uintptr_t)area->gc_pool_start >= 0x68000000) {
-        DEBUG_printf("[GC FREE] OSPI coalescing for block %u\n", block);
-
-
-        #ifdef MICROPY_PORT_RA6M5_OSPI
-        ospi_gc_stats.free_count++;
-        #endif
-
-        size_t max_blocks = area->gc_alloc_table_byte_len * BLOCKS_PER_ATB;
-
-        // Find the start of the free region (merge backwards)
-        size_t start = block;
-        while (start > 0) {
-            byte prev_kind = ATB_GET_KIND(area, start - 1);
-            if (prev_kind == AT_FREE || prev_kind == AT_TAIL) {
-                start--;
-                if (prev_kind == AT_FREE) {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        // Find the end of the free region (merge forwards)
-        size_t end = block + n_blocks;
-        while (end < max_blocks) {
-            byte next_kind = ATB_GET_KIND(area, end);
-            if (next_kind == AT_FREE || next_kind == AT_TAIL) {
-                end++;
-            } else {
-                break;
-            }
-        }
-
-        ATB_FREE_TO_HEAD(area, start);
-        for (size_t i = start + 1; i < end; i++) {
-            ATB_FREE_TO_TAIL(area, i);
-        }
-
-        DEBUG_printf("[GC FREE] Coalesced OSPI blocks %u-%u (%u blocks, %u bytes)\n",
-
-            start, end - 1, end - start, (end - start) * BYTES_PER_BLOCK);
-
-        #ifdef MICROPY_PORT_RA6M5_OSPI
-        ospi_gc_stats.coalesce_count++;
-        size_t free_bytes = (end - start) * BYTES_PER_BLOCK;
-        if (free_bytes > ospi_gc_stats.max_free_block) {
-            ospi_gc_stats.max_free_block = free_bytes;
-        }
-        #endif
-           if (start / BLOCKS_PER_ATB < area->gc_last_free_atb_index) {
-            area->gc_last_free_atb_index = start / BLOCKS_PER_ATB;
-        }
-    } else
-    #endif
-    {
-        // Normal handling for internal RAM
-        #if MICROPY_GC_SPLIT_HEAP
-        if (MP_STATE_MEM(gc_last_free_area) != area) {
-            MP_STATE_MEM(gc_last_free_area) = &MP_STATE_MEM(area);
-        }
-        #endif
-
-        // Update last free pointer
-        if (block / BLOCKS_PER_ATB < area->gc_last_free_atb_index) {
-            area->gc_last_free_atb_index = block / BLOCKS_PER_ATB;
-        }
+    if (MP_STATE_MEM(gc_last_free_area) != area) {
+        // We freed something but it isn't the current area. Reset the
+        // last free area to the start for a rescan. Note that this won't
+        // give much of a performance hit, since areas that are completely
+        // filled will likely be skipped (the gc_last_free_atb_index
+        // points to the last block).
+        // The reason why this is necessary is because it is not possible
+        // to see which area came first (like it is possible to adjust
+        // gc_last_free_atb_index based on whether the freed block is
+        // before the last free block).
+        MP_STATE_MEM(gc_last_free_area) = &MP_STATE_MEM(area);
     }
+    #endif
+
+    // set the last_free pointer to this block if it's earlier in the heap
+    if (block / BLOCKS_PER_ATB < area->gc_last_free_atb_index) {
+        area->gc_last_free_atb_index = block / BLOCKS_PER_ATB;
+    }
+
+    // free head and all of its tail blocks
+    do {
+        ATB_ANY_TO_FREE(area, block);
+        block += 1;
+    } while (ATB_GET_KIND(area, block) == AT_TAIL);
 
     GC_EXIT();
 
@@ -1553,7 +1299,5 @@ void gc_dump_alloc_table(const mp_print_t *print) {
     }
     GC_EXIT();
 }
-
-
 
 #endif // MICROPY_ENABLE_GC

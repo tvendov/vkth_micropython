@@ -30,6 +30,26 @@
 #include <stddef.h>
 #include "py/mpprint.h"
 
+/* ------------------------------------------------------------------ */
+/* Block-size constants - visible to ALL files                        */
+/* ------------------------------------------------------------------ */
+#ifndef MICROPY_BYTES_PER_GC_BLOCK
+#define MICROPY_BYTES_PER_GC_BLOCK (16) // Default 16 bytes per block
+#endif
+
+#ifndef BYTES_PER_BLOCK
+#define BYTES_PER_BLOCK (MICROPY_BYTES_PER_GC_BLOCK)
+#endif
+
+#ifndef WORDS_PER_BLOCK
+#define WORDS_PER_BLOCK ((MICROPY_BYTES_PER_GC_BLOCK) / MP_BYTES_PER_OBJ_WORD)
+#endif
+
+#ifndef MICROPY_GC_MAX_BLOCKS_PER_ALLOC
+// Maximum blocks per single allocation (255 is compatible with original code)
+#define MICROPY_GC_MAX_BLOCKS_PER_ALLOC (255)
+#endif
+
 void gc_init(void *start, void *end);
 
 #if MICROPY_GC_SPLIT_HEAP
@@ -62,9 +82,28 @@ enum {
     GC_ALLOC_FLAG_HAS_FINALISER = 1,
 };
 
+// Allocate memory from the GC heap.
+// 
+// Note: When GC_HEAP_PROTECTION is enabled, only a tail guard word is used
+// to detect heap corruption. No head guard is added to avoid pointer offset
+// complications. The returned pointer points directly to the start of the
+// usable memory block.
+//
+// For OSPI RAM support: Large allocations (typically >32KB or >64KB depending
+// on memory pressure) may be preferentially allocated from OSPI RAM regions
+// when available. OSPI allocations are cache-line aligned for performance.
 void *gc_alloc(size_t n_bytes, unsigned int alloc_flags);
-void gc_free(void *ptr); // does not call finaliser
+
+// Free a memory block allocated by gc_alloc.
+// Note: This does not call the finaliser even if one is registered.
+void gc_free(void *ptr);
+
+// Get the size in bytes of a memory block allocated by gc_alloc.
 size_t gc_nbytes(const void *ptr);
+
+// Reallocate a memory block to a new size.
+// If allow_move is false, returns NULL if the block cannot be resized in place.
+// If allow_move is true, may allocate a new block and copy the data.
 void *gc_realloc(void *ptr, size_t n_bytes, bool allow_move);
 
 typedef struct _gc_info_t {
