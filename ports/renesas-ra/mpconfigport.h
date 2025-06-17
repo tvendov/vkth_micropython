@@ -29,6 +29,10 @@
 // Options to control how MicroPython is built for this port,
 // overriding defaults in py/mpconfig.h.
 
+// Standard includes for ssize_t and other types
+#include <stddef.h>
+#include <sys/types.h>
+
 // board specific definitions
 #include "mpconfigboard.h"
 #include "mpconfigboard_common.h"
@@ -96,6 +100,11 @@
 #define MICROPY_GC_SPLIT_HEAP       (1)
 #define MICROPY_GC_SPLIT_HEAP_N_HEAPS (2)
 #define MICROPY_PORT_RA6M5_OSPI     (1)
+
+// OSPI GC Debug configuration
+#ifndef DEBUG_OSPI_GC_LEVEL
+#define DEBUG_OSPI_GC_LEVEL         (0)  // 0=off, 1=basic, 2=verbose, 3=trace - TEMPORARILY OFF
+#endif
 #endif
 #define MICROPY_ENABLE_EMERGENCY_EXCEPTION_BUF (1)
 #define MICROPY_EMERGENCY_EXCEPTION_BUF_SIZE (0)

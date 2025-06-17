@@ -58,7 +58,7 @@ $(LVGL_MPY): $(ALL_LVGL_SRC) $(LVGL_BINDING_DIR)/gen/gen_mpy.py
 
 LVGL_patch:
 	$(ECHO) "patch LVGL..."
-	git -C $(LVGL_BINDING_DIR) apply --directory lvgl $(LVGL_BINDING_DIR)/patch/fix_GC.patch || true
+	# OLD PATCH REMOVED: fix_GC.patch no longer needed - GC fixes are now in main codebase
 endif
 
 # MicroPython feature configurations
@@ -70,6 +70,11 @@ FROZEN_MANIFEST ?= boards/manifest.py
 # include py core make definitions
 include $(TOP)/py/py.mk
 include $(TOP)/extmod/extmod.mk
+
+# Add OSPI GC support if enabled
+ifeq ($(MICROPY_PORT_RA6M5_OSPI),1)
+PY_O += $(BUILD)/py/gc_ospi.o
+endif
 
 GIT_SUBMODULES += lib/fsp lib/tinyusb
 

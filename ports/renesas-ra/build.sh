@@ -5,4 +5,5 @@ BOARD="VK_RA6M5"
 STAMP=$(date +%Y%m%d%H%M)
 LOG="${BOARD}_build_${STAMP}.log"
 
-make -j"$(nproc)" DEBUG=0 BOARD="$BOARD" |& tee "$LOG"
+# Enable OSPI GC support for VK_RA6M5
+make -j"$(nproc)" DEBUG=0 BOARD="$BOARD" MICROPY_PORT_RA6M5_OSPI=1 |& tee "$LOG"
