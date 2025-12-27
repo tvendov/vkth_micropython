@@ -21,12 +21,16 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [14] = spi_txi_isr,         /* SPI0 TXI (Transmit buffer empty) */
     [15] = spi_tei_isr,         /* SPI0 TEI (Transmission complete event) */
     [16] = spi_eri_isr,         /* SPI0 ERI (Error) */
-    [17] = iic_master_rxi_isr,         /* IIC1 RXI (Receive data full) */
-    [18] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
-    [19] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
-    [20] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
-    [21] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
-    [22] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
+    [17] = iic_master_rxi_isr,         /* IIC0 RXI (Receive data full) */
+    [18] = iic_master_txi_isr,         /* IIC0 TXI (Transmit data empty) */
+    [19] = iic_master_tei_isr,         /* IIC0 TEI (Transmit end) */
+    [20] = iic_master_eri_isr,         /* IIC0 ERI (Transfer error) */
+    [21] = iic_master_rxi_isr,         /* IIC1 RXI (Receive data full) */
+    [22] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
+    [23] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
+    [24] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
+    [25] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
+    [26] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -47,11 +51,15 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [14] = BSP_PRV_IELS_ENUM(EVENT_SPI0_TXI),         /* SPI0 TXI (Transmit buffer empty) */
     [15] = BSP_PRV_IELS_ENUM(EVENT_SPI0_TEI),         /* SPI0 TEI (Transmission complete event) */
     [16] = BSP_PRV_IELS_ENUM(EVENT_SPI0_ERI),         /* SPI0 ERI (Error) */
-    [17] = BSP_PRV_IELS_ENUM(EVENT_IIC1_RXI),         /* IIC1 RXI (Receive data full) */
-    [18] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
-    [19] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
-    [20] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
-    [21] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
-    [22] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
+    [17] = BSP_PRV_IELS_ENUM(EVENT_IIC0_RXI),         /* IIC0 RXI (Receive data full) */
+    [18] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TXI),         /* IIC0 TXI (Transmit data empty) */
+    [19] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TEI),         /* IIC0 TEI (Transmit end) */
+    [20] = BSP_PRV_IELS_ENUM(EVENT_IIC0_ERI),         /* IIC0 ERI (Transfer error) */
+    [21] = BSP_PRV_IELS_ENUM(EVENT_IIC1_RXI),         /* IIC1 RXI (Receive data full) */
+    [22] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
+    [23] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
+    [24] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
+    [25] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
+    [26] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
 };
 #endif

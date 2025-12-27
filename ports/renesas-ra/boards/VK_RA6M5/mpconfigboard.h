@@ -10,18 +10,24 @@
 #define MICROPY_PY_BUILTINS_COMPLEX (1)
 #define MICROPY_PY_GENERATOR_PEND_THROW (1)
 #define MICROPY_PY_MATH             (1)
-#define MICROPY_PY_UHEAPQ           (1)
-#define MICROPY_PY_UTIMEQ           (1)
+#define MICROPY_PY_HEAPQ            (1)
 #define MICROPY_PY_THREAD           (0) // disable ARM_THUMB_FP using vldr due to RA has single float only
+#define MICROPY_HW_ETH_MDC          (1)
+#define MICROPY_PY_NETWORK          (1)
+#define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT MICROPY_HW_BOARD_NAME
 
 // peripheral config
+#define MICROPY_HW_ENABLE_RNG       (1)
 #define MICROPY_HW_ENABLE_RTC       (1)
 #define MICROPY_HW_RTC_SOURCE       (1)     // 0: subclock
 #define MICROPY_HW_ENABLE_ADC       (1)
 #define MICROPY_HW_HAS_FLASH        (1)
+#define MICROPY_HW_ENABLE_USBDEV    (1)
+#define MICROPY_HW_ENABLE_UART_REPL (1)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 #define MICROPY_HW_HAS_QSPI_FLASH   (1)
 #define MICROPY_HW_HAS_SDHI_CARD    (1)
+#define MICROPY_HW_HAS_OSPI_RAM     (1)
 
 // board config
 
@@ -35,9 +41,22 @@
 #define MICROPY_HW_UART_REPL        HW_UART_9
 #define MICROPY_HW_UART_REPL_BAUD   115200
 
+/* --- MicroPython tuning -------------------------------------------------- */
+
+/* 1)  Raw‑REPL sliding window – bigger buffer → fewer reallocs during upload */
+#ifndef MICROPY_REPL_STDIN_BUFFER_MAX
+#define MICROPY_REPL_STDIN_BUFFER_MAX      (16 * 1024)     /* ~60KB, под лимита от 65535 */
+#endif
+#define MICROPY_REPL_STDIN_BUFFER_RESERVE  (64)
+
+
+
 // I2C
 #define MICROPY_HW_I2C2_SCL         (pin_P415)
 #define MICROPY_HW_I2C2_SDA         (pin_P414)
+#define MICROPY_HW_I2C1_SCL         (pin_P205)
+#define MICROPY_HW_I2C1_SDA         (pin_P206)
+
 
 // SPI
 #define MICROPY_HW_SPI0_SSL         (pin_P301) // D10
@@ -84,3 +103,5 @@
 #define MICROPY_HW_LED_ON(pin)      mp_hal_pin_high(pin)
 #define MICROPY_HW_LED_OFF(pin)     mp_hal_pin_low(pin)
 #define MICROPY_HW_LED_TOGGLE(pin)  mp_hal_pin_toggle(pin)
+
+

@@ -4,12 +4,14 @@
 
 const ioport_pin_cfg_t g_bsp_pin_cfg_data[] =
 {
-    { .pin = BSP_IO_PORT_01_PIN_00, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
-        | (uint32_t)IOPORT_PERIPHERAL_SPI) },
-    { .pin = BSP_IO_PORT_01_PIN_01, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
-        | (uint32_t)IOPORT_PERIPHERAL_SPI) },
-    { .pin = BSP_IO_PORT_01_PIN_02, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
-        | (uint32_t)IOPORT_PERIPHERAL_SPI) },
+    // P100/P101/P102 removed - SPI0 disabled, I2C1 uses P100/P101
+    // All pins configured dynamically by MicroPython
+    // { .pin = BSP_IO_PORT_01_PIN_00, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
+    //     | (uint32_t)IOPORT_PERIPHERAL_SPI) },
+    // { .pin = BSP_IO_PORT_01_PIN_01, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
+    //     | (uint32_t)IOPORT_PERIPHERAL_SPI) },
+    // { .pin = BSP_IO_PORT_01_PIN_02, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
+    //     | (uint32_t)IOPORT_PERIPHERAL_SPI) },
     { .pin = BSP_IO_PORT_01_PIN_08, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN
         | (uint32_t)IOPORT_PERIPHERAL_DEBUG) },
     { .pin = BSP_IO_PORT_01_PIN_09, .pin_cfg = ((uint32_t)IOPORT_CFG_PERIPHERAL_PIN

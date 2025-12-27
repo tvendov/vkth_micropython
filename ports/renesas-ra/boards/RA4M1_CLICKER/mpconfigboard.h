@@ -17,31 +17,48 @@
 #define MICROPY_HW_ENABLE_RTC       (1)
 #define MICROPY_HW_RTC_SOURCE       (0)         // 0: subclock, 1:LOCO
 #define MICROPY_HW_ENABLE_ADC       (1)
+#define MICROPY_HW_ENABLE_DAC       (1)
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 
 // board config
+// DAC
+#define MICROPY_HW_DAC0             (pin_P014) // A4
 
 // UART
-#define MICROPY_HW_UART0_TX         (pin_P411) // MBTX0
-#define MICROPY_HW_UART0_RX         (pin_P410) // MBRX0
+#define MICROPY_HW_UART0_TX         (pin_P411) // MBTX0 - REPL
+#define MICROPY_HW_UART0_RX         (pin_P410) // MBRX0 - REPL
 // #define MICROPY_HW_UART0_CTS     (pin_P103) // Disable (Conflict with SSLA0)
-#define MICROPY_HW_UART1_TX         (pin_P401) // REPL
-#define MICROPY_HW_UART1_RX         (pin_P402) // REPL
-#define MICROPY_HW_UART_REPL        HW_UART_1
+//#define MICROPY_HW_UART1_TX         (pin_P401) // mikroBUS
+//#define MICROPY_HW_UART1_RX         (pin_P402) // mikroBUS
+#define MICROPY_HW_UART2_TX         (pin_P302) // mikroBUS
+#define MICROPY_HW_UART2_RX         (pin_P301) // mikroBUS
+#define MICROPY_HW_UART_REPL        HW_UART_0
 #define MICROPY_HW_UART_REPL_BAUD   115200
 
 // I2C
-// #define MICROPY_HW_I2C0_SCL       (pin_P400) // Disable (Conflict with REPL)
-// #define MICROPY_HW_I2C0_SDA       (pin_P401) // Disable (Conflict with REPL)
-#define MICROPY_HW_I2C1_SCL         (pin_P205)
-#define MICROPY_HW_I2C1_SDA         (pin_P206)
+#define MICROPY_HW_I2C0_SCL         (pin_P400) // mikroBUS
+#define MICROPY_HW_I2C0_SDA         (pin_P401) // mikroBUS
+#define MICROPY_HW_I2C1_SCL         (pin_P100) // Available pins
+#define MICROPY_HW_I2C1_SDA         (pin_P101) // Available pins
 
 // SPI
-#define MICROPY_HW_SPI0_SSL         (pin_P103)
-#define MICROPY_HW_SPI0_RSPCK       (pin_P102)
-#define MICROPY_HW_SPI0_MISO        (pin_P100)
-#define MICROPY_HW_SPI0_MOSI        (pin_P101)
+// SPI0 (P100/P101/P102/P103) conflicts with I2C1, so use SPI1 instead
+#define MICROPY_HW_SPI1_SSL         (pin_P112) // mikroBUS
+#define MICROPY_HW_SPI1_RSPCK       (pin_P111) // mikroBUS
+#define MICROPY_HW_SPI1_MISO        (pin_P110) // mikroBUS
+#define MICROPY_HW_SPI1_MOSI        (pin_P109) // mikroBUS
+
+// PWM (GPT)
+#define MICROPY_HW_PWM_0A           (pin_P107) // GPT0_A
+#define MICROPY_HW_PWM_0B           (pin_P106) // GPT0_B
+#define MICROPY_HW_PWM_1A           (pin_P105) // GPT1_A
+#define MICROPY_HW_PWM_1B           (pin_P104) // GPT1_B
+#define MICROPY_HW_PWM_2A           (pin_P103) // GPT2_A
+#define MICROPY_HW_PWM_2B           (pin_P102) // GPT2_B
+#define MICROPY_HW_PWM_3B           (pin_P112) // GPT3_B
+#define MICROPY_HW_PWM_7A           (pin_P304) // GPT7_A
+#define MICROPY_HW_PWM_7B           (pin_P303) // GPT7_B
 
 // Switch
 #define MICROPY_HW_HAS_SWITCH       (1)

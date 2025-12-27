@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (23)
+#define VECTOR_DATA_IRQ_COUNT    (27)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -61,18 +61,26 @@ void iic_master_eri_isr(void);
 #define SPI0_TEI_IRQn          ((IRQn_Type)15)  /* SPI0 TEI (Transmission complete event) */
 #define VECTOR_NUMBER_SPI0_ERI ((IRQn_Type)16)  /* SPI0 ERI (Error) */
 #define SPI0_ERI_IRQn          ((IRQn_Type)16)  /* SPI0 ERI (Error) */
-#define VECTOR_NUMBER_IIC1_RXI ((IRQn_Type)17)  /* IIC1 RXI (Receive data full) */
-#define IIC1_RXI_IRQn          ((IRQn_Type)17)  /* IIC1 RXI (Receive data full) */
-#define VECTOR_NUMBER_IIC1_TXI ((IRQn_Type)18)  /* IIC1 TXI (Transmit data empty) */
-#define IIC1_TXI_IRQn          ((IRQn_Type)18)  /* IIC1 TXI (Transmit data empty) */
-#define VECTOR_NUMBER_IIC1_TEI ((IRQn_Type)19)  /* IIC1 TEI (Transmit end) */
-#define IIC1_TEI_IRQn          ((IRQn_Type)19)  /* IIC1 TEI (Transmit end) */
-#define VECTOR_NUMBER_IIC1_ERI ((IRQn_Type)20)  /* IIC1 ERI (Transfer error) */
-#define IIC1_ERI_IRQn          ((IRQn_Type)20)  /* IIC1 ERI (Transfer error) */
-#define VECTOR_NUMBER_ICU_IRQ6 ((IRQn_Type)21)  /* ICU IRQ6 (External pin interrupt 6) */
-#define ICU_IRQ6_IRQn          ((IRQn_Type)21)  /* ICU IRQ6 (External pin interrupt 6) */
-#define VECTOR_NUMBER_ICU_IRQ9 ((IRQn_Type)22)  /* ICU IRQ9 (External pin interrupt 9) */
-#define ICU_IRQ9_IRQn          ((IRQn_Type)22)  /* ICU IRQ9 (External pin interrupt 9) */
+#define VECTOR_NUMBER_IIC0_RXI ((IRQn_Type)17)  /* IIC0 RXI (Receive data full) */
+#define IIC0_RXI_IRQn          ((IRQn_Type)17)  /* IIC0 RXI (Receive data full) */
+#define VECTOR_NUMBER_IIC0_TXI ((IRQn_Type)18)  /* IIC0 TXI (Transmit data empty) */
+#define IIC0_TXI_IRQn          ((IRQn_Type)18)  /* IIC0 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_IIC0_TEI ((IRQn_Type)19)  /* IIC0 TEI (Transmit end) */
+#define IIC0_TEI_IRQn          ((IRQn_Type)19)  /* IIC0 TEI (Transmit end) */
+#define VECTOR_NUMBER_IIC0_ERI ((IRQn_Type)20)  /* IIC0 ERI (Transfer error) */
+#define IIC0_ERI_IRQn          ((IRQn_Type)20)  /* IIC0 ERI (Transfer error) */
+#define VECTOR_NUMBER_IIC1_RXI ((IRQn_Type)21)  /* IIC1 RXI (Receive data full) */
+#define IIC1_RXI_IRQn          ((IRQn_Type)21)  /* IIC1 RXI (Receive data full) */
+#define VECTOR_NUMBER_IIC1_TXI ((IRQn_Type)22)  /* IIC1 TXI (Transmit data empty) */
+#define IIC1_TXI_IRQn          ((IRQn_Type)22)  /* IIC1 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_IIC1_TEI ((IRQn_Type)23)  /* IIC1 TEI (Transmit end) */
+#define IIC1_TEI_IRQn          ((IRQn_Type)23)  /* IIC1 TEI (Transmit end) */
+#define VECTOR_NUMBER_IIC1_ERI ((IRQn_Type)24)  /* IIC1 ERI (Transfer error) */
+#define IIC1_ERI_IRQn          ((IRQn_Type)24)  /* IIC1 ERI (Transfer error) */
+#define VECTOR_NUMBER_ICU_IRQ6 ((IRQn_Type)25)  /* ICU IRQ6 (External pin interrupt 6) */
+#define ICU_IRQ6_IRQn          ((IRQn_Type)25)  /* ICU IRQ6 (External pin interrupt 6) */
+#define VECTOR_NUMBER_ICU_IRQ9 ((IRQn_Type)26)  /* ICU IRQ9 (External pin interrupt 9) */
+#define ICU_IRQ9_IRQn          ((IRQn_Type)26)  /* ICU IRQ9 (External pin interrupt 9) */
 #ifdef __cplusplus
 }
 #endif

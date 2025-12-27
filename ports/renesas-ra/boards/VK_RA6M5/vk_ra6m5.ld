@@ -5,8 +5,8 @@
 /* Linker script to configure memory regions. */
 MEMORY
 {
-  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00100000  /* 1MB/2MB */
-  FLASH_FS (r)       : ORIGIN = 0x00100000, LENGTH = 0x00100000  /* 1MB/2MB */
+  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00190000  /* 1MB/2MB */
+  FLASH_FS (r)       : ORIGIN = 0x00190000, LENGTH = 0x00070000  /* 1MB/2MB */
   RAM (rwx)          : ORIGIN = 0x20000000, LENGTH = 0x00080000  /* 512KB */
   OSPI_RAM (rwx)     : ORIGIN = 0x68000000, LENGTH = 0x00800000  /* 8MB/8MB */
   DATA_FLASH (rx)    : ORIGIN = 0x08000000, LENGTH = 0x00002000  /* 8KB */
@@ -228,6 +228,14 @@ SECTIONS
         __noinit_end = .;
     } > RAM
 
+    .octa_ram (NOLOAD):
+    {
+        __Octa_Ram_Start = .;
+        /* резервирай целия регион, дори да няма данни */
+        . = ORIGIN(OSPI_RAM) + LENGTH(OSPI_RAM);
+        __Octa_Ram_End = .;
+    } > OSPI_RAM
+
     .bss :
     {
         . = ALIGN(4);
@@ -298,8 +306,16 @@ _estack = ORIGIN(RAM) + LENGTH(RAM);
 /* RAM extents for the garbage collector */
 _ram_start = ORIGIN(RAM);
 _ram_end = ORIGIN(RAM) + LENGTH(RAM);
+_octa_ram_start = ORIGIN(OSPI_RAM);
+_octa_ram_end = ORIGIN(OSPI_RAM) + LENGTH(OSPI_RAM);
 _heap_start = __HeapBase; /* heap starts just after statically allocated memory */
 _heap_end = __HeapLimit; /* tunable */
+
+/* Split-heap symbols for main.c */
+_heap_internal_start = __HeapBase;
+_heap_internal_end = __HeapLimit;
+_ospi_ram_start = ORIGIN(OSPI_RAM);
+_ospi_ram_end = ORIGIN(OSPI_RAM) + LENGTH(OSPI_RAM);
 
 _micropy_hw_internal_flash_storage_start = ORIGIN(FLASH_FS);
 _micropy_hw_internal_flash_storage_end   = ORIGIN(FLASH_FS) + LENGTH(FLASH_FS);

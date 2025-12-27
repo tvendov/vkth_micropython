@@ -47,7 +47,7 @@
 #if MICROPY_HW_ENABLE_USBDEV
 // Enable USB-CDC serial port
 #ifndef MICROPY_HW_USB_CDC
-#define MICROPY_HW_USB_CDC      (1)
+#define MICROPY_HW_USB_CDC      (0)
 #endif
 // Enable USB Mass Storage with FatFS filesystem.
 #ifndef MICROPY_HW_USB_MSC
@@ -186,16 +186,16 @@
 #define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT "mpy-ra"
 #endif
 #ifndef MICROPY_PY_USOCKET
-#define MICROPY_PY_USOCKET              (1)
+#define MICROPY_PY_USOCKET              (0)
 #endif
 #ifndef MICROPY_PY_USSL
-#define MICROPY_PY_USSL                 (1)
+#define MICROPY_PY_USSL                 (0)
 #endif
 #ifndef MICROPY_PY_UWEBSOCKET
-#define MICROPY_PY_UWEBSOCKET           (1)
+#define MICROPY_PY_UWEBSOCKET           (0)
 #endif
 #ifndef MICROPY_PY_WEBREPL
-#define MICROPY_PY_WEBREPL              (1)
+#define MICROPY_PY_WEBREPL              (0)
 #endif
 #endif
 
@@ -252,7 +252,7 @@ typedef long mp_off_t;
 #endif
 
 #ifndef MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE
-#define MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE (1)
+#define MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE (0)
 #endif
 
 #ifndef MICROPY_PY_BLUETOOTH_ENABLE_L2CAP_CHANNELS

@@ -91,7 +91,7 @@
 
 // Whether to enable the DAC peripheral, exposed as pyb.DAC
 #ifndef MICROPY_HW_ENABLE_DAC
-#define MICROPY_HW_ENABLE_DAC (0)
+#define MICROPY_HW_ENABLE_DAC (1)
 #endif
 
 // Whether to enable the DCMI peripheral

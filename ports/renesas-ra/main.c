@@ -422,7 +422,7 @@ soft_reset_exit:
     timer_deinit();
     uart_deinit_all();
     #if MICROPY_HW_ENABLE_DAC
-    dac_deinit_all();
+    //dac_deinit_all();
     #endif
     machine_pin_deinit();
     machine_deinit();
