@@ -6,7 +6,11 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (27)
+/* RA4M1 provides 32 ICU vector slots. Here we use all of them: 24 for
+ * non-ICU peripherals (SCI, RTC, AGT, SPI, IIC) and 8 for ICU external
+ * interrupt channels (IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ9).
+ */
+#define VECTOR_DATA_IRQ_COUNT    (32)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -81,6 +85,22 @@ void iic_master_eri_isr(void);
 #define ICU_IRQ6_IRQn          ((IRQn_Type)25)  /* ICU IRQ6 (External pin interrupt 6) */
 #define VECTOR_NUMBER_ICU_IRQ9 ((IRQn_Type)26)  /* ICU IRQ9 (External pin interrupt 9) */
 #define ICU_IRQ9_IRQn          ((IRQn_Type)26)  /* ICU IRQ9 (External pin interrupt 9) */
+
+/* Additional ICU external interrupt channels enabled for RA4M1 CLICKER.
+ * Because RA4M1 only has 32 vector slots, we can enable at most 8
+ * external interrupt channels concurrently. In addition to IRQ5, IRQ6
+ * and IRQ9 above, we map IRQ0..IRQ4 here.
+ */
+#define VECTOR_NUMBER_ICU_IRQ0  ((IRQn_Type)27)  /* ICU IRQ0 (External pin interrupt 0) */
+#define ICU_IRQ0_IRQn           ((IRQn_Type)27)  /* ICU IRQ0 (External pin interrupt 0) */
+#define VECTOR_NUMBER_ICU_IRQ1  ((IRQn_Type)28)  /* ICU IRQ1 (External pin interrupt 1) */
+#define ICU_IRQ1_IRQn           ((IRQn_Type)28)  /* ICU IRQ1 (External pin interrupt 1) */
+#define VECTOR_NUMBER_ICU_IRQ2  ((IRQn_Type)29)  /* ICU IRQ2 (External pin interrupt 2) */
+#define ICU_IRQ2_IRQn           ((IRQn_Type)29)  /* ICU IRQ2 (External pin interrupt 2) */
+#define VECTOR_NUMBER_ICU_IRQ3  ((IRQn_Type)30)  /* ICU IRQ3 (External pin interrupt 3) */
+#define ICU_IRQ3_IRQn           ((IRQn_Type)30)  /* ICU IRQ3 (External pin interrupt 3) */
+#define VECTOR_NUMBER_ICU_IRQ4  ((IRQn_Type)31)  /* ICU IRQ4 (External pin interrupt 4) */
+#define ICU_IRQ4_IRQn           ((IRQn_Type)31)  /* ICU IRQ4 (External pin interrupt 4) */
 #ifdef __cplusplus
 }
 #endif

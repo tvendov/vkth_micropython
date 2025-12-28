@@ -2,8 +2,8 @@
 #include "bsp_api.h"
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
 #if VECTOR_DATA_IRQ_COUNT > 0
-BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
-{
+    BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
+    {
     [0] = sci_uart_rxi_isr,         /* SCI0 RXI (Receive data full) */
     [1] = sci_uart_txi_isr,         /* SCI0 TXI (Transmit data empty) */
     [2] = sci_uart_tei_isr,         /* SCI0 TEI (Transmit end) */
@@ -29,11 +29,16 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [22] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
     [23] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
     [24] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
-    [25] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
-    [26] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
-};
-const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
-{
+        [25] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
+        [26] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
+        [27] = r_icu_isr,         /* ICU IRQ0 (External pin interrupt 0) */
+        [28] = r_icu_isr,         /* ICU IRQ1 (External pin interrupt 1) */
+        [29] = r_icu_isr,         /* ICU IRQ2 (External pin interrupt 2) */
+        [30] = r_icu_isr,         /* ICU IRQ3 (External pin interrupt 3) */
+        [31] = r_icu_isr,         /* ICU IRQ4 (External pin interrupt 4) */
+    };
+    const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
+    {
     [0] = BSP_PRV_IELS_ENUM(EVENT_SCI0_RXI),         /* SCI0 RXI (Receive data full) */
     [1] = BSP_PRV_IELS_ENUM(EVENT_SCI0_TXI),         /* SCI0 TXI (Transmit data empty) */
     [2] = BSP_PRV_IELS_ENUM(EVENT_SCI0_TEI),         /* SCI0 TEI (Transmit end) */
@@ -59,7 +64,12 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [22] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
     [23] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
     [24] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
-    [25] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
-    [26] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
-};
+        [25] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
+        [26] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
+        [27] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ0),         /* ICU IRQ0 (External pin interrupt 0) */
+        [28] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ1),         /* ICU IRQ1 (External pin interrupt 1) */
+        [29] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ2),         /* ICU IRQ2 (External pin interrupt 2) */
+        [30] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ3),         /* ICU IRQ3 (External pin interrupt 3) */
+        [31] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ4),         /* ICU IRQ4 (External pin interrupt 4) */
+    };
 #endif

@@ -50,14 +50,36 @@
 #define MICROPY_HW_SPI1_MOSI        (pin_P109) // mikroBUS
 
 // PWM (GPT)
-#define MICROPY_HW_PWM_0A           (pin_P107) // GPT0_A
+// GPT0
+#define MICROPY_HW_PWM_0A           (pin_P107) // GPT0_A (MBPWM)
 #define MICROPY_HW_PWM_0B           (pin_P106) // GPT0_B
+
+// GPT1
 #define MICROPY_HW_PWM_1A           (pin_P105) // GPT1_A
 #define MICROPY_HW_PWM_1B           (pin_P104) // GPT1_B
-#define MICROPY_HW_PWM_2A           (pin_P103) // GPT2_A
-#define MICROPY_HW_PWM_2B           (pin_P102) // GPT2_B
-#define MICROPY_HW_PWM_3B           (pin_P112) // GPT3_B
-#define MICROPY_HW_PWM_7A           (pin_P304) // GPT7_A
+
+// GPT2
+#define MICROPY_HW_PWM_2A           (pin_P103) // GPT2_A (MBSSL)
+#define MICROPY_HW_PWM_2B           (pin_P102) // GPT2_B (MBSCK)
+
+// GPT3
+#define MICROPY_HW_PWM_3A           (pin_P111) // GPT3_A (SPI1_SCK)
+#define MICROPY_HW_PWM_3B           (pin_P112) // GPT3_B (SPI1_SSL)
+
+// GPT4
+#define MICROPY_HW_PWM_4A           (pin_P205) // GPT4_A (MBSCLI / I2C alt)
+#define MICROPY_HW_PWM_4B           (pin_P301) // GPT4_B (UART2_RX / SW2)
+
+// GPT5
+#define MICROPY_HW_PWM_5A           (pin_P409) // GPT5_A (LED1)
+#define MICROPY_HW_PWM_5B           (pin_P408) // GPT5_B (LED2)
+
+// GPT6
+#define MICROPY_HW_PWM_6A           (pin_P400) // GPT6_A (I2C0_SCL)
+#define MICROPY_HW_PWM_6B           (pin_P401) // GPT6_B (I2C0_SDA)
+
+// GPT7
+#define MICROPY_HW_PWM_7A           (pin_P304) // GPT7_A (USR button / IRQ9)
 #define MICROPY_HW_PWM_7B           (pin_P303) // GPT7_B
 
 // Switch
