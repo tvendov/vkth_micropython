@@ -136,7 +136,7 @@ static const ra_af_pin_t sda_pins[] = {
 };
 #define SDA_PINS_SIZE sizeof(sda_pins) / sizeof(ra_af_pin_t)
 
-static const uint8_t ra_i2c_ch_to_rxirq[] = {
+const uint8_t ra_i2c_ch_to_rxirq[] = {
     #if defined(VECTOR_NUMBER_IIC0_RXI)
     VECTOR_NUMBER_IIC0_RXI,
     #else
@@ -153,7 +153,7 @@ static const uint8_t ra_i2c_ch_to_rxirq[] = {
     VECTOR_NUMBER_NONE,
     #endif
 };
-static const uint8_t ra_i2c_ch_to_txirq[] = {
+const uint8_t ra_i2c_ch_to_txirq[] = {
     #if defined(VECTOR_NUMBER_IIC0_TXI)
     VECTOR_NUMBER_IIC0_TXI,
     #else
@@ -170,7 +170,7 @@ static const uint8_t ra_i2c_ch_to_txirq[] = {
     VECTOR_NUMBER_NONE,
     #endif
 };
-static const uint8_t ra_i2c_ch_to_teirq[] = {
+const uint8_t ra_i2c_ch_to_teirq[] = {
     #if defined(VECTOR_NUMBER_IIC0_TEI)
     VECTOR_NUMBER_IIC0_TEI,
     #else
@@ -187,7 +187,7 @@ static const uint8_t ra_i2c_ch_to_teirq[] = {
     VECTOR_NUMBER_NONE,
     #endif
 };
-static const uint8_t ra_i2c_ch_to_erirq[] = {
+const uint8_t ra_i2c_ch_to_erirq[] = {
     #if defined(VECTOR_NUMBER_IIC0_ERI)
     VECTOR_NUMBER_IIC0_ERI,
     #else

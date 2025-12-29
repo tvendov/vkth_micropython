@@ -344,6 +344,7 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_flash.c \
 	ra_gpio.c \
 	ra_i2c.c \
+	ra_i2c_slave.c \
 	ra_icu.c \
 	ra_init.c \
 	ra_int.c \

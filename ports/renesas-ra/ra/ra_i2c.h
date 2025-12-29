@@ -104,4 +104,10 @@ void iic_master_tei_isr(void);
 void iic_master_eri_isr(void);
 bool ra_i2c_action_execute(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start, uint32_t timeout_ms);
 
+// IRQ channel mapping tables (used by both master and slave)
+extern const uint8_t ra_i2c_ch_to_rxirq[];
+extern const uint8_t ra_i2c_ch_to_txirq[];
+extern const uint8_t ra_i2c_ch_to_teirq[];
+extern const uint8_t ra_i2c_ch_to_erirq[];
+
 #endif /* RA_RA_I2C_H_ */
