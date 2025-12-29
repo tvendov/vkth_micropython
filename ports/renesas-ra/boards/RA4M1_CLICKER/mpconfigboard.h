@@ -18,6 +18,8 @@
 #define MICROPY_HW_RTC_SOURCE       (0)         // 0: subclock, 1:LOCO
 #define MICROPY_HW_ENABLE_ADC       (1)
 #define MICROPY_HW_ENABLE_DAC       (1)
+#define MICROPY_HW_ENABLE_OPAMP     (1)
+#define MICROPY_HW_ENABLE_COMPARATOR (1)
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 

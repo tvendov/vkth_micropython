@@ -29,6 +29,8 @@ void iic_master_rxi_isr(void);
 void iic_master_txi_isr(void);
 void iic_master_tei_isr(void);
 void iic_master_eri_isr(void);
+void acmplp0_int_isr(void);
+void acmplp1_int_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI0_RXI ((IRQn_Type)0)  /* SCI0 RXI (Receive data full) */
@@ -89,7 +91,8 @@ void iic_master_eri_isr(void);
 /* Additional ICU external interrupt channels enabled for RA4M1 CLICKER.
  * Because RA4M1 only has 32 vector slots, we can enable at most 8
  * external interrupt channels concurrently. In addition to IRQ5, IRQ6
- * and IRQ9 above, we map IRQ0..IRQ4 here.
+ * and IRQ9 above, we map IRQ0..IRQ2 here. The remaining two vector
+ * slots (30 and 31) are reserved for ACMPLP comparator interrupts.
  */
 #define VECTOR_NUMBER_ICU_IRQ0  ((IRQn_Type)27)  /* ICU IRQ0 (External pin interrupt 0) */
 #define ICU_IRQ0_IRQn           ((IRQn_Type)27)  /* ICU IRQ0 (External pin interrupt 0) */
@@ -97,10 +100,10 @@ void iic_master_eri_isr(void);
 #define ICU_IRQ1_IRQn           ((IRQn_Type)28)  /* ICU IRQ1 (External pin interrupt 1) */
 #define VECTOR_NUMBER_ICU_IRQ2  ((IRQn_Type)29)  /* ICU IRQ2 (External pin interrupt 2) */
 #define ICU_IRQ2_IRQn           ((IRQn_Type)29)  /* ICU IRQ2 (External pin interrupt 2) */
-#define VECTOR_NUMBER_ICU_IRQ3  ((IRQn_Type)30)  /* ICU IRQ3 (External pin interrupt 3) */
-#define ICU_IRQ3_IRQn           ((IRQn_Type)30)  /* ICU IRQ3 (External pin interrupt 3) */
-#define VECTOR_NUMBER_ICU_IRQ4  ((IRQn_Type)31)  /* ICU IRQ4 (External pin interrupt 4) */
-#define ICU_IRQ4_IRQn           ((IRQn_Type)31)  /* ICU IRQ4 (External pin interrupt 4) */
+#define VECTOR_NUMBER_ACMPLP0_INT  ((IRQn_Type)30)  /* ACMPLP0 INT (Comparator 0 interrupt) */
+#define ACMPLP0_INT_IRQn           ((IRQn_Type)30)  /* ACMPLP0 INT (Comparator 0 interrupt) */
+#define VECTOR_NUMBER_ACMPLP1_INT  ((IRQn_Type)31)  /* ACMPLP1 INT (Comparator 1 interrupt) */
+#define ACMPLP1_INT_IRQn           ((IRQn_Type)31)  /* ACMPLP1 INT (Comparator 1 interrupt) */
 #ifdef __cplusplus
 }
 #endif

@@ -243,6 +243,8 @@ SRC_C += \
 	help.c \
 	machine_dac.c \
 	machine_i2c.c \
+	machine_opamp.c \
+	machine_comparator.c \
 	machine_spi.c \
 	machine_pin.c \
 	machine_rtc.c \
@@ -345,6 +347,8 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_icu.c \
 	ra_init.c \
 	ra_int.c \
+	ra_opamp.c \
+	ra_acmplp.c \
 	ra_rtc.c \
 	ra_sci.c \
 	ra_spi.c \

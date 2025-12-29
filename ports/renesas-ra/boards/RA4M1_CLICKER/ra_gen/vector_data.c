@@ -25,17 +25,17 @@
     [18] = iic_master_txi_isr,         /* IIC0 TXI (Transmit data empty) */
     [19] = iic_master_tei_isr,         /* IIC0 TEI (Transmit end) */
     [20] = iic_master_eri_isr,         /* IIC0 ERI (Transfer error) */
-    [21] = iic_master_rxi_isr,         /* IIC1 RXI (Receive data full) */
-    [22] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
-    [23] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
-    [24] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
-        [25] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
-        [26] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
-        [27] = r_icu_isr,         /* ICU IRQ0 (External pin interrupt 0) */
-        [28] = r_icu_isr,         /* ICU IRQ1 (External pin interrupt 1) */
-        [29] = r_icu_isr,         /* ICU IRQ2 (External pin interrupt 2) */
-        [30] = r_icu_isr,         /* ICU IRQ3 (External pin interrupt 3) */
-        [31] = r_icu_isr,         /* ICU IRQ4 (External pin interrupt 4) */
+	    [21] = iic_master_rxi_isr,         /* IIC1 RXI (Receive data full) */
+	    [22] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
+	    [23] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
+	    [24] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
+	        [25] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
+	        [26] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
+	        [27] = r_icu_isr,         /* ICU IRQ0 (External pin interrupt 0) */
+	        [28] = r_icu_isr,         /* ICU IRQ1 (External pin interrupt 1) */
+	        [29] = r_icu_isr,         /* ICU IRQ2 (External pin interrupt 2) */
+	        [30] = acmplp0_int_isr,   /* ACMPLP0 INT (Comparator 0 interrupt) */
+	        [31] = acmplp1_int_isr,   /* ACMPLP1 INT (Comparator 1 interrupt) */
     };
     const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
     {
@@ -60,16 +60,16 @@
     [18] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TXI),         /* IIC0 TXI (Transmit data empty) */
     [19] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TEI),         /* IIC0 TEI (Transmit end) */
     [20] = BSP_PRV_IELS_ENUM(EVENT_IIC0_ERI),         /* IIC0 ERI (Transfer error) */
-    [21] = BSP_PRV_IELS_ENUM(EVENT_IIC1_RXI),         /* IIC1 RXI (Receive data full) */
-    [22] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
-    [23] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
-    [24] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
-        [25] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
-        [26] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
-        [27] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ0),         /* ICU IRQ0 (External pin interrupt 0) */
-        [28] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ1),         /* ICU IRQ1 (External pin interrupt 1) */
-        [29] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ2),         /* ICU IRQ2 (External pin interrupt 2) */
-        [30] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ3),         /* ICU IRQ3 (External pin interrupt 3) */
-        [31] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ4),         /* ICU IRQ4 (External pin interrupt 4) */
+	    [21] = BSP_PRV_IELS_ENUM(EVENT_IIC1_RXI),         /* IIC1 RXI (Receive data full) */
+	    [22] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
+	    [23] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
+	    [24] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
+	        [25] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
+	        [26] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
+	        [27] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ0),         /* ICU IRQ0 (External pin interrupt 0) */
+	        [28] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ1),         /* ICU IRQ1 (External pin interrupt 1) */
+	        [29] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ2),         /* ICU IRQ2 (External pin interrupt 2) */
+	        [30] = BSP_PRV_IELS_ENUM(EVENT_ACMPLP0_INT),      /* ACMPLP0 INT (Comparator 0 interrupt) */
+	        [31] = BSP_PRV_IELS_ENUM(EVENT_ACMPLP1_INT),      /* ACMPLP1 INT (Comparator 1 interrupt) */
     };
 #endif
