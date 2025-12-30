@@ -323,6 +323,11 @@ CFLAGS += -DUSE_FSP_LPM
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_lpm/r_lpm.c
 endif
 
+# DTC for I2C slave hardware buffering (add only if not already included via SDHI)
+ifneq ($(USE_FSP_SDHI), 1)
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_dtc/r_dtc.c
+endif
+
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4W1))
 ifeq ($(USE_FSP_FLASH), 1)
 CFLAGS += -DUSE_FSP_FLASH

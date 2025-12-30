@@ -27,6 +27,7 @@
 // This file is never compiled standalone, it's included directly from
 // extmod/machine_i2c_target.c via MICROPY_PY_MACHINE_I2C_TARGET_INCLUDEFILE.
 
+#include <string.h>
 #include "py/mphal.h"
 #include "ra/ra_i2c.h"
 #include "ra/ra_i2c_slave.h"
@@ -121,6 +122,21 @@ static size_t mp_machine_i2c_target_read_bytes(machine_i2c_target_obj_t *self, s
     if (self->slave == NULL) {
         return 0;
     }
+
+    // DTC-RX mode: drain from internal buffer instead of hardware register.
+    // The low-level driver has already stored bytes in its rx_buf during RXI ISRs.
+    if (self->slave->use_dtc_rx && self->slave->rx_buf_count > 0u) {
+        uint8_t *src_buf = NULL;
+        size_t available = ra_i2c_slave_flush_rx(self->slave, &src_buf);
+        if (available == 0u || src_buf == NULL) {
+            return 0;
+        }
+        size_t to_copy = (len < available) ? len : available;
+        memcpy(buf, src_buf, to_copy);
+        return to_copy;
+    }
+
+    // Legacy per-byte mode: read directly from hardware register
     return ra_i2c_slave_read(self->slave, buf, len);
 }
 
@@ -130,6 +146,23 @@ static size_t mp_machine_i2c_target_write_bytes(machine_i2c_target_obj_t *self, 
     }
     return ra_i2c_slave_write(self->slave, buf, len);
 }
+
+#if MICROPY_PY_MACHINE_I2C_TARGET_DTC_TX
+// Prepare TX buffer for DTC-based sequential read.
+// First byte is sent by CPU, remaining bytes by DTC automatically.
+static void mp_machine_i2c_target_dtc_tx_prepare(machine_i2c_target_obj_t *self, size_t len, const uint8_t *buf) {
+    if (self->slave == NULL) {
+        return;
+    }
+    #if RA_I2C_ENABLE_HW_DTC_TX
+    ra_i2c_slave_hw_dtc_tx_prepare(self->slave, buf, len);
+    #else
+    // Fallback: just use regular write for each byte
+    (void)len;
+    (void)buf;
+    #endif
+}
+#endif
 
 static inline void mp_machine_i2c_target_irq_config(machine_i2c_target_obj_t *self, unsigned int trigger) {
 	    if (self == NULL || self->slave == NULL) {
@@ -244,6 +277,15 @@ static mp_obj_t mp_machine_i2c_target_make_new(const mp_obj_type_t *type, size_t
     // Initialize low-level I2C slave hardware
     ra_i2c_slave_init(self->slave, i2c_inst, self->scl->pin, self->sda->pin,
         args[ARG_addr].u_int, args[ARG_addrsize].u_int == 10);
+
+    // Enable software RX buffering (DTC-RX emulation) when a memory backing
+    // store is provided. This reduces per-byte ISR wakeups: only the first
+    // byte (register pointer) and STOP/TX-transition trigger callbacks.
+    if (args[ARG_mem].u_obj != mp_const_none) {
+        ra_i2c_slave_enable_dtc_rx(self->slave, true);
+    } else {
+        ra_i2c_slave_enable_dtc_rx(self->slave, false);
+    }
 
     // Set callback for slave events
     ra_i2c_slave_set_callback(self->slave, i2c_target_callback, self);

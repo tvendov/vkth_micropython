@@ -44,12 +44,35 @@
 #define RA_I2C_SLAVE_RECOVERY_THRESHOLD (5)
 #endif
 
+// Hardware DTC support: set to 1 to enable real DTC transfers, 0 for software emulation
+#ifndef RA_I2C_ENABLE_HW_DTC
+#define RA_I2C_ENABLE_HW_DTC (1)
+#endif
+
+// Hardware DTC TX support: for sequential reads (memory device pattern)
+// Disabled by default on low-RAM MCUs (RA4M1) to save ~100 bytes
+#ifndef RA_I2C_ENABLE_HW_DTC_TX
+#define RA_I2C_ENABLE_HW_DTC_TX (0)
+#endif
+
 #ifndef RA_I2C_ENABLE_DTC
 #define RA_I2C_ENABLE_DTC (0)
 #endif
 
-#define RA_I2C_DTC_RX_MAX (128u)
-#define RA_I2C_DTC_TX_MAX (128u)
+// Buffer sizes - reduced to save RAM on RA4M1
+#define RA_I2C_DTC_RX_MAX (48u)
+#define RA_I2C_DTC_TX_MAX (48u)
+
+// Static RX buffer for DTC-based reception (always allocated for simplicity)
+// Used when use_dtc_rx is true; stores incoming bytes until STOP or TX transition.
+#ifndef RA_I2C_DTC_RX_BUF_SIZE
+#define RA_I2C_DTC_RX_BUF_SIZE  RA_I2C_DTC_RX_MAX
+#endif
+
+#if RA_I2C_ENABLE_HW_DTC
+#include "r_dtc.h"
+#include "r_transfer_api.h"
+#endif
 
 #if RA_I2C_ENABLE_DTC
 // Single-direction DTC buffer (RX or TX)
@@ -124,6 +147,37 @@ typedef struct ra_i2c_slave_obj {
     // When it reaches RA_I2C_SLAVE_RECOVERY_THRESHOLD, IIC is auto-reset.
     uint8_t recovery_count;
 
+    // DTC-RX software buffering: always available (no hardware DTC yet).
+    // When use_dtc_rx is true, RXI handler stores payload bytes here instead
+    // of invoking per-byte callback. Data is flushed on STOP or TX transition.
+    bool use_dtc_rx;           // True to enable software RX buffering
+    uint8_t rx_buf[RA_I2C_DTC_RX_BUF_SIZE];
+    volatile uint16_t rx_buf_count;  // Number of valid bytes in rx_buf
+    volatile bool rx_first_byte_received; // True after first payload byte (reg pointer)
+
+#if RA_I2C_ENABLE_HW_DTC
+    // Hardware DTC RX: after first byte (reg pointer), DTC takes over RX.
+    // NVIC RXI is disabled; DTC transfers ICDRR -> rx_buf automatically.
+    // NOTE: DTC ctrl/cfg structures are static in ra_i2c_slave.c to save RAM
+    bool hw_dtc_rx_active;     // True when hardware DTC is running for RX
+    uint16_t hw_dtc_rx_initial_len; // Initial DTC transfer length (for count calc)
+#endif
+
+#if RA_I2C_ENABLE_HW_DTC_TX
+    // Hardware DTC TX: for sequential reads (memory device pattern).
+    // DTC transfers tx_buf -> ICDRT automatically, NVIC TXI disabled during transfer.
+    bool hw_dtc_tx_active;     // True when hardware DTC is running for TX
+    bool hw_dtc_tx_auto_start; // True if DTC TX should auto-start after first CPU byte
+    uint16_t hw_dtc_tx_initial_len; // Initial DTC transfer length (for count calc)
+    uint8_t tx_buf[RA_I2C_DTC_TX_MAX]; // TX buffer for DTC
+    volatile uint16_t tx_buf_count;    // Number of valid bytes in tx_buf
+    volatile uint16_t tx_buf_index;    // Current read index for non-DTC fallback
+    volatile uint8_t tx_cpu_byte_count; // Bytes sent by CPU before DTC takes over
+    // Statistics for debugging
+    uint32_t tx_dtc_transfers;         // Number of DTC TX transfers completed
+    uint32_t tx_dtc_bytes_total;       // Total bytes sent via DTC TX
+#endif
+
 #if RA_I2C_ENABLE_DTC
     bool use_dtc;              // True if this slave instance uses DTC-based transfers
     ra_i2c_dtc_state_t dtc;    // DTC buffers/state for this channel
@@ -170,8 +224,32 @@ void ra_i2c_slave_clear_events(ra_i2c_slave_obj_t *self, ra_i2c_slave_event_t ev
 // Get and clear pending events
 ra_i2c_slave_event_t ra_i2c_slave_get_events(ra_i2c_slave_obj_t *self);
 
-    // Configure interrupt sources (ICIER bitmask). RXI/TXI remain enabled by design.
-    void ra_i2c_slave_set_icier_mask(ra_i2c_slave_obj_t *self, uint8_t icier_mask);
+// Configure interrupt sources (ICIER bitmask). RXI/TXI remain enabled by design.
+void ra_i2c_slave_set_icier_mask(ra_i2c_slave_obj_t *self, uint8_t icier_mask);
+
+// Enable/disable software RX buffering (DTC-RX emulation).
+// When enabled, RXI handler stores bytes in internal buffer and flushes on STOP/TX.
+void ra_i2c_slave_enable_dtc_rx(ra_i2c_slave_obj_t *self, bool enable);
+
+// Flush buffered RX data: returns pointer to internal buffer and count.
+// After calling this, the internal buffer is reset. Called at STOP or TX transition.
+size_t ra_i2c_slave_flush_rx(ra_i2c_slave_obj_t *self, uint8_t **buf_out);
+
+#if RA_I2C_ENABLE_HW_DTC
+// Hardware DTC RX: start DTC after first byte received
+void ra_i2c_slave_hw_dtc_rx_start(ra_i2c_slave_obj_t *self);
+// Hardware DTC RX: stop DTC and return byte count
+size_t ra_i2c_slave_hw_dtc_rx_stop(ra_i2c_slave_obj_t *self);
+#endif
+
+#if RA_I2C_ENABLE_HW_DTC_TX
+// Hardware DTC TX: prepare buffer for sequential read (memory device pattern)
+void ra_i2c_slave_hw_dtc_tx_prepare(ra_i2c_slave_obj_t *self, const uint8_t *data, size_t len);
+// Hardware DTC TX: start DTC transfer from tx_buf to ICDRT
+void ra_i2c_slave_hw_dtc_tx_start(ra_i2c_slave_obj_t *self);
+// Hardware DTC TX: stop DTC and return byte count
+size_t ra_i2c_slave_hw_dtc_tx_stop(ra_i2c_slave_obj_t *self);
+#endif
 
 #if RA_I2C_ENABLE_DTC
 // DTC initialisation for a given slave instance. mem_size is logical register-file size.

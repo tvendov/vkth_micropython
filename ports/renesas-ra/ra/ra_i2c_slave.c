@@ -129,6 +129,299 @@ size_t ra_i2c_slave_dtc_get_tx_count(ra_i2c_slave_obj_t *self) {
 }
 #endif
 
+// ============================================================================
+// Hardware DTC RX implementation
+// ============================================================================
+#if RA_I2C_ENABLE_HW_DTC
+
+// Forward declaration needed for HW DTC functions
+static uint32_t i2c_inst_to_ch(R_IIC0_Type *i2c_inst);
+
+// Static DTC structures shared between channels (only one DTC transfer at a time)
+static transfer_info_t s_dtc_rx_info;
+static dtc_instance_ctrl_t s_dtc_rx_ctrl;
+static dtc_extended_cfg_t s_dtc_rx_extend;
+static transfer_cfg_t s_dtc_rx_cfg;
+
+// Start hardware DTC for RX after first byte (register pointer) is received.
+// DTC will transfer subsequent bytes from ICDRR to rx_buf automatically.
+void ra_i2c_slave_hw_dtc_rx_start(ra_i2c_slave_obj_t *self) {
+    if (self == NULL || self->i2c_inst == NULL) {
+        return;
+    }
+
+    uint32_t ch = i2c_inst_to_ch(self->i2c_inst);
+    IRQn_Type rxi_irq = (IRQn_Type)ra_i2c_ch_to_rxirq[ch];
+
+    // Check if valid IRQ is available
+    if (rxi_irq == VECTOR_NUMBER_NONE) {
+        // No hardware DTC available, stay in software mode
+        return;
+    }
+
+    // Calculate remaining buffer space (first byte already received)
+    uint16_t remaining = RA_I2C_DTC_RX_BUF_SIZE - self->rx_buf_count;
+    if (remaining == 0u) {
+        return; // Buffer full
+    }
+
+    // Configure DTC descriptor for RX:
+    // Source: ICDRR (fixed), Dest: rx_buf + rx_buf_count (increment)
+    s_dtc_rx_info.transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED;
+    s_dtc_rx_info.transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_FIXED;
+    s_dtc_rx_info.transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+    s_dtc_rx_info.transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+    s_dtc_rx_info.transfer_settings_word_b.irq = TRANSFER_IRQ_END;
+    s_dtc_rx_info.transfer_settings_word_b.repeat_area = TRANSFER_REPEAT_AREA_DESTINATION;
+    s_dtc_rx_info.transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
+    s_dtc_rx_info.p_src = (void const *)&self->i2c_inst->ICDRR;
+    s_dtc_rx_info.p_dest = (void *)&self->rx_buf[self->rx_buf_count];
+    s_dtc_rx_info.length = remaining;
+    s_dtc_rx_info.num_blocks = 0;
+
+    // Store initial length for count calculation later
+    self->hw_dtc_rx_initial_len = remaining;
+
+    // Configure DTC extended config (activation source)
+    s_dtc_rx_extend.activation_source = rxi_irq;
+
+    // Configure DTC transfer config
+    s_dtc_rx_cfg.p_info = &s_dtc_rx_info;
+    s_dtc_rx_cfg.p_extend = &s_dtc_rx_extend;
+
+    // Open and enable DTC
+    fsp_err_t err = R_DTC_Open(&s_dtc_rx_ctrl, &s_dtc_rx_cfg);
+    if (err != FSP_SUCCESS && err != FSP_ERR_ALREADY_OPEN) {
+        #if RA_I2C_SLAVE_DEBUG
+        printf("[ra_i2c_slave] HW DTC Open failed: %d\n", (int)err);
+        #endif
+        return;
+    }
+
+    err = R_DTC_Enable(&s_dtc_rx_ctrl);
+    if (err != FSP_SUCCESS) {
+        #if RA_I2C_SLAVE_DEBUG
+        printf("[ra_i2c_slave] HW DTC Enable failed: %d\n", (int)err);
+        #endif
+        R_DTC_Close(&s_dtc_rx_ctrl);
+        return;
+    }
+
+    // Disable NVIC RXI - DTC handles the interrupt now
+    R_BSP_IrqDisable(rxi_irq);
+
+    self->hw_dtc_rx_active = true;
+
+    #if RA_I2C_SLAVE_DEBUG
+    printf("[ra_i2c_slave] HW DTC RX started, max %u bytes\n", (unsigned)remaining);
+    #endif
+}
+
+// Stop hardware DTC RX and return number of bytes transferred
+size_t ra_i2c_slave_hw_dtc_rx_stop(ra_i2c_slave_obj_t *self) {
+    if (self == NULL || !self->hw_dtc_rx_active) {
+        return 0u;
+    }
+
+    uint32_t ch = i2c_inst_to_ch(self->i2c_inst);
+    IRQn_Type rxi_irq = (IRQn_Type)ra_i2c_ch_to_rxirq[ch];
+
+    // Get transfer info to read remaining count
+    transfer_properties_t props;
+    fsp_err_t err = R_DTC_InfoGet(&s_dtc_rx_ctrl, &props);
+
+    size_t bytes_transferred = 0u;
+    if (err == FSP_SUCCESS) {
+        // Bytes transferred = initial length - remaining
+        bytes_transferred = self->hw_dtc_rx_initial_len - props.transfer_length_remaining;
+    }
+
+    // Disable and close DTC
+    R_DTC_Disable(&s_dtc_rx_ctrl);
+    R_DTC_Close(&s_dtc_rx_ctrl);
+
+    // Re-enable NVIC RXI for CPU handling
+    R_BSP_IrqEnable(rxi_irq);
+
+    // Update rx_buf_count with transferred bytes
+    self->rx_buf_count += bytes_transferred;
+
+    self->hw_dtc_rx_active = false;
+
+    #if RA_I2C_SLAVE_DEBUG
+    printf("[ra_i2c_slave] HW DTC RX stopped, %u bytes\n", (unsigned)bytes_transferred);
+    #endif
+
+    return bytes_transferred;
+}
+
+#endif // RA_I2C_ENABLE_HW_DTC
+
+// ============================================================================
+// Hardware DTC TX implementation (sequential reads / memory device pattern)
+// ============================================================================
+#if RA_I2C_ENABLE_HW_DTC_TX
+
+// Static DTC structures for TX (only one DTC transfer at a time)
+static transfer_info_t s_dtc_tx_info;
+static dtc_instance_ctrl_t s_dtc_tx_ctrl;
+static dtc_extended_cfg_t s_dtc_tx_extend;
+static transfer_cfg_t s_dtc_tx_cfg;
+
+// Prepare TX buffer for sequential read (copy data to internal buffer)
+// After prepare, the first byte will be sent by CPU in TXI handler,
+// then DTC will automatically take over for remaining bytes.
+void ra_i2c_slave_hw_dtc_tx_prepare(ra_i2c_slave_obj_t *self, const uint8_t *data, size_t len) {
+    if (self == NULL || data == NULL || len == 0u) {
+        return;
+    }
+
+    // Limit to buffer size
+    if (len > RA_I2C_DTC_TX_MAX) {
+        len = RA_I2C_DTC_TX_MAX;
+    }
+
+    // Copy data to TX buffer
+    for (size_t i = 0u; i < len; i++) {
+        self->tx_buf[i] = data[i];
+    }
+    self->tx_buf_count = (uint16_t)len;
+    self->tx_buf_index = 0u;
+    self->tx_cpu_byte_count = 0u;
+    self->hw_dtc_tx_auto_start = true;  // Enable auto-start after first CPU byte
+
+    #if RA_I2C_SLAVE_DEBUG
+    printf("[ra_i2c_slave] TX prepared %u bytes (auto-start enabled)\n", (unsigned)len);
+    #endif
+}
+
+// Start hardware DTC for TX (sequential read from slave)
+// DTC will transfer bytes from tx_buf to ICDRT automatically on TXI events.
+void ra_i2c_slave_hw_dtc_tx_start(ra_i2c_slave_obj_t *self) {
+    if (self == NULL || self->i2c_inst == NULL) {
+        return;
+    }
+
+    // Need at least 2 bytes for DTC to be worthwhile (first byte sent manually)
+    if (self->tx_buf_count < 2u || self->tx_buf_index >= self->tx_buf_count) {
+        return;
+    }
+
+    uint32_t ch = i2c_inst_to_ch(self->i2c_inst);
+    IRQn_Type txi_irq = (IRQn_Type)ra_i2c_ch_to_txirq[ch];
+
+    // Check if valid IRQ is available
+    if (txi_irq == VECTOR_NUMBER_NONE) {
+        return;
+    }
+
+    // Calculate remaining bytes (first byte already sent by CPU)
+    uint16_t remaining = self->tx_buf_count - self->tx_buf_index;
+    if (remaining == 0u) {
+        return;
+    }
+
+    // Configure DTC descriptor for TX:
+    // Source: tx_buf + tx_buf_index (increment), Dest: ICDRT (fixed)
+    s_dtc_tx_info.transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_FIXED;
+    s_dtc_tx_info.transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED;
+    s_dtc_tx_info.transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+    s_dtc_tx_info.transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+    s_dtc_tx_info.transfer_settings_word_b.irq = TRANSFER_IRQ_END;
+    s_dtc_tx_info.transfer_settings_word_b.repeat_area = TRANSFER_REPEAT_AREA_SOURCE;
+    s_dtc_tx_info.transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
+    s_dtc_tx_info.p_src = (void const *)&self->tx_buf[self->tx_buf_index];
+    s_dtc_tx_info.p_dest = (void *)&self->i2c_inst->ICDRT;
+    s_dtc_tx_info.length = remaining;
+    s_dtc_tx_info.num_blocks = 0;
+
+    // Store initial length for count calculation later
+    self->hw_dtc_tx_initial_len = remaining;
+
+    // Configure DTC extended config (activation source)
+    s_dtc_tx_extend.activation_source = txi_irq;
+
+    // Configure DTC transfer config
+    s_dtc_tx_cfg.p_info = &s_dtc_tx_info;
+    s_dtc_tx_cfg.p_extend = &s_dtc_tx_extend;
+
+    // Open and enable DTC
+    fsp_err_t err = R_DTC_Open(&s_dtc_tx_ctrl, &s_dtc_tx_cfg);
+    if (err != FSP_SUCCESS && err != FSP_ERR_ALREADY_OPEN) {
+        #if RA_I2C_SLAVE_DEBUG
+        printf("[ra_i2c_slave] HW DTC TX Open failed: %d\n", (int)err);
+        #endif
+        return;
+    }
+
+    err = R_DTC_Enable(&s_dtc_tx_ctrl);
+    if (err != FSP_SUCCESS) {
+        #if RA_I2C_SLAVE_DEBUG
+        printf("[ra_i2c_slave] HW DTC TX Enable failed: %d\n", (int)err);
+        #endif
+        R_DTC_Close(&s_dtc_tx_ctrl);
+        return;
+    }
+
+    // Disable NVIC TXI - DTC handles the interrupt now
+    R_BSP_IrqDisable(txi_irq);
+
+    self->hw_dtc_tx_active = true;
+
+    #if RA_I2C_SLAVE_DEBUG
+    printf("[ra_i2c_slave] HW DTC TX started, %u bytes\n", (unsigned)remaining);
+    #endif
+}
+
+// Stop hardware DTC TX and return number of bytes transferred
+size_t ra_i2c_slave_hw_dtc_tx_stop(ra_i2c_slave_obj_t *self) {
+    if (self == NULL || !self->hw_dtc_tx_active) {
+        return 0u;
+    }
+
+    uint32_t ch = i2c_inst_to_ch(self->i2c_inst);
+    IRQn_Type txi_irq = (IRQn_Type)ra_i2c_ch_to_txirq[ch];
+
+    // Get transfer info to read remaining count
+    transfer_properties_t props;
+    fsp_err_t err = R_DTC_InfoGet(&s_dtc_tx_ctrl, &props);
+
+    size_t bytes_transferred = 0u;
+    if (err == FSP_SUCCESS) {
+        // Bytes transferred = initial length - remaining
+        bytes_transferred = self->hw_dtc_tx_initial_len - props.transfer_length_remaining;
+    }
+
+    // Disable and close DTC
+    R_DTC_Disable(&s_dtc_tx_ctrl);
+    R_DTC_Close(&s_dtc_tx_ctrl);
+
+    // Re-enable NVIC TXI for CPU handling
+    R_BSP_IrqEnable(txi_irq);
+
+    // Update tx_buf_index with transferred bytes
+    self->tx_buf_index += bytes_transferred;
+
+    // Update statistics
+    if (bytes_transferred > 0u) {
+        self->tx_dtc_transfers++;
+        self->tx_dtc_bytes_total += bytes_transferred;
+    }
+
+    self->hw_dtc_tx_active = false;
+
+    #if RA_I2C_SLAVE_DEBUG
+    printf("[ra_i2c_slave] HW DTC TX stopped: %u bytes (total: %lu transfers, %lu bytes)\n",
+           (unsigned)bytes_transferred,
+           (unsigned long)self->tx_dtc_transfers,
+           (unsigned long)self->tx_dtc_bytes_total);
+    #endif
+
+    return bytes_transferred;
+}
+
+#endif // RA_I2C_ENABLE_HW_DTC_TX
+
 // Helper: Get channel from I2C instance
 static uint32_t i2c_inst_to_ch(R_IIC0_Type *i2c_inst) {
     if (i2c_inst == R_IIC1) {
@@ -190,13 +483,24 @@ static void ra_i2c_slave_module_stop(R_IIC0_Type *i2c_inst) {
     #endif
 }
 
-// IRQ enable/disable for slave
-static void ra_i2c_slave_irq_enable(R_IIC0_Type *i2c_inst) {
+// IRQ enable/disable for slave.
+// enable_rxi_cpu: when false, RXI NVIC is disabled (used for DTC-RX mode where
+// we want hardware RXI events to trigger DTC but not wake CPU per-byte).
+static void ra_i2c_slave_irq_enable_ex(R_IIC0_Type *i2c_inst, bool enable_rxi_cpu) {
     uint32_t ch = i2c_inst_to_ch(i2c_inst);
-    R_BSP_IrqEnable((IRQn_Type)ra_i2c_ch_to_rxirq[ch]);
+    if (enable_rxi_cpu) {
+        R_BSP_IrqEnable((IRQn_Type)ra_i2c_ch_to_rxirq[ch]);
+    } else {
+        R_BSP_IrqDisable((IRQn_Type)ra_i2c_ch_to_rxirq[ch]);
+    }
     R_BSP_IrqEnable((IRQn_Type)ra_i2c_ch_to_txirq[ch]);
     R_BSP_IrqEnable((IRQn_Type)ra_i2c_ch_to_teirq[ch]);
     R_BSP_IrqEnable((IRQn_Type)ra_i2c_ch_to_erirq[ch]);
+}
+
+// Convenience wrapper: enable all IRQs including RXI
+static void ra_i2c_slave_irq_enable(R_IIC0_Type *i2c_inst) {
+    ra_i2c_slave_irq_enable_ex(i2c_inst, true);
 }
 
 static void ra_i2c_slave_irq_disable(R_IIC0_Type *i2c_inst) {
@@ -309,6 +613,29 @@ void ra_i2c_slave_init(ra_i2c_slave_obj_t *self, R_IIC0_Type *i2c_inst,
     self->icier_mask = 0u;
     self->recovery_count = 0u;
 
+    // Initialize software RX buffering state (DTC-RX emulation)
+    self->use_dtc_rx = false;
+    self->rx_buf_count = 0u;
+    self->rx_first_byte_received = false;
+
+    #if RA_I2C_ENABLE_HW_DTC
+    // Initialize hardware DTC RX state
+    self->hw_dtc_rx_active = false;
+    self->hw_dtc_rx_initial_len = 0u;
+    #endif
+
+    #if RA_I2C_ENABLE_HW_DTC_TX
+    // Initialize hardware DTC TX state
+    self->hw_dtc_tx_active = false;
+    self->hw_dtc_tx_auto_start = false;
+    self->hw_dtc_tx_initial_len = 0u;
+    self->tx_buf_count = 0u;
+    self->tx_buf_index = 0u;
+    self->tx_cpu_byte_count = 0u;
+    self->tx_dtc_transfers = 0u;
+    self->tx_dtc_bytes_total = 0u;
+    #endif
+
     // Start module clock
     ra_i2c_slave_module_start(i2c_inst);
 
@@ -407,6 +734,19 @@ void ra_i2c_slave_init(ra_i2c_slave_obj_t *self, R_IIC0_Type *i2c_inst,
 // Deinitialize I2C slave
 void ra_i2c_slave_deinit(ra_i2c_slave_obj_t *self) {
     R_IIC0_Type *i2c_inst = self->i2c_inst;
+
+    #if RA_I2C_ENABLE_HW_DTC
+    // Stop hardware DTC RX if active
+    if (self->hw_dtc_rx_active) {
+        ra_i2c_slave_hw_dtc_rx_stop(self);
+    }
+    #endif
+    #if RA_I2C_ENABLE_HW_DTC_TX
+    // Stop hardware DTC TX if active
+    if (self->hw_dtc_tx_active) {
+        ra_i2c_slave_hw_dtc_tx_stop(self);
+    }
+    #endif
 
     // Disable IRQs
     ra_i2c_slave_irq_disable(i2c_inst);
@@ -527,6 +867,35 @@ void ra_i2c_slave_set_icier_mask(ra_i2c_slave_obj_t *self, uint8_t mask) {
     self->i2c_inst->ICIER = hw_mask;
 }
 
+// Enable/disable software RX buffering (DTC-RX emulation).
+void ra_i2c_slave_enable_dtc_rx(ra_i2c_slave_obj_t *self, bool enable) {
+    if (self == NULL) {
+        return;
+    }
+    self->use_dtc_rx = enable;
+    self->rx_buf_count = 0u;
+    self->rx_first_byte_received = false;
+}
+
+// Flush buffered RX data: returns pointer to internal buffer and count.
+// The caller must consume data before next transaction. Buffer is reset after call.
+size_t ra_i2c_slave_flush_rx(ra_i2c_slave_obj_t *self, uint8_t **buf_out) {
+    if (self == NULL) {
+        if (buf_out != NULL) {
+            *buf_out = NULL;
+        }
+        return 0u;
+    }
+    size_t count = self->rx_buf_count;
+    if (buf_out != NULL) {
+        *buf_out = self->rx_buf;
+    }
+    // Reset buffer for next transaction
+    self->rx_buf_count = 0u;
+    self->rx_first_byte_received = false;
+    return count;
+}
+
 /******************************************************************************/
 // ISR Handlers
 
@@ -554,6 +923,9 @@ static void ra_i2c_slave_rxi_handler(R_IIC0_Type *i2c_inst) {
         // E1 fix: enable SPIE only while addressed.
         ra_i2c_slave_set_icier_mask(self, self->icier_mask);
         self->state = RA_I2C_SLAVE_STATE_ADDR_MATCH;
+        // Reset RX buffer for new transaction (DTC-RX mode)
+        self->rx_buf_count = 0u;
+        self->rx_first_byte_received = false;
         ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_ADDR_MATCH);
     }
 
@@ -568,9 +940,43 @@ static void ra_i2c_slave_rxi_handler(R_IIC0_Type *i2c_inst) {
         return;
     }
 
-    self->rx_in_progress = true;
+    // Software RX buffering (DTC-RX emulation): store bytes in internal buffer
+    // and defer callback until STOP or TX transition. First payload byte (often
+    // register pointer) is still handled with a callback for immediate routing.
+    if (self->use_dtc_rx) {
+        uint8_t data = i2c_inst->ICDRR;
 
-    // Notify: data ready to read
+        // First payload byte: invoke callback so upper layer can extract reg pointer
+        if (!self->rx_first_byte_received) {
+            self->rx_first_byte_received = true;
+            // Store in buffer AND notify (upper layer reads via ra_i2c_slave_read)
+            if (self->rx_buf_count < RA_I2C_DTC_RX_BUF_SIZE) {
+                self->rx_buf[self->rx_buf_count++] = data;
+            }
+            self->rx_in_progress = true;
+            ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_RX_READY);
+
+            #if RA_I2C_ENABLE_HW_DTC
+            // After first byte callback, start hardware DTC for remaining bytes.
+            // DTC will take over RXI interrupt and transfer bytes directly to rx_buf.
+            // NVIC RXI is disabled until STOP (ra_i2c_slave_hw_dtc_rx_stop).
+            ra_i2c_slave_hw_dtc_rx_start(self);
+            #endif
+            return;
+        }
+
+        // Subsequent bytes: buffer silently (no per-byte callback)
+        // NOTE: With HW DTC enabled, we should not reach here after first byte
+        // because DTC handles subsequent RXI. This path remains for fallback.
+        if (self->rx_buf_count < RA_I2C_DTC_RX_BUF_SIZE) {
+            self->rx_buf[self->rx_buf_count++] = data;
+        }
+        // No callback here - data will be flushed at STOP or TX transition
+        return;
+    }
+
+    // Legacy per-byte mode: invoke callback for every byte
+    self->rx_in_progress = true;
     ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_RX_READY);
 }
 
@@ -590,15 +996,76 @@ static void ra_i2c_slave_txi_handler(R_IIC0_Type *i2c_inst) {
         ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_ADDR_MATCH);
     }
 
+    // Combined transaction (WRITE reg + repeated START + READ): if we were
+    // receiving (RX state) and now master starts reading (TXI), flush any
+    // buffered RX data first so the upper layer has the complete write payload.
+    if (self->use_dtc_rx && self->state == RA_I2C_SLAVE_STATE_RX) {
+        #if RA_I2C_ENABLE_HW_DTC
+        // Stop hardware DTC if active - this updates rx_buf_count with transferred bytes
+        if (self->hw_dtc_rx_active) {
+            ra_i2c_slave_hw_dtc_rx_stop(self);
+        }
+        #endif
+
+        if (self->rx_buf_count > 0u) {
+            // Signal that buffered RX data is ready (STOP event used as flush trigger)
+            ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_STOP | RA_I2C_SLAVE_EVENT_RX_READY);
+        }
+        // Reset buffer for potential future RX in same transaction
+        self->rx_buf_count = 0u;
+        self->rx_first_byte_received = false;
+    }
+
     // Check if this is the first TX after address match
     if (self->state == RA_I2C_SLAVE_STATE_ADDR_MATCH ||
         self->state == RA_I2C_SLAVE_STATE_IDLE) {
         self->state = RA_I2C_SLAVE_STATE_TX;
     }
 
+    // Transition from RX to TX state for combined transactions
+    if (self->state == RA_I2C_SLAVE_STATE_RX) {
+        self->state = RA_I2C_SLAVE_STATE_TX;
+    }
+
     self->tx_in_progress = false;
 
-    // Notify: ready to write next byte
+    #if RA_I2C_ENABLE_HW_DTC_TX
+    // Hardware DTC TX auto-start logic:
+    // - First TXI: Send byte[0] from CPU, increment tx_cpu_byte_count
+    // - Second TXI: Start DTC for remaining bytes (byte[1]..byte[N-1])
+    if (self->hw_dtc_tx_auto_start && self->tx_buf_count > 0u) {
+        if (self->tx_cpu_byte_count == 0u) {
+            // First byte: send via CPU, then DTC will take over
+            if (self->tx_buf_index < self->tx_buf_count) {
+                i2c_inst->ICDRT = self->tx_buf[self->tx_buf_index++];
+                self->tx_cpu_byte_count = 1u;
+                self->tx_in_progress = true;
+
+                #if RA_I2C_SLAVE_DEBUG
+                printf("[ra_i2c_slave] TX DTC: CPU sent byte[0]=0x%02x, %u remaining\n",
+                       (unsigned)self->tx_buf[self->tx_buf_index - 1u],
+                       (unsigned)(self->tx_buf_count - self->tx_buf_index));
+                #endif
+
+                // If more bytes remain, start DTC for them
+                if (self->tx_buf_index < self->tx_buf_count) {
+                    ra_i2c_slave_hw_dtc_tx_start(self);
+                    #if RA_I2C_SLAVE_DEBUG
+                    printf("[ra_i2c_slave] TX DTC: auto-started for %u bytes\n",
+                           (unsigned)(self->tx_buf_count - self->tx_buf_index));
+                    #endif
+                }
+            }
+            return; // Don't call user callback - we handled it
+        }
+        // DTC is active or finished - don't call user callback
+        if (self->hw_dtc_tx_active) {
+            return;
+        }
+    }
+    #endif
+
+    // Notify: ready to write next byte (user callback for manual TX)
     ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_TX_READY);
 }
 
@@ -662,6 +1129,34 @@ static void ra_i2c_slave_eri_handler(R_IIC0_Type *i2c_inst) {
         self->addr_match_active = false;
         // E1 fix: disable SPIE when idle.
         ra_i2c_slave_set_icier_mask(self, self->icier_mask);
+
+        #if RA_I2C_ENABLE_HW_DTC
+        // Stop hardware DTC RX if active - this updates rx_buf_count with transferred bytes
+        if (self->hw_dtc_rx_active) {
+            ra_i2c_slave_hw_dtc_rx_stop(self);
+        }
+        #endif
+        #if RA_I2C_ENABLE_HW_DTC_TX
+        // Stop hardware DTC TX if active
+        if (self->hw_dtc_tx_active) {
+            ra_i2c_slave_hw_dtc_tx_stop(self);
+        }
+        // Reset auto-start state for next transaction
+        self->hw_dtc_tx_auto_start = false;
+        self->tx_cpu_byte_count = 0u;
+        #endif
+
+        // DTC-RX flush: if we have buffered RX data, signal it before STOP.
+        // This allows upper layer to drain the buffer in one callback.
+        ra_i2c_slave_event_t stop_events = RA_I2C_SLAVE_EVENT_STOP;
+        if (self->use_dtc_rx && self->rx_buf_count > 0u) {
+            stop_events |= RA_I2C_SLAVE_EVENT_RX_READY;
+            #if RA_I2C_SLAVE_DEBUG
+            printf("[ra_i2c_slave] ch%lu: STOP flush %u RX bytes\n",
+                   (unsigned long) ch, (unsigned int) self->rx_buf_count);
+            #endif
+        }
+
         self->state = RA_I2C_SLAVE_STATE_IDLE;
         self->tx_in_progress = false;
         self->rx_in_progress = false;
@@ -675,7 +1170,7 @@ static void ra_i2c_slave_eri_handler(R_IIC0_Type *i2c_inst) {
         #if RA_I2C_SLAVE_DEBUG
         printf("[ra_i2c_slave] ch%lu: STOP (recovery_count reset)\n", (unsigned long) ch);
         #endif
-        ra_i2c_slave_invoke_callback(self, RA_I2C_SLAVE_EVENT_STOP);
+        ra_i2c_slave_invoke_callback(self, stop_events);
     }
 
     // Check for NACK from master
@@ -693,6 +1188,21 @@ static void ra_i2c_slave_eri_handler(R_IIC0_Type *i2c_inst) {
         self->addr_match_active = false;
         // E1 fix: disable SPIE when idle.
         ra_i2c_slave_set_icier_mask(self, self->icier_mask);
+        #if RA_I2C_ENABLE_HW_DTC
+        // Stop hardware DTC RX if active on error
+        if (self->hw_dtc_rx_active) {
+            ra_i2c_slave_hw_dtc_rx_stop(self);
+        }
+        #endif
+        #if RA_I2C_ENABLE_HW_DTC_TX
+        // Stop hardware DTC TX if active on error
+        if (self->hw_dtc_tx_active) {
+            ra_i2c_slave_hw_dtc_tx_stop(self);
+        }
+        // Reset auto-start state
+        self->hw_dtc_tx_auto_start = false;
+        self->tx_cpu_byte_count = 0u;
+        #endif
         // Increment recovery counter
         self->recovery_count++;
         #if RA_I2C_SLAVE_DEBUG
@@ -718,6 +1228,21 @@ static void ra_i2c_slave_eri_handler(R_IIC0_Type *i2c_inst) {
         self->addr_match_active = false;
         // E1 fix: disable SPIE when idle.
         ra_i2c_slave_set_icier_mask(self, self->icier_mask);
+        #if RA_I2C_ENABLE_HW_DTC
+        // Stop hardware DTC RX if active on error
+        if (self->hw_dtc_rx_active) {
+            ra_i2c_slave_hw_dtc_rx_stop(self);
+        }
+        #endif
+        #if RA_I2C_ENABLE_HW_DTC_TX
+        // Stop hardware DTC TX if active on error
+        if (self->hw_dtc_tx_active) {
+            ra_i2c_slave_hw_dtc_tx_stop(self);
+        }
+        // Reset auto-start state
+        self->hw_dtc_tx_auto_start = false;
+        self->tx_cpu_byte_count = 0u;
+        #endif
         // Increment recovery counter
         self->recovery_count++;
         #if RA_I2C_SLAVE_DEBUG
