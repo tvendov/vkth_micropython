@@ -60,13 +60,12 @@ static void i2c_target_callback(ra_i2c_slave_obj_t *slave, ra_i2c_slave_event_t 
 
     self->irq_active = true;
 
-    if (event & RA_I2C_SLAVE_EVENT_ADDR_MATCH) {
-        // Address matched - determine if read or write based on next event
-        if (self->state != STATE_IDLE) {
-            machine_i2c_target_data_reset_helper(data);
-            self->state = STATE_IDLE;
-        }
-    }
+    // NOTE: We intentionally do not "reset" the higher-level state on
+    // RA_I2C_SLAVE_EVENT_ADDR_MATCH. Combined transactions of the form
+    //   WRITE(reg_pointer) + repeated START + READ(...)
+    // must preserve the register pointer across the repeated START. True
+    // transaction boundaries are detected via STOP/NACK and handled in the
+    // generic I2CTarget data helpers.
 
     if (event & RA_I2C_SLAVE_EVENT_RX_READY) {
         // Master wrote data - we need to read it
@@ -87,13 +86,20 @@ static void i2c_target_callback(ra_i2c_slave_obj_t *slave, ra_i2c_slave_event_t 
     }
 
     if (event & RA_I2C_SLAVE_EVENT_STOP) {
-        // STOP condition - end of transaction
-        machine_i2c_target_data_restart_or_stop(data);
+        // STOP condition - end of transaction.
+        // If we already handled end-of-read via NACK, avoid double-finalizing.
+        if (self->stop_pending) {
+            self->stop_pending = false;
+        } else {
+            machine_i2c_target_data_restart_or_stop(data);
+        }
         self->state = STATE_IDLE;
     }
 
     if (event & RA_I2C_SLAVE_EVENT_NACK) {
-        // NACK from master - typically during read when master is done
+        // NACK from master: end-of-read. Treat as a transaction boundary.
+        machine_i2c_target_data_restart_or_stop(data);
+        self->stop_pending = true;
         self->state = STATE_IDLE;
     }
 
@@ -126,8 +132,49 @@ static size_t mp_machine_i2c_target_write_bytes(machine_i2c_target_obj_t *self, 
 }
 
 static inline void mp_machine_i2c_target_irq_config(machine_i2c_target_obj_t *self, unsigned int trigger) {
-    (void)self;
-    (void)trigger;
+	    if (self == NULL || self->slave == NULL) {
+	        return;
+	    }
+
+	    // Prefer build-time definitions from extmod when available; fall back
+	    // to a sane bit layout if missing.
+	    #ifndef MP_MACHINE_I2C_TARGET_IRQ_ADDR_MATCH_READ
+	    #define MP_MACHINE_I2C_TARGET_IRQ_ADDR_MATCH_READ   (1u << 0)
+	    #define MP_MACHINE_I2C_TARGET_IRQ_ADDR_MATCH_WRITE  (1u << 1)
+	    #define MP_MACHINE_I2C_TARGET_IRQ_READ_REQ          (1u << 2)
+	    #define MP_MACHINE_I2C_TARGET_IRQ_WRITE_REQ         (1u << 3)
+	    #define MP_MACHINE_I2C_TARGET_IRQ_END_READ          (1u << 4)
+	    #define MP_MACHINE_I2C_TARGET_IRQ_END_WRITE         (1u << 5)
+	    #endif
+
+	    (void)MP_MACHINE_I2C_TARGET_IRQ_ADDR_MATCH_READ;
+	    (void)MP_MACHINE_I2C_TARGET_IRQ_ADDR_MATCH_WRITE;
+	    (void)MP_MACHINE_I2C_TARGET_IRQ_READ_REQ;
+	    (void)MP_MACHINE_I2C_TARGET_IRQ_WRITE_REQ;
+
+	    // Always keep the slave engine functional (RXI/TXI/STOP).
+	    uint8_t icier = (uint8_t)(
+	        RA_I2C_SLAVE_ICIER_TIE |
+	        RA_I2C_SLAVE_ICIER_RIE |
+	        RA_I2C_SLAVE_ICIER_SPIE);
+
+	    // If no IRQs are requested by the user, minimise wakeups: leave NACK
+	    // and error sources disabled.
+	    if (trigger == 0) {
+	        ra_i2c_slave_set_icier_mask(self->slave, icier);
+	        return;
+	    }
+
+	    // END_READ benefits from NACK reception (master NACKs the last byte).
+	    if (trigger & MP_MACHINE_I2C_TARGET_IRQ_END_READ) {
+	        icier |= RA_I2C_SLAVE_ICIER_NAKIE;
+	    }
+
+	    // When any trigger is active keep error sources enabled so that
+	    // TIMEOUT/AL events can propagate up.
+	    icier |= (RA_I2C_SLAVE_ICIER_ALIE | RA_I2C_SLAVE_ICIER_TMOIE);
+
+	    ra_i2c_slave_set_icier_mask(self->slave, icier);
 }
 
 static mp_obj_t mp_machine_i2c_target_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {

@@ -29,6 +29,10 @@ void iic_master_rxi_isr(void);
 void iic_master_txi_isr(void);
 void iic_master_tei_isr(void);
 void iic_master_eri_isr(void);
+void iic_slave_rxi_isr(void);
+void iic_slave_txi_isr(void);
+void iic_slave_tei_isr(void);
+void iic_slave_eri_isr(void);
 void acmplp0_int_isr(void);
 void acmplp1_int_isr(void);
 

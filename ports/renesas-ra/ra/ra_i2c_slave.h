@@ -29,6 +29,48 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// IIC ICIER bit definitions (RA4M1 IIC): b7..b0 = TIE,TEIE,RIE,NAKIE,SPIE,STIE,ALIE,TMOIE
+#define RA_I2C_SLAVE_ICIER_TIE    (0x80u)
+#define RA_I2C_SLAVE_ICIER_TEIE   (0x40u)
+#define RA_I2C_SLAVE_ICIER_RIE    (0x20u)
+#define RA_I2C_SLAVE_ICIER_NAKIE  (0x10u)
+#define RA_I2C_SLAVE_ICIER_SPIE   (0x08u)
+#define RA_I2C_SLAVE_ICIER_STIE   (0x04u)
+#define RA_I2C_SLAVE_ICIER_ALIE   (0x02u)
+#define RA_I2C_SLAVE_ICIER_TMOIE  (0x01u)
+
+// Recovery counter threshold: auto-reset IIC after this many consecutive errors
+#ifndef RA_I2C_SLAVE_RECOVERY_THRESHOLD
+#define RA_I2C_SLAVE_RECOVERY_THRESHOLD (5)
+#endif
+
+#ifndef RA_I2C_ENABLE_DTC
+#define RA_I2C_ENABLE_DTC (0)
+#endif
+
+#define RA_I2C_DTC_RX_MAX (128u)
+#define RA_I2C_DTC_TX_MAX (128u)
+
+#if RA_I2C_ENABLE_DTC
+// Single-direction DTC buffer (RX or TX)
+typedef struct {
+    uint8_t *buf;              // Base address of buffer
+    uint16_t capacity;         // Maximum bytes for this transfer
+    volatile uint16_t count;   // Bytes actually transferred (capacity - remaining)
+    volatile uint16_t remaining; // Remaining bytes (if backend provides it)
+    volatile bool active;      // DTC transfer currently active
+} ra_i2c_dtc_buf_t;
+
+// Combined DTC state for one I2C slave channel
+typedef struct {
+    ra_i2c_dtc_buf_t rx;       // RX buffer/state (master -> target)
+    ra_i2c_dtc_buf_t tx;       // TX buffer/state (target -> master)
+
+    uint8_t rx_channel;        // DTC channel id for RX
+    uint8_t tx_channel;        // DTC channel id for TX
+} ra_i2c_dtc_state_t;
+#endif
+
 // Slave state machine states
 typedef enum {
     RA_I2C_SLAVE_STATE_IDLE = 0,
@@ -69,6 +111,23 @@ typedef struct ra_i2c_slave_obj {
     // RX/TX state
     volatile bool tx_in_progress;
     volatile bool rx_in_progress;
+
+    // True once a real hardware address match (AASx/GCA/DID/HOA) has been
+    // observed for the current transaction. Cleared on STOP/timeout/error.
+    volatile bool addr_match_active;
+
+    // Cached ICIER mask controlling which IIC interrupt sources are enabled
+    // for this slave instance. RXI/TXI are always forced on.
+    uint8_t icier_mask;
+
+    // Recovery counter: incremented on errors (TIMEOUT, AL), reset on clean STOP.
+    // When it reaches RA_I2C_SLAVE_RECOVERY_THRESHOLD, IIC is auto-reset.
+    uint8_t recovery_count;
+
+#if RA_I2C_ENABLE_DTC
+    bool use_dtc;              // True if this slave instance uses DTC-based transfers
+    ra_i2c_dtc_state_t dtc;    // DTC buffers/state for this channel
+#endif
 } ra_i2c_slave_obj_t;
 
 // Maximum number of I2C slave instances
@@ -110,6 +169,27 @@ void ra_i2c_slave_clear_events(ra_i2c_slave_obj_t *self, ra_i2c_slave_event_t ev
 
 // Get and clear pending events
 ra_i2c_slave_event_t ra_i2c_slave_get_events(ra_i2c_slave_obj_t *self);
+
+    // Configure interrupt sources (ICIER bitmask). RXI/TXI remain enabled by design.
+    void ra_i2c_slave_set_icier_mask(ra_i2c_slave_obj_t *self, uint8_t icier_mask);
+
+#if RA_I2C_ENABLE_DTC
+// DTC initialisation for a given slave instance. mem_size is logical register-file size.
+bool ra_i2c_slave_dtc_init(ra_i2c_slave_obj_t *self, size_t mem_size);
+
+// Stop/disable DTC for this slave instance.
+void ra_i2c_slave_dtc_deinit(ra_i2c_slave_obj_t *self);
+
+// Prepare RX DTC before a new write transaction from master.
+void ra_i2c_slave_dtc_prepare_rx(ra_i2c_slave_obj_t *self, size_t max_len);
+
+// Prepare TX DTC before a read transaction from master.
+void ra_i2c_slave_dtc_prepare_tx(ra_i2c_slave_obj_t *self, size_t len);
+
+// Query number of bytes actually transferred after STOP/NACK.
+size_t ra_i2c_slave_dtc_get_rx_count(ra_i2c_slave_obj_t *self);
+size_t ra_i2c_slave_dtc_get_tx_count(ra_i2c_slave_obj_t *self);
+#endif
 
 // ISR handlers (called from vector table)
 void iic_slave_rxi_isr(void);
