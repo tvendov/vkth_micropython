@@ -1,0 +1,90 @@
+RA4W1 BLE - Chat History Transcript
+
+Session date: 2026-01-08
+
+---
+Transcript (user/assistant messages only; tool outputs summarized separately)
+
+USER: (empty message)
+ASSISTANT: OK.
+USER: (supervisor context block + complaint)
+USER: "! след всеки анализ си пиши в лога какво си открил + целия цхат  постоянно четеш едни и същи файлове и не се поучаваш! въртуищ се в кръг"
+ASSISTANT: "Ще спра да въртя същите файлове и ще направя точно това, което искаш: ще запиша в лога какво открих + текущия чат, и ще поддържам това като дисциплина занапред. Първо проверявам съществуващите файлове за RA4W1_BLE лог/решения, за да ги обновя коректно."
+
+---
+Tool-output summary for this session:
+- Viewed `ports/renesas-ra/` tree; confirmed BLE sources exist: `ports/renesas-ra/ble/ra_ble.c`, `ra_ble_events.c`.
+- Viewed `ports/renesas-ra/Makefile`; found RA4W1-only section linking FSP BLE stack library `-lr_ble` from `lib/fsp/ra/fsp/lib/r_ble/cm4_gcc/compact` when `MICROPY_HW_ENABLE_BLE=1`.
+- Checked FSP header `lib/fsp/ra/fsp/inc/api/r_ble_api.h`; confirmed key APIs exist: `R_BLE_Open`, `R_BLE_Close`, `R_BLE_Execute`, `R_BLE_GAP_Init`.
+- Checked `boards/EK_RA4W1/ra_gen/common_data.h` and `hal_data.h`; no BLE symbols there.
+- Attempted to view `ports/renesas-ra/fsp_cfg` but the view was cancelled by user.
+
+---
+Session bookkeeping actions performed:
+- Created `agents_guide/RA4W1_BLE/DECISIONS.md`
+- Created `agents_guide/RA4W1_BLE/RA4W1 chat history ble project.txt` (this file)
+- Created `agents_guide/RA4W1_BLE/session_2026-01-08_context_protocol/DISCOVERY_AND_STATUS.md`
+
+
+Session date: 2026-01-09
+
+---
+Transcript (user/assistant messages only; tool outputs summarized separately)
+
+USER: (empty message)
+ASSISTANT: I treated the empty message as a transport artifact and continued with the BLE config investigation. Current status: the repo build system links the compact prebuilt FSP BLE library (`-lr_ble` from `lib/fsp/ra/fsp/lib/r_ble/cm4_gcc/compact`) and the existing build log shows firmware.elf linked successfully. I also found a likely mismatch in EK_RA4W1 `r_ble_cfg.h`: `BLE_CFG_LIBRARY_TYPE` is set to 0 while FSP defines COMPACT as 2; please confirm if you want me to change it. Tell me your next concrete milestone (advertising visible on phone vs connect/disconnect vs minimal GATT).
+
+---
+Tool-output summary for this session:
+- Viewed `ports/renesas-ra/ble/ra_ble.c`; confirmed advertising path is implemented and calls `R_BLE_GAP_SetAdvParam`, `R_BLE_GAP_SetAdvSresData`, and `R_BLE_GAP_StartAdv`.
+- Searched/checked FSP sources `lib/fsp/ra/fsp/src/r_ble/r_ble.c` and `lib/fsp/ra/fsp/src/rm_ble_abs/rm_ble_abs.c`; no reference found to `ble_host_conn_config`.
+- Confirmed BLE library type constants in `lib/fsp/ra/fsp/inc/api/r_ble_api.h` (`BLE_LIB_EXTENDED=0`, `BLE_LIB_COMPACT=2`) and compared to EK_RA4W1 `r_ble_cfg.h`.
+- Reviewed existing build log `ports/renesas-ra/build_clean_V1.log` and confirmed the link line uses the compact library directory and completes without linker errors.
+
+---
+Session bookkeeping actions performed:
+- Updated `agents_guide/RA4W1_BLE/DECISIONS.md`
+- Updated this transcript file
+- Updated session notes under `agents_guide/RA4W1_BLE/session_2026-01-09_ble_host_conn_config/`
+
+
+Session date: 2026-01-09 (consistency check)
+
+---
+Transcript (user/assistant messages only; tool outputs summarized separately)
+
+USER: "Фокусирай се ... всичко е консистентно ? опиши резултатите в МД файла"
+ASSISTANT: I performed a read-only consistency review of the RA4W1 BLE integration and wrote results to a new session markdown file.
+
+---
+Tool-output summary for this session:
+- Confirmed build gating in `ports/renesas-ra/Makefile` (RA4W1 only, MICROPY_HW_ENABLE_BLE=1).
+- Confirmed module registration and API surface in `ports/renesas-ra/modble_renesas.c` (`import renesas_ble`).
+- Confirmed event pumping integration via `ports/renesas-ra/mpconfigport.h` MICROPY_INTERNAL_EVENT_HOOK calling `modble_renesas_process_events()`.
+- Confirmed C wrapper uses FSP APIs for init and advertising start/stop in `ports/renesas-ra/ble/ra_ble.c`, but some APIs are still TODO stubs (disconnect/notify/indicate/device-name).
+- Confirmed `BLE_CFG_LIBRARY_TYPE` is set to 2 (Compact) in `boards/EK_RA4W1/ra_cfg/fsp_cfg/r_ble_cfg.h` and matches FSP constants.
+
+---
+Session bookkeeping actions performed:
+- Created `agents_guide/RA4W1_BLE/session_2026-01-09_consistency_check/README.md`
+- Created `agents_guide/RA4W1_BLE/session_2026-01-09_consistency_check/COMMAND_LOG.md`
+
+
+Session date: 2026-01-10
+
+---
+Transcript (user/assistant messages only; tool outputs summarized separately)
+
+USER: (empty message)
+ASSISTANT: Implemented a safe IRQ8 integration for RA4W1 BLE by avoiding FSP `g_external_irq_on_icu` and instead providing an `external_irq` API wrapper backed by MicroPython's `ra_icu` dispatcher; also fixed an out-of-bounds bug in `ra_icu_priority_irq_no()`. Built EK_RA4W1 with BLE enabled successfully.
+
+---
+Tool-output summary for this session:
+- Updated `ports/renesas-ra/ble/ra_ble_config.c`: added `g_ble_external_irq` implementation using `ra_icu_set_callback(8, ...)` and a small `external_irq_api_t` wrapper.
+- Updated `ports/renesas-ra/ra/ra_icu.c`: fixed `ra_icu_priority_irq_no()` to use `irq_no_to_irq_vec` (sparse mapping) instead of `idx_to_irq_vec`.
+- Build: `make BOARD=EK_RA4W1 MICROPY_HW_ENABLE_BLE=1` succeeded (firmware.elf/.hex/.bin).
+
+---
+Session bookkeeping actions performed:
+- Created `agents_guide/RA4W1_BLE/session_2026-01-10_irq8_external_irq_wrapper_fix/` (README + logs).
+

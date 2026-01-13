@@ -1,0 +1,9 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-EK_RA4W1/genhdr/qstrdefs.collected.h
+QSTR not updated
+GEN build-EK_RA4W1/genhdr/moduledefs.collected
+Module registrations not updated
+GEN build-EK_RA4W1/genhdr/root_pointers.collected
+Root pointer registrations not updated
+GEN build-EK_RA4W1/genhdr/compressed.collected
+Compressed data not updated

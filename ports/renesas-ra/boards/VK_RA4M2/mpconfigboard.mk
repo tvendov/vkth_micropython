@@ -1,0 +1,18 @@
+CMSIS_MCU = RA4M2
+MCU_SERIES = m33
+LD_FILES = boards/VK_RA4M2/ra4m2ac3cfm.ld
+
+# MicroPython settings
+MICROPY_VFS_LFS2 = 0
+MICROPY_VFS_FAT = 1
+USE_FSP_LPM = 0
+
+CFLAGS+=-DDEFAULT_DBG_CH=0 \
+          -DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED \
+          -DCFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE \
+          -DBOARD_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED \
+          -DCFG_TUSB_MCU=OPT_MCU_RAXXX \
+          -DBOARD_TUD_RHPORT=0
+
+# Don't include default frozen modules
+FROZEN_MANIFEST ?= $(BOARD_DIR)/manifest.py

@@ -1,0 +1,168 @@
+
+rf_icu.o:     file format elf32-littlearm
+
+
+Disassembly of section .text.r_rf_intout_init:
+
+00000000 <r_rf_intout_init>:
+   0:	e92d 41f0 	stmdb	sp!, {r4, r5, r6, r7, r8, lr}
+   4:	4d2e      	ldr	r5, [pc, #184]	; (c0 <r_rf_intout_init+0xc0>)
+   6:	4c2f      	ldr	r4, [pc, #188]	; (c4 <r_rf_intout_init+0xc4>)
+   8:	682b      	ldr	r3, [r5, #0]
+   a:	689a      	ldr	r2, [r3, #8]
+   c:	2100      	movs	r1, #0
+   e:	7021      	strb	r1, [r4, #0]
+  10:	6812      	ldr	r2, [r2, #0]
+  12:	e9d3 0100 	ldrd	r0, r1, [r3]
+  16:	4790      	blx	r2
+  18:	b118      	cbz	r0, 22 <r_rf_intout_init+0x22>
+  1a:	2301      	movs	r3, #1
+  1c:	7023      	strb	r3, [r4, #0]
+  1e:	e8bd 81f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, pc}
+  22:	4b29      	ldr	r3, [pc, #164]	; (c8 <r_rf_intout_init+0xc8>)
+  24:	4e29      	ldr	r6, [pc, #164]	; (cc <r_rf_intout_init+0xcc>)
+  26:	7020      	strb	r0, [r4, #0]
+  28:	f24a 520f 	movw	r2, #42255	; 0xa50f
+  2c:	f8b6 13fe 	ldrh.w	r1, [r6, #1022]	; 0x3fe
+  30:	78dc      	ldrb	r4, [r3, #3]
+  32:	f893 c003 	ldrb.w	ip, [r3, #3]
+  36:	f8a6 23fe 	strh.w	r2, [r6, #1022]	; 0x3fe
+  3a:	78da      	ldrb	r2, [r3, #3]
+  3c:	f360 12c7 	bfi	r2, r0, #7, #1
+  40:	70da      	strb	r2, [r3, #3]
+  42:	78da      	ldrb	r2, [r3, #3]
+  44:	f042 0240 	orr.w	r2, r2, #64	; 0x40
+  48:	70da      	strb	r2, [r3, #3]
+  4a:	4a21      	ldr	r2, [pc, #132]	; (d0 <r_rf_intout_init+0xd0>)
+  4c:	f8d2 70d4 	ldr.w	r7, [r2, #212]	; 0xd4
+  50:	f360 0782 	bfi	r7, r0, #2, #1
+  54:	f8c2 70d4 	str.w	r7, [r2, #212]	; 0xd4
+  58:	f8d2 00d4 	ldr.w	r0, [r2, #212]	; 0xd4
+  5c:	f040 0010 	orr.w	r0, r0, #16
+  60:	f8c2 00d4 	str.w	r0, [r2, #212]	; 0xd4
+  64:	f8d2 00d4 	ldr.w	r0, [r2, #212]	; 0xd4
+  68:	f04f 0e02 	mov.w	lr, #2
+  6c:	f36e 300d 	bfi	r0, lr, #12, #2
+  70:	f8c2 00d4 	str.w	r0, [r2, #212]	; 0xd4
+  74:	f8d2 00d4 	ldr.w	r0, [r2, #212]	; 0xd4
+  78:	f440 4080 	orr.w	r0, r0, #16384	; 0x4000
+  7c:	f8c2 00d4 	str.w	r0, [r2, #212]	; 0xd4
+  80:	78da      	ldrb	r2, [r3, #3]
+  82:	f3cc 1c80 	ubfx	ip, ip, #6, #1
+  86:	f36c 1286 	bfi	r2, ip, #6, #1
+  8a:	70da      	strb	r2, [r3, #3]
+  8c:	78da      	ldrb	r2, [r3, #3]
+  8e:	09e4      	lsrs	r4, r4, #7
+  90:	f364 12c7 	bfi	r2, r4, #7, #1
+  94:	f001 010b 	and.w	r1, r1, #11
+  98:	70da      	strb	r2, [r3, #3]
+  9a:	f441 4125 	orr.w	r1, r1, #42240	; 0xa500
+  9e:	4a0d      	ldr	r2, [pc, #52]	; (d4 <r_rf_intout_init+0xd4>)
+  a0:	f8a6 13fe 	strh.w	r1, [r6, #1022]	; 0x3fe
+  a4:	f8d2 31a0 	ldr.w	r3, [r2, #416]	; 0x1a0
+  a8:	f443 7380 	orr.w	r3, r3, #256	; 0x100
+  ac:	f8c2 31a0 	str.w	r3, [r2, #416]	; 0x1a0
+  b0:	682b      	ldr	r3, [r5, #0]
+  b2:	689a      	ldr	r2, [r3, #8]
+  b4:	6818      	ldr	r0, [r3, #0]
+  b6:	6853      	ldr	r3, [r2, #4]
+  b8:	e8bd 41f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, lr}
+  bc:	4718      	bx	r3
+  be:	bf00      	nop
+	...
+			c0: R_ARM_ABS32	g_ble_external_irq
+			c4: R_ARM_ABS32	.bss.g_flag_interrupt_open
+  c8:	40040d00 	.word	0x40040d00
+  cc:	4001e000 	.word	0x4001e000
+  d0:	40040800 	.word	0x40040800
+  d4:	40006000 	.word	0x40006000
+
+Disassembly of section .text.r_rf_get_rf_intout_open_status:
+
+00000000 <r_rf_get_rf_intout_open_status>:
+   0:	4b01      	ldr	r3, [pc, #4]	; (8 <r_rf_get_rf_intout_open_status+0x8>)
+   2:	781b      	ldrb	r3, [r3, #0]
+   4:	7003      	strb	r3, [r0, #0]
+   6:	4770      	bx	lr
+   8:	00000000 	.word	0x00000000
+			8: R_ARM_ABS32	.bss.g_flag_interrupt_open
+
+Disassembly of section .text.r_rf_intout_close:
+
+00000000 <r_rf_intout_close>:
+   0:	4b20      	ldr	r3, [pc, #128]	; (84 <r_rf_intout_close+0x84>)
+   2:	781b      	ldrb	r3, [r3, #0]
+   4:	2b00      	cmp	r3, #0
+   6:	d13c      	bne.n	82 <r_rf_intout_close+0x82>
+   8:	b570      	push	{r4, r5, r6, lr}
+   a:	481f      	ldr	r0, [pc, #124]	; (88 <r_rf_intout_close+0x88>)
+   c:	4d1f      	ldr	r5, [pc, #124]	; (8c <r_rf_intout_close+0x8c>)
+   e:	f8b0 23fe 	ldrh.w	r2, [r0, #1022]	; 0x3fe
+  12:	f003 04ff 	and.w	r4, r3, #255	; 0xff
+  16:	4b1e      	ldr	r3, [pc, #120]	; (90 <r_rf_intout_close+0x90>)
+  18:	f24a 510f 	movw	r1, #42255	; 0xa50f
+  1c:	f893 c003 	ldrb.w	ip, [r3, #3]
+  20:	f893 e003 	ldrb.w	lr, [r3, #3]
+  24:	f8a0 13fe 	strh.w	r1, [r0, #1022]	; 0x3fe
+  28:	78d9      	ldrb	r1, [r3, #3]
+  2a:	f364 11c7 	bfi	r1, r4, #7, #1
+  2e:	70d9      	strb	r1, [r3, #3]
+  30:	78d9      	ldrb	r1, [r3, #3]
+  32:	f041 0140 	orr.w	r1, r1, #64	; 0x40
+  36:	70d9      	strb	r1, [r3, #3]
+  38:	4916      	ldr	r1, [pc, #88]	; (94 <r_rf_intout_close+0x94>)
+  3a:	f8d1 60d4 	ldr.w	r6, [r1, #212]	; 0xd4
+  3e:	f364 368e 	bfi	r6, r4, #14, #1
+  42:	f8c1 60d4 	str.w	r6, [r1, #212]	; 0xd4
+  46:	78d9      	ldrb	r1, [r3, #3]
+  48:	f3ce 1e80 	ubfx	lr, lr, #6, #1
+  4c:	f36e 1186 	bfi	r1, lr, #6, #1
+  50:	70d9      	strb	r1, [r3, #3]
+  52:	78d9      	ldrb	r1, [r3, #3]
+  54:	ea4f 1cdc 	mov.w	ip, ip, lsr #7
+  58:	f36c 11c7 	bfi	r1, ip, #7, #1
+  5c:	70d9      	strb	r1, [r3, #3]
+  5e:	f002 020b 	and.w	r2, r2, #11
+  62:	682b      	ldr	r3, [r5, #0]
+  64:	f442 4225 	orr.w	r2, r2, #42240	; 0xa500
+  68:	f8a0 23fe 	strh.w	r2, [r0, #1022]	; 0x3fe
+  6c:	689a      	ldr	r2, [r3, #8]
+  6e:	6818      	ldr	r0, [r3, #0]
+  70:	6893      	ldr	r3, [r2, #8]
+  72:	4798      	blx	r3
+  74:	682b      	ldr	r3, [r5, #0]
+  76:	689a      	ldr	r2, [r3, #8]
+  78:	6818      	ldr	r0, [r3, #0]
+  7a:	6913      	ldr	r3, [r2, #16]
+  7c:	e8bd 4070 	ldmia.w	sp!, {r4, r5, r6, lr}
+  80:	4718      	bx	r3
+  82:	4770      	bx	lr
+  84:	00000000 	.word	0x00000000
+			84: R_ARM_ABS32	.bss.g_flag_interrupt_open
+  88:	4001e000 	.word	0x4001e000
+  8c:	00000000 	.word	0x00000000
+			8c: R_ARM_ABS32	g_ble_external_irq
+  90:	40040d00 	.word	0x40040d00
+  94:	40040800 	.word	0x40040800
+
+Disassembly of section .text.r_rf_ble_interrupt:
+
+00000000 <r_rf_ble_interrupt>:
+   0:	b508      	push	{r3, lr}
+   2:	2001      	movs	r0, #1
+   4:	f7ff fffe 	bl	0 <pf_set_device_active_status>
+			4: R_ARM_THM_CALL	pf_set_device_active_status
+   8:	e8bd 4008 	ldmia.w	sp!, {r3, lr}
+   c:	f7ff bffe 	b.w	0 <llh_interrupt_handler>
+			c: R_ARM_THM_JUMP24	llh_interrupt_handler
+
+Disassembly of section .text.r_ble_icu_intout_interrupt:
+
+00000000 <r_ble_icu_intout_interrupt>:
+   0:	b508      	push	{r3, lr}
+   2:	2001      	movs	r0, #1
+   4:	f7ff fffe 	bl	0 <pf_set_device_active_status>
+			4: R_ARM_THM_CALL	pf_set_device_active_status
+   8:	e8bd 4008 	ldmia.w	sp!, {r3, lr}
+   c:	f7ff bffe 	b.w	0 <llh_interrupt_handler>
+			c: R_ARM_THM_JUMP24	llh_interrupt_handler
