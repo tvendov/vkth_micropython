@@ -138,6 +138,8 @@ static mp_obj_t modble_on(mp_obj_t event_name_obj, mp_obj_t callback_obj) {
         evt_type = BLE_EVT_GATTS_WRITE;
     } else if (strcmp(event_name, "notify_complete") == 0) {
         evt_type = BLE_EVT_GATTS_NOTIFY_COMPLETE;
+    } else if (strcmp(event_name, "indicate_complete") == 0) {
+        evt_type = BLE_EVT_GATTS_INDICATE_COMPLETE;
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("Unknown event"));
     }
@@ -167,6 +169,45 @@ static mp_obj_t modble_notify(mp_obj_t conn_hdl_obj, mp_obj_t attr_hdl_obj, mp_o
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(modble_notify_obj, modble_notify);
 
+// renesas_ble.indicate(conn_handle, attr_handle, data)
+static mp_obj_t modble_indicate(mp_obj_t conn_hdl_obj, mp_obj_t attr_hdl_obj, mp_obj_t data_obj) {
+    mp_int_t conn_handle = mp_obj_get_int(conn_hdl_obj);
+    mp_int_t attr_handle = mp_obj_get_int(attr_hdl_obj);
+
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(data_obj, &bufinfo, MP_BUFFER_READ);
+
+    ra_ble_status_t status = ra_ble_gatts_indicate(conn_handle, attr_handle,
+                                                   bufinfo.buf, bufinfo.len);
+    if (status != RA_BLE_SUCCESS) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Indicate failed"));
+    }
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(modble_indicate_obj, modble_indicate);
+
+// renesas_ble.stop_advertise()
+static mp_obj_t modble_stop_advertise(void) {
+    ra_ble_status_t status = ra_ble_gap_stop_advertising();
+    if (status != RA_BLE_SUCCESS) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Stop advertising failed"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(modble_stop_advertise_obj, modble_stop_advertise);
+
+// renesas_ble.disconnect(conn_handle)
+static mp_obj_t modble_disconnect(mp_obj_t conn_hdl_obj) {
+    mp_int_t conn_handle = mp_obj_get_int(conn_hdl_obj);
+    ra_ble_status_t status = ra_ble_gap_disconnect(conn_handle);
+    if (status != RA_BLE_SUCCESS) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Disconnect failed"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(modble_disconnect_obj, modble_disconnect);
+
 // renesas_ble.get_stats()
 static mp_obj_t modble_get_stats(void) {
     ble_event_stats_t stats;
@@ -188,6 +229,9 @@ static const mp_rom_map_elem_t modble_renesas_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_advertise), MP_ROM_PTR(&modble_advertise_obj) },
     { MP_ROM_QSTR(MP_QSTR_on), MP_ROM_PTR(&modble_on_obj) },
     { MP_ROM_QSTR(MP_QSTR_notify), MP_ROM_PTR(&modble_notify_obj) },
+    { MP_ROM_QSTR(MP_QSTR_indicate), MP_ROM_PTR(&modble_indicate_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stop_advertise), MP_ROM_PTR(&modble_stop_advertise_obj) },
+    { MP_ROM_QSTR(MP_QSTR_disconnect), MP_ROM_PTR(&modble_disconnect_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_stats), MP_ROM_PTR(&modble_get_stats_obj) },
 };
 static MP_DEFINE_CONST_DICT(modble_renesas_globals, modble_renesas_globals_table);

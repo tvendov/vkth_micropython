@@ -52,13 +52,13 @@
 #define MICROPY_HW_UART1_TX         (pin_P213)
 #define MICROPY_HW_UART1_RX         (pin_P212)
 // #define MICROPY_HW_UART1_CTS      (pin_P101) // Disable (Conflict with PMOD)
-#define MICROPY_HW_UART4_TX         (pin_P205) // REPL
-#define MICROPY_HW_UART4_RX         (pin_P206) // REPL
+#define MICROPY_HW_UART4_TX         (pin_P205)
+#define MICROPY_HW_UART4_RX         (pin_P206)
 // #define MICROPY_HW_UART4_CTS      (pin_P407) // Conflict with PMOD1-IO1
 #define MICROPY_HW_UART9_TX         (pin_P109)
 #define MICROPY_HW_UART9_RX         (pin_P110)
 // #define MICROPY_HW_UART9_CTS      (pin_P108) // NC
-#define MICROPY_HW_UART_REPL        HW_UART_4
+#define MICROPY_HW_UART_REPL        HW_UART_9
 #define MICROPY_HW_UART_REPL_BAUD   115200
 
 // I2C

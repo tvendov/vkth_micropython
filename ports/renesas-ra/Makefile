@@ -251,6 +251,7 @@ SRC_C += \
 	machine_rtc.c \
 	machine_sdcard.c \
 	modrenesas.c \
+		moddataflash.c \
 	extint.c \
 	usrsw.c \
 	flash.c \
@@ -290,15 +291,27 @@ SRC_C += \
 	ble/ra_ble_config.c \
 	modble_renesas.c
 
-# FSP BLE library (precompiled)
-# Use compact variant for baremetal (no RTOS)
-BLE_LIB_DIR = $(TOP)/$(HAL_DIR)/ra/fsp/lib/r_ble/cm4_gcc/compact
-LIBS += -L$(BLE_LIB_DIR) -lr_ble
+    # FSP BLE library (precompiled)
+    # Use compact variant for baremetal (no RTOS)
+    # Allow override from environment/command line: make ... BLE_LIB_DIR=...</path>
+    BLE_LIB_DIR ?= $(TOP)/$(HAL_DIR)/ra/fsp/lib/r_ble/cm4_gcc/compact
+
+    # Fail early with a helpful message if the BLE library is missing.
+    # Expect: $(BLE_LIB_DIR)/libr_ble.a
+    ifeq ($(wildcard $(BLE_LIB_DIR)/libr_ble.a),)
+    $(info [BLE] Expected prebuilt library not found: $(BLE_LIB_DIR)/libr_ble.a)
+    $(info [BLE] Set BLE_LIB_DIR to your Renesas FSP pack path, e.g.)
+    $(info [BLE]   make BOARD=$(BOARD) BLE_LIB_DIR="C:/Users/<you>/.eclipse/.../FSP_Packs/4.4.0/ra/fsp/lib/r_ble/cm4_gcc/compact")
+    $(error Missing Renesas BLE library (libr_ble.a). Cannot build with MICROPY_HW_ENABLE_BLE=1)
+    endif
+
+    LIBS += -L$(BLE_LIB_DIR) -lr_ble
 
 # FSP BLE platform sources
 HAL_SRC_C += \
 	$(HAL_DIR)/ra/fsp/src/r_ble/r_ble.c \
-	$(HAL_DIR)/ra/fsp/src/rm_ble_abs/rm_ble_abs.c
+		$(HAL_DIR)/ra/fsp/src/rm_ble_abs/rm_ble_abs.c \
+		$(HAL_DIR)/ra/fsp/src/r_agt/r_agt.c
 
 # Include paths for BLE
 INC += -Ible
