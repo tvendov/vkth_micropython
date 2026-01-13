@@ -175,6 +175,15 @@
 #define MICROPY_HW_MAX_UART (10)
 #define MICROPY_HW_MAX_LPUART (0)
 
+#elif defined(RA4M2)
+
+#define MP_HAL_UNIQUE_ID_ADDRESS (0x1ffff7ac)   /* To be fixed */
+// 16 IRQ + 1 EXTI_RTC_WAKEUP defined in exti.h
+#define PYB_EXTI_NUM_VECTORS (17)
+#define MICROPY_HW_MAX_TIMER (2)
+#define MICROPY_HW_MAX_UART (10)
+#define MICROPY_HW_MAX_LPUART (0)
+
 #elif defined(RA4M3)
 
 #define MP_HAL_UNIQUE_ID_ADDRESS (0x1ffff7ac)   /* To be fixed */

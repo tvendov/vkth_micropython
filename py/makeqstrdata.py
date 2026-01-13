@@ -358,9 +358,11 @@ def parse_input_headers(infiles):
     qcfgs = {}
     qstrs = {}
 
-    # read the qstrs in from the input files
+    # Read the qstrs in from the input files.
+    # Explicitly use UTF-8 to avoid Windows locale-dependent decode errors when
+    # building on systems with a non-UTF8 default encoding (eg cp1251).
     for infile in infiles:
-        with open(infile, "rt") as f:
+        with open(infile, "rt", encoding="utf-8", errors="surrogateescape") as f:
             for line in f:
                 line = line.strip()
 

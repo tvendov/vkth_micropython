@@ -173,7 +173,7 @@
 #define MICROPY_PY_MACHINE_I2C_TARGET_DTC_TX    (0)
 #endif
 #endif
-#if MICROPY_HW_ENABLE_HW_DAC
+#if MICROPY_HW_ENABLE_DAC
 #define MICROPY_PY_MACHINE_DAC      (1)
 #endif
 #if MICROPY_HW_ENABLE_COMPARATOR
@@ -254,6 +254,15 @@
 
 typedef long mp_off_t;
 
+// Internal event hook extensions for this port.
+// Keep these lightweight: they may run frequently while the VM is idle/waiting.
+#if MICROPY_HW_ENABLE_BLE
+void modble_renesas_process_events(void);
+#define MICROPY_RA_INTERNAL_BLE_EVENT_HOOK() modble_renesas_process_events()
+#else
+#define MICROPY_RA_INTERNAL_BLE_EVENT_HOOK() ((void) 0)
+#endif
+
 #if MICROPY_PY_THREAD
 #define MICROPY_INTERNAL_EVENT_HOOK \
     do { \
@@ -262,10 +271,16 @@ typedef long mp_off_t;
             pyb_thread_yield(); \
             MP_THREAD_GIL_ENTER(); \
         } \
+        MICROPY_RA_INTERNAL_BLE_EVENT_HOOK(); \
     } while (0);
 
 #define MICROPY_THREAD_YIELD() pyb_thread_yield()
 #else
+#define MICROPY_INTERNAL_EVENT_HOOK \
+    do { \
+        MICROPY_RA_INTERNAL_BLE_EVENT_HOOK(); \
+    } while (0);
+
 #define MICROPY_THREAD_YIELD()
 #endif
 

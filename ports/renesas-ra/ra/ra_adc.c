@@ -32,10 +32,20 @@
 #include "ra_adc.h"
 
 static R_ADC0_Type *adc_reg = R_ADC0;
-#if defined(RA4M1) | defined(RA4W1)
-static R_TSN_Type *tsn_reg = (R_TSN_Type *)0x407ec000;
+
+#if defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
+// TSN calibration bytes (for 125C) are located at a fixed address on RA4.
+// Avoid depending on CMSIS typedefs because not all RA4 device headers define R_TSN_Type.
+#define RA4_TSN_CAL_ADDR (0x407ec000u)
+static inline uint16_t ra_adc_ra4_tsn_cal125(void) {
+    volatile uint8_t *p = (volatile uint8_t *)RA4_TSN_CAL_ADDR;
+    return (uint16_t) (((uint16_t)p[1] << 8) | (uint16_t)p[0]);
+}
 #endif
-#if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+#if defined(RA4M1) | defined(RA4W1)
+static R_TSN_Type *tsn_reg = R_TSN;
+#endif
+#if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
 static R_TSN_CTRL_Type *tsn_ctrl_reg = R_TSN_CTRL;
 static R_TSN_CAL_Type *tsn_cal_reg = R_TSN_CAL;
 #endif
@@ -47,7 +57,7 @@ typedef struct adc_pin_to_ch {
 } adc_pin_to_ch_t;
 
 static const adc_pin_to_ch_t pin_to_ch[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) | defined(RA4M2)
 
     { P000, AN000 },
     { P001, AN001 },
@@ -258,7 +268,7 @@ static void ra_adc1_module_stop(void) {
 }
 #endif
 
-// For RA4M1 and RA4W1, there is no TSN configuration
+// For RA4M1/RA4M2/RA4W1, there is no TSN configuration
 #if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
 static void ra_tsn_module_start(void) {
     ra_mstpcrd_start(R_MSTP_MSTPCRD_MSTPD22_Msk);
@@ -322,7 +332,7 @@ static void udelay(uint32_t us) {
 void ra_adc_set_resolution(uint8_t res) {
     uint16_t adcer;
     uint16_t adprc;
-    #if defined(RA4M1) | defined(RA4W1)
+    #if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
     if ((res == 14) | (res == 12)) {
         if (res == 14) {
             adprc = 0x0006;
@@ -358,7 +368,7 @@ uint8_t ra_adc_get_resolution(void) {
     uint16_t adcer;
     adcer = adc_reg->ADCER;
     adcer &= 0x0006;
-    #if defined(RA4M1) | defined(RA4W1)
+    #if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
     if (adcer == 0x0006) {
         res = 14;
     } else if (adcer == 0x0000) {
@@ -381,7 +391,7 @@ uint8_t ra_adc_get_resolution(void) {
 uint16_t ra_adc_read_ch(uint8_t ch) {
     uint16_t value16 = 0;
     if ((ch == ADC_TEMP) | (ch == ADC_REF)) {
-        #if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+        #if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
         if (ch == ADC_TEMP) {
             adc_reg->ADEXICR_b.TSSA = 1;
             tsn_ctrl_reg->TSCR_b.TSEN = 1;
@@ -417,7 +427,7 @@ uint16_t ra_adc_read_ch(uint8_t ch) {
     } else {
         value16 = (uint16_t)adc_reg->ADDR[ch];
     }
-    #if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+    #if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     if (ch == ADC_TEMP) {
         tsn_ctrl_reg->TSCR_b.TSOE = 0;
         while (tsn_ctrl_reg->TSCR_b.TSOE) {
@@ -451,7 +461,7 @@ int16_t ra_adc_read_itemp(void) {
     int16_t v125 = (int16_t)(33 * cal125 / vmax / 10);
     int16_t vtemp = (int16_t)(33 * val / vmax / 10);
     temp = (int16_t)(125 + ((vtemp - v125) * 1000000 / (int16_t)BSP_FEATURE_ADC_TSN_SLOPE));
-    #elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+    #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     uint16_t cal127 = (uint16_t)tsn_cal_reg->TSCDR;
     uint16_t val = ra_adc_read_ch(ADC_TEMP);
     int16_t v127 = (int16_t)(33 * cal127 / vmax / 10);
@@ -472,8 +482,7 @@ float ra_adc_read_ftemp(void) {
     float v125 = (float)(3.3f * (float)cal125 / vmax);
     float vtemp = (float)(3.3f * (float)val / vmax);
     temp = (float)(125.0f + ((vtemp - v125) * 1000000.0f / (float)BSP_FEATURE_ADC_TSN_SLOPE));
-    #endif
-    #if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+    #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     uint16_t cal127 = (uint16_t)tsn_cal_reg->TSCDR;
     uint16_t val = ra_adc_read_ch(ADC_TEMP);
     float v127 = (float)(3.3f * (float)cal127 / vmax);
@@ -544,7 +553,7 @@ void ra_adc_all(__attribute__((unused)) uint32_t resolution, uint32_t mask) {
         adc_reg->ADANSA[0] = 0;
         adc_reg->ADANSA[1] = 0;
         adc_reg->ADEXICR_b.TSSA = 1;
-        #if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+        #if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
         tsn_ctrl_reg->TSCR_b.TSEN = 1;
         while (!tsn_ctrl_reg->TSCR_b.TSEN) {
             ;
@@ -562,7 +571,7 @@ void ra_adc_all(__attribute__((unused)) uint32_t resolution, uint32_t mask) {
         }
         value16 = (uint16_t)adc_reg->ADTSDR;
         adc_values[ADC_TEMP] = value16;
-        #if defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+        #if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
         tsn_ctrl_reg->TSCR_b.TSOE = 0;
         while (tsn_ctrl_reg->TSCR_b.TSOE) {
             ;

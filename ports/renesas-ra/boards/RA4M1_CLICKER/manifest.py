@@ -1,2 +1,3 @@
 # We do not want to include default frozen modules,
-require("sdcard")
+# sdcard removed to save flash space
+include("$(MPY_DIR)/extmod/asyncio")

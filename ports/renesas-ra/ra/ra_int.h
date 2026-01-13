@@ -27,7 +27,7 @@
 
 #include <stdint.h>
 
-#if defined(RA4M1) | defined(RA4W1)
+#if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
 #define IRQ_MAX 48
 #elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
 #define IRQ_MAX 128

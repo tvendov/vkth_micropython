@@ -278,8 +278,7 @@ void ra_i2c_slave_hw_dtc_tx_prepare(ra_i2c_slave_obj_t *self, const uint8_t *dat
 
     // Limit to buffer size
     if (len > RA_I2C_DTC_TX_MAX) {
-        len = RA_I2C_DTC_TX_MAX;
-    }
+        len = RA_I2C_DTC_TX_MAX;    }
 
     // Copy data to TX buffer
     for (size_t i = 0u; i < len; i++) {

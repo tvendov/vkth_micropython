@@ -75,6 +75,11 @@
 
 #define RA_EARLY_PRINT  1       /* for enabling mp_print in boardctrl. */
 
+// Forward declarations for deinit functions
+#if MICROPY_PY_MACHINE_DAC
+void dac_deinit_all(void);
+#endif
+
 #if MICROPY_PY_THREAD
 static pyb_thread_t pyb_thread_main;
 #endif
@@ -366,6 +371,9 @@ soft_reset:
 
     #if MICROPY_HW_ENABLE_USBDEV
     mp_usbd_init();
+    #if USB_CFG_LDO_REGULATOR == USB_CFG_ENABLE
+    mp_hal_usb_set_vdcen();
+    #endif
     #endif
 
     if (boot_res == BOARDCTRL_GOTO_SOFT_RESET_EXIT) {
@@ -421,8 +429,8 @@ soft_reset_exit:
     soft_timer_deinit();
     timer_deinit();
     uart_deinit_all();
-    #if MICROPY_HW_ENABLE_DAC
-    //dac_deinit_all();
+    #if MICROPY_PY_MACHINE_DAC
+    dac_deinit_all();
     #endif
     machine_pin_deinit();
     machine_deinit();

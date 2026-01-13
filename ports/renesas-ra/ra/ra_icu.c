@@ -137,7 +137,7 @@ static const ra_icu_pin_t ra_irq_pins[] = {
     { 15, P011 },
     #endif
 
-    #elif defined(RA4M1)
+    #elif defined(RA4M1) || defined(RA4M2)
 
     #if defined(VECTOR_NUMBER_ICU_IRQ0)
     { 0, P105 },
@@ -201,6 +201,60 @@ static const ra_icu_pin_t ra_irq_pins[] = {
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ15)
     { 15, P011 },
+    #endif
+
+    #elif defined(RA4M2)
+
+    #if defined(VECTOR_NUMBER_ICU_IRQ0)
+    { 0, P105 },
+    { 0, P206 },
+    { 0, P400 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ1)
+    { 1, P101 },
+    { 1, P104 },
+    { 1, P205 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ2)
+    { 2, P100 },
+    { 2, P213 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ3)
+    { 3, P110 },
+    { 3, P212 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ4)
+    { 4, P111 },
+    { 4, P402 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ5)
+    { 5, P302 },
+    { 5, P401 },
+    { 5, P410 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ6)
+    { 6, P301 },
+    { 6, P409 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ7)
+    { 7, P408 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ8)
+    { 8, P305 },
+    { 8, P415 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ9)
+    { 9, P304 },
+    { 9, P414 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ11)
+    { 11, P501 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ12)
+    { 12, P502 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ14)
+    { 14, P505 },
     #endif
 
     #elif defined(RA6M1)
@@ -822,8 +876,15 @@ void ra_icu_disable_pin(uint32_t pin) {
 }
 
 void ra_icu_priority_irq_no(uint8_t irq_no, uint32_t ipl) {
-    uint8_t irq_vec = (uint8_t)idx_to_irq_vec[irq_no];
-    R_BSP_IrqCfg((IRQn_Type const)irq_vec, ipl, (void *)NULL);
+    // Configure NVIC priority for a given IRQ number.
+    // NOTE: idx_to_irq_vec is indexed by the *dense* IRQ index (IRQ*_IDX), not by irq_no.
+    // Use irq_no_to_irq_vec (sparse 0..15) to avoid out-of-bounds when some IRQ lines are not allocated.
+    if (irq_no < (sizeof(irq_no_to_irq_vec) / sizeof(irq_no_to_irq_vec[0]))) {
+        uint8_t irq_vec = irq_no_to_irq_vec[irq_no];
+        if (irq_vec != VECTOR_NUMBER_NONE) {
+            R_BSP_IrqCfg((IRQn_Type const)irq_vec, ipl, (void *)NULL);
+        }
+    }
 }
 
 void ra_icu_priority_pin(uint32_t pin, uint32_t ipl) {

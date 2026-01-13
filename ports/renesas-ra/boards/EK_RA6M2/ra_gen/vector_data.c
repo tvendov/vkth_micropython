@@ -48,6 +48,10 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [41] = iic_master_txi_isr,         /* IIC2 TXI (Transmit data empty) */
     [42] = iic_master_tei_isr,         /* IIC2 TEI (Transmit end) */
     [43] = iic_master_eri_isr,         /* IIC2 ERI (Transfer error) */
+    [44] = usbfs_d0fifo_handler,         /* USBFS FIFO 0 (DMA transfer request 0) */
+    [45] = usbfs_d1fifo_handler,         /* USBFS FIFO 1 (DMA transfer request 1) */
+    [46] = usbfs_resume_handler,         /* USBFS RESUME (USBFS resume interrupt) */
+    [47] = usbfs_interrupt_handler,         /* USBFS INT (USBFS interrupt) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -95,5 +99,9 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [41] = BSP_PRV_IELS_ENUM(EVENT_IIC2_TXI),         /* IIC2 TXI (Transmit data empty) */
     [42] = BSP_PRV_IELS_ENUM(EVENT_IIC2_TEI),         /* IIC2 TEI (Transmit end) */
     [43] = BSP_PRV_IELS_ENUM(EVENT_IIC2_ERI),         /* IIC2 ERI (Transfer error) */
+    [44] = BSP_PRV_IELS_ENUM(EVENT_USBFS_FIFO_0),         /* USBFS FIFO 0 (DMA transfer request 0) */
+    [45] = BSP_PRV_IELS_ENUM(EVENT_USBFS_FIFO_1),         /* USBFS FIFO 1 (DMA transfer request 1) */
+    [46] = BSP_PRV_IELS_ENUM(EVENT_USBFS_RESUME),         /* USBFS RESUME (USBFS resume interrupt) */
+    [47] = BSP_PRV_IELS_ENUM(EVENT_USBFS_INT),         /* USBFS INT (USBFS interrupt) */
 };
 #endif

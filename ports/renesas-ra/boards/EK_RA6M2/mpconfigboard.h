@@ -18,6 +18,9 @@
 #define MICROPY_HW_RTC_SOURCE       (0)     // 0: subclock
 #define MICROPY_HW_ENABLE_ADC       (1)
 #define MICROPY_HW_HAS_FLASH        (1)
+#define MICROPY_HW_ENABLE_USBDEV    (1)
+#define MICROPY_HW_USB_CDC          (1)
+#define MICROPY_HW_ENABLE_UART_REPL (0)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 
 // board config
@@ -52,8 +55,8 @@
 #define MICROPY_HW_UART9_TX         (pin_P602)
 #define MICROPY_HW_UART9_RX         (pin_P601)
 #define MICROPY_HW_UART9_CTS        (pin_P603)
-#define MICROPY_HW_UART_REPL        HW_UART_0
-#define MICROPY_HW_UART_REPL_BAUD   115200
+// #define MICROPY_HW_UART_REPL        HW_UART_0
+// #define MICROPY_HW_UART_REPL_BAUD   115200
 
 // I2C
 // #define MICROPY_HW_I2C0_SCL       (pin_P400) // Disable (Conflict with PMOD B)

@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (44)
+#define VECTOR_DATA_IRQ_COUNT    (48)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -25,6 +25,10 @@ void iic_master_rxi_isr(void);
 void iic_master_txi_isr(void);
 void iic_master_tei_isr(void);
 void iic_master_eri_isr(void);
+void usbfs_d0fifo_handler(void);
+void usbfs_d1fifo_handler(void);
+void usbfs_resume_handler(void);
+void usbfs_interrupt_handler(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI0_RXI ((IRQn_Type)0)  /* SCI0 RXI (Receive data full) */
@@ -115,6 +119,15 @@ void iic_master_eri_isr(void);
 #define IIC2_TEI_IRQn          ((IRQn_Type)42)  /* IIC2 TEI (Transmit end) */
 #define VECTOR_NUMBER_IIC2_ERI ((IRQn_Type)43)  /* IIC2 ERI (Transfer error) */
 #define IIC2_ERI_IRQn          ((IRQn_Type)43)  /* IIC2 ERI (Transfer error) */
+
+#define VECTOR_NUMBER_USBFS_FIFO_0 ((IRQn_Type)44)  /* USBFS FIFO 0 (DMA transfer request 0) */
+#define USBFS_FIFO_0_IRQn          ((IRQn_Type)44)  /* USBFS FIFO 0 (DMA transfer request 0) */
+#define VECTOR_NUMBER_USBFS_FIFO_1 ((IRQn_Type)45)  /* USBFS FIFO 1 (DMA transfer request 1) */
+#define USBFS_FIFO_1_IRQn          ((IRQn_Type)45)  /* USBFS FIFO 1 (DMA transfer request 1) */
+#define VECTOR_NUMBER_USBFS_RESUME ((IRQn_Type)46)  /* USBFS RESUME (USBFS resume interrupt) */
+#define USBFS_RESUME_IRQn          ((IRQn_Type)46)  /* USBFS RESUME (USBFS resume interrupt) */
+#define VECTOR_NUMBER_USBFS_INT ((IRQn_Type)47)  /* USBFS INT (USBFS interrupt) */
+#define USBFS_INT_IRQn          ((IRQn_Type)47)  /* USBFS INT (USBFS interrupt) */
 #ifdef __cplusplus
 }
 #endif

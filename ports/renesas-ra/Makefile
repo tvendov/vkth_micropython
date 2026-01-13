@@ -72,7 +72,7 @@ INC += -I$(TOP)/lib/tinyusb/hw
 INC += -I$(TOP)/lib/tinyusb/src
 INC += -I$(TOP)/shared/tinyusb
 INC += -Ilwip_inc
-ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4W1 RA6M1 RA6M2 RA6M5))
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M5))
 INC += -Ira
 endif
 INC += -I$(BOARD_DIR)/ra_gen
@@ -104,6 +104,7 @@ endif
 
 # Options for particular MCU series
 CFLAGS_MCU_RA4M1 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
+CFLAGS_MCU_RA4M2 = $(CFLAGS_CORTEX_M) -mtune=cortex-m33 -mcpu=cortex-m33
 CFLAGS_MCU_RA4W1 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
 CFLAGS_MCU_RA6M1 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
 CFLAGS_MCU_RA6M2 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
@@ -278,6 +279,34 @@ ifeq ($(MICROPY_BLUETOOTH_NIMBLE),1)
 SRC_C += mpnimbleport.c
 endif
 
+# Native BLE support for RA4W1 (FSP BLE stack)
+ifeq ($(CMSIS_MCU),RA4W1)
+ifeq ($(MICROPY_HW_ENABLE_BLE),1)
+CFLAGS += -DMICROPY_HW_ENABLE_BLE=1
+
+SRC_C += \
+	ble/ra_ble.c \
+	ble/ra_ble_events.c \
+	ble/ra_ble_config.c \
+	modble_renesas.c
+
+# FSP BLE library (precompiled)
+# Use compact variant for baremetal (no RTOS)
+BLE_LIB_DIR = $(TOP)/$(HAL_DIR)/ra/fsp/lib/r_ble/cm4_gcc/compact
+LIBS += -L$(BLE_LIB_DIR) -lr_ble
+
+# FSP BLE platform sources
+HAL_SRC_C += \
+	$(HAL_DIR)/ra/fsp/src/r_ble/r_ble.c \
+	$(HAL_DIR)/ra/fsp/src/rm_ble_abs/rm_ble_abs.c
+
+# Include paths for BLE
+INC += -Ible
+endif
+endif
+
+# (Duplicate BLE section removed - see above)
+
 SRC_O += \
 	$(STARTUP_FILE) \
 	$(SYSTEM_FILE)
@@ -328,10 +357,17 @@ ifneq ($(USE_FSP_SDHI), 1)
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_dtc/r_dtc.c
 endif
 
-ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4W1))
 ifeq ($(USE_FSP_FLASH), 1)
 CFLAGS += -DUSE_FSP_FLASH
+
+# RA flash driver selection (FSP)
+# - RA4M1/RA4W1 use FACI_LP -> r_flash_lp
+# - RA4M2 uses FACI_HP     -> r_flash_hp
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4W1))
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_flash_lp/r_flash_lp.c
+endif
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M2))
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_flash_hp/r_flash_hp.c
 endif
 endif
 
@@ -342,7 +378,7 @@ HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_flash_hp/r_flash_hp.c
 endif
 endif
 
-ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4W1 RA6M1 RA6M2 RA6M5))
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M5))
 HAL_SRC_C += $(addprefix ra/,\
 	ra_adc.c \
 	ra_dac.c \
@@ -414,7 +450,9 @@ OBJ += $(addprefix $(BUILD)/, $(SRC_CXX:.cpp=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_O))
 OBJ += $(BUILD)/pins_$(BOARD).o
 
-ifeq ($(CMSIS_MCU),RA6M5)
+ifeq ($(MCU_SERIES),m33)
+# For Cortex-M33 parts we must assemble gchelper_thumb2 with the correct -mcpu,
+# otherwise the linker can report conflicting CPU architectures.
 $(BUILD)/shared/runtime/gchelper_thumb2.o: $(TOP)/shared/runtime/gchelper_thumb2.s
 	$(ECHO) "AS $<"
 	$(Q)$(AS) $(ASFLAGS) -o $@ $<
@@ -475,6 +513,9 @@ BOARD_PINS = $(BOARD_DIR)/pins.csv
 PREFIX_FILE = boards/ra_pin_prefix.c
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1))
 AF_FILE = boards/ra4m1_af.csv
+endif
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M2))
+AF_FILE = boards/ra4m2_af.csv
 endif
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4W1))
 AF_FILE = boards/ra4w1_af.csv

@@ -47,7 +47,7 @@ and this is (The Lazy way)
 
 
 
-#if defined(RA4M1) || defined(RA4W1)
+#if defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
 #define DAC_CH_SIZE 1
 #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3) || defined(RA6M5)
 #define DAC_CH_SIZE 2
@@ -58,7 +58,7 @@ and this is (The Lazy way)
 #define DAC_PINS_SIZE sizeof(ra_dac_pins) / sizeof(ra_af_pin_t)
 
 static const ra_af_pin_t ra_dac_pins[] = {
-    #if defined(RA4M1) || defined(RA4W1)
+    #if defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
     { AF_GPIO, 0, P014 }, // (A3)
     #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3) || defined(RA6M5)
     { AF_GPIO, 0, P014 }, // (A4)

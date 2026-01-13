@@ -61,6 +61,9 @@ and this is (The Lazy way)
 #if defined(RA4M1)
 #define GPT_CH_SIZE 8
 #define CH_GAP 0
+#elif defined(RA4M2)
+#define GPT_CH_SIZE 8
+#define CH_GAP 0
 #elif defined(RA4W1)
 #define GPT_CH_SIZE 9
 #define CH_GAP (ch == 6) || (ch == 7)
@@ -92,6 +95,15 @@ static R_GPT0_Type *gpt_regs[GPT_CH_SIZE] = {
     R_GPT1,     // GPT321 General PWM Timer 1 (32-bit)
     R_GPT2,     // GPT162 General PWM Timer 2 (16-bit)
     R_GPT3,     // GPT163 General PWM Timer 3 (16-bit)
+    R_GPT4,     // GPT164 General PWM Timer 4 (16-bit)
+    R_GPT5,     // GPT165 General PWM Timer 5 (16-bit)
+    R_GPT6,     // GPT166 General PWM Timer 6 (16-bit)
+    R_GPT7,     // GPT167 General PWM Timer 7 (16-bit)
+    #elif defined(RA4M2)
+    R_GPT0,     // GPT320 General PWM Timer 0 (32-bit)
+    R_GPT1,     // GPT321 General PWM Timer 1 (32-bit)
+    R_GPT2,     // GPT322 General PWM Timer 2 (32-bit)
+    R_GPT3,     // GPT323 General PWM Timer 3 (32-bit)
     R_GPT4,     // GPT164 General PWM Timer 4 (16-bit)
     R_GPT5,     // GPT165 General PWM Timer 5 (16-bit)
     R_GPT6,     // GPT166 General PWM Timer 6 (16-bit)
@@ -143,6 +155,23 @@ static R_GPT0_Type *gpt_regs[GPT_CH_SIZE] = {
 
 static const ra_af_pin_t ra_gpt_timer_pins[] = {
     #if defined(RA4M1)
+    { AF_GPT2, 0,  P107 }, { AF_GPT2, 0,  P213 }, { AF_GPT2, 0,  P300 }, { AF_GPT2, 0,  P415 }, // GTIOC0A
+    { AF_GPT2, 0,  P106 }, { AF_GPT2, 0,  P108 }, { AF_GPT2, 0,  P212 }, { AF_GPT2, 0,  P414 }, // GTIOC0B
+    { AF_GPT2, 1,  P105 }, { AF_GPT2, 1,  P109 }, { AF_GPT2, 1,  P405 },                        // GTIOC1A
+    { AF_GPT2, 1,  P104 }, { AF_GPT2, 1,  P110 }, { AF_GPT2, 1,  P406 },                        // GTIOC1B
+    { AF_GPT2, 2,  P103 }, { AF_GPT2, 2,  P113 }, { AF_GPT2, 2,  P500 },                        // GTIOC2A
+    { AF_GPT2, 2,  P102 }, { AF_GPT2, 2,  P114 }, { AF_GPT2, 2,  P501 },                        // GTIOC2B
+    { AF_GPT2, 3,  P111 }, { AF_GPT2, 3,  P403 },                                               // GTIOC3A
+    { AF_GPT2, 3,  P112 }, { AF_GPT2, 3,  P404 }, { AF_GPT2, 3,  P502 },                        // GTIOC3B
+    { AF_GPT2, 4,  P115 }, { AF_GPT2, 4,  P205 }, { AF_GPT2, 4,  P302 },                        // GTIOC4A
+    { AF_GPT2, 4,  P204 }, { AF_GPT2, 4,  P301 }, { AF_GPT2, 4,  P608 },                        // GTIOC4B
+    { AF_GPT2, 5,  P101 }, { AF_GPT2, 5,  P203 }, { AF_GPT2, 5,  P409 }, { AF_GPT2, 5,  P609 }, // GTIOC5A
+    { AF_GPT2, 5,  P100 }, { AF_GPT2, 5,  P202 }, { AF_GPT2, 5,  P408 }, { AF_GPT2, 5,  P610 }, // GTIOC5B
+    { AF_GPT2, 6,  P400 }, { AF_GPT2, 6,  P411 }, { AF_GPT2, 6,  P601 },                        // GTIOC6A
+    { AF_GPT2, 6,  P401 }, { AF_GPT2, 6,  P410 }, { AF_GPT2, 6,  P600 },                        // GTIOC6B
+    { AF_GPT2, 7,  P304 }, { AF_GPT2, 7,  P603 },                                               // GTIOC7A
+    { AF_GPT2, 7,  P303 }, { AF_GPT2, 7,  P602 },                                               // GTIOC7B
+    #elif defined(RA4M2)
     { AF_GPT2, 0,  P107 }, { AF_GPT2, 0,  P213 }, { AF_GPT2, 0,  P300 }, { AF_GPT2, 0,  P415 }, // GTIOC0A
     { AF_GPT2, 0,  P106 }, { AF_GPT2, 0,  P108 }, { AF_GPT2, 0,  P212 }, { AF_GPT2, 0,  P414 }, // GTIOC0B
     { AF_GPT2, 1,  P105 }, { AF_GPT2, 1,  P109 }, { AF_GPT2, 1,  P405 },                        // GTIOC1A
@@ -342,6 +371,8 @@ void ra_gpt_timer_set_freq(uint32_t ch, float freq) {
 
     #ifdef RA4M1
     if (ch <= 1) { // 32bit
+    #elif defined(RA4M2)
+    if (ch <= 3) { // 32bit (GPT0-3 are 32-bit, GPT4-7 are 16-bit)
     #elif defined(RA4W1) || defined(RA6M5)
     if (ch <= 3) { // 32bit
     #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3)
@@ -533,6 +564,8 @@ void ra_gpt_timer_init(uint32_t pwm_pin, uint32_t ch, uint8_t id, uint32_t duty,
 
     #ifdef RA4M1
     if (ch <= 1) {
+    #elif defined(RA4M2)
+    if (ch <= 7) {
     #elif defined(RA4W1)
     if (ch <= 3) {
     #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3)
@@ -604,6 +637,8 @@ void ra_gpt_timer_deinit(uint32_t pwm_pin, uint32_t ch, uint8_t id) {
 
     #ifdef RA4M1
     if (ch <= 1) {
+    #elif defined(RA4M2)
+    if (ch <= 7) {
     #elif defined(RA4W1)
     if (ch <= 3) {
     #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3)

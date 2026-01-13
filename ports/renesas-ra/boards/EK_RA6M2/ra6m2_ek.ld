@@ -5,8 +5,12 @@
 /* Linker script to configure memory regions. */
 MEMORY
 {
-  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x000e0000  /* 896KB/1MB */
-  FLASH_FS (r)       : ORIGIN = 0x000e0000, LENGTH = 0x00020000  /* 128KB/1MB */
+  /* NOTE: Constrain internal flash to 384KB (some RA4M2 variants are 384KB even though
+   * the available CMSIS header in this repo is RA4M2AD which is commonly 512KB).
+   * Keep the MicroPython internal flash filesystem at the top of flash.
+   */
+  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00050000  /* 320KB/384KB */
+  FLASH_FS (r)       : ORIGIN = 0x00050000, LENGTH = 0x00010000  /*  64KB/384KB */
   RAM (rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x00060000  /* 384KB */
   DATA_FLASH (rx)    : ORIGIN = 0x40100000, LENGTH = 0x00008000  /* 32KB */
   ID_CODE (rx)       : ORIGIN = 0x0100A150, LENGTH = 0x00000010  /* 32bytes */

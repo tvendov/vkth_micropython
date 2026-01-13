@@ -60,7 +60,7 @@ extern uint8_t _micropy_hw_internal_flash_storage_end;
 
 #if defined(RA4M1) | defined(RA4M3) | defined(RA4W1)
 #define FLASH_SECTOR_SIZE_MAX (0x800)           // 2k max
-#elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+#elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
 #define FLASH_SECTOR_SIZE_MAX (0x8000)          // 32k max
 #else
 #error "no internal flash storage support for this MCU"

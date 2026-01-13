@@ -349,6 +349,25 @@ static const ra_af_pin_t ra_sci_tx_pins[] = {
     { AF_SCI2, 9, P409 },
     { AF_SCI2, 9, P602 },
 
+    #elif defined(RA4M2)
+
+    { AF_SCI1, 0, P101 },
+    { AF_SCI1, 0, P205 },
+    { AF_SCI1, 0, P411 },
+
+    { AF_SCI2, 1, P213 },
+    { AF_SCI2, 1, P401 },
+    { AF_SCI2, 1, P501 },
+
+    { AF_SCI1, 2, P102 },
+    { AF_SCI1, 2, P112 },
+    { AF_SCI1, 2, P302 },
+
+    { AF_SCI2, 9, P109 },
+    { AF_SCI2, 9, P203 },
+    { AF_SCI2, 9, P409 },
+    { AF_SCI2, 9, P602 },
+
     #elif defined(RA4W1)
     { AF_SCI1, 0, P101 },
 
@@ -486,7 +505,7 @@ static const ra_af_pin_t ra_sci_tx_pins[] = {
 #define SCI_TX_PINS_SIZE sizeof(ra_sci_tx_pins) / sizeof(ra_af_pin_t)
 
 static const ra_af_pin_t ra_sci_rx_pins[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) || defined(RA4M2)
 
     { AF_SCI1, 0, P100 },
     { AF_SCI1, 0, P104 },
@@ -609,7 +628,7 @@ static const ra_af_pin_t ra_sci_rx_pins[] = {
 #define SCI_RX_PINS_SIZE sizeof(ra_sci_rx_pins) / sizeof(ra_af_pin_t)
 
 static const ra_af_pin_t ra_sci_cts_pins[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) || defined(RA4M2)
 
     { AF_SCI1, 0, P103 },
     { AF_SCI1, 0, P401 },

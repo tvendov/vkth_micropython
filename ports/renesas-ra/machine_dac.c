@@ -180,4 +180,16 @@ MP_DEFINE_CONST_OBJ_TYPE(
     locals_dict, &machine_dac_locals_dict
     );
 
+// Deinitialize all DAC instances
+void dac_deinit_all(void) {
+    for (int i = 0; i < MP_ARRAY_SIZE(machine_dac_obj); i++) {
+        if (machine_dac_obj[i].active) {
+            ra_dac_deinit(machine_dac_obj[i].dac->pin, machine_dac_obj[i].ch);
+            machine_dac_obj[i].active = 0;
+            machine_dac_obj[i].ch = 0;
+            machine_dac_obj[i].mv = 0;
+        }
+    }
+}
+
 #endif // MICROPY_PY_MACHINE_DAC

@@ -28,7 +28,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#if defined(RA4M1) | defined(RA4W1)
+#if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
 #define ADC_RESOLUTION (14)
 #else
 #define ADC_RESOLUTION (12)
@@ -36,7 +36,7 @@
 
 enum ADC14_PIN
 {
-    #if defined(RA4M1)
+    #if defined(RA4M1) | defined(RA4M2)
 
     AN000 = 0,
     AN001 = 1,
@@ -217,7 +217,7 @@ enum ADC14_PIN
     ADC_NON = 255,
 };
 
-#if defined(RA4M1) | defined(RA4W1)
+#if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
 #define RA_ADC_DEF_RESOLUTION 14
 #else
 #define RA_ADC_DEF_RESOLUTION 12

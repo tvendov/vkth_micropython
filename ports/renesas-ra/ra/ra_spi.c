@@ -43,7 +43,7 @@ static R_SPI0_Type *spi_regs[] = {
 };
 
 static const ra_af_pin_t mosi_pins[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) || defined(RA4M2)
 
     { AF_SPI, 0, P101 }, /* MOSIA */
     { AF_SPI, 0, P411 }, /* MOSIA */
@@ -84,7 +84,7 @@ static const ra_af_pin_t mosi_pins[] = {
 #define MOSI_PINS_SIZE sizeof(mosi_pins) / sizeof(ra_af_pin_t)
 
 static const ra_af_pin_t miso_pins[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) || defined(RA4M2)
 
     { AF_SPI, 0, P100 }, /* MISOA */
     { AF_SPI, 0, P410 }, /* MISOA */
@@ -125,7 +125,7 @@ static const ra_af_pin_t miso_pins[] = {
 #define MISO_PINS_SIZE sizeof(miso_pins) / sizeof(ra_af_pin_t)
 
 static const ra_af_pin_t sck_pins[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) || defined(RA4M2)
 
     { AF_SPI, 0, P102 }, /* RSPCKA */
     { AF_SPI, 0, P412 }, /* RSPCKA */
@@ -171,7 +171,7 @@ typedef struct ra_ssl_pin {
 } ra_ssl_pin_t;
 
 static const ra_ssl_pin_t ssl_pins[] = {
-    #if defined(RA4M1)
+    #if defined(RA4M1) || defined(RA4M2)
 
     { 0, P103 }, /* SSLA0 */
     { 1, P104 }, /* SSLA1 */
@@ -191,6 +191,7 @@ static const ra_ssl_pin_t ssl_pins[] = {
     { 0, P413 }, /* SSLA0 */
     { 1, P414 }, /* SSLA1 */
     { 2, P415 }, /* SSLA2 */
+    { 3, P708 }, /* SSLA3 */
 
     #elif defined(RA4W1)
 

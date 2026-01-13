@@ -5,4 +5,7 @@ LD_FILES = boards/EK_RA4W1/ra4w1_ek.ld
 # MicroPython settings
 MICROPY_VFS_FAT = 1
 
+# Native BLE support using FSP BLE stack
+MICROPY_HW_ENABLE_BLE = 1
+
 CFLAGS+=-DDEFAULT_DBG_CH=0

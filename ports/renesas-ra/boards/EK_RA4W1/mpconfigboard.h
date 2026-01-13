@@ -20,6 +20,29 @@
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 
+// BLE config (RA4W1 has integrated BLE)
+#ifndef MICROPY_HW_ENABLE_BLE
+#define MICROPY_HW_ENABLE_BLE       (0)     // Set to 1 to enable BLE (requires FSP BLE library)
+#endif
+#ifndef MICROPY_BLE_EVENT_QUEUE_SIZE
+#define MICROPY_BLE_EVENT_QUEUE_SIZE (32)   // BLE event queue size
+#endif
+
+// BLE identity address config
+// For development bring-up we use a hardcoded Static Random address.
+// NOTE: In the Renesas BLE stack the address is typically provided in little-endian byte order.
+//       Static Random requires the two MSBs of the most-significant byte to be 1 (addr_le[5] |= 0xC0).
+#ifndef MICROPY_HW_BLE_USE_STATIC_RANDOM_ADDR
+#define MICROPY_HW_BLE_USE_STATIC_RANDOM_ADDR (1)
+#endif
+
+#if MICROPY_HW_BLE_USE_STATIC_RANDOM_ADDR
+// Example address (displayed big-endian: C2:12:34:56:78:9A)
+#ifndef MICROPY_HW_BLE_STATIC_RANDOM_ADDR_LE
+#define MICROPY_HW_BLE_STATIC_RANDOM_ADDR_LE { 0x9A, 0x78, 0x56, 0x34, 0x12, 0xC2 }
+#endif
+#endif
+
 // board config
 
 // UART

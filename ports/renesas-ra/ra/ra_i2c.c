@@ -68,6 +68,13 @@ static const ra_af_pin_t scl_pins[] = {
     { AF_I2C, 1, P100 },
     { AF_I2C, 1, P205 },
 
+    #elif defined(RA4M2)
+
+    { AF_I2C, 0, P204 },
+    { AF_I2C, 0, P400 },
+    { AF_I2C, 1, P100 },
+    { AF_I2C, 1, P205 },
+
     #elif defined(RA6M2) || defined(RA6M3)
 
     { AF_I2C, 0, P204 },
@@ -110,6 +117,12 @@ static const ra_af_pin_t sda_pins[] = {
 
     { AF_I2C, 0, P401 },
     { AF_I2C, 0, P407 },
+    { AF_I2C, 1, P101 },
+    { AF_I2C, 1, P206 },
+
+    #elif defined(RA4M2)
+
+    { AF_I2C, 0, P401 },
     { AF_I2C, 1, P101 },
     { AF_I2C, 1, P206 },
 
@@ -351,6 +364,28 @@ static void ra_i2c_clock_calc(uint32_t baudrate, uint8_t *cks, uint8_t *brh, uin
         *cks = 4;
         *brh = 14;
         *brl = 17;
+    }
+    #elif defined(RA4M2)
+    // PCLKB 50MHz SCLE=0 (same as RA6M5)
+    if (baudrate >= RA_I2C_CLOCK_MAX) {
+        *cks = 0;
+        *brh = 12;
+        *brl = 24;
+    } else if (baudrate >= 400000) {
+        // assume clock is 400000Hz
+        *cks = 2;
+        *brh = 7;
+        *brl = 15;
+    } else if (baudrate >= 100000) {
+        // assume clock is 100000Hz
+        *cks = 3;
+        *brh = 24;
+        *brl = 30;
+    } else {
+        // assume clock is 50000Hz
+        *cks = 4;
+        *brh = 24;
+        *brl = 30;
     }
     #elif defined(RA6M2) || defined(RA6M3)
     // PCLKB 60MHz SCLE=0

@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (30)
+#define VECTOR_DATA_IRQ_COUNT    (31)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -87,6 +87,10 @@ void iic_master_eri_isr(void);
 #define IIC0_TEI_IRQn          ((IRQn_Type)28)  /* IIC0 TEI (Transmit end) */
 #define VECTOR_NUMBER_IIC0_ERI ((IRQn_Type)29)  /* IIC0 ERI (Transfer error) */
 #define IIC0_ERI_IRQn          ((IRQn_Type)29)  /* IIC0 ERI (Transfer error) */
+
+/* RA4W1: IRQ8 is reserved for the BLE middleware (see bsp_elc.h). */
+#define VECTOR_NUMBER_ICU_IRQ8 ((IRQn_Type)30)  /* ICU IRQ8 (Interrupt for BLE middleware use only) */
+#define ICU_IRQ8_IRQn          ((IRQn_Type)30)  /* ICU IRQ8 (Interrupt for BLE middleware use only) */
 #ifdef __cplusplus
 }
 #endif

@@ -286,6 +286,20 @@ static mp_obj_t machine_i2c_target_write(mp_obj_t self_in, mp_obj_t data_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(machine_i2c_target_write_obj, machine_i2c_target_write);
 
+#if MICROPY_PY_MACHINE_I2C_TARGET_DTC_TX
+// I2CTarget.dtc_tx_prepare(data) - Prepare TX buffer for DTC-based sequential read
+// The first byte will be sent by CPU, remaining bytes by DTC automatically.
+// This is useful for memory device emulation (EEPROM, sensor registers).
+static mp_obj_t machine_i2c_target_dtc_tx_prepare(mp_obj_t self_in, mp_obj_t data_in) {
+    machine_i2c_target_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(data_in, &bufinfo, MP_BUFFER_READ);
+    mp_machine_i2c_target_dtc_tx_prepare(self, bufinfo.len, bufinfo.buf);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_i2c_target_dtc_tx_prepare_obj, machine_i2c_target_dtc_tx_prepare);
+#endif
+
 static machine_i2c_target_irq_obj_t *machine_i2c_target_get_irq(machine_i2c_target_obj_t *self) {
     // Get the IRQ object.
     size_t index = mp_machine_i2c_target_get_index(self);
@@ -360,6 +374,9 @@ static const mp_rom_map_elem_t machine_i2c_target_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&machine_i2c_target_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&machine_i2c_target_readinto_obj) },
     { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&machine_i2c_target_write_obj) },
+    #if MICROPY_PY_MACHINE_I2C_TARGET_DTC_TX
+    { MP_ROM_QSTR(MP_QSTR_dtc_tx_prepare), MP_ROM_PTR(&machine_i2c_target_dtc_tx_prepare_obj) },
+    #endif
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&machine_i2c_target_irq_obj) },
 
     #if MICROPY_PY_MACHINE_I2C_TARGET_HARD_IRQ

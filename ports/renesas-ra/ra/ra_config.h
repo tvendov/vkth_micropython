@@ -28,7 +28,7 @@
 #include <stdint.h>
 #include "py/mpconfig.h"
 
-#if defined(RA4M1) | defined(RA4W1)
+#if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
 #define SCI_CH_MAX      10
 #define SCI_CH_NUM      4
 #define SCI_TX_BUF_SIZE 128

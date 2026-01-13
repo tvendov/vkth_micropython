@@ -27,7 +27,8 @@ extern "C" {
 #endif
 #define BSP_CFG_MCU_VCC_MV (3300)
 #define BSP_CFG_STACK_MAIN_BYTES (0x1000)
-#define BSP_CFG_HEAP_BYTES (0x4980)
+/* Reduce heap slightly to fit within 32KB RAM once MicroPython + drivers are linked. */
+#define BSP_CFG_HEAP_BYTES (0x4780)
 #define BSP_CFG_PARAM_CHECKING_ENABLE (0)
 #define BSP_CFG_ASSERT (0)
 #define BSP_CFG_ERROR_LOG (0)

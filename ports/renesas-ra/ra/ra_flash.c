@@ -205,7 +205,7 @@ uint32_t FLASH_SECTION sector_index(uint32_t addr) {
     return (addr - 0x00000000) / FLASH_SECTOR_SIZE;
 }
 
-#elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+#elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
 
 #define REGION1_SECTOR_SIZE 0x8000  // 32K
 #define REGION1_SECTOR_MAX  14
@@ -290,7 +290,7 @@ bool internal_flash_writex(uint8_t *addr, uint32_t NumBytes, uint8_t *pSectorBuf
         uint32_t state = ra_disable_irq();
         #if defined(RA4M1) | defined(RA4M3) | defined(RA4W1)
         err = R_FLASH_LP_Write(&g_flash0_ctrl, (uint32_t const)buf_addr, (uint32_t)flash_addr, FLASH_SECTOR_SIZE);
-        #elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+        #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
         err = R_FLASH_HP_Write(&g_flash0_ctrl, (uint32_t const)buf_addr, (uint32_t)flash_addr, FLASH_SECTOR_SIZE);
         #else
         #error "CMSIS MCU Series is not specified."
@@ -334,7 +334,7 @@ bool internal_flash_isblockerased(uint8_t *addr, uint32_t BlockLength) {
     uint32_t state = ra_disable_irq();
     #if defined(RA4M1) | defined(RA4M3) | defined(RA4W1)
     err = R_FLASH_LP_BlankCheck(&g_flash0_ctrl, (uint32_t const)((uint32_t)addr & FLASH_BUF_ADDR_MASK), FLASH_SECTOR_SIZE, &blankCheck);
-    #elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+    #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     err = R_FLASH_HP_BlankCheck(&g_flash0_ctrl, (uint32_t const)((uint32_t)addr & FLASH_BUF_ADDR_MASK), FLASH_SECTOR_SIZE, &blankCheck);
     #else
     #error "CMSIS MCU Series is not specified."
@@ -365,7 +365,7 @@ bool internal_flash_eraseblock(uint8_t *addr) {
     uint32_t state = ra_disable_irq();
     #if defined(RA4M1) | defined(RA4M3) | defined(RA4W1)
     err = R_FLASH_LP_Erase(&g_flash0_ctrl, (uint32_t const)addr, 1);
-    #elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+    #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     err = R_FLASH_HP_Erase(&g_flash0_ctrl, (uint32_t const)addr, 1);
     #else
     #error "CMSIS MCU Series is not specified."
@@ -418,7 +418,7 @@ bool internal_flash_init(void) {
     #else
     #if defined(RA4M1) | defined(RA4M3) | defined(RA4W1)
     err = R_FLASH_LP_Open(&g_flash0_ctrl, &g_flash0_cfg);
-    #elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+    #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     err = R_FLASH_HP_Open(&g_flash0_ctrl, &g_flash0_cfg);
     #else
     #error "CMSIS MCU Series is not specified."
