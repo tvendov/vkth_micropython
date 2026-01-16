@@ -20,6 +20,9 @@
 #define MICROPY_HW_ENABLE_RTC       (1)
 #define MICROPY_HW_RTC_SOURCE       (1)     // 0: subclock, 1:LOCO (32.768khz)
 #define MICROPY_HW_ENABLE_ADC       (1)
+#ifndef MICROPY_HW_ENABLE_TOUCHPAD
+#define MICROPY_HW_ENABLE_TOUCHPAD  (1)
+#endif
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_USBDEV    (1)
 #define MICROPY_HW_USB_CDC          (1)

@@ -1,89 +1,69 @@
-/*
- * This file is part of the MicroPython project, http://micropython.org/
- *
- * The MIT License (MIT)
- *
- * Copyright (c) 2025 Damien P. George
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
+/* generated configuration header file - matching Renesas BLE example */
+#ifndef R_BLE_CFG_H_
+#define R_BLE_CFG_H_
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#ifndef R_BLE_CFG_H
-#define R_BLE_CFG_H
+/* BLE Stack Variant: 0=Extended/All, 1=Balance, 2=Compact */
+#define BLE_CFG_LIBRARY_TYPE (0)
 
-/***********************************************************************************************************************
- * BLE Stack Configuration
- **********************************************************************************************************************/
+/* Debug addresses */
+#define BLE_CFG_RF_DEBUG_PUBLIC_ADDRESS {0xFF,0xFF,0xFF,0x50,0x90,0x74}
+#define BLE_CFG_RF_DEBUG_RANDOM_ADDRESS {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}
 
-/* BLE Stack Variant Selection (per FSP r_ble_api.h)
- * 0: Extended
- * 1: Balance
- * 2: Compact
- */
-#define BLE_CFG_LIBRARY_TYPE                (2)  // Compact variant (matches linked prebuilt compact library)
+/* Connection parameters - matching working bare-metal */
+#define BLE_CFG_RF_CONNECTION_MAXIMUM (7)
+#define BLE_CFG_RF_CONNECTION_DATA_MAXIMUM (251)
+#define BLE_CFG_RF_ADVERTISING_DATA_MAXIMUM (1650)
+#define BLE_CFG_RF_ADVERTISING_SET_MAXIMUM (4)
+#define BLE_CFG_RF_SYNC_SET_MAXIMUM (2)
 
-/* BLE GAP Configuration */
-#define BLE_CFG_RF_DEEP_SLEEP_EN            (0)  // Disable deep sleep for now
-#define BLE_CFG_RF_SLOW_CLK_PPM             (50) // Slow clock accuracy in ppm
+/* Security */
+#define BLE_CFG_ENABLE_SECURE_DATA (0)
+#define BLE_CFG_SECURE_DATA_DATAFLASH_BLOCK (0)
+#define BLE_CFG_NUMBER_BONDING (7)
 
-/* BLE GATT Configuration */
-#define BLE_CFG_EN_GATT_CACHING             (0)  // Disable GATT caching
-#define BLE_CFG_EN_SECURE_DATA              (0)  // Disable secure data for now
+/* Event notifications */
+#define BLE_CFG_EVENT_NOTIFY_CONNECTION_START (0)
+#define BLE_CFG_EVENT_NOTIFY_CONNECTION_CLOSE (0)
+#define BLE_CFG_EVENT_NOTIFY_ADVERTISING_START (0)
+#define BLE_CFG_EVENT_NOTIFY_ADVERTISING_CLOSE (0)
+#define BLE_CFG_EVENT_NOTIFY_SCANNING_START (0)
+#define BLE_CFG_EVENT_NOTIFY_SCANNING_CLOSE (0)
+#define BLE_CFG_EVENT_NOTIFY_INITIATING_START (0)
+#define BLE_CFG_EVENT_NOTIFY_INITIATING_CLOSE (0)
+#define BLE_CFG_EVENT_NOTIFY_DEEP_SLEEP_START (0)
+#define BLE_CFG_EVENT_NOTIFY_DEEP_SLEEP_WAKEUP (0)
+#define BLE_CFG_EVENT_NOTIFY_ENABLE_VAL (0)
 
-/* BLE L2CAP Configuration */
-#define BLE_CFG_MAX_L2CAP_CBFC_PSM          (1)  // Max L2CAP PSMs
+/* RF Configuration - CRITICAL */
+#define BLE_CFG_RF_CLVAL (6)
+#define BLE_CFG_RF_DCDC_CONVERTER_ENABLE (0)
+#define BLE_CFG_RF_EXT32K_EN (0)
+#define BLE_CFG_RF_MCU_CLKOUT_PORT (0)
+#define BLE_CFG_RF_MCU_CLKOUT_FREQ (0)
+#define BLE_CFG_RF_SCA (250)
+#define BLE_CFG_RF_MAX_TX_POW (1)
+#define BLE_CFG_RF_DEF_TX_POW (0)
+#define BLE_CFG_RF_CLKOUT_EN (0)
+#define BLE_CFG_RF_DEEP_SLEEP_EN (0)  /* Disabled during RF bring-up debugging */
 
-/* BLE Memory Configuration */
-#define BLE_CFG_TOTAL_HEAP_SIZE             (8192)  // 8KB heap for BLE stack
+/* Clock */
+#define BLE_CFG_MCU_MAIN_CLK_KHZ (8000)
 
-/* BLE Event Queue Configuration */
-#define BLE_CFG_EVENT_QUEUE_DEPTH           (32)    // Match MICROPY_BLE_EVENT_QUEUE_SIZE
+/* Device data storage */
+#define BLE_CFG_DEV_DATA_CF_BLOCK (255)
+#define BLE_CFG_DEV_DATA_DF_BLOCK (-1)
 
-/* BLE HCI Configuration */
-#define BLE_CFG_HCI_MODE_EN                 (0)     // Disable HCI mode (use direct API)
+/* GATT */
+#define BLE_CFG_GATT_MTU_SIZE (247)
 
-/* BLE Privacy Configuration */
-#define BLE_CFG_EN_RPA                      (0)     // Disable Resolvable Private Address for now
+/* Timer */
+#define BLE_CFG_TIMER_NUMBER_OF_SLOT (10)
 
-/* BLE Security Configuration */
-#define BLE_CFG_EN_SEC_DATA                 (0)     // Disable security data storage for now
-
-/* BLE Advertising Configuration */
-#define BLE_CFG_MAX_ADV_SETS                (1)     // Max advertising sets
-
-/* BLE Connection Configuration */
-#define BLE_CFG_MAX_CONN                    (1)     // Max simultaneous connections
-
-/* BLE GATT Server Configuration */
-#define BLE_CFG_GATTS_MAX_SERVICES          (4)     // Max GATT services
-#define BLE_CFG_GATTS_MAX_CHAR              (16)    // Max GATT characteristics
-#define BLE_CFG_GATTS_MAX_CHAR_DESC         (16)    // Max GATT descriptors
-
-/* BLE GATT Client Configuration */
-#define BLE_CFG_GATTC_MAX_SERVICES          (4)     // Max discovered services
-#define BLE_CFG_GATTC_MAX_CHAR              (16)    // Max discovered characteristics
-
-/* BLE Vendor Specific Configuration */
-#define BLE_CFG_EN_VS                       (0)     // Disable vendor specific commands
-
-/* BLE Debug Configuration */
-#define BLE_CFG_EN_DEBUG_LOG                (0)     // Disable debug logging
-
-#endif // R_BLE_CFG_H
+#ifdef __cplusplus
+}
+#endif
+#endif /* R_BLE_CFG_H_ */
 

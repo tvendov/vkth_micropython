@@ -94,7 +94,11 @@ typedef struct {
 int pyb_hard_fault_debug = 0;
 
 void HardFault_C_Handler(ExceptionRegisters_t *regs) {
+    // Always print immediately - before any conditional reset
+    mp_hal_stdout_tx_str("\r\n!!! HardFault_C_Handler entered !!!\r\n");
+
     if (!pyb_hard_fault_debug) {
+        mp_hal_stdout_tx_str("pyb_hard_fault_debug=0, resetting...\r\n");
         powerctrl_mcu_reset();
     }
 

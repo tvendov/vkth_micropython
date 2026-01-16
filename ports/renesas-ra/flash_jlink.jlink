@@ -1,0 +1,7 @@
+r
+h
+loadbin build-EK_RA4W1/firmware.bin 0x00000000
+r
+g
+q
+

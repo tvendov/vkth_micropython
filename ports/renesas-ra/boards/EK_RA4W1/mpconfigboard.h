@@ -22,7 +22,7 @@
 
 // BLE config (RA4W1 has integrated BLE)
 #ifndef MICROPY_HW_ENABLE_BLE
-#define MICROPY_HW_ENABLE_BLE       (0)     // Set to 1 to enable BLE (requires FSP BLE library)
+#define MICROPY_HW_ENABLE_BLE       (1)     // Enable BLE support for RA4W1
 #endif
 #ifndef MICROPY_BLE_EVENT_QUEUE_SIZE
 #define MICROPY_BLE_EVENT_QUEUE_SIZE (32)   // BLE event queue size

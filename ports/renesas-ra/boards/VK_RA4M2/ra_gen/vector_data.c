@@ -1,5 +1,13 @@
 /* generated vector source file - do not edit */
         #include "bsp_api.h"
+
+/* Weak ISR stubs for CTSU. These allow builds to succeed even when the CTSU driver
+ * (r_ctsu) is not compiled in. If r_ctsu is added, its strong ISR definitions will
+ * override these weak symbols.
+ */
+BSP_WEAK_REFERENCE void ctsu_write_isr(void) { }
+BSP_WEAK_REFERENCE void ctsu_read_isr(void) { }
+BSP_WEAK_REFERENCE void ctsu_end_isr(void) { }
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
         #if VECTOR_DATA_IRQ_COUNT > 0
 BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
@@ -24,6 +32,9 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [17] = usbfs_d1fifo_handler,         /* USBFS FIFO 1 (DMA transfer request 1) */
     [18] = usbfs_resume_handler,         /* USBFS RESUME (USBFS resume interrupt) */
     [19] = usbfs_interrupt_handler,         /* USBFS INT (USBFS interrupt) */
+    [20] = ctsu_write_isr,         /* CTSU WRITE (CTSU write request interrupt) */
+    [21] = ctsu_read_isr,         /* CTSU READ (CTSU measurement data transfer request interrupt) */
+    [22] = ctsu_end_isr,         /* CTSU END (CTSU measurement end interrupt) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -47,5 +58,8 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [17] = BSP_PRV_IELS_ENUM(EVENT_USBFS_FIFO_1),         /* USBFS FIFO 1 (DMA transfer request 1) */
     [18] = BSP_PRV_IELS_ENUM(EVENT_USBFS_RESUME),         /* USBFS RESUME (USBFS resume interrupt) */
     [19] = BSP_PRV_IELS_ENUM(EVENT_USBFS_INT),         /* USBFS INT (USBFS interrupt) */
+    [20] = BSP_PRV_IELS_ENUM(EVENT_CTSU_WRITE),         /* CTSU WRITE (CTSU write request interrupt) */
+    [21] = BSP_PRV_IELS_ENUM(EVENT_CTSU_READ),         /* CTSU READ (CTSU measurement data transfer request interrupt) */
+    [22] = BSP_PRV_IELS_ENUM(EVENT_CTSU_END),         /* CTSU END (CTSU measurement end interrupt) */
 };
         #endif

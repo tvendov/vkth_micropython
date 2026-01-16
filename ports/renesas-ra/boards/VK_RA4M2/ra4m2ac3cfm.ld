@@ -238,6 +238,15 @@ SECTIONS
         __noinit_end = .;
     } > RAM
 
+    /* BLE platform pointers - noinit section to avoid startup corruption */
+    .ble_noinit (NOLOAD):
+    {
+        . = ALIGN(4);
+        __ble_noinit_start = .;
+        KEEP(*(.ble_noinit*))
+        __ble_noinit_end = .;
+    } > RAM
+
     .bss :
     {
         . = ALIGN(4);

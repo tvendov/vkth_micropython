@@ -1,4 +1,8 @@
 #include "hal_data.h"
+
+#if MICROPY_HW_ENABLE_BLE
+#include "vector_data.h"
+#endif
 lpm_instance_ctrl_t g_lpm0_ctrl;
 
 const lpm_cfg_t g_lpm0_cfg =
@@ -49,3 +53,48 @@ const flash_cfg_t g_flash0_cfg =
 /* Instance structure to use this module. */
 const flash_instance_t g_flash0 =
 { .p_ctrl = &g_flash0_ctrl, .p_cfg = &g_flash0_cfg, .p_api = &g_flash_on_flash_lp };
+
+#if MICROPY_HW_ENABLE_BLE
+/*
+ * AGT Timer for BLE Abstraction Layer
+ * Uses AGT0 with LOCO clock source for low-power timing.
+ * Period is set to 1ms (1000 counts at 32.768kHz LOCO).
+ */
+agt_instance_ctrl_t g_timer_ble_ctrl;
+
+const agt_extended_cfg_t g_timer_ble_extend =
+{
+    .count_source = AGT_CLOCK_LOCO,
+    .agtoab_settings = 0,
+    .agto = AGT_PIN_CFG_DISABLED,
+    .measurement_mode = AGT_MEASURE_DISABLED,
+    .agtio_filter = AGT_AGTIO_FILTER_NONE,
+    .enable_pin = AGT_ENABLE_PIN_NOT_USED,
+    .trigger_edge = AGT_TRIGGER_EDGE_RISING,
+};
+
+const timer_cfg_t g_timer_ble_cfg =
+{
+    .mode = TIMER_MODE_PERIODIC,
+    .period_counts = 32,  /* ~1ms at 32.768kHz LOCO */
+    .duty_cycle_counts = 0,
+    .source_div = TIMER_SOURCE_DIV_1,
+    .channel = 0,  /* AGT0 */
+    .p_callback = NULL,
+    .p_context = NULL,
+    .p_extend = &g_timer_ble_extend,
+    .cycle_end_ipl = (5),
+  #if defined(VECTOR_NUMBER_AGT0_INT)
+    .cycle_end_irq = VECTOR_NUMBER_AGT0_INT,
+  #else
+    .cycle_end_irq = FSP_INVALID_VECTOR,
+  #endif
+};
+
+const timer_instance_t g_timer_ble =
+{
+    .p_ctrl = &g_timer_ble_ctrl,
+    .p_cfg = &g_timer_ble_cfg,
+    .p_api = &g_timer_on_agt,
+};
+#endif /* MICROPY_HW_ENABLE_BLE */

@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (20)
+#define VECTOR_DATA_IRQ_COUNT    (23)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -26,6 +26,9 @@ void usbfs_d0fifo_handler(void);
 void usbfs_d1fifo_handler(void);
 void usbfs_resume_handler(void);
 void usbfs_interrupt_handler(void);
+void ctsu_write_isr(void);
+void ctsu_read_isr(void);
+void ctsu_end_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_RTC_ALARM ((IRQn_Type)0)  /* RTC ALARM (Alarm interrupt) */
@@ -68,6 +71,13 @@ void usbfs_interrupt_handler(void);
 #define USBFS_RESUME_IRQn          ((IRQn_Type)18)  /* USBFS RESUME (USBFS resume interrupt) */
 #define VECTOR_NUMBER_USBFS_INT ((IRQn_Type)19)  /* USBFS INT (USBFS interrupt) */
 #define USBFS_INT_IRQn          ((IRQn_Type)19)  /* USBFS INT (USBFS interrupt) */
+
+#define VECTOR_NUMBER_CTSU_WRITE ((IRQn_Type)20)  /* CTSU WRITE (CTSU write request interrupt) */
+#define CTSU_WRITE_IRQn          ((IRQn_Type)20)  /* CTSU WRITE (CTSU write request interrupt) */
+#define VECTOR_NUMBER_CTSU_READ ((IRQn_Type)21)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
+#define CTSU_READ_IRQn          ((IRQn_Type)21)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
+#define VECTOR_NUMBER_CTSU_END ((IRQn_Type)22)  /* CTSU END (CTSU measurement end interrupt) */
+#define CTSU_END_IRQn          ((IRQn_Type)22)  /* CTSU END (CTSU measurement end interrupt) */
 
 #ifdef __cplusplus
 }

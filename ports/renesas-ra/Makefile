@@ -243,6 +243,7 @@ SRC_C += \
 	gccollect.c \
 	help.c \
 	machine_dac.c \
+		machine_touchpad.c \
 	machine_i2c.c \
 	machine_opamp.c \
 	machine_comparator.c \
@@ -293,15 +294,17 @@ SRC_C += \
 
     # FSP BLE library (precompiled)
     # Use compact variant for baremetal (no RTOS)
-    # Allow override from environment/command line: make ... BLE_LIB_DIR=...</path>
-    BLE_LIB_DIR ?= $(TOP)/$(HAL_DIR)/ra/fsp/lib/r_ble/cm4_gcc/compact
+	# Allow override from environment/command line: make ... BLE_LIB_DIR=...</path>
+	# Default to the "compact" library for EK_RA4W1 (fits in FLASH/RAM limits).
+	# The "all" variant is too large (+15KB FLASH, +1.2KB RAM).
+	BLE_LIB_DIR ?= $(TOP)/$(HAL_DIR)/ra/fsp/lib/r_ble/cm4_gcc/compact
 
     # Fail early with a helpful message if the BLE library is missing.
     # Expect: $(BLE_LIB_DIR)/libr_ble.a
     ifeq ($(wildcard $(BLE_LIB_DIR)/libr_ble.a),)
     $(info [BLE] Expected prebuilt library not found: $(BLE_LIB_DIR)/libr_ble.a)
     $(info [BLE] Set BLE_LIB_DIR to your Renesas FSP pack path, e.g.)
-    $(info [BLE]   make BOARD=$(BOARD) BLE_LIB_DIR="C:/Users/<you>/.eclipse/.../FSP_Packs/4.4.0/ra/fsp/lib/r_ble/cm4_gcc/compact")
+	$(info [BLE]   make BOARD=$(BOARD) BLE_LIB_DIR="C:/Users/<you>/.eclipse/.../FSP_Packs/4.4.0/ra/fsp/lib/r_ble/cm4_gcc/compact")
     $(error Missing Renesas BLE library (libr_ble.a). Cannot build with MICROPY_HW_ENABLE_BLE=1)
     endif
 
@@ -412,6 +415,13 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_utils.c \
 	)
 
+endif
+
+# CTSU (Capacitive Touch Sensing Unit) support
+ifeq ($(MICROPY_HW_ENABLE_TOUCHPAD),1)
+CFLAGS += -DMICROPY_HW_ENABLE_TOUCHPAD=1
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ctsu/r_ctsu.c
+HAL_SRC_C += ra/ra_ctsu.c
 endif
 
 ifeq ($(MICROPY_HW_ENABLE_RNG),1)

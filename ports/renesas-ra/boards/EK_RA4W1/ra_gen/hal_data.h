@@ -7,6 +7,10 @@
 #include "r_lpm_api.h"
 #include "r_flash_lp.h"
 #include "r_flash_api.h"
+#if MICROPY_HW_ENABLE_BLE
+#include "r_agt.h"
+#include "r_timer_api.h"
+#endif
 FSP_HEADER
 
 /** lpm Instance */
@@ -25,6 +29,14 @@ extern const flash_cfg_t g_flash0_cfg;
 
 #ifndef NULL
 void NULL(flash_callback_args_t *p_args);
+#endif
+
+#if MICROPY_HW_ENABLE_BLE
+/* AGT Timer for BLE Abstraction Layer */
+extern const timer_instance_t g_timer_ble;
+extern agt_instance_ctrl_t g_timer_ble_ctrl;
+extern const timer_cfg_t g_timer_ble_cfg;
+extern const agt_extended_cfg_t g_timer_ble_extend;
 #endif
 
 FSP_FOOTER

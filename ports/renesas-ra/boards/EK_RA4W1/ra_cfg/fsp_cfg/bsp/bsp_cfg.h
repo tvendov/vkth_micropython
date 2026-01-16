@@ -26,8 +26,10 @@ extern "C" {
 #define BSP_CFG_BOOT_IMAGE (1)
 #endif
 #define BSP_CFG_MCU_VCC_MV (3300)
-#define BSP_CFG_STACK_MAIN_BYTES (0x4000)
-#define BSP_CFG_HEAP_BYTES (0xf000)
+#define BSP_CFG_STACK_MAIN_BYTES (0x3E00)  /* Reduced from 0x4000 to fit BLE ABS */
+// Reduce MicroPython GC heap reservation to make room for the BLE stack's
+// required static buffers (including the MINT buffer-management heap).
+#define BSP_CFG_HEAP_BYTES (0xd000)
 #define BSP_CFG_PARAM_CHECKING_ENABLE (0)
 #define BSP_CFG_ASSERT (0)
 #define BSP_CFG_ERROR_LOG (0)
@@ -40,7 +42,7 @@ extern "C" {
 #define BSP_CFG_STARTUP_CLOCK_REG_NOT_RESET ((0))
 
 #ifndef BSP_CLOCK_CFG_MAIN_OSC_POPULATED
-#define BSP_CLOCK_CFG_MAIN_OSC_POPULATED (0)
+#define BSP_CLOCK_CFG_MAIN_OSC_POPULATED (0)  /* Renesas example uses 0 */
 #endif
 
 #ifndef BSP_CLOCK_CFG_MAIN_OSC_CLOCK_SOURCE
@@ -50,7 +52,7 @@ extern "C" {
 #define BSP_CLOCK_CFG_SUBCLOCK_DRIVE (0)
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_POPULATED
-#define BSP_CLOCK_CFG_SUBCLOCK_POPULATED (0)
+#define BSP_CLOCK_CFG_SUBCLOCK_POPULATED (0)  /* Renesas example uses 0 */
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS
 #define BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS 1000

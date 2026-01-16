@@ -1,53 +1,68 @@
-/*
- * This file is part of the MicroPython project, http://micropython.org/
- *
- * The MIT License (MIT)
- *
- * Copyright (c) 2025 Damien P. George
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
+/* generated configuration header file - matching Renesas BLE example */
+#ifndef RM_BLE_ABS_CFG_H_
+#define RM_BLE_ABS_CFG_H_
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#ifndef RM_BLE_ABS_CFG_H
-#define RM_BLE_ABS_CFG_H
+/* Reference BLE_CFG defines */
+#define BLE_ABS_CFG_RF_DEBUG_PUBLIC_ADDRESS BLE_CFG_RF_DEBUG_PUBLIC_ADDRESS
+#define BLE_ABS_CFG_RF_DEBUG_RANDOM_ADDRESS BLE_CFG_RF_DEBUG_RANDOM_ADDRESS
 
-/***********************************************************************************************************************
- * BLE Abstraction Layer Configuration
- **********************************************************************************************************************/
+/* Connection parameters - matching working bare-metal */
+#define BLE_ABS_CFG_RF_CONNECTION_MAXIMUM (7)
+#define BLE_ABS_CFG_RF_CONNECTION_DATA_MAXIMUM (251)
+#define BLE_ABS_CFG_RF_ADVERTISING_DATA_MAXIMUM (1650)
+#define BLE_ABS_CFG_RF_ADVERTISING_SET_MAXIMUM (4)
+#define BLE_ABS_CFG_RF_SYNC_SET_MAXIMUM (2)
 
-/* BLE ABS Parameter Check
- * 0: Disable parameter checking
- * 1: Enable parameter checking
- */
-#define RM_BLE_ABS_CFG_PARAM_CHECKING_ENABLE    (BSP_CFG_PARAM_CHECKING_ENABLE)
+/* Security */
+#define BLE_ABS_CFG_ENABLE_SECURE_DATA BLE_CFG_ENABLE_SECURE_DATA
+#define BLE_ABS_CFG_SECURE_DATA_DATAFLASH_BLOCK (0)
+#define BLE_ABS_CFG_NUMBER_BONDING (0)
 
-/* BLE ABS Event Callback
- * 0: Disable event callback
- * 1: Enable event callback
- */
-#define RM_BLE_ABS_CFG_EVENT_CALLBACK_ENABLE    (1)
+/* Event notifications - reference BLE_CFG */
+#define BLE_ABS_CFG_EVENT_NOTIFY_CONNECTION_START BLE_CFG_EVENT_NOTIFY_CONNECTION_START
+#define BLE_ABS_CFG_EVENT_NOTIFY_CONNECTION_CLOSE BLE_CFG_EVENT_NOTIFY_CONNECTION_CLOSE
+#define BLE_ABS_CFG_EVENT_NOTIFY_ADVERTISING_START BLE_CFG_EVENT_NOTIFY_ADVERTISING_START
+#define BLE_ABS_CFG_EVENT_NOTIFY_ADVERTISING_CLOSE BLE_CFG_EVENT_NOTIFY_ADVERTISING_CLOSE
+#define BLE_ABS_CFG_EVENT_NOTIFY_SCANNING_START BLE_CFG_EVENT_NOTIFY_SCANNING_START
+#define BLE_ABS_CFG_EVENT_NOTIFY_SCANNING_CLOSE BLE_CFG_EVENT_NOTIFY_SCANNING_CLOSE
+#define BLE_ABS_CFG_EVENT_NOTIFY_INITIATING_START BLE_CFG_EVENT_NOTIFY_INITIATING_START
+#define BLE_ABS_CFG_EVENT_NOTIFY_INITIATING_CLOSE BLE_CFG_EVENT_NOTIFY_INITIATING_CLOSE
+#define BLE_ABS_CFG_EVENT_NOTIFY_DEEP_SLEEP_START BLE_CFG_EVENT_NOTIFY_DEEP_SLEEP_START
+#define BLE_ABS_CFG_EVENT_NOTIFY_DEEP_SLEEP_WAKEUP BLE_CFG_EVENT_NOTIFY_DEEP_SLEEP_WAKEUP
 
-/* BLE ABS Bonding Configuration */
-#define BLE_ABS_CFG_NUMBER_BONDING              (1)     // Max bonded devices
+/* RF Configuration - CRITICAL */
+#define BLE_ABS_CFG_RF_CLVAL (6)
+#define BLE_ABS_CFG_RF_DCDC_CONVERTER_ENABLE BLE_CFG_RF_DCDC_CONVERTER_ENABLE
+#define BLE_ABS_CFG_RF_EXT32K_EN BLE_CFG_RF_EXT32K_EN
+#define BLE_ABS_CFG_RF_MCU_CLKOUT_PORT BLE_CFG_RF_MCU_CLKOUT_PORT
+#define BLE_ABS_CFG_RF_MCU_CLKOUT_FREQ BLE_CFG_RF_MCU_CLKOUT_FREQ
+#define BLE_ABS_CFG_RF_SCA (250)
+#define BLE_ABS_CFG_RF_MAX_TX_POW BLE_CFG_RF_MAX_TX_POW
+#define BLE_ABS_CFG_RF_DEF_TX_POW BLE_CFG_RF_DEF_TX_POW
+#define BLE_ABS_CFG_RF_CLKOUT_EN BLE_CFG_RF_CLKOUT_EN
+#define BLE_ABS_CFG_RF_DEEP_SLEEP_EN BLE_CFG_RF_DEEP_SLEEP_EN
 
-/* BLE ABS Timer Configuration */
-#define BLE_ABS_CFG_TIMER_NUMBER_OF_SLOT        (4)     // Number of timer slots
+/* Clock */
+#define BLE_ABS_CFG_MCU_MAIN_CLK_KHZ (8000)
 
-#endif // RM_BLE_ABS_CFG_H
+/* Device data storage */
+#define BLE_ABS_CFG_DEV_DATA_CF_BLOCK (255)
+#define BLE_ABS_CFG_DEV_DATA_DF_BLOCK (-1)
+
+/* GATT */
+#define BLE_ABS_CFG_GATT_MTU_SIZE (23)
+
+/* Timer */
+#define BLE_ABS_CFG_TIMER_NUMBER_OF_SLOT (2)
+
+/* Parameter checking */
+#define BLE_ABS_CFG_PARAM_CHECKING_ENABLE (BSP_CFG_PARAM_CHECKING_ENABLE)
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* RM_BLE_ABS_CFG_H_ */
 

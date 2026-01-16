@@ -8,11 +8,24 @@
 
 #include <string.h>
 #include "py/mpconfig.h"
+#include "py/runtime.h"  // For mp_printf debug output
+#include "py/mphal.h"    // For mp_hal_delay_ms
 #include "ra_ble.h"
 #include "ra_ble_events.h"
 
+extern void ra_ble_platform_fixup(void);
+
 // FSP BLE stack API
 #include "r_ble_api.h"
+
+// FSP BLE Abstraction Layer
+#include "rm_ble_abs.h"
+#include "rm_ble_abs_api.h"
+
+// BLE ABS instance (defined in ra_ble_config.c)
+extern ble_abs_instance_ctrl_t g_ble_abs0_ctrl;
+extern const ble_abs_cfg_t g_ble_abs0_cfg;
+extern const ble_abs_instance_t g_ble_abs0;
 
 // BLE state
 static ra_ble_state_t g_ble_state = RA_BLE_STATE_OFF;
@@ -92,7 +105,9 @@ static void ra_ble_try_set_rand_addr(void) {
     }
 }
 
-static void ra_ble_gap_cb(uint16_t event_type, ble_status_t event_result, st_ble_evt_data_t *p_event_data) {
+// GAP callback - called by RM_BLE_ABS layer
+// This function is referenced in ra_ble_config.c as gap_callback in ble_abs_cfg_t
+void ra_ble_abs_gap_callback(uint16_t event_type, ble_status_t event_result, st_ble_evt_data_t *p_event_data) {
     (void)event_result;
     (void)p_event_data;
 
@@ -212,6 +227,17 @@ static void ra_ble_pump_once(void) {
     if (!g_ble_open) {
         return;
     }
+
+    // Diagnostic: do NOT auto-fix here.
+    // If these pointers get corrupted, we want to stop immediately and inspect
+    // who overwrote RAM (root cause), rather than masking it.
+    extern external_irq_instance_t const g_ble_external_irq8;
+    extern external_irq_instance_t const * g_ble_external_irq;
+    if (g_ble_external_irq != &g_ble_external_irq8) {
+        __BKPT(0);   // stop here, inspect memory and call stack
+        return;
+    }
+
     (void)R_BLE_Execute();
 }
 
@@ -235,12 +261,68 @@ static uint32_t ra_ble_adv_interval_units_from_ms(uint32_t interval_ms) {
     return units;
 }
 
-// Initialize BLE stack
+// Boot counter in noinit section to survive reset
+__attribute__((section(".noinit"))) static uint32_t s_boot_count;
+
+// Re-entry guard
+static volatile int s_ble_init_in_progress = 0;
+static volatile int s_ble_inited = 0;
+
+// IRQ8 hit counter (incremented from IRQ callback)
+volatile uint32_t g_irq8_hits = 0;
+
+// Initialize BLE stack using RM_BLE_ABS abstraction layer
+// External debug counters from ra_ble_config.c and ra_icu.c
+extern volatile uint32_t g_icu_cb_entered;
+extern volatile uint32_t g_icu_cb_calling_user;
+extern volatile uint32_t g_icu_cb_done;
+extern volatile uint32_t g_irq8_isr_count;
+extern volatile uint32_t g_irq8_hits;
+
 ra_ble_status_t ra_ble_init(void) {
+    // Enable HardFault debug mode to see crash info instead of silent reset
+    extern int pyb_hard_fault_debug;
+    pyb_hard_fault_debug = 1;
+
+    // Increment and print boot counter
+    s_boot_count++;
+    mp_printf(&mp_plat_print, "\n=== BOOT #%lu ===\n", (unsigned long)s_boot_count);
+
+    // Print debug counters from PREVIOUS boot (before reset)
+    mp_printf(&mp_plat_print, "[PREV] g_irq8_isr_count=%lu g_icu_cb_entered=%lu g_icu_cb_calling_user=%lu g_icu_cb_done=%lu g_irq8_hits=%lu\n",
+              (unsigned long)g_irq8_isr_count, (unsigned long)g_icu_cb_entered,
+              (unsigned long)g_icu_cb_calling_user, (unsigned long)g_icu_cb_done,
+              (unsigned long)g_irq8_hits);
+
+    // Print reset status registers
+    uint16_t rstsr0 = R_SYSTEM->RSTSR0;
+    uint8_t rstsr1 = R_SYSTEM->RSTSR1;
+    uint8_t rstsr2 = R_SYSTEM->RSTSR2;
+    mp_printf(&mp_plat_print, "RSTSR0=0x%04X RSTSR1=0x%02X RSTSR2=0x%02X\n",
+              (unsigned)rstsr0, (unsigned)rstsr1, (unsigned)rstsr2);
+    // RSTSR0: bit0=PORF(power-on), bit1=LVD0RF, bit2=LVD1RF, bit7=LVD2RF
+    // RSTSR1: bit0=IWDTRF, bit1=WDTRF, bit2=SWRF
+    // RSTSR2: bit0=CWSF(cold/warm start)
+
+    // Re-entry guard
+    mp_printf(&mp_plat_print, "ble_init_in_progress=%d ble_inited=%d\n",
+              s_ble_init_in_progress, s_ble_inited);
+
+    if (s_ble_inited) {
+        mp_printf(&mp_plat_print, "BLE already inited -> skip\n");
+        return RA_BLE_SUCCESS;
+    }
+    if (s_ble_init_in_progress) {
+        mp_printf(&mp_plat_print, "RE-ENTRY detected -> stop here\n");
+        while (1) { __WFI(); }
+    }
+    s_ble_init_in_progress = 1;
+
     if (g_ble_state != RA_BLE_STATE_OFF) {
+        s_ble_init_in_progress = 0;
         return RA_BLE_ERR_INVALID_STATE;
     }
-    
+
     // Initialize event queue
     ra_ble_event_queue_init();
 
@@ -251,24 +333,155 @@ ra_ble_status_t ra_ble_init(void) {
     g_ble_stack_on = false;
     g_ble_set_rand_addr_pending = g_ble_own_addr_valid;
 
-    ble_status_t st = R_BLE_Open();
-    if (st != BLE_SUCCESS) {
-        return ra_ble_status_from_fsp(st);
+    // Ensure BLE library platform pointers are valid immediately before open.
+    // This is required because g_ble_external_irq (RAM) has been observed to be
+    // overwritten prior to r_rf_intout_init(), leading to HardFault.
+    ra_ble_platform_fixup();
+
+    // ===== DEBUG: Print BLE configuration before init =====
+    mp_printf(&mp_plat_print, "\n=== BLE Init Debug ===\n");
+
+    // Clock info
+    extern const uint16_t g_ble_main_clk_khz;
+    mp_printf(&mp_plat_print, "g_ble_main_clk_khz = %u\n", (unsigned)g_ble_main_clk_khz);
+
+    // Connection config
+    extern const uint16_t g_ble_conn_max;
+    extern const uint16_t g_ble_conn_data_max;
+    mp_printf(&mp_plat_print, "g_ble_conn_max = %u\n", (unsigned)g_ble_conn_max);
+    mp_printf(&mp_plat_print, "g_ble_conn_data_max = %u\n", (unsigned)g_ble_conn_data_max);
+
+    // RF config
+    extern const uint8_t g_ble_rf_config[];
+    mp_printf(&mp_plat_print, "g_ble_rf_config = [%02X, %02X, %02X, %02X]\n",
+              g_ble_rf_config[0], g_ble_rf_config[1], g_ble_rf_config[2], g_ble_rf_config[3]);
+
+    // External IRQ pointer
+    extern external_irq_instance_t const g_ble_external_irq8;
+    extern external_irq_instance_t const * g_ble_external_irq;
+    mp_printf(&mp_plat_print, "g_ble_external_irq = %p\n", (void*)g_ble_external_irq);
+    mp_printf(&mp_plat_print, "g_ble_external_irq8 = %p\n", (void*)&g_ble_external_irq8);
+    mp_printf(&mp_plat_print, "IRQ match: %s\n", (g_ble_external_irq == &g_ble_external_irq8) ? "YES" : "NO");
+
+    // IRQ8 config details
+    if (g_ble_external_irq) {
+        mp_printf(&mp_plat_print, "IRQ8 cfg channel = %u\n", (unsigned)g_ble_external_irq->p_cfg->channel);
+        mp_printf(&mp_plat_print, "IRQ8 cfg irq = %d\n", (int)g_ble_external_irq->p_cfg->irq);
+        mp_printf(&mp_plat_print, "IRQ8 cfg callback = %p\n", (void*)g_ble_external_irq->p_cfg->p_callback);
+    }
+
+    // RF notify
+    extern const st_ble_rf_notify_t g_ble_rf_notify;
+    mp_printf(&mp_plat_print, "g_ble_rf_notify.enable = %lu\n", (unsigned long)g_ble_rf_notify.enable);
+
+    // ABS config
+    mp_printf(&mp_plat_print, "g_ble_abs0_cfg.gap_callback = %p\n", (void*)g_ble_abs0_cfg.gap_callback);
+    mp_printf(&mp_plat_print, "g_ble_abs0_cfg.p_flash_instance = %p\n", (void*)g_ble_abs0_cfg.p_flash_instance);
+    mp_printf(&mp_plat_print, "g_ble_abs0_cfg.p_timer_instance = %p\n", (void*)g_ble_abs0_cfg.p_timer_instance);
+
+    mp_printf(&mp_plat_print, "=== Calling RM_BLE_ABS_Open... ===\n");
+    // ===== END DEBUG =====
+
+    // Disable ALL register protection before BLE init
+    // RF chip enable writes to multiple protected register domains
+    R_BSP_RegisterProtectDisable(BSP_REG_PROTECT_CGC);
+    R_BSP_RegisterProtectDisable(BSP_REG_PROTECT_OM_LPC_BATT);
+    R_BSP_RegisterProtectDisable(BSP_REG_PROTECT_LVD);
+
+    // Also write PRCR directly to ensure all protections are off
+    // PRCR bits: PRC0=CGC, PRC1=LPC/OPM, PRC3=LVD
+    // Key = 0xA500, enable all = 0x000B
+    R_SYSTEM->PRCR = 0xA50B;
+    mp_printf(&mp_plat_print, ">>> PRCR = 0x%04X (all unlocked)\n", R_SYSTEM->PRCR);
+
+    // Clock stabilization delay - RF module needs time after clock enable
+    mp_printf(&mp_plat_print, ">>> Waiting 100ms for clock stabilization...\n");
+    mp_hal_delay_ms(100);
+
+    // Debug: check timer counter before/after
+    extern volatile uint32_t g_ble_timer_isr_count;
+    mp_printf(&mp_plat_print, "[PRE] timer_isr_count=%lu\n", (unsigned long)g_ble_timer_isr_count);
+
+    // Debug: Print IELSR values before BLE init
+    mp_printf(&mp_plat_print, ">>> IELSR[30]=0x%08lX (IRQ8)\n", R_ICU->IELSR[30]);
+    mp_printf(&mp_plat_print, ">>> IELSR[16]=0x%08lX (AGT1)\n", R_ICU->IELSR[16]);
+
+    // Debug: Print clock and system status
+    mp_printf(&mp_plat_print, ">>> HOCOCR=0x%02X MOSCCR=0x%02X SOSCCR=0x%02X LOCOCR=0x%02X\n",
+              R_SYSTEM->HOCOCR, R_SYSTEM->MOSCCR, R_SYSTEM->SOSCCR, R_SYSTEM->LOCOCR);
+    mp_printf(&mp_plat_print, ">>> SCKSCR=0x%02X (clock source) MSTPCRB=0x%08lX\n",
+              R_SYSTEM->SCKSCR, (unsigned long)R_MSTP->MSTPCRB);
+
+    // Check RF control error counters before
+    extern volatile uint32_t g_ble_rf_control_error_no;
+    extern volatile uint32_t g_ble_rf_control_error_count;
+    mp_printf(&mp_plat_print, "[PRE] rf_err_no=%lu rf_err_count=%lu\n",
+              (unsigned long)g_ble_rf_control_error_no, (unsigned long)g_ble_rf_control_error_count);
+
+    // ===== DEBUG: Verify external_irq pointers before BLE init =====
+    {
+        extern external_irq_instance_t const * g_ble_external_irq;
+        extern const external_irq_instance_t g_ble_external_irq8;
+        mp_printf(&mp_plat_print, ">>> Verifying g_ble_external_irq before BLE init...\n");
+        mp_printf(&mp_plat_print, "  g_ble_external_irq = 0x%08lX\n", (unsigned long)g_ble_external_irq);
+        mp_printf(&mp_plat_print, "  &g_ble_external_irq8 = 0x%08lX\n", (unsigned long)&g_ble_external_irq8);
+        if (g_ble_external_irq) {
+            mp_printf(&mp_plat_print, "  p_ctrl = 0x%08lX\n", (unsigned long)g_ble_external_irq->p_ctrl);
+            mp_printf(&mp_plat_print, "  p_cfg = 0x%08lX\n", (unsigned long)g_ble_external_irq->p_cfg);
+            mp_printf(&mp_plat_print, "  p_api = 0x%08lX\n", (unsigned long)g_ble_external_irq->p_api);
+            if (g_ble_external_irq->p_api) {
+                mp_printf(&mp_plat_print, "  p_api->open = 0x%08lX\n", (unsigned long)g_ble_external_irq->p_api->open);
+            }
+        } else {
+            mp_printf(&mp_plat_print, "  ERROR: g_ble_external_irq is NULL!\n");
+        }
+    }
+
+    mp_printf(&mp_plat_print, ">>> Calling RM_BLE_ABS_Open()...\n");
+
+    // Use RM_BLE_ABS_Open which handles:
+    // - R_BLE_Open()
+    // - R_BLE_GAP_Init() with our callback
+    // - Timer initialization for BLE timing
+    // - R_BLE_VS_Init() for vendor specific events
+    fsp_err_t fsp_err = RM_BLE_ABS_Open(&g_ble_abs0_ctrl, &g_ble_abs0_cfg);
+
+    // Re-enable register protection
+    R_BSP_RegisterProtectEnable(BSP_REG_PROTECT_LVD);
+    R_BSP_RegisterProtectEnable(BSP_REG_PROTECT_OM_LPC_BATT);
+    R_BSP_RegisterProtectEnable(BSP_REG_PROTECT_CGC);
+    // Lock PRCR again
+    R_SYSTEM->PRCR = 0xA500;
+
+    mp_printf(&mp_plat_print, "RM_BLE_ABS_Open returned: %d\n", (int)fsp_err);
+
+    // Diagnostic: check if platform pointers were corrupted during RM_BLE_ABS_Open
+    {
+        extern external_irq_instance_t const g_ble_external_irq8;
+        extern external_irq_instance_t const * g_ble_external_irq;
+        if (g_ble_external_irq != &g_ble_external_irq8) {
+            __BKPT(1);  // Pointer corrupted after RM_BLE_ABS_Open
+        }
+    }
+
+    if (fsp_err != FSP_SUCCESS) {
+        mp_printf(&mp_plat_print, "BLE Open failed with error: %d\n", (int)fsp_err);
+        s_ble_init_in_progress = 0;
+        return RA_BLE_ERR_INVALID_STATE;
     }
     g_ble_open = true;
 
-    st = R_BLE_GAP_Init(ra_ble_gap_cb);
-    if (st != BLE_SUCCESS) {
-        (void)R_BLE_Close();
-        g_ble_open = false;
-        return ra_ble_status_from_fsp(st);
-    }
+    // Mark init complete
+    s_ble_inited = 1;
+    s_ble_init_in_progress = 0;
+    mp_printf(&mp_plat_print, "BLE init completed, irq8_hits=%lu\n", (unsigned long)g_irq8_hits);
 
     // Initialize GATT Server and register callback for write/read/indication events
-    st = R_BLE_GATTS_Init(1);  // 1 callback slot
+    // Note: RM_BLE_ABS_Open handles R_BLE_GATTS_Init if gatt_server_callback_list is provided,
+    // but we call it manually for now to set up our custom callback
+    ble_status_t st = R_BLE_GATTS_Init(1);  // 1 callback slot
     if (st != BLE_SUCCESS) {
-        (void)R_BLE_GAP_Terminate();
-        (void)R_BLE_Close();
+        (void)RM_BLE_ABS_Close(&g_ble_abs0_ctrl);
         g_ble_open = false;
         return ra_ble_status_from_fsp(st);
     }
@@ -277,8 +490,7 @@ ra_ble_status_t ra_ble_init(void) {
     extern st_ble_gatts_db_cfg_t g_ble_gatts_db_cfg;
     st = R_BLE_GATTS_SetDbInst(&g_ble_gatts_db_cfg);
     if (st != BLE_SUCCESS) {
-        (void)R_BLE_GAP_Terminate();
-        (void)R_BLE_Close();
+        (void)RM_BLE_ABS_Close(&g_ble_abs0_ctrl);
         g_ble_open = false;
         return ra_ble_status_from_fsp(st);
     }
@@ -312,8 +524,8 @@ ra_ble_status_t ra_ble_deinit(void) {
     }
 
     if (g_ble_open) {
-        (void)R_BLE_GAP_Terminate();
-        (void)R_BLE_Close();
+        // Use RM_BLE_ABS_Close which handles R_BLE_Close and R_BLE_GAP_Terminate
+        (void)RM_BLE_ABS_Close(&g_ble_abs0_ctrl);
         g_ble_open = false;
     }
 

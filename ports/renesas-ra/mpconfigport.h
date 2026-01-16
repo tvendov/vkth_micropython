@@ -44,6 +44,12 @@
 #define MICROPY_HW_ENABLE_UART_REPL (1) // useful if there is no USB
 #endif
 
+// Capacitive touch (CTSU) / TouchPad support.
+// Boards should enable this explicitly and provide the required FSP configuration.
+#ifndef MICROPY_HW_ENABLE_TOUCHPAD
+#define MICROPY_HW_ENABLE_TOUCHPAD  (0)
+#endif
+
 #if MICROPY_HW_ENABLE_USBDEV
 // Enable USB-CDC serial port
 #ifndef MICROPY_HW_USB_CDC
@@ -175,6 +181,10 @@
 #endif
 #if MICROPY_HW_ENABLE_DAC
 #define MICROPY_PY_MACHINE_DAC      (1)
+#endif
+
+#if MICROPY_HW_ENABLE_TOUCHPAD
+#define MICROPY_PY_MACHINE_TOUCHPAD (1)
 #endif
 #if MICROPY_HW_ENABLE_COMPARATOR
 #define MICROPY_PY_MACHINE_COMPARATOR (1)

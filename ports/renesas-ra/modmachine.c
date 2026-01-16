@@ -81,6 +81,12 @@ extern const mp_obj_type_t machine_comparator_type;
 #define MICROPY_PY_MACHINE_COMPARATOR_ENTRY
 #endif
 
+#if MICROPY_HW_ENABLE_TOUCHPAD
+#define MICROPY_PY_MACHINE_TOUCHPAD_ENTRY { MP_ROM_QSTR(MP_QSTR_TouchPad), MP_ROM_PTR(&machine_touchpad_type) },
+#else
+#define MICROPY_PY_MACHINE_TOUCHPAD_ENTRY
+#endif
+
 #define MICROPY_PY_MACHINE_EXTRA_GLOBALS \
     { MP_ROM_QSTR(MP_QSTR_info),                MP_ROM_PTR(&machine_info_obj) }, \
     { MP_ROM_QSTR(MP_QSTR_sleep),               MP_ROM_PTR(&machine_lightsleep_obj) }, \
@@ -88,6 +94,7 @@ extern const mp_obj_type_t machine_comparator_type;
     { MP_ROM_QSTR(MP_QSTR_enable_irq),          MP_ROM_PTR(&machine_enable_irq_obj) }, \
     \
     { MP_ROM_QSTR(MP_QSTR_Pin),                 MP_ROM_PTR(&machine_pin_type) }, \
+	    MICROPY_PY_MACHINE_TOUCHPAD_ENTRY \
     \
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \
     { MP_ROM_QSTR(MP_QSTR_Timer),               MP_ROM_PTR(&machine_timer_type) }, \
