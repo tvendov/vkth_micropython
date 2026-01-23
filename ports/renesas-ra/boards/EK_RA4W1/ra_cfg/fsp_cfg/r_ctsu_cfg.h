@@ -1,5 +1,5 @@
 /*
- * CTSU Configuration for VK_RA4M2
+ * CTSU Configuration for EK_RA4W1
  * Minimal configuration for MicroPython TouchPad support
  */
 
@@ -13,7 +13,7 @@ extern "C" {
 /* Parameter checking enable/disable */
 #define CTSU_CFG_PARAM_CHECKING_ENABLE      (1)
 
-/* Number of self-capacitance elements (touch buttons) */
+/* Number of self-capacitance elements (touch buttons) - reduced to save RAM on RA4W1 */
 #define CTSU_CFG_NUM_SELF_ELEMENTS          (4)
 
 /* Number of mutual-capacitance elements (not used) */
@@ -37,8 +37,8 @@ extern "C" {
 /* VCC voltage in mV (for calibration) */
 #define CTSU_CFG_VCC_MV                     (3300)
 
-/* TSCAP port setting (P207 for RA4M2) */
-#define CTSU_CFG_TSCAP_PORT                 (BSP_IO_PORT_02_PIN_07)
+/* TSCAP port setting (P205 for RA4W1) */
+#define CTSU_CFG_TSCAP_PORT                 (BSP_IO_PORT_02_PIN_05)
 
 /* DTC support (disabled for simplicity) */
 #define CTSU_CFG_DTC_SUPPORT_ENABLE         (0)
@@ -48,6 +48,9 @@ extern "C" {
 
 /* Temperature correction (disabled) */
 #define CTSU_CFG_TEMP_CORRECTION_SUPPORT    (0)
+
+/* Skip initial correction (keep 0 to follow upstream FSP behavior) */
+#define CTSU_CFG_SKIP_INITIAL_CORRECTION    (0)
 
 /* Calibration RTRIM support (disabled) */
 #define CTSU_CFG_CALIB_RTRIM_SUPPORT        (0)

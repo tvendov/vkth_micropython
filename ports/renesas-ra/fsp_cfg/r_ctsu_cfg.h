@@ -23,9 +23,200 @@ extern "C" {
 
 /* Disable optional features not currently used by this port. */
 #define CTSU_CFG_DTC_SUPPORT_ENABLE          (0)
-#define CTSU_CFG_DIAG_SUPPORT_ENABLE         (0)
+#define CTSU_CFG_DIAG_SUPPORT_ENABLE         (1)
 #define CTSU_CFG_TEMP_CORRECTION_SUPPORT     (0)
 #define CTSU_CFG_CALIB_RTRIM_SUPPORT         (0)
+
+/*
+ * Diagnosis configuration thresholds.
+ *
+ * When CTSU_CFG_DIAG_SUPPORT_ENABLE is enabled, the FSP CTSU driver expects a
+ * set of CTSU_CFG_DIAG_* macros to be defined at compile time. Some boards
+ * provide their own r_ctsu_cfg.h; however this port-level config must also be
+ * self-contained to keep builds working across all boards.
+ *
+ * Boards that actively use CTSU diagnosis should override these values.
+ */
+#ifndef CTSU_CFG_DIAG_DAC_TS
+#define CTSU_CFG_DIAG_DAC_TS                 (0)
+#endif
+
+#ifndef CTSU_CFG_DIAG_CCO_HIGH_MAX
+#define CTSU_CFG_DIAG_CCO_HIGH_MAX           (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_CCO_HIGH_MIN
+#define CTSU_CFG_DIAG_CCO_HIGH_MIN           (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_CCO_LOW_MAX
+#define CTSU_CFG_DIAG_CCO_LOW_MAX            (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_CCO_LOW_MIN
+#define CTSU_CFG_DIAG_CCO_LOW_MIN            (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_SSCG_MAX
+#define CTSU_CFG_DIAG_SSCG_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_SSCG_MIN
+#define CTSU_CFG_DIAG_SSCG_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_LOAD_REISTER_MAX
+#define CTSU_CFG_DIAG_LOAD_REISTER_MAX       (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_LOAD_REISTER_MIN
+#define CTSU_CFG_DIAG_LOAD_REISTER_MIN       (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_CURRENT_SOURCE_DIFF_MAX
+#define CTSU_CFG_DIAG_CURRENT_SOURCE_DIFF_MAX (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_CURRENT_SOURCE_DIFF_MIN
+#define CTSU_CFG_DIAG_CURRENT_SOURCE_DIFF_MIN (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_CLOCK_RECOV_RANGE
+#define CTSU_CFG_DIAG_CLOCK_RECOV_RANGE      (0xFFFF)
+#endif
+
+/* DAC diagnosis thresholds (safe defaults). */
+#ifndef CTSU_CFG_DIAG_DAC1_MAX
+#define CTSU_CFG_DIAG_DAC1_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC1_MIN
+#define CTSU_CFG_DIAG_DAC1_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC2_MAX
+#define CTSU_CFG_DIAG_DAC2_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC2_MIN
+#define CTSU_CFG_DIAG_DAC2_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC3_MAX
+#define CTSU_CFG_DIAG_DAC3_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC3_MIN
+#define CTSU_CFG_DIAG_DAC3_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC4_MAX
+#define CTSU_CFG_DIAG_DAC4_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC4_MIN
+#define CTSU_CFG_DIAG_DAC4_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC5_MAX
+#define CTSU_CFG_DIAG_DAC5_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC5_MIN
+#define CTSU_CFG_DIAG_DAC5_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC6_MAX
+#define CTSU_CFG_DIAG_DAC6_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC6_MIN
+#define CTSU_CFG_DIAG_DAC6_MIN               (0x0000)
+#endif
+
+/* CTSU2 uses additional DAC entries and DAC diff thresholds; provide safe defaults too. */
+#ifndef CTSU_CFG_DIAG_DAC7_MAX
+#define CTSU_CFG_DIAG_DAC7_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC7_MIN
+#define CTSU_CFG_DIAG_DAC7_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC8_MAX
+#define CTSU_CFG_DIAG_DAC8_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC8_MIN
+#define CTSU_CFG_DIAG_DAC8_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC9_MAX
+#define CTSU_CFG_DIAG_DAC9_MAX               (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC9_MIN
+#define CTSU_CFG_DIAG_DAC9_MIN               (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC10_MAX
+#define CTSU_CFG_DIAG_DAC10_MAX              (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC10_MIN
+#define CTSU_CFG_DIAG_DAC10_MIN              (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC11_MAX
+#define CTSU_CFG_DIAG_DAC11_MAX              (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC11_MIN
+#define CTSU_CFG_DIAG_DAC11_MIN              (0x0000)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC12_MAX
+#define CTSU_CFG_DIAG_DAC12_MAX              (0xFFFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC12_MIN
+#define CTSU_CFG_DIAG_DAC12_MIN              (0x0000)
+#endif
+
+#ifndef CTSU_CFG_DIAG_DAC1_2_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC1_2_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC1_2_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC1_2_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC2_3_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC2_3_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC2_3_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC2_3_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC3_4_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC3_4_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC3_4_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC3_4_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC4_5_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC4_5_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC4_5_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC4_5_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC5_6_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC5_6_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC5_6_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC5_6_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC6_7_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC6_7_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC6_7_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC6_7_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC7_8_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC7_8_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC7_8_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC7_8_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC8_9_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC8_9_DIFF_MAX        (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC8_9_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC8_9_DIFF_MIN        (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC9_10_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC9_10_DIFF_MAX       (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC9_10_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC9_10_DIFF_MIN       (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC10_11_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC10_11_DIFF_MAX      (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC10_11_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC10_11_DIFF_MIN      (-0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC11_12_DIFF_MAX
+#define CTSU_CFG_DIAG_DAC11_12_DIFF_MAX      (0x7FFF)
+#endif
+#ifndef CTSU_CFG_DIAG_DAC11_12_DIFF_MIN
+#define CTSU_CFG_DIAG_DAC11_12_DIFF_MIN      (-0x7FFF)
+#endif
 
 /* Board/system electrical configuration. */
 #define CTSU_CFG_LOW_VOLTAGE_MODE            (0)

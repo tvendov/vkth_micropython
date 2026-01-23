@@ -31,8 +31,13 @@
 #include "ra_config.h"
 #include "ra_gpio.h"
 
+// Special value for "no hardware CS/SSL pin".
+// When used, SPI will still run, but the SSL output pin will not be configured.
+#define RA_SPI_NO_CS (0xFFFFFFFFu)
+
 bool ra_af_find_ch(ra_af_pin_t *af_pin, uint32_t size, uint32_t pin, uint8_t *ch);
 bool ra_spi_find_af_ch(uint32_t mosi, uint32_t miso, uint32_t sck, uint8_t *ch);
+bool ra_spi_find_ssln(uint32_t pin, uint8_t *ssln);
 
 uint8_t ra_spi_write_byte(uint32_t ch, uint8_t b);
 void ra_spi_read_bytes8(uint32_t ch, uint8_t *buf, uint32_t count);

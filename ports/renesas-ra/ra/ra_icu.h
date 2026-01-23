@@ -36,6 +36,11 @@ typedef struct ra_irq_pin {
     uint32_t pin;
 } ra_icu_pin_t;
 
+static inline bool ra_pin_has_pull_up(uint32_t pin_cpu_id)
+{
+    uint32_t pfs = _PXXPFS(GPIO_PORT(pin_cpu_id), GPIO_BIT(pin_cpu_id));
+    return (pfs & PCR_MASK) != 0;
+}
 typedef void (*ICU_CB)(void *);
 
 bool ra_icu_find_irq_no(uint32_t pin, uint8_t *irq_no);

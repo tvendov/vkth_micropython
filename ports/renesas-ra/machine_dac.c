@@ -104,7 +104,6 @@ static mp_obj_t machine_dac_deinit(mp_obj_t self_in) {
 
     ra_dac_deinit(self->dac->pin, self->ch);
     self->active = ra_dac_is_running(self->ch);
-    self->ch = 0;
     self->mv = 0;
     return mp_const_none;
 }
@@ -186,7 +185,6 @@ void dac_deinit_all(void) {
         if (machine_dac_obj[i].active) {
             ra_dac_deinit(machine_dac_obj[i].dac->pin, machine_dac_obj[i].ch);
             machine_dac_obj[i].active = 0;
-            machine_dac_obj[i].ch = 0;
             machine_dac_obj[i].mv = 0;
         }
     }

@@ -271,13 +271,16 @@ static volatile int s_ble_inited = 0;
 // IRQ8 hit counter (incremented from IRQ callback)
 volatile uint32_t g_irq8_hits = 0;
 
+// Optional debug counter. Some builds provide this symbol elsewhere; make a
+// weak default definition so missing it doesn't break the link.
+__attribute__((weak)) volatile uint32_t g_irq8_isr_count = 0;
+
 // Initialize BLE stack using RM_BLE_ABS abstraction layer
 // External debug counters from ra_ble_config.c and ra_icu.c
 extern volatile uint32_t g_icu_cb_entered;
 extern volatile uint32_t g_icu_cb_calling_user;
 extern volatile uint32_t g_icu_cb_done;
-extern volatile uint32_t g_irq8_isr_count;
-extern volatile uint32_t g_irq8_hits;
+
 
 ra_ble_status_t ra_ble_init(void) {
     // Enable HardFault debug mode to see crash info instead of silent reset

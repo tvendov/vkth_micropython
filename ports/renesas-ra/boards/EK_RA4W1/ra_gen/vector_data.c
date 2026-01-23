@@ -1,5 +1,14 @@
 /* generated vector source file - do not edit */
 #include "bsp_api.h"
+
+/* Weak ISR stubs for CTSU. These allow builds to succeed even when the CTSU driver
+ * (r_ctsu) is not compiled in. If r_ctsu is added, its strong ISR definitions will
+ * override these weak symbols.
+ */
+BSP_WEAK_REFERENCE void ctsu_write_isr(void) { }
+BSP_WEAK_REFERENCE void ctsu_read_isr(void) { }
+BSP_WEAK_REFERENCE void ctsu_end_isr(void) { }
+
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
 #if VECTOR_DATA_IRQ_COUNT > 0
 BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
@@ -35,6 +44,9 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [28] = iic_master_tei_isr,         /* IIC0 TEI (Transmit end) */
     [29] = iic_master_eri_isr,         /* IIC0 ERI (Transfer error) */
     [30] = r_icu_isr,                  /* ICU IRQ8 (BLE RF - uses callback to r_ble_icu_intout_interrupt) */
+    [31] = ctsu_write_isr,         /* CTSU WRITE (CTSU write request interrupt) */
+    [32] = ctsu_read_isr,          /* CTSU READ (CTSU measurement data transfer request interrupt) */
+    [33] = ctsu_end_isr,           /* CTSU END (CTSU measurement end interrupt) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -69,5 +81,8 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [28] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TEI),         /* IIC0 TEI (Transmit end) */
     [29] = BSP_PRV_IELS_ENUM(EVENT_IIC0_ERI),         /* IIC0 ERI (Transfer error) */
     [30] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ8),         /* ICU IRQ8 (BLE RF interrupt) */
+    [31] = BSP_PRV_IELS_ENUM(EVENT_CTSU_WRITE),      /* CTSU WRITE (CTSU write request interrupt) */
+    [32] = BSP_PRV_IELS_ENUM(EVENT_CTSU_READ),       /* CTSU READ (CTSU measurement data transfer request interrupt) */
+    [33] = BSP_PRV_IELS_ENUM(EVENT_CTSU_END),        /* CTSU END (CTSU measurement end interrupt) */
 };
 #endif

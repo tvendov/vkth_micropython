@@ -26,10 +26,12 @@ extern "C" {
 #define BSP_CFG_BOOT_IMAGE (1)
 #endif
 #define BSP_CFG_MCU_VCC_MV (3300)
-#define BSP_CFG_STACK_MAIN_BYTES (0x3E00)  /* Reduced from 0x4000 to fit BLE ABS */
+#define BSP_CFG_STACK_MAIN_BYTES (0x3C00)  /* Reduced from 0x3E00 to fit BLE ABS + CTSU TouchPad */
 // Reduce MicroPython GC heap reservation to make room for the BLE stack's
 // required static buffers (including the MINT buffer-management heap).
-#define BSP_CFG_HEAP_BYTES (0xd000)
+// NOTE: Keep this value aligned (multiple of 16) to avoid ABI/alignment surprises.
+// Reduced slightly to avoid RAM region overflow at link time (and keep a little slack).
+#define BSP_CFG_HEAP_BYTES (0xcf00)
 #define BSP_CFG_PARAM_CHECKING_ENABLE (0)
 #define BSP_CFG_ASSERT (0)
 #define BSP_CFG_ERROR_LOG (0)

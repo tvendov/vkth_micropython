@@ -47,7 +47,9 @@ and this is (The Lazy way)
 
 
 
-#if defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
+#if defined(RA4M2)
+#define DAC_CH_SIZE 2
+#elif defined(RA4M1) || defined(RA4W1)
 #define DAC_CH_SIZE 1
 #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3) || defined(RA6M5)
 #define DAC_CH_SIZE 2
@@ -58,8 +60,11 @@ and this is (The Lazy way)
 #define DAC_PINS_SIZE sizeof(ra_dac_pins) / sizeof(ra_af_pin_t)
 
 static const ra_af_pin_t ra_dac_pins[] = {
-    #if defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
+    #if defined(RA4M1) || defined(RA4W1)
     { AF_GPIO, 0, P014 }, // (A3)
+    #elif defined(RA4M2)
+    { AF_GPIO, 0, P014 }, // DA0
+    { AF_GPIO, 1, P015 }, // DA1
     #elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3) || defined(RA6M5)
     { AF_GPIO, 0, P014 }, // (A4)
     { AF_GPIO, 1, P015 }, // (A5)
@@ -160,9 +165,19 @@ void ra_dac_init(uint32_t dac_pin, uint8_t ch) {
 void ra_dac_deinit(uint32_t dac_pin, uint8_t ch) {
     if (ch < DAC_CH_SIZE) {
         ra_dac_stop(ch);
-        R_DAC->DAVREFCR_b.REF = 0;   // No reference voltage selected
         ra_dac_release_pin(dac_pin);
 
-        ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD20_Msk);
+        // Only fully power down the DAC block when no channel is running.
+        bool any_running = false;
+        for (uint8_t i = 0; i < DAC_CH_SIZE; i++) {
+            if (ra_dac_is_running(i)) {
+                any_running = true;
+                break;
+            }
+        }
+        if (!any_running) {
+            R_DAC->DAVREFCR_b.REF = 0;   // No reference voltage selected
+            ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD20_Msk);
+        }
     }
 }

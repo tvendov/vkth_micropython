@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (31)
+#define VECTOR_DATA_IRQ_COUNT    (34)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -25,6 +25,9 @@ void iic_master_rxi_isr(void);
 void iic_master_txi_isr(void);
 void iic_master_tei_isr(void);
 void iic_master_eri_isr(void);
+void ctsu_write_isr(void);
+void ctsu_read_isr(void);
+void ctsu_end_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI1_RXI ((IRQn_Type)0)  /* SCI1 RXI (Received data full) */
@@ -88,9 +91,16 @@ void iic_master_eri_isr(void);
 #define VECTOR_NUMBER_IIC0_ERI ((IRQn_Type)29)  /* IIC0 ERI (Transfer error) */
 #define IIC0_ERI_IRQn          ((IRQn_Type)29)  /* IIC0 ERI (Transfer error) */
 
-/* RA4W1: IRQ8 is reserved for the BLE middleware (see bsp_elc.h). */
-#define VECTOR_NUMBER_ICU_IRQ8 ((IRQn_Type)30)  /* ICU IRQ8 (Interrupt for BLE middleware use only) */
-#define ICU_IRQ8_IRQn          ((IRQn_Type)30)  /* ICU IRQ8 (Interrupt for BLE middleware use only) */
+#define VECTOR_NUMBER_ICU_IRQ8 ((IRQn_Type)30)  /* ICU IRQ8 (External pin interrupt 8) */
+#define ICU_IRQ8_IRQn          ((IRQn_Type)30)  /* ICU IRQ8 (External pin interrupt 8) */
+
+#define VECTOR_NUMBER_CTSU_WRITE ((IRQn_Type)31)  /* CTSU WRITE (CTSU write request interrupt) */
+#define CTSU_WRITE_IRQn          ((IRQn_Type)31)  /* CTSU WRITE (CTSU write request interrupt) */
+#define VECTOR_NUMBER_CTSU_READ ((IRQn_Type)32)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
+#define CTSU_READ_IRQn          ((IRQn_Type)32)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
+#define VECTOR_NUMBER_CTSU_END ((IRQn_Type)33)  /* CTSU END (CTSU measurement end interrupt) */
+#define CTSU_END_IRQn          ((IRQn_Type)33)  /* CTSU END (CTSU measurement end interrupt) */
+
 #ifdef __cplusplus
 }
 #endif

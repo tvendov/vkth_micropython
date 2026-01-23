@@ -346,6 +346,10 @@ static bool ra_spi_pin_to_ssln(uint32_t pin, uint8_t *ssln) {
     return find;
 }
 
+bool ra_spi_find_ssln(uint32_t pin, uint8_t *ssln) {
+    return ra_spi_pin_to_ssln(pin, ssln);
+}
+
 static void ra_spi_module_start(uint32_t ch) {
     if (ch == 0) {
         ra_mstpcrb_start(R_MSTP_MSTPCRB_MSTPB19_Msk);
@@ -577,9 +581,16 @@ void ra_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, uint32
     uint8_t ssln = 0;
     uint8_t sslp = 0;
 
-    ra_spi_pin_to_ssln(cs, &ssln);
-    sslp &= ~0x0fU;
-    sslp |= (uint8_t)polarity << ssln;
+    bool have_cs = (cs != RA_SPI_NO_CS);
+    if (have_cs) {
+        if (!ra_spi_pin_to_ssln(cs, &ssln)) {
+            // If CS pin is not SSL-capable, fall back to SSL0.
+            // The machine layer should normally validate CS.
+            ssln = 0;
+        }
+        sslp &= ~0x0fU;
+        sslp |= (uint8_t)polarity << ssln;
+    }
 
     ra_spi_module_start(ch);
 
@@ -610,7 +621,9 @@ void ra_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, uint32
     ra_spi_set_pin(mosi, false);
     ra_spi_set_pin(miso, true);
     ra_spi_set_pin(sck, false);
-    ra_spi_set_pin(cs, false);
+    if (have_cs) {
+        ra_spi_set_pin(cs, false);
+    }
 
     #if defined(RA6M5)
     spi_reg->SPCR3 = 0x00;      // default

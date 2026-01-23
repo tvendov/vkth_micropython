@@ -32,9 +32,9 @@
 #include "ra_timer.h"
 #include "ra_icu.h"
 
-#define DEFAULT_BOUNCE_PERIOD (200) /* 200ms */
+#define DEFAULT_BOUNCE_PERIOD (2) /* 5ms */
 
-#if !defined(RA_PRI_EXTIT)
+#if !defined(RA_PRI_EXTINT)
 #define RA_PRI_EXTINT (14)
 #endif
 
@@ -876,15 +876,8 @@ void ra_icu_disable_pin(uint32_t pin) {
 }
 
 void ra_icu_priority_irq_no(uint8_t irq_no, uint32_t ipl) {
-    // Configure NVIC priority for a given IRQ number.
-    // NOTE: idx_to_irq_vec is indexed by the *dense* IRQ index (IRQ*_IDX), not by irq_no.
-    // Use irq_no_to_irq_vec (sparse 0..15) to avoid out-of-bounds when some IRQ lines are not allocated.
-    if (irq_no < (sizeof(irq_no_to_irq_vec) / sizeof(irq_no_to_irq_vec[0]))) {
-        uint8_t irq_vec = irq_no_to_irq_vec[irq_no];
-        if (irq_vec != VECTOR_NUMBER_NONE) {
+    uint8_t irq_vec = (uint8_t)idx_to_irq_vec[irq_no];
             R_BSP_IrqCfg((IRQn_Type const)irq_vec, ipl, (void *)NULL);
-        }
-    }
 }
 
 void ra_icu_priority_pin(uint32_t pin, uint32_t ipl) {
@@ -907,17 +900,6 @@ void ra_icu_set_callback(uint8_t irq_no, ICU_CB func, void *param) {
 static void ra_icu_callback(uint8_t irq_no) {
     uint8_t idx = irq_no_to_idx[irq_no];
     if (idx != IRQ_IDX_MAX) {
-        if (icu_cbs[idx] == NULL) {
-            return;
-        }
-
-        // Treat bounce_period==0 as "no debounce".
-        // This is required for high-rate interrupt sources (e.g. BLE RF INT).
-        if (bounce_period[idx] == 0) {
-            (*icu_cbs[idx])(icu_params[idx]);
-            return;
-        }
-
         if (bounce_flag[idx]) {
             if ((mtick() - bounce_start[idx]) > bounce_period[idx]) {
                 bounce_flag[idx] = false;
@@ -925,12 +907,13 @@ static void ra_icu_callback(uint8_t irq_no) {
                 return;
             }
         }
-
+        if (icu_cbs[idx] != NULL) {
         if (!bounce_flag[idx]) {
             bounce_start[idx] = mtick();
             bounce_flag[idx] = true;
             (*icu_cbs[idx])(icu_params[idx]);
         }
+    }
     }
 }
 
@@ -956,10 +939,6 @@ void ra_icu_set_bounce(uint8_t irq_no, uint32_t bounce) {
     uint8_t idx = irq_no_to_idx[irq_no];
     if (idx != IRQ_IDX_MAX) {
         bounce_period[idx] = bounce;
-        if (bounce == 0) {
-            // Ensure any prior debounce state doesn't suppress callbacks.
-            bounce_flag[idx] = false;
-        }
     }
 }
 
@@ -991,18 +970,9 @@ void ra_icu_swint(uint8_t irq_no) {
     }
 }
 
-// Global counter for IRQ8 hits - readable from Python for debugging
-volatile uint32_t g_irq8_isr_count = 0;
-
 __WEAK void r_icu_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint32_t irq_no = (uint32_t)irq_to_ch[(uint32_t)irq];
-
-    // DEBUG: Count IRQ8 hits
-    if (irq_no == 8) {
-        g_irq8_isr_count++;
-    }
-
     R_BSP_IrqStatusClear(irq);
     ra_icu_callback(irq_no);
 }

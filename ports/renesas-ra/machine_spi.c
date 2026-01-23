@@ -47,6 +47,7 @@ typedef struct _machine_hard_spi_obj_t {
     mp_hal_pin_obj_t sck;
     mp_hal_pin_obj_t mosi;
     mp_hal_pin_obj_t miso;
+    mp_hal_pin_obj_t cs;
 } machine_hard_spi_obj_t;
 
 #define DEFAULT_SPI_BAUDRATE      (500000)
@@ -61,7 +62,7 @@ typedef struct _machine_hard_spi_obj_t {
 #define IS_VALID_POLARITY(n)                (((n) == 0) || ((n) == 1))
 #define IS_VALID_PHASE(n)                   (((n) == 0) || ((n) == 1))
 #define IS_VALID_BITS(n)                    (((n) == 8) || ((n) == 16) || ((n) == 32))
-#define IS_VALID_FIRSTBIT(n)                ((n) == MICROPY_PY_MACHINE_SPI_LSB)
+#define IS_VALID_FIRSTBIT(n)                (((n) == MICROPY_PY_MACHINE_SPI_MSB) || ((n) == MICROPY_PY_MACHINE_SPI_LSB))
 
 /******************************************************************************/
 // Implementation of hard SPI for machine module
@@ -73,6 +74,11 @@ static machine_hard_spi_obj_t machine_hard_spi_obj[] = {
         DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS,
         DEFAULT_SPI_FIRSTBIT, DEFAULT_SPI_BAUDRATE,
         MICROPY_HW_SPI0_RSPCK, MICROPY_HW_SPI0_MOSI, MICROPY_HW_SPI0_MISO,
+        #if defined(MICROPY_HW_SPI0_SSL)
+        MICROPY_HW_SPI0_SSL,
+        #else
+        NULL,
+        #endif
     },
     #endif
     #if defined(MICROPY_HW_SPI1_RSPCK)
@@ -81,49 +87,69 @@ static machine_hard_spi_obj_t machine_hard_spi_obj[] = {
         DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS,
         DEFAULT_SPI_FIRSTBIT, DEFAULT_SPI_BAUDRATE,
         MICROPY_HW_SPI1_RSPCK, MICROPY_HW_SPI1_MOSI, MICROPY_HW_SPI1_MISO,
+        #if defined(MICROPY_HW_SPI1_SSL)
+        MICROPY_HW_SPI1_SSL,
+        #else
+        NULL,
+        #endif
     },
     #endif
 };
 
-static void spi_init(machine_hard_spi_obj_t *self) {
-    const machine_pin_obj_t *pins[4] = { NULL, NULL, NULL, NULL };
+static void spi_validate_pins(machine_hard_spi_obj_t *self, const machine_pin_obj_t *sck, const machine_pin_obj_t *mosi, const machine_pin_obj_t *miso) {
+    uint8_t ch = 0;
+    bool ok = ra_spi_find_af_ch(mosi->pin, miso->pin, sck->pin, &ch);
+    if (!ok || ch != self->spi_id) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad SPI pins"));
+    }
+}
 
-    if (0) {
-    #if defined(MICROPY_HW_SPI0_RSPCK)
-    } else if (self->spi_id == 0) {
-        #if defined(MICROPY_HW_SPI0_SSL)
-        pins[0] = MICROPY_HW_SPI0_SSL;
-        #endif
-        #if defined(MICROPY_HW_SPI0_RSPCK)
-        pins[1] = MICROPY_HW_SPI0_RSPCK;
-        #endif
-        #if defined(MICROPY_HW_SPI0_MISO)
-        pins[2] = MICROPY_HW_SPI0_MISO;
-        #endif
-        #if defined(MICROPY_HW_SPI0_MOSI)
-        pins[3] = MICROPY_HW_SPI0_MOSI;
-        #endif
-    #endif
-    #if defined(MICROPY_HW_SPI1_RSPCK)
-    } else if (self->spi_id == 1) {
-        #if defined(MICROPY_HW_SPI1_SSL)
-        pins[0] = MICROPY_HW_SPI1_SSL;
-        #endif
-        #if defined(MICROPY_HW_SPI1_RSPCK)
-        pins[1] = MICROPY_HW_SPI1_RSPCK;
-        #endif
-        #if defined(MICROPY_HW_SPI1_MISO)
-        pins[2] = MICROPY_HW_SPI1_MISO;
-        #endif
-        #if defined(MICROPY_HW_SPI1_MOSI)
-        pins[3] = MICROPY_HW_SPI1_MOSI;
-        #endif
-    #endif
-    } else {
-        // SPI does not exist for this board (shouldn't get here, should be checked by caller)
+static void spi_update_pins_from_args(machine_hard_spi_obj_t *self, mp_obj_t sck_in, mp_obj_t mosi_in, mp_obj_t miso_in, mp_obj_t cs_in) {
+    const machine_pin_obj_t *sck = self->sck;
+    const machine_pin_obj_t *mosi = self->mosi;
+    const machine_pin_obj_t *miso = self->miso;
+
+    if (sck_in != MP_OBJ_NULL) {
+        sck = machine_pin_find(sck_in);
+    }
+    if (mosi_in != MP_OBJ_NULL) {
+        mosi = machine_pin_find(mosi_in);
+    }
+    if (miso_in != MP_OBJ_NULL) {
+        miso = machine_pin_find(miso_in);
+    }
+
+    spi_validate_pins(self, sck, mosi, miso);
+
+    self->sck = sck;
+    self->mosi = mosi;
+    self->miso = miso;
+
+    // CS/SSL pin (optional, Renesas extension).
+    // - cs not provided: keep current
+    // - cs=None: disable HW SSL output pin configuration
+    // - cs=Pin(...): require it to be SSL-capable
+    if (cs_in == MP_OBJ_NULL) {
         return;
     }
-    ra_spi_init(self->spi_id, pins[3]->pin, pins[2]->pin, pins[1]->pin, pins[0]->pin, self->baudrate, self->bits, self->polarity, self->phase, self->firstbit);
+    if (cs_in == mp_const_none) {
+        self->cs = NULL;
+        return;
+    }
+    const machine_pin_obj_t *cs = machine_pin_find(cs_in);
+    uint8_t ssln = 0;
+    if (!ra_spi_find_ssln(cs->pin, &ssln)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad CS pin"));
+    }
+    self->cs = cs;
+}
+
+static void spi_init(machine_hard_spi_obj_t *self) {
+    uint32_t cs_pin = RA_SPI_NO_CS;
+    if (self->cs != NULL) {
+        cs_pin = self->cs->pin;
+    }
+    ra_spi_init(self->spi_id, self->mosi->pin, self->miso->pin, self->sck->pin, cs_pin, self->baudrate, self->bits, self->polarity, self->phase, self->firstbit);
 }
 
 static void machine_hard_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
@@ -136,7 +162,7 @@ static void machine_hard_spi_print(const mp_print_t *print, mp_obj_t self_in, mp
 mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args);
 
-    enum { ARG_id, ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso };
+    enum { ARG_id, ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso, ARG_cs };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_id,       MP_ARG_REQUIRED | MP_ARG_OBJ },
         { MP_QSTR_baudrate, MP_ARG_INT, {.u_int = -1} },
@@ -147,6 +173,7 @@ mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, siz
         { MP_QSTR_sck,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_mosi,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_miso,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_cs,       MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -197,37 +224,8 @@ mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, siz
             mp_raise_ValueError(MP_ERROR_TEXT("bad firstbit"));
         }
     }
-    // Set SCK/MOSI/MISO pins if configured.
-    // currently pins are fixed, can not be changed.
-    uint8_t sck, mosi, miso;
-
-    if (args[ARG_sck].u_obj == MP_OBJ_NULL) {
-        sck = self->sck->pin;
-    } else {
-        const machine_pin_obj_t *arg_sck = machine_pin_find(args[ARG_sck].u_obj);
-        sck = arg_sck->pin;
-        if (!IS_VALID_SCK(self->sck->pin, sck)) {
-            mp_raise_ValueError(MP_ERROR_TEXT("bad SCK pin"));
-        }
-    }
-    if (args[ARG_mosi].u_obj == MP_OBJ_NULL) {
-        mosi = self->mosi->pin;
-    } else {
-        const machine_pin_obj_t *arg_mosi = machine_pin_find(args[ARG_mosi].u_obj);
-        mosi = arg_mosi->pin;
-        if (!IS_VALID_MOSI(self->mosi->pin, mosi)) {
-            mp_raise_ValueError(MP_ERROR_TEXT("bad MOSI pin"));
-        }
-    }
-    if (args[ARG_miso].u_obj == MP_OBJ_NULL) {
-        miso = self->miso->pin;
-    } else {
-        const machine_pin_obj_t *arg_miso = machine_pin_find(args[ARG_miso].u_obj);
-        miso = arg_miso->pin;
-        if (!IS_VALID_MISO(self->miso->pin, miso)) {
-            mp_raise_ValueError(MP_ERROR_TEXT("bad MISO pin"));
-        }
-    }
+    // Set SCK/MOSI/MISO/CS pins (runtime selectable).
+    spi_update_pins_from_args(self, args[ARG_sck].u_obj, args[ARG_mosi].u_obj, args[ARG_miso].u_obj, args[ARG_cs].u_obj);
     // init the SPI bus
     spi_init(self);
     return MP_OBJ_FROM_PTR(self);
@@ -236,7 +234,7 @@ mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, siz
 static void machine_hard_spi_init(mp_obj_base_t *self_in, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     machine_hard_spi_obj_t *self = (machine_hard_spi_obj_t *)self_in;
 
-    enum { ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso };
+    enum { ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso, ARG_cs };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_baudrate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
         { MP_QSTR_polarity, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
@@ -246,13 +244,12 @@ static void machine_hard_spi_init(mp_obj_base_t *self_in, size_t n_args, const m
         { MP_QSTR_sck,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_mosi,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_miso,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_cs,       MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    // Set SCK/MOSI/MISO pins if configured.
-    // currently pins are fixed, can not be changed.
-    uint8_t sck, mosi, miso;
+    // Pins are runtime selectable.
 
     if (args[ARG_baudrate].u_int != -1) {
         self->baudrate = args[ARG_baudrate].u_int;
@@ -285,27 +282,7 @@ static void machine_hard_spi_init(mp_obj_base_t *self_in, size_t n_args, const m
             mp_raise_ValueError(MP_ERROR_TEXT("bad firstbit"));
         }
     }
-    if (args[ARG_sck].u_obj != MP_OBJ_NULL) {
-        const machine_pin_obj_t *arg_sck = machine_pin_find(args[ARG_sck].u_obj);
-        sck = arg_sck->pin;
-        if (!IS_VALID_SCK(self->sck->pin, sck)) {
-            mp_raise_ValueError(MP_ERROR_TEXT("bad SCK pin"));
-        }
-    }
-    if (args[ARG_mosi].u_obj != MP_OBJ_NULL) {
-        const machine_pin_obj_t *arg_mosi = machine_pin_find(args[ARG_mosi].u_obj);
-        mosi = arg_mosi->pin;
-        if (!IS_VALID_MOSI(self->mosi->pin, mosi)) {
-            mp_raise_ValueError(MP_ERROR_TEXT("bad MOSI pin"));
-        }
-    }
-    if (args[ARG_miso].u_obj != MP_OBJ_NULL) {
-        const machine_pin_obj_t *arg_miso = machine_pin_find(args[ARG_miso].u_obj);
-        miso = arg_miso->pin;
-        if (!IS_VALID_MISO(self->miso->pin, miso)) {
-            mp_raise_ValueError(MP_ERROR_TEXT("bad MISO pin"));
-        }
-    }
+    spi_update_pins_from_args(self, args[ARG_sck].u_obj, args[ARG_mosi].u_obj, args[ARG_miso].u_obj, args[ARG_cs].u_obj);
 
     if (self->firstbit == MICROPY_PY_MACHINE_SPI_LSB) {
         mp_raise_NotImplementedError(MP_ERROR_TEXT("LSB"));

@@ -124,9 +124,26 @@ static mp_obj_t machine_i2c_make_new(const mp_obj_type_t *type, size_t n_args, s
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("I2C(%d) doesn't exist"), i2c_id);
     }
 
-    // here we would check the scl/sda pins and configure them, but it's not implemented
-    if (args[ARG_scl].u_obj != MP_OBJ_NULL || args[ARG_sda].u_obj != MP_OBJ_NULL) {
-        mp_raise_ValueError(MP_ERROR_TEXT("explicit choice of scl/sda is not implemented"));
+    // Optional runtime pin override: scl=/sda= (similar validation logic to I2CTarget).
+    // If either is provided, require both.
+    bool have_scl = (args[ARG_scl].u_obj != MP_OBJ_NULL);
+    bool have_sda = (args[ARG_sda].u_obj != MP_OBJ_NULL);
+    if (have_scl || have_sda) {
+        if (!(have_scl && have_sda)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("both scl and sda must be specified"));
+        }
+
+        mp_hal_pin_obj_t scl = mp_hal_get_pin_obj(args[ARG_scl].u_obj);
+        mp_hal_pin_obj_t sda = mp_hal_get_pin_obj(args[ARG_sda].u_obj);
+
+        // Validate pins for the selected I2C channel.
+        uint8_t ch;
+        if (!ra_i2c_find_af_ch(scl->pin, sda->pin, &ch) || ch != i2c_id) {
+            mp_raise_ValueError(MP_ERROR_TEXT("bad SCL/SDA pin"));
+        }
+
+        self->scl = scl;
+        self->sda = sda;
     }
 
     if (n_args > 1 || n_kw > 0 || self->freq == 0) {

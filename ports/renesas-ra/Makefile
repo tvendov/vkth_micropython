@@ -243,7 +243,6 @@ SRC_C += \
 	gccollect.c \
 	help.c \
 	machine_dac.c \
-		machine_touchpad.c \
 	machine_i2c.c \
 	machine_opamp.c \
 	machine_comparator.c \
@@ -420,8 +419,9 @@ endif
 # CTSU (Capacitive Touch Sensing Unit) support
 ifeq ($(MICROPY_HW_ENABLE_TOUCHPAD),1)
 CFLAGS += -DMICROPY_HW_ENABLE_TOUCHPAD=1
+SRC_C += machine_touchpad.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ctsu/r_ctsu.c
-HAL_SRC_C += ra/ra_ctsu.c
+HAL_SRC_C += $(addprefix ra/,ra_ctsu.c)
 endif
 
 ifeq ($(MICROPY_HW_ENABLE_RNG),1)

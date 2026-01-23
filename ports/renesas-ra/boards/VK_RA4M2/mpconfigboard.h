@@ -20,6 +20,9 @@
 #define MICROPY_HW_ENABLE_RTC       (1)
 #define MICROPY_HW_RTC_SOURCE       (1)     // 0: subclock, 1:LOCO (32.768khz)
 #define MICROPY_HW_ENABLE_ADC       (1)
+#ifndef MICROPY_HW_ENABLE_DAC
+#define MICROPY_HW_ENABLE_DAC       (1)
+#endif
 #ifndef MICROPY_HW_ENABLE_TOUCHPAD
 #define MICROPY_HW_ENABLE_TOUCHPAD  (1)
 #endif
@@ -70,11 +73,37 @@
 #define MICROPY_HW_I2C0_SCL         (pin_P400)
 #define MICROPY_HW_I2C0_SDA         (pin_P401)
 
+// I2C1
+// Notes:
+// - RA4M2 has IIC ch1 pins on either (P100,P101) or (P205,P206).
+// - Default here is (P100,P101) to avoid conflicting with the common CTSU TouchPad
+//   sensor pins (P205/P206) used in our TouchPad examples.
+// - You can override pins at runtime using: I2C(1, scl=Pin("..."), sda=Pin("..."))
+#define MICROPY_HW_I2C1_SCL         (pin_P100)
+#define MICROPY_HW_I2C1_SDA         (pin_P101)
+
 // SPI
 #define MICROPY_HW_SPI0_SSL         (pin_P103)
 #define MICROPY_HW_SPI0_RSPCK       (pin_P102)
 #define MICROPY_HW_SPI0_MISO        (pin_P100)
 #define MICROPY_HW_SPI0_MOSI        (pin_P101)
+
+// SPI1
+// Notes:
+// - We intentionally use the SPI1 "B" pin set that exists in this board's pins.csv:
+//     MOSI=P109, MISO=P110, SCK=P111
+// - We avoid P205/P206 here because they are commonly used as CTSU TouchPad sensor pins.
+// - CS/SSL must be one of the RA SSL-capable pins (see ports/renesas-ra/ra/ra_spi.c ssl_pins[]).
+#define MICROPY_HW_SPI1_SSL         (pin_P108)
+#define MICROPY_HW_SPI1_RSPCK       (pin_P111)
+#define MICROPY_HW_SPI1_MISO        (pin_P110)
+#define MICROPY_HW_SPI1_MOSI        (pin_P109)
+
+// DAC
+// RA4M2 DAC output pins.
+// Note: this port exposes DA0 and DA1 when enabled.
+#define MICROPY_HW_DAC0             (pin_P014)
+#define MICROPY_HW_DAC1             (pin_P015)
 
 // Switch
 #define MICROPY_HW_HAS_SWITCH       (1)
