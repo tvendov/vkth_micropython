@@ -9,6 +9,9 @@ BSP_WEAK_REFERENCE void ctsu_write_isr(void) { }
 BSP_WEAK_REFERENCE void ctsu_read_isr(void) { }
 BSP_WEAK_REFERENCE void ctsu_end_isr(void) { }
 
+/* Weak ISR stub for GPT (BLE RF timer). If r_gpt is compiled in, it overrides. */
+BSP_WEAK_REFERENCE void gpt_counter_overflow_isr(void) { }
+
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
 #if VECTOR_DATA_IRQ_COUNT > 0
 BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
@@ -47,6 +50,7 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [31] = ctsu_write_isr,         /* CTSU WRITE (CTSU write request interrupt) */
     [32] = ctsu_read_isr,          /* CTSU READ (CTSU measurement data transfer request interrupt) */
     [33] = ctsu_end_isr,           /* CTSU END (CTSU measurement end interrupt) */
+    [34] = gpt_counter_overflow_isr, /* GPT1 COUNTER OVERFLOW (BLE RF timer) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -84,5 +88,6 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [31] = BSP_PRV_IELS_ENUM(EVENT_CTSU_WRITE),      /* CTSU WRITE (CTSU write request interrupt) */
     [32] = BSP_PRV_IELS_ENUM(EVENT_CTSU_READ),       /* CTSU READ (CTSU measurement data transfer request interrupt) */
     [33] = BSP_PRV_IELS_ENUM(EVENT_CTSU_END),        /* CTSU END (CTSU measurement end interrupt) */
+    [34] = BSP_PRV_IELS_ENUM(EVENT_GPT1_COUNTER_OVERFLOW), /* GPT1 COUNTER OVERFLOW (BLE RF timer) */
 };
 #endif

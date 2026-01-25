@@ -4,13 +4,9 @@ LD_FILES = boards/EK_RA4W1/ra4w1_ek.ld
 
 # MicroPython settings
 MICROPY_VFS_FAT = 1
-MICROPY_HW_ENABLE_TOUCHPAD = 1
-
-# Native BLE support using FSP BLE stack
+# NOTE: EK-RA4W1 is very tight on FLASH/RAM when enabling full BLE stack.
+# Disable TouchPad (CTSU) by default to make room for BLE.
+MICROPY_HW_ENABLE_TOUCHPAD = 0
 MICROPY_HW_ENABLE_BLE = 1
 
 CFLAGS+=-DDEFAULT_DBG_CH=0
-
-# Use a board-specific frozen manifest so we can provide EK_RA4W1-specific
-# Python compatibility shims (e.g. `bluetooth` wrapper over `renesas_ble`).
-FROZEN_MANIFEST = $(BOARD_DIR)/manifest.py

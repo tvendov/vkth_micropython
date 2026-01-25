@@ -264,15 +264,6 @@
 
 typedef long mp_off_t;
 
-// Internal event hook extensions for this port.
-// Keep these lightweight: they may run frequently while the VM is idle/waiting.
-#if MICROPY_HW_ENABLE_BLE
-void modble_renesas_process_events(void);
-#define MICROPY_RA_INTERNAL_BLE_EVENT_HOOK() modble_renesas_process_events()
-#else
-#define MICROPY_RA_INTERNAL_BLE_EVENT_HOOK() ((void) 0)
-#endif
-
 #if MICROPY_PY_THREAD
 #define MICROPY_INTERNAL_EVENT_HOOK \
     do { \
@@ -281,16 +272,10 @@ void modble_renesas_process_events(void);
             pyb_thread_yield(); \
             MP_THREAD_GIL_ENTER(); \
         } \
-        MICROPY_RA_INTERNAL_BLE_EVENT_HOOK(); \
     } while (0);
 
 #define MICROPY_THREAD_YIELD() pyb_thread_yield()
 #else
-#define MICROPY_INTERNAL_EVENT_HOOK \
-    do { \
-        MICROPY_RA_INTERNAL_BLE_EVENT_HOOK(); \
-    } while (0);
-
 #define MICROPY_THREAD_YIELD()
 #endif
 

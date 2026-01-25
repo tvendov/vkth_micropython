@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (34)
+#define VECTOR_DATA_IRQ_COUNT    (35)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -28,6 +28,7 @@ void iic_master_eri_isr(void);
 void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
+void gpt_counter_overflow_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI1_RXI ((IRQn_Type)0)  /* SCI1 RXI (Received data full) */
@@ -100,6 +101,9 @@ void ctsu_end_isr(void);
 #define CTSU_READ_IRQn          ((IRQn_Type)32)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
 #define VECTOR_NUMBER_CTSU_END ((IRQn_Type)33)  /* CTSU END (CTSU measurement end interrupt) */
 #define CTSU_END_IRQn          ((IRQn_Type)33)  /* CTSU END (CTSU measurement end interrupt) */
+
+#define VECTOR_NUMBER_GPT1_COUNTER_OVERFLOW ((IRQn_Type)34)  /* GPT1 COUNTER OVERFLOW (BLE RF timer) */
+#define GPT1_COUNTER_OVERFLOW_IRQn          ((IRQn_Type)34)  /* GPT1 COUNTER OVERFLOW (BLE RF timer) */
 
 #ifdef __cplusplus
 }

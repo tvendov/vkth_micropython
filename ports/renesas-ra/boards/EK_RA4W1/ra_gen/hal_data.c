@@ -58,15 +58,18 @@ const flash_instance_t g_flash0 =
 /*
  * AGT Timer for BLE Abstraction Layer
  * Uses AGT0 with LOCO clock source for low-power timing.
- * Period is set to 1ms (1000 counts at 32.768kHz LOCO).
+ * Callback: ble_abs_hw_timer_callback (provided by rm_ble_abs.c in FSP)
  */
+extern void ble_abs_hw_timer_callback(timer_callback_args_t *p_args);
+
 agt_instance_ctrl_t g_timer_ble_ctrl;
 
 const agt_extended_cfg_t g_timer_ble_extend =
 {
     .count_source = AGT_CLOCK_LOCO,
-    .agtoab_settings = 0,
     .agto = AGT_PIN_CFG_DISABLED,
+    .agtoab_settings_b.agtoa = AGT_PIN_CFG_DISABLED,
+    .agtoab_settings_b.agtob = AGT_PIN_CFG_DISABLED,
     .measurement_mode = AGT_MEASURE_DISABLED,
     .agtio_filter = AGT_AGTIO_FILTER_NONE,
     .enable_pin = AGT_ENABLE_PIN_NOT_USED,
@@ -76,19 +79,20 @@ const agt_extended_cfg_t g_timer_ble_extend =
 const timer_cfg_t g_timer_ble_cfg =
 {
     .mode = TIMER_MODE_PERIODIC,
-    .period_counts = 32,  /* ~1ms at 32.768kHz LOCO */
-    .duty_cycle_counts = 0,
-    .source_div = TIMER_SOURCE_DIV_1,
+    /* Actual period: 2 seconds at 32.768kHz LOCO (same as TryBT) */
+    .period_counts = (uint32_t) 0x10000,
+    .duty_cycle_counts = 0x8000,
+    .source_div = (timer_source_div_t) 0,
     .channel = 0,  /* AGT0 */
-    .p_callback = NULL,
+    .p_callback = ble_abs_hw_timer_callback,
     .p_context = NULL,
     .p_extend = &g_timer_ble_extend,
-    .cycle_end_ipl = (5),
-  #if defined(VECTOR_NUMBER_AGT0_INT)
+    .cycle_end_ipl = (7),
+#if defined(VECTOR_NUMBER_AGT0_INT)
     .cycle_end_irq = VECTOR_NUMBER_AGT0_INT,
-  #else
+#else
     .cycle_end_irq = FSP_INVALID_VECTOR,
-  #endif
+#endif
 };
 
 const timer_instance_t g_timer_ble =
@@ -98,3 +102,4 @@ const timer_instance_t g_timer_ble =
     .p_api = &g_timer_on_agt,
 };
 #endif /* MICROPY_HW_ENABLE_BLE */
+
