@@ -389,13 +389,14 @@ ifeq ($(MICROPY_HW_ENABLE_BLE),1)
 CFLAGS += -DMICROPY_HW_ENABLE_BLE=1
 INC += -I$(TOP)/ports/renesas-ra/ble
 SRC_C += ble/modra_ble.c ble/ra_ble.c ble/ra_ble_config.c ble/ra_ble_events.c ble/gatt_db.c
+SRC_C += ble/profile_cmn/r_ble_serv_common.c ble/profile_cmn/r_ble_servs_if.c ble/profile_cmn/r_ble_servc_if.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/rm_ble_abs/rm_ble_abs.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_agt/r_agt.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ble/r_ble.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_gpt/r_gpt.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_icu/r_icu.c
-# Prebuilt BLE library (compact variant)
-LDFLAGS += -L$(TOP)/lib/fsp/ra/fsp/lib/r_ble/cm4_gcc/compact
+# Prebuilt BLE library (all/extended variant for BLE_CFG_LIBRARY_TYPE=0)
+LDFLAGS += -L$(TOP)/lib/fsp/ra/fsp/lib/r_ble/cm4_gcc/all
 LIBS := -lr_ble $(LIBS)
 endif
 

@@ -412,14 +412,27 @@ extern void ra_ble_abs_gap_callback(uint16_t event_type, ble_status_t event_resu
                                     st_ble_evt_data_t *p_event_data);
 extern void ra_ble_abs_vs_callback(uint16_t event_type, ble_status_t event_result,
                                    st_ble_vs_evt_data_t *p_event_data);
+extern void ra_ble_abs_gatts_callback(uint16_t event_type, ble_status_t event_result,
+                                      st_ble_gatts_evt_data_t *p_event_data);
+
+/* GATT server callback list - required for service discovery to work */
+static ble_abs_gatt_server_callback_set_t gs_abs_gatts_cb_param[] = {
+    {
+        .gatt_server_callback_function = ra_ble_abs_gatts_callback,
+        .gatt_server_callback_priority = 1,
+    },
+    {
+        .gatt_server_callback_function = NULL,
+    }
+};
 
 ble_abs_instance_ctrl_t g_ble_abs0_ctrl;
 
 const ble_abs_cfg_t g_ble_abs0_cfg = {
     .gap_callback = ra_ble_abs_gap_callback,
     .vendor_specific_callback = ra_ble_abs_vs_callback,
-    .p_gatt_server_callback_list = NULL,
-    .gatt_server_callback_list_number = 0,
+    .p_gatt_server_callback_list = gs_abs_gatts_cb_param,
+    .gatt_server_callback_list_number = 2,
     .p_gatt_client_callback_list = NULL,
     .gatt_client_callback_list_number = 0,
     .p_pairing_parameter = &gs_abs_pairing_param,

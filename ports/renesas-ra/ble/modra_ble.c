@@ -146,6 +146,51 @@ static mp_obj_t mp_ra_ble_get_event(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mp_ra_ble_get_event_obj, mp_ra_ble_get_event);
 
+static mp_obj_t mp_ra_ble_notify(size_t n_args, const mp_obj_t *args) {
+    // notify(conn_handle, attr_handle, data)
+    mp_int_t conn_handle = mp_obj_get_int(args[0]);
+    mp_int_t attr_handle = mp_obj_get_int(args[1]);
+    mp_buffer_info_t buf;
+    mp_get_buffer_raise(args[2], &buf, MP_BUFFER_READ);
+
+    ra_ble_status_t st = ra_ble_gatts_notify((uint16_t)conn_handle, (uint16_t)attr_handle,
+                                             (uint8_t *)buf.buf, (uint16_t)buf.len);
+    if (st != RA_BLE_SUCCESS) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("notify failed: %d"), (int)st);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_ra_ble_notify_obj, 3, 3, mp_ra_ble_notify);
+
+static mp_obj_t mp_ra_ble_write_attr(mp_obj_t handle_in, mp_obj_t data_in) {
+    // write_attr(attr_handle, data)
+    mp_int_t attr_handle = mp_obj_get_int(handle_in);
+    mp_buffer_info_t buf;
+    mp_get_buffer_raise(data_in, &buf, MP_BUFFER_READ);
+
+    ra_ble_status_t st = ra_ble_gatts_set_attr((uint16_t)attr_handle,
+                                               (uint8_t *)buf.buf, (uint16_t)buf.len);
+    if (st != RA_BLE_SUCCESS) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("write_attr failed: %d"), (int)st);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_ra_ble_write_attr_obj, mp_ra_ble_write_attr);
+
+static mp_obj_t mp_ra_ble_read_attr(mp_obj_t handle_in) {
+    // read_attr(attr_handle) -> bytes
+    mp_int_t attr_handle = mp_obj_get_int(handle_in);
+    uint8_t buf[256];
+    uint16_t len = sizeof(buf);
+
+    ra_ble_status_t st = ra_ble_gatts_get_attr((uint16_t)attr_handle, buf, &len);
+    if (st != RA_BLE_SUCCESS) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("read_attr failed: %d"), (int)st);
+    }
+    return mp_obj_new_bytes(buf, len);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mp_ra_ble_read_attr_obj, mp_ra_ble_read_attr);
+
 /* ---------- module globals ---------- */
 
 static const mp_rom_map_elem_t ra_ble_module_globals_table[] = {
@@ -163,6 +208,10 @@ static const mp_rom_map_elem_t ra_ble_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_state), MP_ROM_PTR(&mp_ra_ble_get_state_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&mp_ra_ble_set_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_addr), MP_ROM_PTR(&mp_ra_ble_get_addr_obj) },
+
+    { MP_ROM_QSTR(MP_QSTR_notify), MP_ROM_PTR(&mp_ra_ble_notify_obj) },
+    { MP_ROM_QSTR(MP_QSTR_write_attr), MP_ROM_PTR(&mp_ra_ble_write_attr_obj) },
+    { MP_ROM_QSTR(MP_QSTR_read_attr), MP_ROM_PTR(&mp_ra_ble_read_attr_obj) },
 
     // States (match ra_ble_state_t)
     { MP_ROM_QSTR(MP_QSTR_STATE_OFF), MP_ROM_INT(RA_BLE_STATE_OFF) },

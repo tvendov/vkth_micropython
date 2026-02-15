@@ -13,6 +13,7 @@
 #include "ra_ble.h"
 #include "ra_ble_events.h"
 #include "gatt_db.h"
+#include "profile_cmn/r_ble_servs_if.h"
 
 #include "r_ble_api.h"
 #include "rm_ble_abs.h"
@@ -52,16 +53,27 @@ static uint8_t g_ble_device_name_len;
 static uint8_t g_ble_bd_addr[6];
 static volatile bool g_ble_bd_addr_valid;
 
+/* Forward declaration for GATTS callback. */
+static void ra_ble_gatts_cb(uint16_t event_type, ble_status_t event_result, st_ble_gatts_evt_data_t *p_event_data);
+
 /* Vendor specific callback (for BD address completion). */
 void ra_ble_abs_vs_callback(uint16_t event_type, ble_status_t event_result, st_ble_vs_evt_data_t *p_event_data)
 {
-    (void)event_result;
+    /* Forward to profile common library for flow control. */
+    R_BLE_SERVS_VsCb(event_type, event_result, p_event_data);
+
     if (event_type == BLE_VS_EVENT_GET_ADDR_COMP && p_event_data && p_event_data->p_param)
     {
         st_ble_vs_get_bd_addr_comp_evt_t * get_address = (st_ble_vs_get_bd_addr_comp_evt_t *)p_event_data->p_param;
         memcpy(g_ble_bd_addr, get_address->addr.addr, BLE_BD_ADDR_LEN);
         g_ble_bd_addr_valid = true;
     }
+}
+
+/* GATTS callback wrapper for ble_abs configuration (required for GATT service discovery). */
+void ra_ble_abs_gatts_callback(uint16_t event_type, ble_status_t event_result, st_ble_gatts_evt_data_t *p_event_data)
+{
+    ra_ble_gatts_cb(event_type, event_result, p_event_data);
 }
 
 
@@ -141,7 +153,8 @@ void ra_ble_abs_gap_callback(uint16_t event_type, ble_status_t event_result, st_
 }
 
 static void ra_ble_gatts_cb(uint16_t event_type, ble_status_t event_result, st_ble_gatts_evt_data_t *p_event_data) {
-    (void)event_result;
+    /* Forward to profile common library for service handling (required for GATT service discovery). */
+    R_BLE_SERVS_GattsCb(event_type, event_result, p_event_data);
 
     switch (event_type) {
         case BLE_GATTS_EVENT_WRITE_RSP_COMP: {
@@ -269,6 +282,15 @@ ra_ble_status_t ra_ble_init(void) {
         return ra_ble_status_from_fsp(st);
     }
 
+    /* Initialize profile common server library (required for GATT service discovery). */
+    st = R_BLE_SERVS_Init();
+    if (st != BLE_SUCCESS) {
+        (void)RM_BLE_ABS_Close(&g_ble_abs0_ctrl);
+        g_ble_open = false;
+        s_ble_init_in_progress = 0;
+        return ra_ble_status_from_fsp(st);
+    }
+
     (void)ra_ble_wait_stack_on(10000);
 
     g_ble_state = RA_BLE_STATE_IDLE;
@@ -326,9 +348,10 @@ ra_ble_status_t ra_ble_gap_get_address(uint8_t addr[6])
     }
 
     /* Address is provided by Vendor Specific API asynchronously (see QE-generated app_main.c).
-       We request it and then pump until completion, or return cached if already valid. */
+       We request it and then pump until completion, or return cached if already valid.
+       Use RAND address type like TryBT - PUBLIC returns invalid debug address. */
     if (!g_ble_bd_addr_valid) {
-        (void)R_BLE_VS_GetBdAddr(BLE_VS_ADDR_AREA_REG, BLE_GAP_ADDR_PUBLIC);
+        (void)R_BLE_VS_GetBdAddr(BLE_VS_ADDR_AREA_REG, BLE_GAP_ADDR_RAND);
         /* Pump a bounded number of iterations to allow BLE_VS_EVENT_GET_ADDR_COMP to arrive. */
         for (uint32_t i = 0; i < 50000U && !g_ble_bd_addr_valid; i++) {
             ra_ble_pump_once();
@@ -382,8 +405,8 @@ ra_ble_status_t ra_ble_gap_start_advertising(const ra_ble_adv_params_t *params)
     g_ble_legacy_adv_param.scan_response_data_length  = params->scan_rsp_len;
     g_ble_legacy_adv_param.advertising_filter_policy  = BLE_ABS_ADVERTISING_FILTER_ALLOW_ANY;
     g_ble_legacy_adv_param.advertising_channel_map    = (BLE_GAP_ADV_CH_37 | BLE_GAP_ADV_CH_38 | BLE_GAP_ADV_CH_39);
-    /* RM_BLE_ABS legacy advertising expects local address to be Public Identity (or RPA falling back to Public). */
-    g_ble_legacy_adv_param.own_bluetooth_address_type = BLE_GAP_ADDR_PUBLIC;
+    /* Use Random address type like TryBT - required for valid connectable advertising. */
+    g_ble_legacy_adv_param.own_bluetooth_address_type = BLE_GAP_ADDR_RAND;
     memcpy(g_ble_legacy_adv_param.own_bluetooth_address, g_ble_bd_addr, BLE_BD_ADDR_LEN);
 
     /* Start legacy advertising via BLE Abstraction. */
@@ -435,6 +458,30 @@ ra_ble_status_t ra_ble_gatts_indicate(uint16_t conn_handle, uint16_t attr_handle
     ind.value.p_value = (uint8_t *)data;
     ind.value.value_len = len;
     return ra_ble_status_from_fsp(R_BLE_GATTS_Indication(conn_handle, &ind));
+}
+
+ra_ble_status_t ra_ble_gatts_set_attr(uint16_t attr_handle, const uint8_t *data, uint16_t len) {
+    if (!g_ble_open) {
+        return RA_BLE_ERR_INVALID_STATE;
+    }
+    st_ble_gatt_value_t attr_value;
+    attr_value.p_value = (uint8_t *)data;
+    attr_value.value_len = len;
+    return ra_ble_status_from_fsp(R_BLE_GATTS_SetAttr(BLE_GAP_INVALID_CONN_HDL, attr_handle, &attr_value));
+}
+
+ra_ble_status_t ra_ble_gatts_get_attr(uint16_t attr_handle, uint8_t *data, uint16_t *len) {
+    if (!g_ble_open) {
+        return RA_BLE_ERR_INVALID_STATE;
+    }
+    st_ble_gatt_value_t attr_value;
+    attr_value.p_value = data;
+    attr_value.value_len = *len;
+    ble_status_t st = R_BLE_GATTS_GetAttr(BLE_GAP_INVALID_CONN_HDL, attr_handle, &attr_value);
+    if (st == BLE_SUCCESS) {
+        *len = attr_value.value_len;
+    }
+    return ra_ble_status_from_fsp(st);
 }
 
 void ra_ble_process_events(void) {

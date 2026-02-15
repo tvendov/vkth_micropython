@@ -61,12 +61,6 @@
 #define MICROPY_PY_MACHINE_SDCARD_ENTRY
 #endif
 
-#if MICROPY_PY_MACHINE_DAC
-#define MICROPY_PY_MACHINE_DAC_ENTRY { MP_ROM_QSTR(MP_QSTR_DAC), MP_ROM_PTR(&machine_dac_type) },
-#else
-#define MICROPY_PY_MACHINE_DAC_ENTRY
-#endif
-
 #if MICROPY_HW_ENABLE_OPAMP
 extern const mp_obj_type_t machine_opamp_type;
 #define MICROPY_PY_MACHINE_OPAMP_ENTRY { MP_ROM_QSTR(MP_QSTR_OPAMP), MP_ROM_PTR(&machine_opamp_type) },
@@ -99,7 +93,6 @@ extern const mp_obj_type_t machine_comparator_type;
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \
     { MP_ROM_QSTR(MP_QSTR_Timer),               MP_ROM_PTR(&machine_timer_type) }, \
     MICROPY_PY_MACHINE_SDCARD_ENTRY \
-    MICROPY_PY_MACHINE_DAC_ENTRY \
     MICROPY_PY_MACHINE_OPAMP_ENTRY \
     MICROPY_PY_MACHINE_COMPARATOR_ENTRY \
     \

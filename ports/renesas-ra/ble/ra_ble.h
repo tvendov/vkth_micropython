@@ -40,6 +40,8 @@ ra_ble_status_t ra_ble_gatts_notify(uint16_t conn_handle, uint16_t attr_handle,
                                     const uint8_t *data, uint16_t len);
 ra_ble_status_t ra_ble_gatts_indicate(uint16_t conn_handle, uint16_t attr_handle,
                                       const uint8_t *data, uint16_t len);
+ra_ble_status_t ra_ble_gatts_set_attr(uint16_t attr_handle, const uint8_t *data, uint16_t len);
+ra_ble_status_t ra_ble_gatts_get_attr(uint16_t attr_handle, uint8_t *data, uint16_t *len);
 
 ra_ble_status_t ra_ble_gap_set_device_name(const char *name, uint8_t len);
 const char *    ra_ble_gap_get_device_name(uint8_t *out_len);
