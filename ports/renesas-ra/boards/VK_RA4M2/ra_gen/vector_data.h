@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (40)
+#define VECTOR_DATA_IRQ_COUNT    (46)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -118,6 +118,19 @@ void ctsu_end_isr(void);
 #define IIC1_TEI_IRQn          ((IRQn_Type)38)  /* IIC1 TEI (Transmit end) */
 #define VECTOR_NUMBER_IIC1_ERI ((IRQn_Type)39)  /* IIC1 ERI (Transfer error) */
 #define IIC1_ERI_IRQn          ((IRQn_Type)39)  /* IIC1 ERI (Transfer error) */
+
+#define VECTOR_NUMBER_ICU_IRQ10 ((IRQn_Type)40)  /* ICU IRQ10 (External pin interrupt 10) */
+#define ICU_IRQ10_IRQn          ((IRQn_Type)40)  /* ICU IRQ10 (External pin interrupt 10) */
+#define VECTOR_NUMBER_ICU_IRQ11 ((IRQn_Type)41)  /* ICU IRQ11 (External pin interrupt 11) */
+#define ICU_IRQ11_IRQn          ((IRQn_Type)41)  /* ICU IRQ11 (External pin interrupt 11) */
+#define VECTOR_NUMBER_ICU_IRQ12 ((IRQn_Type)42)  /* ICU IRQ12 (External pin interrupt 12) */
+#define ICU_IRQ12_IRQn          ((IRQn_Type)42)  /* ICU IRQ12 (External pin interrupt 12) */
+#define VECTOR_NUMBER_ICU_IRQ13 ((IRQn_Type)43)  /* ICU IRQ13 (External pin interrupt 13) */
+#define ICU_IRQ13_IRQn          ((IRQn_Type)43)  /* ICU IRQ13 (External pin interrupt 13) */
+#define VECTOR_NUMBER_ICU_IRQ14 ((IRQn_Type)44)  /* ICU IRQ14 (External pin interrupt 14) */
+#define ICU_IRQ14_IRQn          ((IRQn_Type)44)  /* ICU IRQ14 (External pin interrupt 14) */
+#define VECTOR_NUMBER_ICU_IRQ15 ((IRQn_Type)45)  /* ICU IRQ15 (External pin interrupt 15) */
+#define ICU_IRQ15_IRQn          ((IRQn_Type)45)  /* ICU IRQ15 (External pin interrupt 15) */
 
 #ifdef __cplusplus
 }
