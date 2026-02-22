@@ -29,7 +29,7 @@ extern "C" {
     #error "Invalid HOCO frequency chosen (BSP_CFG_HOCO_FREQUENCY) in bsp_clock_cfg.h"
 #endif
 #define BSP_CORTEX_VECTOR_TABLE_ENTRIES    (16U)
-#define BSP_VECTOR_TABLE_MAX_ENTRIES       (48U)
+#define BSP_VECTOR_TABLE_MAX_ENTRIES       (112U)
 
 /* TrustZone Settings */
 #if defined(_RA_TZ_SECURE)

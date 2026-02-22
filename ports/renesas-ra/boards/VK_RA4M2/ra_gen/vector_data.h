@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (32)
+#define VECTOR_DATA_IRQ_COUNT    (40)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -26,6 +26,10 @@ void usbfs_d0fifo_handler(void);
 void usbfs_d1fifo_handler(void);
 void usbfs_resume_handler(void);
 void usbfs_interrupt_handler(void);
+void iic_master_rxi_isr(void);
+void iic_master_txi_isr(void);
+void iic_master_tei_isr(void);
+void iic_master_eri_isr(void);
 void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
@@ -97,6 +101,23 @@ void ctsu_end_isr(void);
 #define ICU_IRQ8_IRQn          ((IRQn_Type)30)  /* ICU IRQ8 (External pin interrupt 8) */
 #define VECTOR_NUMBER_ICU_IRQ9 ((IRQn_Type)31)  /* ICU IRQ9 (External pin interrupt 9) */
 #define ICU_IRQ9_IRQn          ((IRQn_Type)31)  /* ICU IRQ9 (External pin interrupt 9) */
+
+#define VECTOR_NUMBER_IIC0_RXI ((IRQn_Type)32)  /* IIC0 RXI (Receive data full) */
+#define IIC0_RXI_IRQn          ((IRQn_Type)32)  /* IIC0 RXI (Receive data full) */
+#define VECTOR_NUMBER_IIC0_TXI ((IRQn_Type)33)  /* IIC0 TXI (Transmit data empty) */
+#define IIC0_TXI_IRQn          ((IRQn_Type)33)  /* IIC0 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_IIC0_TEI ((IRQn_Type)34)  /* IIC0 TEI (Transmit end) */
+#define IIC0_TEI_IRQn          ((IRQn_Type)34)  /* IIC0 TEI (Transmit end) */
+#define VECTOR_NUMBER_IIC0_ERI ((IRQn_Type)35)  /* IIC0 ERI (Transfer error) */
+#define IIC0_ERI_IRQn          ((IRQn_Type)35)  /* IIC0 ERI (Transfer error) */
+#define VECTOR_NUMBER_IIC1_RXI ((IRQn_Type)36)  /* IIC1 RXI (Receive data full) */
+#define IIC1_RXI_IRQn          ((IRQn_Type)36)  /* IIC1 RXI (Receive data full) */
+#define VECTOR_NUMBER_IIC1_TXI ((IRQn_Type)37)  /* IIC1 TXI (Transmit data empty) */
+#define IIC1_TXI_IRQn          ((IRQn_Type)37)  /* IIC1 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_IIC1_TEI ((IRQn_Type)38)  /* IIC1 TEI (Transmit end) */
+#define IIC1_TEI_IRQn          ((IRQn_Type)38)  /* IIC1 TEI (Transmit end) */
+#define VECTOR_NUMBER_IIC1_ERI ((IRQn_Type)39)  /* IIC1 ERI (Transfer error) */
+#define IIC1_ERI_IRQn          ((IRQn_Type)39)  /* IIC1 ERI (Transfer error) */
 
 #ifdef __cplusplus
 }

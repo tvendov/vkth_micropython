@@ -44,6 +44,14 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [29] = r_icu_isr,         /* ICU IRQ7 (External pin interrupt 7) */
     [30] = r_icu_isr,         /* ICU IRQ8 (External pin interrupt 8) */
     [31] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
+    [32] = iic_master_rxi_isr,         /* IIC0 RXI (Receive data full) */
+    [33] = iic_master_txi_isr,         /* IIC0 TXI (Transmit data empty) */
+    [34] = iic_master_tei_isr,         /* IIC0 TEI (Transmit end) */
+    [35] = iic_master_eri_isr,         /* IIC0 ERI (Transfer error) */
+    [36] = iic_master_rxi_isr,         /* IIC1 RXI (Receive data full) */
+    [37] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
+    [38] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
+    [39] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -79,5 +87,13 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [29] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ7),         /* ICU IRQ7 (External pin interrupt 7) */
     [30] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ8),         /* ICU IRQ8 (External pin interrupt 8) */
     [31] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
+    [32] = BSP_PRV_IELS_ENUM(EVENT_IIC0_RXI),         /* IIC0 RXI (Receive data full) */
+    [33] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TXI),         /* IIC0 TXI (Transmit data empty) */
+    [34] = BSP_PRV_IELS_ENUM(EVENT_IIC0_TEI),         /* IIC0 TEI (Transmit end) */
+    [35] = BSP_PRV_IELS_ENUM(EVENT_IIC0_ERI),         /* IIC0 ERI (Transfer error) */
+    [36] = BSP_PRV_IELS_ENUM(EVENT_IIC1_RXI),         /* IIC1 RXI (Receive data full) */
+    [37] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
+    [38] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
+    [39] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
 };
         #endif
