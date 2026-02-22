@@ -910,7 +910,9 @@ static void ra_icu_callback(uint8_t irq_no) {
         if (icu_cbs[idx] != NULL) {
         if (!bounce_flag[idx]) {
             bounce_start[idx] = mtick();
-            bounce_flag[idx] = true;
+            bounce_flag[idx] = false;
+
+            // bounce_flag[idx] = true; 
             (*icu_cbs[idx])(icu_params[idx]);
         }
     }

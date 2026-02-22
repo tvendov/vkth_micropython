@@ -36,7 +36,7 @@
 #include "pin.h"
 #include "extint.h"
 #include "irq.h"
-#if defined(RA4M1) | defined(RA4M3) | defined(RA4W1) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3)
+#if defined(RA4M1) || defined(RA4M2) || defined(RA4M3) || defined(RA4W1) || defined(RA6M1) || defined(RA6M2) || defined(RA6M3)
 #include "ra_icu.h"
 #endif
 

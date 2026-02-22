@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (23)
+#define VECTOR_DATA_IRQ_COUNT    (32)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -78,6 +78,25 @@ void ctsu_end_isr(void);
 #define CTSU_READ_IRQn          ((IRQn_Type)21)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
 #define VECTOR_NUMBER_CTSU_END ((IRQn_Type)22)  /* CTSU END (CTSU measurement end interrupt) */
 #define CTSU_END_IRQn          ((IRQn_Type)22)  /* CTSU END (CTSU measurement end interrupt) */
+
+#define VECTOR_NUMBER_ICU_IRQ1 ((IRQn_Type)23)  /* ICU IRQ1 (External pin interrupt 1) */
+#define ICU_IRQ1_IRQn          ((IRQn_Type)23)  /* ICU IRQ1 (External pin interrupt 1) */
+#define VECTOR_NUMBER_ICU_IRQ2 ((IRQn_Type)24)  /* ICU IRQ2 (External pin interrupt 2) */
+#define ICU_IRQ2_IRQn          ((IRQn_Type)24)  /* ICU IRQ2 (External pin interrupt 2) */
+#define VECTOR_NUMBER_ICU_IRQ3 ((IRQn_Type)25)  /* ICU IRQ3 (External pin interrupt 3) */
+#define ICU_IRQ3_IRQn          ((IRQn_Type)25)  /* ICU IRQ3 (External pin interrupt 3) */
+#define VECTOR_NUMBER_ICU_IRQ4 ((IRQn_Type)26)  /* ICU IRQ4 (External pin interrupt 4) */
+#define ICU_IRQ4_IRQn          ((IRQn_Type)26)  /* ICU IRQ4 (External pin interrupt 4) */
+#define VECTOR_NUMBER_ICU_IRQ5 ((IRQn_Type)27)  /* ICU IRQ5 (External pin interrupt 5) */
+#define ICU_IRQ5_IRQn          ((IRQn_Type)27)  /* ICU IRQ5 (External pin interrupt 5) */
+#define VECTOR_NUMBER_ICU_IRQ6 ((IRQn_Type)28)  /* ICU IRQ6 (External pin interrupt 6) */
+#define ICU_IRQ6_IRQn          ((IRQn_Type)28)  /* ICU IRQ6 (External pin interrupt 6) */
+#define VECTOR_NUMBER_ICU_IRQ7 ((IRQn_Type)29)  /* ICU IRQ7 (External pin interrupt 7) */
+#define ICU_IRQ7_IRQn          ((IRQn_Type)29)  /* ICU IRQ7 (External pin interrupt 7) */
+#define VECTOR_NUMBER_ICU_IRQ8 ((IRQn_Type)30)  /* ICU IRQ8 (External pin interrupt 8) */
+#define ICU_IRQ8_IRQn          ((IRQn_Type)30)  /* ICU IRQ8 (External pin interrupt 8) */
+#define VECTOR_NUMBER_ICU_IRQ9 ((IRQn_Type)31)  /* ICU IRQ9 (External pin interrupt 9) */
+#define ICU_IRQ9_IRQn          ((IRQn_Type)31)  /* ICU IRQ9 (External pin interrupt 9) */
 
 #ifdef __cplusplus
 }

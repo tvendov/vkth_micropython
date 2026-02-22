@@ -35,6 +35,15 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [20] = ctsu_write_isr,         /* CTSU WRITE (CTSU write request interrupt) */
     [21] = ctsu_read_isr,         /* CTSU READ (CTSU measurement data transfer request interrupt) */
     [22] = ctsu_end_isr,         /* CTSU END (CTSU measurement end interrupt) */
+    [23] = r_icu_isr,         /* ICU IRQ1 (External pin interrupt 1) */
+    [24] = r_icu_isr,         /* ICU IRQ2 (External pin interrupt 2) */
+    [25] = r_icu_isr,         /* ICU IRQ3 (External pin interrupt 3) */
+    [26] = r_icu_isr,         /* ICU IRQ4 (External pin interrupt 4) */
+    [27] = r_icu_isr,         /* ICU IRQ5 (External pin interrupt 5) */
+    [28] = r_icu_isr,         /* ICU IRQ6 (External pin interrupt 6) */
+    [29] = r_icu_isr,         /* ICU IRQ7 (External pin interrupt 7) */
+    [30] = r_icu_isr,         /* ICU IRQ8 (External pin interrupt 8) */
+    [31] = r_icu_isr,         /* ICU IRQ9 (External pin interrupt 9) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -61,5 +70,14 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [20] = BSP_PRV_IELS_ENUM(EVENT_CTSU_WRITE),         /* CTSU WRITE (CTSU write request interrupt) */
     [21] = BSP_PRV_IELS_ENUM(EVENT_CTSU_READ),         /* CTSU READ (CTSU measurement data transfer request interrupt) */
     [22] = BSP_PRV_IELS_ENUM(EVENT_CTSU_END),         /* CTSU END (CTSU measurement end interrupt) */
+    [23] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ1),         /* ICU IRQ1 (External pin interrupt 1) */
+    [24] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ2),         /* ICU IRQ2 (External pin interrupt 2) */
+    [25] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ3),         /* ICU IRQ3 (External pin interrupt 3) */
+    [26] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ4),         /* ICU IRQ4 (External pin interrupt 4) */
+    [27] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ5),         /* ICU IRQ5 (External pin interrupt 5) */
+    [28] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ6),         /* ICU IRQ6 (External pin interrupt 6) */
+    [29] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ7),         /* ICU IRQ7 (External pin interrupt 7) */
+    [30] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ8),         /* ICU IRQ8 (External pin interrupt 8) */
+    [31] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ9),         /* ICU IRQ9 (External pin interrupt 9) */
 };
         #endif
