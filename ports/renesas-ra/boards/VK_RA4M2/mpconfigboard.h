@@ -73,6 +73,9 @@
 #define MICROPY_HW_I2C0_SCL         (pin_P400)
 #define MICROPY_HW_I2C0_SDA         (pin_P401)
 
+// I2CTarget: support both IIC0 and IIC1 as slave channels
+#define MICROPY_PY_MACHINE_I2C_TARGET_MAX   (2)
+
 // I2C1
 // Notes:
 // - RA4M2 has IIC ch1 pins on either (P100,P101) or (P205,P206).

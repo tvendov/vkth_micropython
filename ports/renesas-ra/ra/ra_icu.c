@@ -137,7 +137,7 @@ static const ra_icu_pin_t ra_irq_pins[] = {
     { 15, P011 },
     #endif
 
-    #elif defined(RA4M1) || defined(RA4M2)
+    #elif defined(RA4M1)
 
     #if defined(VECTOR_NUMBER_ICU_IRQ0)
     { 0, P105 },
@@ -226,6 +226,7 @@ static const ra_icu_pin_t ra_irq_pins[] = {
     #if defined(VECTOR_NUMBER_ICU_IRQ4)
     { 4, P111 },
     { 4, P402 },
+    { 4, P411 },
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ5)
     { 5, P302 },
@@ -233,28 +234,45 @@ static const ra_icu_pin_t ra_irq_pins[] = {
     { 5, P410 },
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ6)
+    { 6, P000 },
     { 6, P301 },
     { 6, P409 },
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ7)
+    { 7, P001 },
     { 7, P408 },
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ8)
+    { 8, P002 },
     { 8, P305 },
     { 8, P415 },
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ9)
+    { 9, P004 },
     { 9, P304 },
     { 9, P414 },
     #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ10)
+    { 10, P005 },
+    #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ11)
+    { 11, P006 },
     { 11, P501 },
+    { 11, P708 },
     #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ12)
+    { 12, P008 },
     { 12, P502 },
     #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ13)
+    { 13, P015 },
+    #endif
     #if defined(VECTOR_NUMBER_ICU_IRQ14)
+    { 14, P403 },
     { 14, P505 },
+    #endif
+    #if defined(VECTOR_NUMBER_ICU_IRQ15)
+    { 15, P404 },
     #endif
 
     #elif defined(RA6M1)

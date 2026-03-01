@@ -170,8 +170,11 @@
 #endif
 #if MICROPY_PY_MACHINE_I2C_TARGET
 #define MICROPY_PY_MACHINE_I2C_TARGET_INCLUDEFILE "ports/renesas-ra/machine_i2c_target.c"
-// Limit to a single I2C target instance to reduce BSS usage on small RAM parts.
+// Default to a single I2C target instance; override in mpconfigboard.h for
+// boards with multiple IIC channels (e.g. #define MICROPY_PY_MACHINE_I2C_TARGET_MAX (2)).
+#ifndef MICROPY_PY_MACHINE_I2C_TARGET_MAX
 #define MICROPY_PY_MACHINE_I2C_TARGET_MAX       (1)
+#endif
 #define MICROPY_PY_MACHINE_I2C_TARGET_HARD_IRQ  (1)
 // DTC TX support for sequential reads - disabled by default on small RAM parts (RA4M1).
 // Enable in mpconfigboard.h for larger RAM parts: #define MICROPY_PY_MACHINE_I2C_TARGET_DTC_TX (1)

@@ -278,6 +278,10 @@ static mp_obj_t mp_machine_i2c_target_make_new(const mp_obj_type_t *type, size_t
     ra_i2c_slave_init(self->slave, i2c_inst, self->scl->pin, self->sda->pin,
         args[ARG_addr].u_int, args[ARG_addrsize].u_int == 10);
 
+    // Switch this channel's ISR dispatch from master to slave mode so that
+    // iic_master_*_isr() (in the vector table) delegates to iic_slave_*_isr().
+    ra_i2c_set_slave_mode(i2c_id, true);
+
     // Enable software RX buffering (DTC-RX emulation) when a memory backing
     // store is provided. This reduces per-byte ISR wakeups: only the first
     // byte (register pointer) and STOP/TX-transition trigger callbacks.
@@ -310,6 +314,8 @@ static void mp_machine_i2c_target_print(const mp_print_t *print, mp_obj_t self_i
 
 static void mp_machine_i2c_target_deinit(machine_i2c_target_obj_t *self) {
     if (self->slave != NULL) {
+        // Restore master ISR dispatch before tearing down the slave driver
+        ra_i2c_set_slave_mode(self->i2c_id, false);
         ra_i2c_slave_deinit(self->slave);
         self->slave = NULL;
     }

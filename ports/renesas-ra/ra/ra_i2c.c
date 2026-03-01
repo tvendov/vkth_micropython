@@ -32,6 +32,7 @@
 #include "ra_timer.h"
 #include "ra_utils.h"
 #include "ra_i2c.h"
+#include "ra_i2c_slave.h"
 
 #if !defined(RA_PRI_I2C)
 #define RA_PRI_I2C (8)
@@ -43,6 +44,17 @@
 #pragma GCC diagnostic ignored "-Wimplicit-function-declaration"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
+
+// Per-channel mode flag: 0=master, 1=slave.  Checked inside the
+// iic_master_*_isr() dispatch functions so that the same vector-table
+// entries work for both master and slave modes.
+volatile uint8_t iic_slave_mode[3] = {0, 0, 0};
+
+void ra_i2c_set_slave_mode(uint8_t ch, bool slave) {
+    if (ch < 3) {
+        iic_slave_mode[ch] = slave ? 1 : 0;
+    }
+}
 
 extern volatile uint32_t uwTick;
 
@@ -670,6 +682,10 @@ static void ra_i2c_ictei_isr(R_IIC0_Type *i2c_inst) {
 void iic_master_rxi_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint8_t ch = irq_to_ch[(uint32_t)irq];
+    if (iic_slave_mode[ch]) {
+        iic_slave_rxi_isr();
+        return;
+    }
     ra_i2c_icrxi_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }
@@ -677,6 +693,10 @@ void iic_master_rxi_isr(void) {
 void iic_master_txi_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint8_t ch = irq_to_ch[(uint32_t)irq];
+    if (iic_slave_mode[ch]) {
+        iic_slave_txi_isr();
+        return;
+    }
     ra_i2c_ictxi_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }
@@ -684,6 +704,10 @@ void iic_master_txi_isr(void) {
 void iic_master_tei_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint8_t ch = irq_to_ch[(uint32_t)irq];
+    if (iic_slave_mode[ch]) {
+        iic_slave_tei_isr();
+        return;
+    }
     ra_i2c_ictei_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }
@@ -691,6 +715,10 @@ void iic_master_tei_isr(void) {
 void iic_master_eri_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint8_t ch = irq_to_ch[(uint32_t)irq];
+    if (iic_slave_mode[ch]) {
+        iic_slave_eri_isr();
+        return;
+    }
     ra_i2c_iceri_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }

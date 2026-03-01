@@ -110,4 +110,9 @@ extern const uint8_t ra_i2c_ch_to_txirq[];
 extern const uint8_t ra_i2c_ch_to_teirq[];
 extern const uint8_t ra_i2c_ch_to_erirq[];
 
+// Per-channel I2C mode flag: 0=master, 1=slave.
+// When slave mode is active, iic_master_*_isr() delegates to iic_slave_*_isr().
+extern volatile uint8_t iic_slave_mode[];
+void ra_i2c_set_slave_mode(uint8_t ch, bool slave);
+
 #endif /* RA_RA_I2C_H_ */
