@@ -131,6 +131,32 @@ static machine_pwm_obj_t machine_pwm_obj[] = {
     #endif
 };
 
+static uint8_t mp_machine_pwm_channel_has_other_active(const machine_pwm_obj_t *self) {
+    for (int i = 0; i < MP_ARRAY_SIZE(machine_pwm_obj); i++) {
+        machine_pwm_obj_t *pwm = &machine_pwm_obj[i];
+        if ((pwm != self) && (pwm->ch == self->ch) && pwm->active) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void mp_machine_pwm_channel_set_freq(uint8_t ch, uint32_t freq) {
+    for (int i = 0; i < MP_ARRAY_SIZE(machine_pwm_obj); i++) {
+        if (machine_pwm_obj[i].ch == ch) {
+            machine_pwm_obj[i].freq = freq;
+        }
+    }
+}
+
+static void mp_machine_pwm_channel_clear_active(uint8_t ch) {
+    for (int i = 0; i < MP_ARRAY_SIZE(machine_pwm_obj); i++) {
+        if (machine_pwm_obj[i].ch == ch) {
+            machine_pwm_obj[i].active = 0;
+        }
+    }
+}
+
 /******************************************************************************/
 // MicroPython bindings for PWM
 
@@ -160,6 +186,8 @@ static void mp_machine_pwm_init_helper(machine_pwm_obj_t *self, size_t n_args, c
     }
 
     ra_gpt_timer_init(self->pwm->pin, self->ch, self->id, 0, (float)self->freq);
+    self->freq = (uint32_t)ra_gpt_timer_get_freq(self->ch);
+    mp_machine_pwm_channel_set_freq(self->ch, self->freq);
 
     if (args[ARG_duty].u_int != -1) {
         if ((args[ARG_duty].u_int < 0) || (args[ARG_duty].u_int > 100)) {
@@ -175,6 +203,8 @@ static void mp_machine_pwm_init_helper(machine_pwm_obj_t *self, size_t n_args, c
     if (self->duty && self->freq) {
         ra_gpt_timer_start(self->ch);
         self->active = 1;
+    } else {
+        self->active = 0;
     }
 }
 
@@ -225,9 +255,11 @@ static mp_obj_t mp_machine_pwm_make_new(const mp_obj_type_t *type, size_t n_args
 
 static void mp_machine_pwm_deinit(machine_pwm_obj_t *self) {
     ra_gpt_timer_deinit(self->pwm->pin, self->ch, self->id);
+    if ((uint32_t)ra_gpt_timer_get_freq(self->ch) == 0u) {
+        mp_machine_pwm_channel_set_freq(self->ch, 0u);
+        mp_machine_pwm_channel_clear_active(self->ch);
+    }
     self->active = 0;
-    self->ch = 0;
-    self->id = ' ';
     self->duty = 0;
     self->freq = 0;
 }
@@ -237,21 +269,37 @@ static mp_obj_t mp_machine_pwm_freq_get(machine_pwm_obj_t *self) {
 }
 
 static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
+    if ((freq < 0) || (freq > 24000000)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("freq should be 0-24000000"));
+    }
+
     if (freq) {
+        uint32_t req_freq = (uint32_t)freq;
+        uint32_t prev_freq = (uint32_t)ra_gpt_timer_get_freq(self->ch);
         ra_gpt_timer_set_freq(self->ch, (float)freq);
         self->freq = (uint32_t)ra_gpt_timer_get_freq(self->ch);
-        if (!self->freq) {
+        uint32_t diff = (self->freq > req_freq) ? (self->freq - req_freq) : (req_freq - self->freq);
+        if ((self->freq == prev_freq) && (prev_freq != req_freq) && (diff > 1u)) {
             mp_raise_ValueError(MP_ERROR_TEXT("freq should be 0-24000000"));
-        } else
-        if (!self->active) {
-            ra_gpt_timer_start(self->ch);
-            self->active = 1;
+        } else {
+            mp_machine_pwm_channel_set_freq(self->ch, self->freq);
+
+            if (self->duty) {
+                uint64_t D = self->duty * ra_gpt_timer_get_period(self->ch);
+                ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 100));
+            }
+            if (self->duty && !self->active) {
+                ra_gpt_timer_start(self->ch);
+                self->active = 1;
+            } else if (!self->duty) {
+                self->active = 0;
+            }
         }
     } else {
         ra_gpt_timer_stop(self->ch);
         ra_gpt_timer_set_freq(self->ch, (float)freq);
-        self->freq = 0;
-        self->active = 0;
+        mp_machine_pwm_channel_set_freq(self->ch, 0u);
+        mp_machine_pwm_channel_clear_active(self->ch);
     }
 }
 
@@ -267,20 +315,27 @@ static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
         mp_raise_ValueError(MP_ERROR_TEXT("duty should be 0-100"));
     } else {
         if (duty) {
-            uint64_t D = (uint8_t)(duty) * ra_gpt_timer_get_period(self->ch);
-            ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 100));
             self->duty = (uint8_t)duty;
 
-            if (!self->active && self->freq) {
-                ra_gpt_timer_start(self->ch);
-                self->active = 1;
+            if (self->freq) {
+                uint64_t D = self->duty * ra_gpt_timer_get_period(self->ch);
+                ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 100));
+
+                if (!self->active) {
+                    ra_gpt_timer_start(self->ch);
+                    self->active = 1;
+                }
             }
         } else {
+            self->duty = 0;
             if (self->active) {
-                ra_gpt_timer_stop(self->ch);
+                if (!mp_machine_pwm_channel_has_other_active(self)) {
+                    ra_gpt_timer_stop(self->ch);
+                }
                 ra_gpt_timer_set_duty(self->ch, self->id, 0);
-                self->duty = 0;
                 self->active = 0;
+            } else if (self->freq) {
+                ra_gpt_timer_set_duty(self->ch, self->id, 0);
             }
         }
     }
@@ -298,20 +353,27 @@ static void mp_machine_pwm_duty_set_u16(machine_pwm_obj_t *self, mp_int_t duty_u
         mp_raise_ValueError(MP_ERROR_TEXT("duty should be 0-65535"));
     } else {
         if (duty_u16) {
-            uint64_t D = duty_u16 * ra_gpt_timer_get_period(self->ch);
-            ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 65535));
             self->duty = (uint8_t)((duty_u16 * 100) / 65535);
 
-            if (!self->active && self->freq) {
-                ra_gpt_timer_start(self->ch);
-                self->active = 1;
+            if (self->freq) {
+                uint64_t D = duty_u16 * ra_gpt_timer_get_period(self->ch);
+                ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 65535));
+
+                if (!self->active) {
+                    ra_gpt_timer_start(self->ch);
+                    self->active = 1;
+                }
             }
         } else {
+            self->duty = 0;
             if (self->active) {
-                ra_gpt_timer_stop(self->ch);
+                if (!mp_machine_pwm_channel_has_other_active(self)) {
+                    ra_gpt_timer_stop(self->ch);
+                }
                 ra_gpt_timer_set_duty(self->ch, self->id, 0);
-                self->duty = 0;
                 self->active = 0;
+            } else if (self->freq) {
+                ra_gpt_timer_set_duty(self->ch, self->id, 0);
             }
         }
     }
@@ -343,11 +405,15 @@ static void mp_machine_pwm_duty_set_ns(machine_pwm_obj_t *self, mp_int_t duty_ns
             }
         }
     } else {
+        self->duty = 0;
         if (self->active) {
-            ra_gpt_timer_stop(self->ch);
+            if (!mp_machine_pwm_channel_has_other_active(self)) {
+                ra_gpt_timer_stop(self->ch);
+            }
             ra_gpt_timer_set_duty(self->ch, self->id, 0);
-            self->duty = 0;
             self->active = 0;
+        } else if (self->freq) {
+            ra_gpt_timer_set_duty(self->ch, self->id, 0);
         }
     }
 }

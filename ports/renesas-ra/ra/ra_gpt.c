@@ -358,16 +358,28 @@ void ra_gpt_timer_stop(uint32_t ch) {
 }
 
 void ra_gpt_timer_set_freq(uint32_t ch, float freq) {
-    R_GPT0_Type *gpt_reg = gpt_regs[ch];
     uint8_t source = 0;
     uint32_t period = 0;
-    ra_gpt_freq[ch] = 0.0f;
+    uint16_t div = 0;
 
-    if ((!gpt_reg) || (ch >= GPT_CH_SIZE) || (freq == ra_gpt_freq[ch]) || (freq == 0.0f)) {
+    if (CH_GAP || (ch >= GPT_CH_SIZE)) {
         return;
     }
 
-    ra_gpt_div[ch] = 0;
+    R_GPT0_Type *gpt_reg = gpt_regs[ch];
+    if (!gpt_reg) {
+        return;
+    }
+
+    if (freq == 0.0f) {
+        ra_gpt_div[ch] = 0;
+        ra_gpt_freq[ch] = 0.0f;
+        return;
+    }
+
+    if (freq == ra_gpt_freq[ch]) {
+        return;
+    }
 
     #ifdef RA4M1
     if (ch <= 1) { // 32bit
@@ -388,7 +400,7 @@ void ra_gpt_timer_set_freq(uint32_t ch, float freq) {
             period = (uint32_t)((float)(PCLK) / freq);
         }
     } else { // 16bit
-        float min_freq = ((float)PCLK) / 65565.0f;
+        float min_freq = ((float)PCLK) / 65535.0f;
 
         if (freq > (float)(PCLK / 2)) {
             return;
@@ -397,33 +409,34 @@ void ra_gpt_timer_set_freq(uint32_t ch, float freq) {
             period = (uint16_t)((float)(PCLK) / freq);
         } else if (freq > (min_freq / 4.0f)) {
             source = GPT_PCLKD4;
-            ra_gpt_div[ch] = 4;
+            div = 4;
             period = (uint16_t)(((float)(PCLK) / 4.0f) / freq);
         } else if (freq > (min_freq / 16.0f)) {
             source = GPT_PCLKD16;
-            ra_gpt_div[ch] = 16;
+            div = 16;
             period = (uint16_t)(((float)(PCLK) / 16.0f) / freq);
         } else if (freq > (min_freq / 64.0f)) {
             source = GPT_PCLKD64;
-            ra_gpt_div[ch] = 64;
+            div = 64;
             period = (uint16_t)(((float)(PCLK) / 64.0f) / freq);
         } else if (freq > (min_freq / 256.0f)) {
             source = GPT_PCLKD256;
-            ra_gpt_div[ch] = 256;
+            div = 256;
             period = (uint16_t)(((float)(PCLK) / 256.0f) / freq);
         } else if (freq > (min_freq / 1024.0f)) {
             source = GPT_PCLKD1024;
-            ra_gpt_div[ch] = 1024;
+            div = 1024;
             period = (uint16_t)(((float)(PCLK) / 1024.0f) / freq);
         } else {
             return;
         }
     }
 
+    ra_gpt_div[ch] = div;
     ra_gpt_freq[ch] = freq;
 
     float dutyA = (gpt_reg->GTIOR_b.OAE && gpt_reg->GTCCR[0] && gpt_reg->GTPR)? (float)(gpt_reg->GTCCR[0] + 1) / (float)(gpt_reg->GTPR + 1) : 0.0f;
-    float dutyB = (gpt_reg->GTIOR_b.OBE && gpt_reg->GTCCR[0] && gpt_reg->GTPR)? (float)(gpt_reg->GTCCR[1] + 1) / (float)(gpt_reg->GTPR + 1) : 0.0f;
+    float dutyB = (gpt_reg->GTIOR_b.OBE && gpt_reg->GTCCR[1] && gpt_reg->GTPR)? (float)(gpt_reg->GTCCR[1] + 1) / (float)(gpt_reg->GTPR + 1) : 0.0f;
 
     if (gpt_reg->GTCR_b.CST) { // running
         if ((gpt_reg->GTCR >> 23) != source) {    // Can't use gpt_reg->GTCR_b.TPCS this structure is declared wrong by FPS v2.3.0 so get the whole reg
@@ -557,10 +570,13 @@ uint32_t ra_gpt_timer_get_duty(uint32_t ch, uint8_t id) {
 
 void ra_gpt_timer_init(uint32_t pwm_pin, uint32_t ch, uint8_t id, uint32_t duty, float freq) {
     R_GPT0_Type *gpt_reg = gpt_regs[ch];
+    bool channel_in_use = false;
 
     if ((!gpt_reg) || (ch >= GPT_CH_SIZE)) {
         return;
     }
+
+    channel_in_use = gpt_reg->GTIOR_b.OAE || gpt_reg->GTIOR_b.OBE;
 
     #ifdef RA4M1
     if (ch <= 1) {
@@ -575,7 +591,7 @@ void ra_gpt_timer_init(uint32_t pwm_pin, uint32_t ch, uint8_t id, uint32_t duty,
     #else
     #error Choose proper clock enable BIT!
         #endif
-        #ifdef RA6M5
+        #if defined(RA4M2) || defined(RA6M5)
         // R_MSTP_MSTPCRE_MSTPE22_Msk - R_MSTP_MSTPCRE_MSTPE31_Msk
         ra_mstpcre_start(1UL << (31 - ch));
         #else
@@ -585,13 +601,19 @@ void ra_gpt_timer_init(uint32_t pwm_pin, uint32_t ch, uint8_t id, uint32_t duty,
         ra_mstpcrd_start(R_MSTP_MSTPCRD_MSTPD6_Msk);
     }
 
-    ra_gpt_timer_stop(ch);                          // Stop the timer
-    gpt_reg->GTCR_b.MD = 0;                         // Set operating mode
-    gpt_reg->GTUDDTYC_b.UD = 1;                     // Set count direction
-    gpt_reg->GTBER_b.PR = 1;                        // Set buffer operation for the period
-    ra_gpt_timer_set_freq(ch, freq);                // Set count clock & cycle
+    if (!channel_in_use) {
+        ra_gpt_timer_stop(ch);                      // Stop the timer
+        gpt_reg->GTCR_b.MD = 0;                     // Set operating mode
+        gpt_reg->GTUDDTYC_b.UD = 1;                 // Set count direction
+        gpt_reg->GTBER_b.PR = 1;                    // Set buffer operation for the period
+        gpt_reg->GTCNT = 0;                         // Set initial value for counter
+    }
 
-    gpt_reg->GTCNT = 0;                             // Set initial value for counter
+    // Keep the currently running channel frequency if this init does not request one.
+    if ((freq > 0.0f) || !channel_in_use) {
+        ra_gpt_timer_set_freq(ch, freq);            // Set count clock & cycle
+    }
+
     if (id == 'A') {
         gpt_reg->GTIOR_b.GTIOA = 0x9;               // Set GTIOC pin function (Initial low -> Low at GTCCRA/B compare match -> High at cycle end)
         gpt_reg->GTIOR_b.OAE = 1;                   // Enable GTIOC pin output
@@ -608,32 +630,48 @@ void ra_gpt_timer_init(uint32_t pwm_pin, uint32_t ch, uint8_t id, uint32_t duty,
 
     ra_gpt_timer_set_pin(pwm_pin);
 
-    if (gpt_reg->GTPR && gpt_reg->GTCCR[(id == 'A')? 0 : 1]) {
+    if (ra_gpt_freq[ch] && (gpt_reg->GTCCR[0] || gpt_reg->GTCCR[1])) {
         ra_gpt_timer_start(ch);
     }
 }
 
 void ra_gpt_timer_deinit(uint32_t pwm_pin, uint32_t ch, uint8_t id) {
+    R_GPT0_Type *gpt_reg;
+
     if (CH_GAP || (ch >= GPT_CH_SIZE)) {
         return;
     }
+
+    gpt_reg = gpt_regs[ch];
+    if (!gpt_reg) {
+        return;
+    }
+
+    if (id == 'A') {
+        gpt_reg->GTIOR_b.OAE = 0;
+        gpt_reg->GTIOR_b.GTIOA = 0;
+        gpt_reg->GTCCR[0] = 0;
+        gpt_reg->GTCCR[2] = 0;
+    } else {
+        gpt_reg->GTIOR_b.OBE = 0;
+        gpt_reg->GTIOR_b.GTIOB = 0;
+        gpt_reg->GTCCR[1] = 0;
+        gpt_reg->GTCCR[3] = 0;
+    }
+
+    ra_gpt_timer_release_pin(pwm_pin);
+
+    // Keep the channel running if the sibling output of the same GPT channel is still enabled.
+    if (gpt_reg->GTIOR_b.OAE || gpt_reg->GTIOR_b.OBE) {
+        return;
+    }
+
     ra_gpt_timer_stop(ch);
 
     ra_gpt_div[ch] = 0;
     ra_gpt_freq[ch] = 0;
-
-    gpt_regs[ch]->GTPR = 0;
-    gpt_regs[ch]->GTPBR = 0;
-
-    if (id == 'A') {
-        gpt_regs[ch]->GTIOR_b.OAE = 0;
-        gpt_regs[ch]->GTCCR[0] = 0;
-        gpt_regs[ch]->GTCCR[2] = 0;
-    } else {
-        gpt_regs[ch]->GTIOR_b.OBE = 0;
-        gpt_regs[ch]->GTCCR[1] = 0;
-        gpt_regs[ch]->GTCCR[3] = 0;
-    }
+    gpt_reg->GTPR = 0;
+    gpt_reg->GTPBR = 0;
 
     #ifdef RA4M1
     if (ch <= 1) {
@@ -648,7 +686,7 @@ void ra_gpt_timer_deinit(uint32_t pwm_pin, uint32_t ch, uint8_t id) {
     #else
     #error Choose proper clock enable BIT!
         #endif
-        #ifdef RA6M5
+        #if defined(RA4M2) || defined(RA6M5)
         ra_mstpcre_stop(1UL << (31 - ch));
         #else
         ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD5_Msk);
@@ -656,6 +694,4 @@ void ra_gpt_timer_deinit(uint32_t pwm_pin, uint32_t ch, uint8_t id) {
     } else {
         ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD6_Msk);
     }
-
-    ra_gpt_timer_release_pin(pwm_pin);
 }
