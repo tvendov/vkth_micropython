@@ -36,7 +36,7 @@
 
 enum ADC14_PIN
 {
-    #if defined(RA4M1) | defined(RA4M2)
+    #if defined(RA4M1)
 
     AN000 = 0,
     AN001 = 1,
@@ -63,6 +63,22 @@ enum ADC14_PIN
     AN023 = 23,
     AN024 = 24,
     AN025 = 25,
+
+    #elif defined(RA4M2)
+
+    AN000 = 0,
+    AN001 = 1,
+    AN002 = 2,
+    AN003 = 3,
+    AN004 = 4,
+    AN005 = 5,
+    AN006 = 6,
+    AN007 = 7,
+    AN008 = 8,
+    AN011 = 11,
+    AN012 = 12,
+    AN013 = 13,
+    AN016 = 16,
 
     #elif defined(RA4W1)
 

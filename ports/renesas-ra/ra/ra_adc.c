@@ -57,7 +57,7 @@ typedef struct adc_pin_to_ch {
 } adc_pin_to_ch_t;
 
 static const adc_pin_to_ch_t pin_to_ch[] = {
-    #if defined(RA4M1) | defined(RA4M2)
+    #if defined(RA4M1)
 
     { P000, AN000 },
     { P001, AN001 },
@@ -84,6 +84,24 @@ static const adc_pin_to_ch_t pin_to_ch[] = {
     { P503, AN023 },
     { P504, AN024 },
     { P505, AN025 },
+
+    #elif defined(RA4M2)
+
+    // RA4M2 ADC12 channels per hardware manual:
+    // AN000..AN008, AN011..AN013, AN016.
+    { P000, AN000 },
+    { P001, AN001 },
+    { P002, AN002 },
+    { P003, AN003 },
+    { P004, AN004 },
+    { P005, AN005 },
+    { P006, AN006 },
+    { P007, AN007 },
+    { P008, AN008 },
+    { P013, AN011 },
+    { P014, AN012 },
+    { P015, AN013 },
+    { P500, AN016 },
 
     #elif defined(RA4W1)
 
