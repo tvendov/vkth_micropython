@@ -79,8 +79,8 @@
 // I2C1
 // Notes:
 // - RA4M2 has IIC ch1 pins on either (P100,P101) or (P205,P206).
-// - Default here is (P100,P101) to avoid conflicting with the common CTSU TouchPad
-//   sensor pins (P205/P206) used in our TouchPad examples.
+// - Default here is (P100,P101) to avoid conflicting with the CTSU wiring on VK_RA4M2:
+//   P205/P206 are TS01/TS02 touch inputs and P207 is TSCAP.
 // - You can override pins at runtime using: I2C(1, scl=Pin("..."), sda=Pin("..."))
 #define MICROPY_HW_I2C1_SCL         (pin_P100)
 #define MICROPY_HW_I2C1_SDA         (pin_P101)
@@ -95,7 +95,7 @@
 // Notes:
 // - We intentionally use the SPI1 "B" pin set that exists in this board's pins.csv:
 //     MOSI=P109, MISO=P110, SCK=P111
-// - We avoid P205/P206 here because they are commonly used as CTSU TouchPad sensor pins.
+// - We avoid P205/P206 here because CTSU uses them as TS01/TS02 touch inputs.
 // - CS/SSL must be one of the RA SSL-capable pins (see ports/renesas-ra/ra/ra_spi.c ssl_pins[]).
 #define MICROPY_HW_SPI1_SSL         (pin_P108)
 #define MICROPY_HW_SPI1_RSPCK       (pin_P111)
@@ -141,5 +141,3 @@
 #define MICROPY_HW_LED_ON(pin)      mp_hal_pin_low(pin)
 #define MICROPY_HW_LED_OFF(pin)     mp_hal_pin_high(pin)
 #define MICROPY_HW_LED_TOGGLE(pin)  mp_hal_pin_toggle(pin)
-
-

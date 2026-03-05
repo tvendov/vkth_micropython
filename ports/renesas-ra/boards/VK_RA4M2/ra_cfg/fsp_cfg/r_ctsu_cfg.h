@@ -13,8 +13,8 @@ extern "C" {
 /* Parameter checking enable/disable */
 #define CTSU_CFG_PARAM_CHECKING_ENABLE      (1)
 
-/* Number of self-capacitance elements (touch buttons) */
-#define CTSU_CFG_NUM_SELF_ELEMENTS          (4)
+/* Number of self-capacitance elements enabled on VK_RA4M2 (TS01..TS12) */
+#define CTSU_CFG_NUM_SELF_ELEMENTS          (12)
 
 /* Number of mutual-capacitance elements (not used) */
 #define CTSU_CFG_NUM_MUTUAL_ELEMENTS        (0)
@@ -126,4 +126,3 @@ extern "C" {
 #endif
 
 #endif /* R_CTSU_CFG_H */
-

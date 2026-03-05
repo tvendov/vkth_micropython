@@ -53,6 +53,9 @@ extern "C" {
 #define RA_CTSU_ERR_TOO_MANY_CHANNELS    (-3)
 #define RA_CTSU_ERR_NOT_CONFIGURED       (-4)
 #define RA_CTSU_ERR_INVALID_ARG          (-5)
+#define RA_CTSU_ERR_BUSY                 (-6)
+#define RA_CTSU_ERR_NO_DATA              (-7)
+#define RA_CTSU_ERR_SCAN_FAILED          (-8)
 #define RA_CTSU_ERR_TS_NOT_MAPPED        (-20)
 
 // CTSU channel configuration
@@ -83,6 +86,30 @@ int ra_ctsu_channel_config_pin(uint8_t pin_code, uint16_t threshold);
 // ts_channel: CTSU TS pin number
 // Returns raw count value (0-65535), or negative on error
 int32_t ra_ctsu_read(uint8_t ts_channel);
+
+// Start a non-blocking multi-scan for all configured CTSU channels.
+// Returns 0 on success, negative wrapper error code on failure.
+int ra_ctsu_scan_start(void);
+
+// Returns true while a non-blocking CTSU scan is still in progress.
+bool ra_ctsu_scan_in_progress(void);
+
+// Returns true when the current non-blocking CTSU scan has completed and is ready
+// to be collected with ra_ctsu_scan_collect().
+bool ra_ctsu_scan_ready(void);
+
+// Collect the result of the last completed non-blocking scan into the internal
+// cache used by ra_ctsu_read_cached().
+// Returns 0 on success, negative wrapper error code on failure.
+int ra_ctsu_scan_collect(void);
+
+// Read the last cached raw count for a channel without starting a new scan.
+// Returns raw count value (0-65535), RA_CTSU_ERR_NO_DATA if no cached sample is
+// available yet, or another negative wrapper error code on failure.
+int32_t ra_ctsu_read_cached(uint8_t ts_channel);
+
+// Returns true when at least one cached multi-scan result is available.
+bool ra_ctsu_cached_ready(void);
 
 // Check if touch is detected (count > threshold)
 // ts_channel: CTSU TS pin number
@@ -155,4 +182,3 @@ int8_t ra_ctsu_pin_to_channel(uint16_t pin);
 #endif
 
 #endif // RA_CTSU_H
-

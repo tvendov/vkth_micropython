@@ -33,6 +33,7 @@
 #include "py/mphal.h"
 // Включваме MicroPython errno - кодове на грешки
 #include "py/mperrno.h"
+#include "shared/runtime/softtimer.h"
 // Включваме модула machine - основен модул за хардуерен достъп
 #include "modmachine.h"
 
@@ -69,6 +70,66 @@ typedef struct _machine_touchpad_obj_t {
     uint8_t channel;          // CTSU канал (TS00-TS35)
     uint16_t threshold;       // Праг за докосване
 } machine_touchpad_obj_t;
+
+// Cooperative background sampler state shared by all TouchPad instances.
+static mp_sched_node_t touchpad_sampler_node;
+static soft_timer_entry_t touchpad_sampler_timer;
+static bool touchpad_sampler_timer_init = false;
+static uint32_t touchpad_sample_rate_hz = 0;
+static uint32_t touchpad_last_sample_ms = 0;
+static bool touchpad_last_sample_valid = false;
+
+static uint32_t touchpad_sampler_interval_ms(uint32_t hz) {
+    if (hz == 0) {
+        return 0;
+    }
+    uint32_t interval_ms = 1000 / hz;
+    if (interval_ms == 0) {
+        interval_ms = 1;
+    }
+    return interval_ms;
+}
+
+static void touchpad_sampler_step(void) {
+    if (ra_ctsu_scan_ready()) {
+        if (ra_ctsu_scan_collect() == 0) {
+            touchpad_last_sample_ms = mp_hal_ticks_ms();
+            touchpad_last_sample_valid = true;
+        }
+    }
+
+    if (!ra_ctsu_scan_in_progress()) {
+        (void)ra_ctsu_scan_start();
+    }
+}
+
+static void touchpad_sampler_node_run(mp_sched_node_t *node) {
+    (void)node;
+    touchpad_sampler_step();
+}
+
+static void touchpad_sampler_timer_callback(soft_timer_entry_t *self) {
+    (void)self;
+    mp_sched_schedule_node(&touchpad_sampler_node, touchpad_sampler_node_run);
+}
+
+static void touchpad_sampler_set_rate(uint32_t hz) {
+    touchpad_sample_rate_hz = hz;
+
+    if (!touchpad_sampler_timer_init) {
+        soft_timer_static_init(&touchpad_sampler_timer, SOFT_TIMER_MODE_PERIODIC, 1, touchpad_sampler_timer_callback);
+        touchpad_sampler_timer_init = true;
+    }
+
+    if (hz == 0) {
+        soft_timer_remove(&touchpad_sampler_timer);
+        return;
+    }
+
+    uint32_t interval_ms = touchpad_sampler_interval_ms(hz);
+    touchpad_sampler_timer.delta_ms = interval_ms;
+    soft_timer_reinsert(&touchpad_sampler_timer, 1);
+}
 
 // Функция за създаване на нов TouchPad обект (конструктор)
 static mp_obj_t ra_touchpad_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
@@ -170,6 +231,8 @@ static mp_obj_t ra_touchpad_read(mp_obj_t self_in) {
             MP_ERROR_TEXT("CTSU read error: %d (fsp=%d ev=0x%x)"), (int)count, fsp_err, ev);
     }
 
+    touchpad_last_sample_ms = mp_hal_ticks_ms();
+    touchpad_last_sample_valid = true;
     // Връщаме стойността като MicroPython integer
     return mp_obj_new_int(count);
 }
@@ -188,11 +251,119 @@ static mp_obj_t ra_touchpad_value(mp_obj_t self_in) {
             (int)count, fsp_err, ev);
     }
 
+    touchpad_last_sample_ms = mp_hal_ticks_ms();
+    touchpad_last_sample_valid = true;
     return mp_obj_new_int(count > self->threshold);
 }
  
 // Дефинираме функционален обект с 1 аргумент (self)
 static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_value_obj, ra_touchpad_value);
+
+// start() - trigger a non-blocking CTSU multi-scan if one is not already running.
+static mp_obj_t ra_touchpad_start(mp_obj_t self_in) {
+    (void)self_in;
+
+    if (ra_ctsu_scan_in_progress()) {
+        return mp_const_false;
+    }
+
+    int rc = ra_ctsu_scan_start();
+    if (rc < 0) {
+        int fsp_err = (int)ra_ctsu_last_fsp_err();
+        unsigned int ev = (unsigned int)ra_ctsu_last_event();
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU start error: %d (fsp=%d ev=0x%x)"),
+            rc, fsp_err, ev);
+    }
+
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_start_obj, ra_touchpad_start);
+
+// read_cached() - return the latest cached raw value without starting a new scan.
+static mp_obj_t ra_touchpad_read_cached(mp_obj_t self_in) {
+    machine_touchpad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    int32_t count = ra_ctsu_read_cached(self->channel);
+    if (count == RA_CTSU_ERR_NO_DATA) {
+        return mp_const_none;
+    }
+    if (count < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU cached read error: %d"), (int)count);
+    }
+
+    return mp_obj_new_int(count);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_read_cached_obj, ra_touchpad_read_cached);
+
+// value_cached() - return the touch decision for the latest cached raw value.
+static mp_obj_t ra_touchpad_value_cached(mp_obj_t self_in) {
+    machine_touchpad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    int32_t count = ra_ctsu_read_cached(self->channel);
+    if (count == RA_CTSU_ERR_NO_DATA) {
+        return mp_const_none;
+    }
+    if (count < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU cached value error: %d"), (int)count);
+    }
+
+    return mp_obj_new_int(count > self->threshold);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_value_cached_obj, ra_touchpad_value_cached);
+
+// ready() - return True once at least one cached sample is available.
+static mp_obj_t ra_touchpad_ready(mp_obj_t self_in) {
+    (void)self_in;
+    return mp_obj_new_bool(ra_ctsu_cached_ready());
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_ready_obj, ra_touchpad_ready);
+
+// age_ms() - return age of the latest cached sample, or None if not ready yet.
+static mp_obj_t ra_touchpad_age_ms(mp_obj_t self_in) {
+    (void)self_in;
+
+    if (!touchpad_last_sample_valid || !ra_ctsu_cached_ready()) {
+        return mp_const_none;
+    }
+
+    return mp_obj_new_int_from_uint(mp_hal_ticks_ms() - touchpad_last_sample_ms);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_age_ms_obj, ra_touchpad_age_ms);
+
+// service() - advance the cooperative sampler once from VM context.
+static mp_obj_t ra_touchpad_service(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    (void)args;
+    touchpad_sampler_step();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(ra_touchpad_service_obj, 1, 1, ra_touchpad_service);
+static MP_DEFINE_CONST_CLASSMETHOD_OBJ(ra_touchpad_service_classmethod_obj, MP_ROM_PTR(&ra_touchpad_service_obj));
+
+// sample_rate([hz]) - get/set the global cooperative sampler frequency.
+static mp_obj_t ra_touchpad_sample_rate(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+
+    if (n_args == 2) {
+        mp_int_t hz = mp_obj_get_int(args[1]);
+        if (hz < 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("sample rate must be >= 0"));
+        }
+        if (hz > 0) {
+            if (ra_ctsu_init() != 0) {
+                mp_raise_OSError(MP_EIO);
+            }
+        }
+        touchpad_sampler_set_rate((uint32_t)hz);
+    }
+
+    return mp_obj_new_int_from_uint(touchpad_sample_rate_hz);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(ra_touchpad_sample_rate_obj, 1, 2, ra_touchpad_sample_rate);
+static MP_DEFINE_CONST_CLASSMETHOD_OBJ(ra_touchpad_sample_rate_classmethod_obj, MP_ROM_PTR(&ra_touchpad_sample_rate_obj));
 
 // read_value() - return (count, value, last_error) from a *single* measurement.
 // This avoids doing two scans (read() + value()).
@@ -207,6 +378,8 @@ static mp_obj_t ra_touchpad_read_value(mp_obj_t self_in) {
             MP_ERROR_TEXT("CTSU read_value error: %d (fsp=%d ev=0x%x)"), (int)count, fsp_err, ev);
     }
 
+    touchpad_last_sample_ms = mp_hal_ticks_ms();
+    touchpad_last_sample_valid = true;
     // Note: ra_ctsu_last_fsp_err() returns the last recorded FSP code and resets it.
     int fsp_err = (int)ra_ctsu_last_fsp_err();
     mp_obj_t items[3] = {
@@ -329,14 +502,28 @@ static MP_DEFINE_CONST_FUN_OBJ_2(ra_touchpad_set_offset_obj, ra_touchpad_set_off
 
 // Таблица с локални методи на TouchPad класа
 static const mp_rom_map_elem_t ra_touchpad_locals_dict_table[] = {
+    // sample_rate([hz]) - get/set global cooperative sampling rate in full scans/sec
+    { MP_ROM_QSTR(MP_QSTR_sample_rate), MP_ROM_PTR(&ra_touchpad_sample_rate_classmethod_obj) },
+    // service() - advance the cooperative sampler once from VM context
+    { MP_ROM_QSTR(MP_QSTR_service), MP_ROM_PTR(&ra_touchpad_service_classmethod_obj) },
     // config(threshold) - задава праг за докосване
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&ra_touchpad_config_obj) },
+    // start() - стартира non-blocking CTSU scan
+    { MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&ra_touchpad_start_obj) },
+    // ready() - има ли налична кеширана проба
+    { MP_ROM_QSTR(MP_QSTR_ready), MP_ROM_PTR(&ra_touchpad_ready_obj) },
+    // age_ms() - възраст на последната кеширана проба
+    { MP_ROM_QSTR(MP_QSTR_age_ms), MP_ROM_PTR(&ra_touchpad_age_ms_obj) },
     // read() - чете необработена CTSU стойност
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&ra_touchpad_read_obj) },
+    // read_cached() - чете последната кеширана CTSU стойност без нов scan
+    { MP_ROM_QSTR(MP_QSTR_read_cached), MP_ROM_PTR(&ra_touchpad_read_cached_obj) },
     // read_value() - връща (count, value, last_error) от едно и също измерване
     { MP_ROM_QSTR(MP_QSTR_read_value), MP_ROM_PTR(&ra_touchpad_read_value_obj) },
     // value() - връща 0 или 1 (докоснат/не е докоснат)
     { MP_ROM_QSTR(MP_QSTR_value), MP_ROM_PTR(&ra_touchpad_value_obj) },
+    // value_cached() - връща 0 или 1 по последната кеширана проба
+    { MP_ROM_QSTR(MP_QSTR_value_cached), MP_ROM_PTR(&ra_touchpad_value_cached_obj) },
     // last_error() - връща последната FSP грешка
     { MP_ROM_QSTR(MP_QSTR_last_error), MP_ROM_PTR(&ra_touchpad_last_error_obj) },
     // diagnose([max_scans]) - стартира CTSU diagnosis scan loop и връща (data_get_err, diagnosis_err, last_event, scans)

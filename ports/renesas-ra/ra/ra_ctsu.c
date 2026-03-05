@@ -50,7 +50,7 @@
 #define RA_CTSU_SDPA_DEFAULT  (0x1FU)
 #endif
 
-/* Active TS channels (MUST be strictly ascending)
+/* CTSU-capable TS channels (MUST be strictly ascending)
  *
  * IMPORTANT:
  * - Only list TS channels that actually exist on the selected MCU AND are mapped
@@ -59,15 +59,17 @@
  *   can generate ICOMP/OVERFLOW events and offset tuning may never complete.
  */
 #if defined(BSP_MCU_GROUP_RA4M2)
-/* VK_RA4M2: keep minimal and only enable the channel we currently map.
- * TS01 -> P205 (see ts_to_pin[] below).
+/* VK_RA4M2 / R7FA4M2AC3CFP:
+ * The datasheet pin list for this 100-pin package exposes CTSU channels TS01..TS12.
+ * Keep all valid channels listed here, but enable them dynamically at runtime so
+ * one TouchPad instance does not reserve every CTSU-capable board pin.
  */
-static const uint8_t g_ts_channels[] = { 1 ,2 };
+static const uint8_t g_all_ts_channels[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
 #elif defined(BSP_MCU_GROUP_RA4W1)
 /* EK_RA4W1: choose up to CTSU_CFG_NUM_SELF_ELEMENTS valid channels.
  * TS00 -> P204, TS01 -> P206, TS03 -> P407, TS10 -> P109.
  */
-static const uint8_t g_ts_channels[] = { 0, 1, 3, 10 };
+static const uint8_t g_all_ts_channels[] = { 0, 1, 3, 10 };
 #else
 /* This file currently provides pin mappings only for RA4W1 and RA4M2.
  * Keep behavior consistent with the ts_to_pin[] mapping section below.
@@ -75,8 +77,8 @@ static const uint8_t g_ts_channels[] = { 0, 1, 3, 10 };
 #error "Unsupported MCU - Неподдържан микроконтролер"
 #endif
 
-// Изчисляваме броя на активните канали (размер на масива / размер на един елемент)
-#define CTSU_NUM_CHANNELS (sizeof(g_ts_channels) / sizeof(g_ts_channels[0]))
+// Изчисляваме броя на достъпните CTSU канали за текущата MCU/package комбинация.
+#define CTSU_ALL_CHANNEL_COUNT (sizeof(g_all_ts_channels) / sizeof(g_all_ts_channels[0]))
 
 /* ============================================================
  * PIN MAPPING - СЪОТВЕТСТВИЕ МЕЖДУ TS КАНАЛИ И GPIO ПИНОВЕ
@@ -140,46 +142,45 @@ static const bsp_io_port_pin_t ts_to_pin[36] = {
 // TSCAP пин за RA4M2 - P207
 #define TSCAP_PIN BSP_IO_PORT_02_PIN_07  /* P207 */
 
-// Таблица за съответствие: TS канал номер -> GPIO пин за RA4M2
-// RA4M2 поддържа 12 CTSU канала: TS01-TS12
-// Източник: RA4M2 Group Datasheet Rev.1.40, Table 1.17 Pin list
+// Таблица за съответствие за RA4M2 (R7FA4M2AC3CFP, LQFP100).
+// Datasheet Table 1.17 / CTSU chapter: this package exposes TS01..TS12 only.
 static const bsp_io_port_pin_t ts_to_pin[36] = {
-    [0]  = BSP_IO_PORT_PIN_INVALID, /* TS00 не съществува на RA4M2 */
-    [1]  = BSP_IO_PORT_02_PIN_05,  /* TS01 -> P205 */
-    [2]  = BSP_IO_PORT_02_PIN_06,  /* TS02 -> P206 */
-    [3]  = BSP_IO_PORT_PIN_INVALID,  /* TS03 -> P407 */
-    [4]  = BSP_IO_PORT_PIN_INVALID,  /* TS04 -> P408 */
-    [5]  = BSP_IO_PORT_PIN_INVALID,  /* TS05 -> P409 */
-    [6]  = BSP_IO_PORT_PIN_INVALID,  /* TS06 -> P410 */
-    [7]  = BSP_IO_PORT_PIN_INVALID,  /* TS07 -> P411 */
-    [8]  = BSP_IO_PORT_PIN_INVALID,  /* TS08 -> P412 */
-    [9]  = BSP_IO_PORT_PIN_INVALID,  /* TS09 -> P413 */
-    [10] = BSP_IO_PORT_PIN_INVALID,  /* TS10 -> P414 */
-    [11] = BSP_IO_PORT_PIN_INVALID,  /* TS11 -> P415 */
-    [12] = BSP_IO_PORT_PIN_INVALID,  /* TS12 -> P708 */
-    [13] = BSP_IO_PORT_PIN_INVALID, /* TS13 не съществува на RA4M2 */
-    [14] = BSP_IO_PORT_PIN_INVALID, /* TS14 не съществува на RA4M2 */
-    [15] = BSP_IO_PORT_PIN_INVALID, /* TS15 не съществува на RA4M2 */
-    [16] = BSP_IO_PORT_PIN_INVALID, /* TS16 не съществува на RA4M2 */
-    [17] = BSP_IO_PORT_PIN_INVALID, /* TS17 не съществува на RA4M2 */
-    [18] = BSP_IO_PORT_PIN_INVALID, /* TS18 не съществува на RA4M2 */
-    [19] = BSP_IO_PORT_PIN_INVALID, /* TS19 не съществува на RA4M2 */
-    [20] = BSP_IO_PORT_PIN_INVALID, /* TS20 не съществува на RA4M2 */
-    [21] = BSP_IO_PORT_PIN_INVALID, /* TS21 не съществува на RA4M2 */
-    [22] = BSP_IO_PORT_PIN_INVALID, /* TS22 не съществува на RA4M2 */
-    [23] = BSP_IO_PORT_PIN_INVALID, /* TS23 не съществува на RA4M2 */
-    [24] = BSP_IO_PORT_PIN_INVALID, /* TS24 не съществува на RA4M2 */
-    [25] = BSP_IO_PORT_PIN_INVALID, /* TS25 не съществува на RA4M2 */
-    [26] = BSP_IO_PORT_PIN_INVALID, /* TS26 не съществува на RA4M2 */
-    [27] = BSP_IO_PORT_PIN_INVALID, /* TS27 не съществува на RA4M2 */
-    [28] = BSP_IO_PORT_PIN_INVALID, /* TS28 не съществува на RA4M2 */
-    [29] = BSP_IO_PORT_PIN_INVALID, /* TS29 не съществува на RA4M2 */
-    [30] = BSP_IO_PORT_PIN_INVALID, /* TS30 не съществува на RA4M2 */
-    [31] = BSP_IO_PORT_PIN_INVALID, /* TS31 не съществува на RA4M2 */
-    [32] = BSP_IO_PORT_PIN_INVALID, /* TS32 не съществува на RA4M2 */
-    [33] = BSP_IO_PORT_PIN_INVALID, /* TS33 не съществува на RA4M2 */
-    [34] = BSP_IO_PORT_PIN_INVALID, /* TS34 не съществува на RA4M2 */
-    [35] = BSP_IO_PORT_PIN_INVALID, /* TS35 не съществува на RA4M2 */
+    [0]  = BSP_IO_PORT_PIN_INVALID, /* TS00 not present on this package */
+    [1]  = BSP_IO_PORT_02_PIN_05,   /* TS01 -> P205 */
+    [2]  = BSP_IO_PORT_02_PIN_06,   /* TS02 -> P206 */
+    [3]  = BSP_IO_PORT_04_PIN_07,   /* TS03 -> P407 */
+    [4]  = BSP_IO_PORT_04_PIN_08,   /* TS04 -> P408 */
+    [5]  = BSP_IO_PORT_04_PIN_09,   /* TS05 -> P409 */
+    [6]  = BSP_IO_PORT_04_PIN_10,   /* TS06 -> P410 */
+    [7]  = BSP_IO_PORT_04_PIN_11,   /* TS07 -> P411 */
+    [8]  = BSP_IO_PORT_04_PIN_12,   /* TS08 -> P412 */
+    [9]  = BSP_IO_PORT_04_PIN_13,   /* TS09 -> P413 */
+    [10] = BSP_IO_PORT_04_PIN_14,   /* TS10 -> P414 */
+    [11] = BSP_IO_PORT_04_PIN_15,   /* TS11 -> P415 */
+    [12] = BSP_IO_PORT_07_PIN_08,   /* TS12 -> P708 */
+    [13] = BSP_IO_PORT_PIN_INVALID,
+    [14] = BSP_IO_PORT_PIN_INVALID,
+    [15] = BSP_IO_PORT_PIN_INVALID,
+    [16] = BSP_IO_PORT_PIN_INVALID,
+    [17] = BSP_IO_PORT_PIN_INVALID,
+    [18] = BSP_IO_PORT_PIN_INVALID,
+    [19] = BSP_IO_PORT_PIN_INVALID,
+    [20] = BSP_IO_PORT_PIN_INVALID,
+    [21] = BSP_IO_PORT_PIN_INVALID,
+    [22] = BSP_IO_PORT_PIN_INVALID,
+    [23] = BSP_IO_PORT_PIN_INVALID,
+    [24] = BSP_IO_PORT_PIN_INVALID,
+    [25] = BSP_IO_PORT_PIN_INVALID,
+    [26] = BSP_IO_PORT_PIN_INVALID,
+    [27] = BSP_IO_PORT_PIN_INVALID,
+    [28] = BSP_IO_PORT_PIN_INVALID,
+    [29] = BSP_IO_PORT_PIN_INVALID,
+    [30] = BSP_IO_PORT_PIN_INVALID,
+    [31] = BSP_IO_PORT_PIN_INVALID,
+    [32] = BSP_IO_PORT_PIN_INVALID,
+    [33] = BSP_IO_PORT_PIN_INVALID,
+    [34] = BSP_IO_PORT_PIN_INVALID,
+    [35] = BSP_IO_PORT_PIN_INVALID,
 };
 
 // Ако не е нито RA4W1, нито RA4M2 - грешка при компилация
@@ -200,7 +201,7 @@ static ctsu_instance_ctrl_t g_ctsu_ctrl;
 // Конфигурация на CTSU (параметри за работа)
 static ctsu_cfg_t          g_ctsu_cfg;
 // Масив с конфигурация на всеки активен канал (ssdiv, so, snum, sdpa)
-static ctsu_element_cfg_t  g_elements[CTSU_NUM_CHANNELS];
+static ctsu_element_cfg_t  g_elements[RA_CTSU_MAX_CHANNELS];
 
 // Флаг: сканирането е завършено (променя се от callback функцията)
 static volatile bool        g_scan_done;
@@ -213,6 +214,15 @@ static volatile fsp_err_t g_last_fsp_err = FSP_SUCCESS;
 
 // Флаг: драйверът е инициализиран и готов за работа
 static bool g_ready = false;
+// Runtime-active CTSU channels. Channels are added on demand and kept sorted.
+static uint8_t  g_active_ts_channels[RA_CTSU_MAX_CHANNELS];
+static uint16_t g_active_thresholds[RA_CTSU_MAX_CHANNELS];
+static uint32_t g_num_active_channels = 0;
+
+// Async scan/cache state used by the cooperative TouchPad API.
+static volatile bool g_scan_in_progress = false;
+static bool          g_cache_valid = false;
+static uint16_t      g_last_data[RA_CTSU_MAX_CHANNELS];
 
 // Контекст за CTSU callback (подава се през ctsu_cfg_t.p_context)
 // Цел: да НЕ разчитаме на глобални променливи вътре в callback-а, ако има подаден контекст.
@@ -267,14 +277,50 @@ static void ctsu_validate_config(void)
     /* TS channels must be strictly ascending */
     /* TS каналите ТРЯБВА да са в строго възходящ ред (0, 1, 3 е OK; 1, 0, 3 е грешка) */
     // Обхождаме всички канали (започваме от втория)
-    for (uint32_t i = 1; i < CTSU_NUM_CHANNELS; i++) {
+    for (uint32_t i = 1; i < CTSU_ALL_CHANNEL_COUNT; i++) {
         // Проверяваме дали текущият канал е по-малък или равен на предишния
-        if (g_ts_channels[i] <= g_ts_channels[i - 1]) {
+        if (g_all_ts_channels[i] <= g_all_ts_channels[i - 1]) {
             /* configuration error – stop hard */
             /* Грешка в конфигурацията - спираме програмата завинаги */
             while (1);  // Безкраен цикъл (система се блокира)
         }
     }
+}
+
+static void ctsu_init_element_defaults(ctsu_element_cfg_t *element) {
+    element->ssdiv = CTSU_SSDIV_4000;
+    element->so = 0x100;
+    element->snum = 7;
+    element->sdpa = RA_CTSU_SDPA_DEFAULT;
+}
+
+static bool ctsu_channel_is_supported(uint8_t ts_channel) {
+    for (uint32_t i = 0; i < CTSU_ALL_CHANNEL_COUNT; i++) {
+        if (g_all_ts_channels[i] == ts_channel) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int ctsu_wait_for_idle(void) {
+    if (!g_scan_in_progress) {
+        return 0;
+    }
+
+    uint32_t timeout = 500;
+    while (!g_scan_done && timeout--) {
+        R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+    }
+
+    if (!g_scan_done) {
+        g_scan_in_progress = false;
+        g_last_fsp_err = FSP_ERR_TIMEOUT;
+        return RA_CTSU_ERR_BUSY;
+    }
+
+    g_scan_in_progress = false;
+    return 0;
 }
 
 /* ============================================================
@@ -310,9 +356,9 @@ static void ctsu_prepare_pins(void)
     /* Configure TS pins */
     /* Конфигурираме всички активни TS пинове */
     // Обхождаме всички активни канали
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
         // Вземаме GPIO пина за текущия TS канал от таблицата
-        bsp_io_port_pin_t pin = ts_to_pin[g_ts_channels[i]];
+        bsp_io_port_pin_t pin = ts_to_pin[g_active_ts_channels[i]];
 
         // Проверяваме дали пинът е валиден (не е 0xFFFF)
         if (pin == BSP_IO_PORT_PIN_INVALID) {
@@ -331,121 +377,176 @@ static void ctsu_prepare_pins(void)
  * INIT - ИНИЦИАЛИЗАЦИЯ НА CTSU ДРАЙВЕРА
  * ============================================================ */
 
-// Опростена инициализация на CTSU (извиква се веднъж при старт)
-int ra_ctsu_init_simple(void)
-{
-    // Проверяваме дали вече сме инициализирани
-    if (g_ready) {
-        return 0;  // Вече сме готови, връщаме успех
+static int ctsu_open_current_config(void) {
+    if (g_num_active_channels == 0) {
+        return 0;
     }
 
-    // Проверяваме конфигурацията (TS каналите трябва да са в ред)
     ctsu_validate_config();
-    // Подготвяме GPIO пиновете (TSCAP и TS пинове)
     ctsu_prepare_pins();
-
-    // Запълваме конфигурацията с нули (изчистваме паметта)
     memset(&g_ctsu_cfg, 0, sizeof(g_ctsu_cfg));
-    // Запълваме масива с елементи с нули
-    memset(g_elements, 0, sizeof(g_elements));
 
-    /* Element configuration (safe defaults for FSP 4.4) */
-    /* Конфигурация на елементите (безопасни стойности за FSP 4.4) */
-    // Обхождаме всички активни канали
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
-        g_elements[i].ssdiv = CTSU_SSDIV_4000;  // Делител на сензорната честота (4.00 MHz)
-        g_elements[i].so    = 0x100;            // Offset стойност (256)
-        g_elements[i].snum  = 7;                // Брой измервания (7+1=8)
-        g_elements[i].sdpa  = RA_CTSU_SDPA_DEFAULT; // SDPA (делител на драйв импулса), per-TS
-    }
-
-    /* Channel mask */
-    /* Маска на каналите (битова карта кои канали са активни) */
-    // Масив от 5 байта (40 бита) за 36 канала (TS00-TS35)
     uint8_t chac[5] = {0};
-    // Обхождаме всички активни канали
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
-        uint8_t ts = g_ts_channels[i];  // Вземаме номера на TS канала (0, 1, 3...)
-        // Изчисляваме в кой байт е битът (ts >> 3 = ts / 8)
-        // Изчисляваме коя позиция в байта (ts & 0x7 = ts % 8)
-        // Задаваме съответния бит на 1
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        uint8_t ts = g_active_ts_channels[i];
         chac[ts >> 3] |= (uint8_t)(1U << (ts & 0x7));
     }
 
-    /* CTSU configuration (CTSU1 за RA4W1) */
-    /* CTSU конфигурация (CTSU версия 1 за RA4W1) */
-    g_ctsu_cfg.cap      = CTSU_CAP_SOFTWARE;       // Софтуерно стартиране на сканиране
-    g_ctsu_cfg.md       = CTSU_MODE_SELF_MULTI_SCAN; // Само-капацитивен мулти-скан режим
-    g_ctsu_cfg.txvsel   = CTSU_TXVSEL_VCC;         // Захранване от VCC
-    g_ctsu_cfg.atune1   = CTSU_ATUNE1_NORMAL;      // Нормален изходен ток (40uA)
-    // Забележка: posel, atune12, tclk са само за CTSU2 - RA4W1 използва CTSU1
-
-    // Копираме масивите chac в конфигурацията (битова карта на активните канали)
-    g_ctsu_cfg.ctsuchac0 = chac[0];  // Канали TS00-TS07 (бит 0 = TS00, бит 1 = TS01...)
-    g_ctsu_cfg.ctsuchac1 = chac[1];  // Канали TS08-TS15
-    g_ctsu_cfg.ctsuchac2 = chac[2];  // Канали TS16-TS23
-    g_ctsu_cfg.ctsuchac3 = chac[3];  // Канали TS24-TS31
-    g_ctsu_cfg.ctsuchac4 = chac[4];  // Канали TS32-TS35 (само 4 бита се използват)
-
-    // Указател към масива с конфигурация на елементите
+    g_ctsu_cfg.cap = CTSU_CAP_SOFTWARE;
+    g_ctsu_cfg.md = CTSU_MODE_SELF_MULTI_SCAN;
+    g_ctsu_cfg.txvsel = CTSU_TXVSEL_VCC;
+    g_ctsu_cfg.atune1 = CTSU_ATUNE1_NORMAL;
+    g_ctsu_cfg.ctsuchac0 = chac[0];
+    g_ctsu_cfg.ctsuchac1 = chac[1];
+    g_ctsu_cfg.ctsuchac2 = chac[2];
+    g_ctsu_cfg.ctsuchac3 = chac[3];
+    g_ctsu_cfg.ctsuchac4 = chac[4];
     g_ctsu_cfg.p_elements = g_elements;
-    // Брой приемащи канали (за self-capacitance = брой активни канали)
-    g_ctsu_cfg.num_rx     = CTSU_NUM_CHANNELS;
-    // Брой предаващи канали (за self-capacitance = 0, за mutual = >0)
-    g_ctsu_cfg.num_tx     = 0;
-
-    // IMPORTANT: num_moving_average MUST be > 0.
-    // FSP R_CTSU_DataGet() returns FSP_ERR_CTSU_INCOMPLETE_TUNING while
-    // p_instance_ctrl->average == 0; average is incremented up to num_moving_average
-    // only when tuning is complete. If num_moving_average is left at 0 (memset default),
-    // average can never become > 0 and DataGet() will keep returning 6002 forever.
+    g_ctsu_cfg.num_rx = g_num_active_channels;
+    g_ctsu_cfg.num_tx = 0;
     g_ctsu_cfg.num_moving_average = 1;
-
-    // Номера на прекъсванията (от vector_data.h)
-    g_ctsu_cfg.write_irq = VECTOR_NUMBER_CTSU_WRITE;  // Прекъсване за запис (CTSUWR)
-    g_ctsu_cfg.read_irq  = VECTOR_NUMBER_CTSU_READ;   // Прекъсване за четене (CTSURD)
-    g_ctsu_cfg.end_irq   = VECTOR_NUMBER_CTSU_END;    // Прекъсване за край (CTSUFN)
-
-    // Указател към callback функцията (извиква се при завършване на сканиране)
+    g_ctsu_cfg.write_irq = VECTOR_NUMBER_CTSU_WRITE;
+    g_ctsu_cfg.read_irq = VECTOR_NUMBER_CTSU_READ;
+    g_ctsu_cfg.end_irq = VECTOR_NUMBER_CTSU_END;
     g_ctsu_cfg.p_callback = ctsu_callback;
-    // Контекст за callback (ползва се за да запишем event + scan_done без да разчитаме на глобални променливи)
-    g_ctsu_cfg.p_context  = &g_ctsu_cb_context;
+    g_ctsu_cfg.p_context = &g_ctsu_cb_context;
 
-    // Отваряме CTSU драйвера с конфигурацията
     if (R_CTSU_Open(&g_ctsu_ctrl, &g_ctsu_cfg) != FSP_SUCCESS) {
-        return -1;  // Грешка при отваряне
+        return -1;
     }
 
-    // Изчакваме 1 милисекунда за стабилизиране на хардуера
     R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
 
-    // Маркираме, че драйверът е готов за работа
     g_last_fsp_err = FSP_SUCCESS;
+    g_scan_in_progress = false;
+    g_cache_valid = false;
+    memset(g_last_data, 0, sizeof(g_last_data));
     g_ready = true;
 
-    // Initial offset tuning (recommended after R_CTSU_Open()).
-    // Non-fatal: we try a bounded number of scans and store the last FSP code.
-    // User can re-run offset tuning later if needed.
     ra_ctsu_offset_result_t ot_res;
-    (void) ra_ctsu_offset_tune(32, &ot_res);
-    return 0;  // Успех
+    (void)ra_ctsu_offset_tune(32, &ot_res);
+    return 0;
+}
+
+static int ctsu_reconfigure_current_config(void) {
+    int rc = ctsu_wait_for_idle();
+    if (rc < 0) {
+        return rc;
+    }
+
+    if (g_ready) {
+        (void)R_CTSU_Close(&g_ctsu_ctrl);
+        g_ready = false;
+    }
+
+    return ctsu_open_current_config();
+}
+
+// Опростена инициализация на CTSU (извиква се веднъж при старт)
+int ra_ctsu_init_simple(void)
+{
+    if (g_ready || g_num_active_channels == 0) {
+        return 0;
+    }
+
+    return ctsu_open_current_config();
 }
 
 /* ============================================================
  * READ - ЧЕТЕНЕ НА КАПАЦИТИВНА СТОЙНОСТ
  * ============================================================ */
 
+static int8_t ra_ctsu_channel_to_index(uint8_t ts_channel) {
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        if (g_active_ts_channels[i] == ts_channel) {
+            return (int8_t)i;
+        }
+    }
+    return -1;
+}
+
+int ra_ctsu_scan_start(void) {
+    if (!g_ready) {
+        return RA_CTSU_ERR_NOT_INITIALIZED;
+    }
+    if (g_scan_in_progress) {
+        return RA_CTSU_ERR_BUSY;
+    }
+
+    g_last_fsp_err = FSP_SUCCESS;
+    g_scan_done = false;
+    g_last_event = (ctsu_event_t)0xFF;
+
+    fsp_err_t err = R_CTSU_ScanStart(&g_ctsu_ctrl);
+    if (err != FSP_SUCCESS) {
+        g_last_fsp_err = err;
+        return RA_CTSU_ERR_SCAN_FAILED;
+    }
+
+    g_scan_in_progress = true;
+    return 0;
+}
+
+bool ra_ctsu_scan_in_progress(void) {
+    return g_scan_in_progress;
+}
+
+bool ra_ctsu_scan_ready(void) {
+    return g_scan_in_progress && g_scan_done;
+}
+
+int ra_ctsu_scan_collect(void) {
+    if (!g_ready) {
+        return RA_CTSU_ERR_NOT_INITIALIZED;
+    }
+    if (!g_scan_in_progress || !g_scan_done) {
+        return RA_CTSU_ERR_BUSY;
+    }
+
+    g_last_fsp_err = FSP_SUCCESS;
+    fsp_err_t err = R_CTSU_DataGet(&g_ctsu_ctrl, g_last_data);
+    g_scan_in_progress = false;
+
+    if (err != FSP_SUCCESS) {
+        g_last_fsp_err = err;
+        return RA_CTSU_ERR_SCAN_FAILED;
+    }
+
+    g_cache_valid = true;
+    return 0;
+}
+
+bool ra_ctsu_cached_ready(void) {
+    return g_cache_valid;
+}
+
+int32_t ra_ctsu_read_cached(uint8_t ts_channel) {
+    if (!g_ready) {
+        return RA_CTSU_ERR_NOT_INITIALIZED;
+    }
+    if (!g_cache_valid) {
+        return RA_CTSU_ERR_NO_DATA;
+    }
+
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index < 0) {
+        return RA_CTSU_ERR_NOT_CONFIGURED;
+    }
+
+    return (int32_t)g_last_data[(uint8_t)index];
+}
+
 // Опростено четене на капацитивна стойност по индекс (0, 1, 2...)
 // index е позицията в масива g_ts_channels (НЕ номерът на TS канала!)
 int32_t ra_ctsu_read_simple(uint8_t index)
 {
     // Проверяваме дали драйверът е инициализиран и индексът е валиден
-    if (!g_ready || index >= CTSU_NUM_CHANNELS) {
+    if (!g_ready || index >= g_num_active_channels) {
         return -1;  // Грешка: не е инициализиран или невалиден индекс
     }
 
     // Масив за съхранение на данните от всички канали
-    uint16_t data[CTSU_NUM_CHANNELS];
+    uint16_t data[RA_CTSU_MAX_CHANNELS];
 
     // Нулираме последната FSP грешка за този read опит
     g_last_fsp_err = FSP_SUCCESS;
@@ -461,16 +562,11 @@ int32_t ra_ctsu_read_simple(uint8_t index)
     bool did_offset_tune = false;
 
     for (uint32_t attempt = 0; attempt < tuning_max_scans; attempt++) {
-        // Нулираме флага за завършено сканиране
-        g_scan_done  = false;
-        // Задаваме невалидно събитие (0xFF)
-        g_last_event = (ctsu_event_t)0xFF;
-
-        // Стартираме CTSU сканиране
-        fsp_err_t err = R_CTSU_ScanStart(&g_ctsu_ctrl);
-        if (err != FSP_SUCCESS) {
-            g_last_fsp_err = err;
-            return -2;  // Грешка при стартиране на сканиране
+        if (!g_scan_in_progress) {
+            int rc = ra_ctsu_scan_start();
+            if (rc < 0) {
+                return -2;  // Грешка при стартиране на сканиране
+            }
         }
 
         /* 50 ms hard timeout */
@@ -485,14 +581,18 @@ int32_t ra_ctsu_read_simple(uint8_t index)
 
         // Ако callback не се е случил - таймаут
         if (!g_scan_done) {
+            g_scan_in_progress = false;
             return -3;
         }
 
         // Винаги опитваме DataGet (event/state са диагностични; DataGet връща точния FSP код)
-        err = R_CTSU_DataGet(&g_ctsu_ctrl, data);
+        fsp_err_t err = R_CTSU_DataGet(&g_ctsu_ctrl, data);
+        g_scan_in_progress = false;
         if (err == FSP_SUCCESS) {
             // Успех: излизаме от tuning retry цикъла
             g_last_fsp_err = FSP_SUCCESS;
+            memcpy(g_last_data, data, sizeof(uint16_t) * g_num_active_channels);
+            g_cache_valid = true;
             break;
         }
 
@@ -554,35 +654,76 @@ int ra_ctsu_init(void) {
 // Заглушка за deinit - деинициализация на CTSU
 // В опростената версия не се имплементира (не затваряме CTSU)
 void ra_ctsu_deinit(void) {
-    // Не се имплементира в опростената версия
-    // В пълната версия би извикала R_CTSU_Close(&g_ctsu_ctrl)
+    if (g_ready) {
+        (void)R_CTSU_Close(&g_ctsu_ctrl);
+    }
+    g_ready = false;
+    g_scan_in_progress = false;
+    g_cache_valid = false;
 }
 
 // Заглушка за channel_config - конфигуриране на канал с праг
 // ts_channel: номер на TS канала (0-35)
 // threshold: праг за докосване (не се използва в опростената версия)
 int ra_ctsu_channel_config(uint8_t ts_channel, uint16_t threshold) {
-    // Опростената версия не поддържа динамична конфигурация
-    // Каналите се конфигурират статично в g_ts_channels масива
-    // Просто проверяваме дали каналът е в списъка
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
-        if (g_ts_channels[i] == ts_channel) {
-            return 0;  // Успех - каналът е конфигуриран
-        }
+    bool was_ready = g_ready;
+
+    if (ts_channel >= RA_CTSU_TS_CHANNEL_COUNT) {
+        return RA_CTSU_ERR_TS_OUT_OF_RANGE;
     }
-    return -1;  // Грешка - каналът не е конфигуриран
+    if (ts_to_pin[ts_channel] == BSP_IO_PORT_PIN_INVALID || !ctsu_channel_is_supported(ts_channel)) {
+        return RA_CTSU_ERR_TS_NOT_MAPPED;
+    }
+    int8_t existing_index = ra_ctsu_channel_to_index(ts_channel);
+    if (existing_index >= 0) {
+        g_active_thresholds[(uint8_t)existing_index] = threshold;
+        return 0;
+    }
+    if (g_num_active_channels >= RA_CTSU_MAX_CHANNELS) {
+        return RA_CTSU_ERR_TOO_MANY_CHANNELS;
+    }
+
+    uint32_t insert_at = g_num_active_channels;
+    while (insert_at > 0 && g_active_ts_channels[insert_at - 1] > ts_channel) {
+        g_active_ts_channels[insert_at] = g_active_ts_channels[insert_at - 1];
+        g_active_thresholds[insert_at] = g_active_thresholds[insert_at - 1];
+        g_elements[insert_at] = g_elements[insert_at - 1];
+        g_last_data[insert_at] = g_last_data[insert_at - 1];
+        insert_at--;
+    }
+
+    g_active_ts_channels[insert_at] = ts_channel;
+    g_active_thresholds[insert_at] = threshold;
+    ctsu_init_element_defaults(&g_elements[insert_at]);
+    g_last_data[insert_at] = 0;
+    g_num_active_channels++;
+    g_cache_valid = false;
+
+    int rc = was_ready ? ctsu_reconfigure_current_config() : ra_ctsu_init_simple();
+    if (rc < 0) {
+        g_num_active_channels--;
+        while (insert_at < g_num_active_channels) {
+            g_active_ts_channels[insert_at] = g_active_ts_channels[insert_at + 1];
+            g_active_thresholds[insert_at] = g_active_thresholds[insert_at + 1];
+            g_elements[insert_at] = g_elements[insert_at + 1];
+            g_last_data[insert_at] = g_last_data[insert_at + 1];
+            insert_at++;
+        }
+        if (was_ready) {
+            (void)ctsu_open_current_config();
+        }
+        return rc;
+    }
+    return 0;
 }
 
 // Wrapper за ra_ctsu_read_simple - четене на капацитивна стойност
 // ts_channel: номер на TS канала (0, 1, 3... от g_ts_channels)
 // Връща: капацитивна стойност (0-65535) или отрицателно число при грешка
 int32_t ra_ctsu_read(uint8_t ts_channel) {
-    // Намираме индекса на канала в масива g_ts_channels
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
-        if (g_ts_channels[i] == ts_channel) {
-            // Намерихме канала - извикваме ra_ctsu_read_simple с индекса
-            return ra_ctsu_read_simple((uint8_t)i);
-        }
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index >= 0) {
+        return ra_ctsu_read_simple((uint8_t)index);
     }
     return -1;  // Грешка - каналът не е намерен
 }
@@ -591,19 +732,23 @@ int32_t ra_ctsu_read(uint8_t ts_channel) {
 // ts_channel: номер на TS канала
 // Връща: 1 ако е докоснат, 0 ако не е, отрицателно при грешка
 int ra_ctsu_is_touched(uint8_t ts_channel) {
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index < 0) {
+        return RA_CTSU_ERR_NOT_CONFIGURED;
+    }
+
     // Четем капацитивната стойност
-    int32_t value = ra_ctsu_read(ts_channel);
+    int32_t value = ra_ctsu_read_simple((uint8_t)index);
     if (value < 0) {
         return (int)value;  // Грешка - връщаме грешката
     }
-    // Опростена проверка: ако стойността е над 1000, считаме за докосване
-    // В пълната версия би се сравнявала с конфигурирания праг
-    return (value > 1000) ? 1 : 0;
+
+    return (value > g_active_thresholds[(uint8_t)index]) ? 1 : 0;
 }
 
 // Брой канали - връща броя на активните CTSU канали
 uint8_t ra_ctsu_get_channel_count(void) {
-    return (uint8_t)CTSU_NUM_CHANNELS;  // Брой елементи в g_ts_channels
+    return (uint8_t)g_num_active_channels;
 }
 
 // Read back the currently active per-channel SO offsets from the FSP control block.
@@ -618,7 +763,7 @@ int ra_ctsu_get_offsets(uint8_t * ts_channels, uint16_t * so_values, uint32_t ma
         return RA_CTSU_ERR_NOT_INITIALIZED;
     }
 
-    if (CTSU_NUM_CHANNELS > max_entries) {
+    if (g_num_active_channels > max_entries) {
         return RA_CTSU_ERR_TOO_MANY_CHANNELS;
     }
 
@@ -629,9 +774,9 @@ int ra_ctsu_get_offsets(uint8_t * ts_channels, uint16_t * so_values, uint32_t ma
     // SO is in the low 10 bits (CTSUSO[9:0]) for both CTSU v1 (CTSUSO0) and CTSU v2 (CTSUSO).
     const uint16_t so_mask = 0x03FFu;
 
-    *out_count = (uint32_t)CTSU_NUM_CHANNELS;
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
-        ts_channels[i] = g_ts_channels[i];
+    *out_count = g_num_active_channels;
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        ts_channels[i] = g_active_ts_channels[i];
 
 #if (BSP_FEATURE_CTSU_VERSION == 2)
         // For multi-frequency scans, p_ctsuwr is laid out per element * CTSU_CFG_NUM_SUMULTI.
@@ -673,8 +818,8 @@ int ra_ctsu_set_offset(uint8_t ts_channel, uint16_t so_value)
     // Find configured element index for this TS channel.
     uint32_t elem_index = 0;
     bool found = false;
-    for (uint32_t i = 0; i < CTSU_NUM_CHANNELS; i++) {
-        if (g_ts_channels[i] == ts_channel) {
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        if (g_active_ts_channels[i] == ts_channel) {
             elem_index = i;
             found = true;
             break;
@@ -741,7 +886,7 @@ int ra_ctsu_offset_tune(uint32_t max_scans, ra_ctsu_offset_result_t * p_result)
     // Buffer used only to "consume"/clear scan data when needed.
     // This prevents a follow-up R_CTSU_ScanStart() from failing with
     // FSP_ERR_CTSU_NOT_GET_DATA (6001) after an aborted scan.
-    uint16_t data[CTSU_NUM_CHANNELS];
+    uint16_t data[RA_CTSU_MAX_CHANNELS];
 
     for (uint32_t attempt = 0; attempt < max_scans; attempt++) {
         p_result->scans = attempt + 1;
