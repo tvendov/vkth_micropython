@@ -233,7 +233,9 @@ enum ADC14_PIN
     ADC_NON = 255,
 };
 
-#if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
+#if defined(RA4M2)
+#define RA_ADC_DEF_RESOLUTION 12
+#elif defined(RA4M1) | defined(RA4W1)
 #define RA_ADC_DEF_RESOLUTION 14
 #else
 #define RA_ADC_DEF_RESOLUTION 12
@@ -247,7 +249,7 @@ uint8_t ra_adc_get_channel(uint32_t pin);
 void ra_adc_set_pin(uint32_t pin, bool adc_enable);
 void ra_adc_enable(uint32_t pin);
 void ra_adc_disable(uint32_t pin);
-void ra_adc_set_resolution_set(uint8_t res);
+void ra_adc_set_resolution(uint8_t res);
 uint8_t ra_adc_get_resolution(void);
 uint16_t ra_adc_read_ch(uint8_t ch);
 uint16_t ra_adc_read(uint32_t pin);

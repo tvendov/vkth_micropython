@@ -1,32 +1,43 @@
-from machine import Pin, PWM
-import time
+# Пример: PWM A и PWM B на един и същ GPT канал на VK_RA4M2.
+# Ресурси на VK_RA4M2: ADC външни входове = 13 броя -> P000, P001, P002, P003, P004, P005, P006, P007, P008, P013, P014, P015, P500.
+# Ресурси на VK_RA4M2: ADC вътрешни източници = 3 броя -> ADC.CORE_TEMP, ADC.CORE_VREF, ADC.VREF.
+# Ресурси на VK_RA4M2: DAC изходи = 2 броя -> P014, P015.
+# Ресурси на VK_RA4M2: PWM изходи = 14 броя -> P107, P106, P105, P104, P113, P114, P112, P115, P608, P409, P408, P600, P304, P303.
+# Ресурси на VK_RA4M2: UART инстанции = 4 броя -> UART(0), UART(2), UART(7), UART(9).
+# Ресурси на VK_RA4M2: I2C master = 2 броя -> I2C(0)=P400/P401 и I2C(1)=P100/P101.
+# Ресурси на VK_RA4M2: I2CTarget = 2 броя -> I2CTarget(0)=P400/P401 и I2CTarget(1)=P100/P101.
+# Ресурси на VK_RA4M2: SPI канали = 1 брой -> SPI=P103/P102/P100/P101.
+# Ресурси на VK_RA4M2: TouchPad входове = 12 броя -> P205, P206, P407, P408, P409, P410, P411, P412, P413, P414, P415, P708.
+# Ресурси на VK_RA4M2: LED = 1 брой -> LED1=P204, бутон = 1 брой -> SW1=P400.
+# Ресурси на VK_RA4M2: Хардуерни Timer = 2 броя -> Timer(1), Timer(2), софтуерен Timer = Timer(-1), RTC = 1 брой, Data Flash = 8 KB, /flash = около 94 KB.
 
-# GPT0 A/B on VK_RA4M2
-pwm_a = PWM(Pin("P107"), freq=1000, duty=25)
-pwm_b = PWM(Pin("P106"), freq=1000, duty=75)
+from machine import Pin, PWM  # Импортираме Pin и PWM, за да създадем два PWM изхода върху един GPT канал.
+import time  # Импортираме time, за да правим лесни блокиращи паузи между стъпките.
 
-print("STEP1: A=25%, B=75% @ 1kHz (same GPT channel)")
-time.sleep(2)
+PWM_A_PIN = "P107"  # Това е GPT0A и ще бъде първият PWM изход в примера.
+PWM_B_PIN = "P106"  # Това е GPT0B и ще бъде вторият PWM изход в същия GPT канал.
 
-# Stop only B. A must keep running.
-pwm_b.duty(0)
-print("STEP2: B stopped, A must still run")
-time.sleep(2)
+pwm_a = PWM(Pin(PWM_A_PIN), freq=1000, duty=25)  # Създаваме PWM върху изход A с честота 1 kHz и duty 25 процента.
+pwm_b = PWM(Pin(PWM_B_PIN), freq=1000, duty=75)  # Създаваме PWM върху изход B със същата честота, но с duty 75 процента.
 
-# Restart B without touching A.
-pwm_b.duty(40)
-print("STEP3: B restarted at 40%, A must stay active")
-time.sleep(2)
+print("STEP1: GPT0A=25%, GPT0B=75% при 1 kHz.")  # Обясняваме началното състояние на двата изхода.
+time.sleep(2)  # Оставяме време за наблюдение на началната конфигурация.
 
-# Change channel frequency from A side. B must stay active and follow same freq.
-pwm_a.freq(2000)
-print("STEP4: both outputs now 2kHz")
-time.sleep(2)
+pwm_b.duty(0)  # Задаваме duty 0 на канал B, за да спрем този изход.
+print("STEP2: GPT0B е спрян, а GPT0A трябва да продължи да работи.")  # Обясняваме очакваното поведение.
+time.sleep(2)  # Даваме време да се види, че A остава активен.
 
-# Deinit A only. B must keep running.
-pwm_a.deinit()
-print("STEP5: A deinit, B must still run")
+pwm_b.duty(40)  # Стартираме отново канал B, този път с duty 40 процента.
+print("STEP3: GPT0B е пуснат отново с 40% duty.")  # Показваме третата стъпка.
+time.sleep(2)  # Изчакваме, за да може ефектът да се наблюдава.
 
-while True:
-    time.sleep(1)
-    print("alive")
+pwm_a.freq(2000)  # Променяме честотата от страна на изход A, което ще промени и канала B, защото са върху един GPT канал.
+print("STEP4: И двата изхода вече са на 2 kHz, защото споделят един таймер.")  # Изрично описваме споделената честота.
+time.sleep(2)  # Даваме време за наблюдение на новата честота.
+
+pwm_a.deinit()  # Освобождаваме изход A, за да проверим дали B остава активен.
+print("STEP5: GPT0A е деинициализиран, а GPT0B трябва да остане активен.")  # Обясняваме последната демонстрационна стъпка.
+
+while True:  # Оставаме в безкраен цикъл, за да не приключи примерът веднага.
+    time.sleep(1)  # Изчакваме по една секунда между съобщенията.
+    print("Примерът е активен и PWM B трябва още да работи.")  # Периодично показваме, че програмата още работи.

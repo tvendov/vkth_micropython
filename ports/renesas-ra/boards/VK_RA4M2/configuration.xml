@@ -313,7 +313,7 @@
     <module id="module.driver.adc_on_adc.1788240324">
       <property id="module.driver.adc.name" value="g_adc0"/>
       <property id="module.driver.adc.unit" value="0"/>
-      <property id="module.driver.adc.resolution" value="module.driver.adc.resolution.resolution_14_bit"/>
+      <property id="module.driver.adc.resolution" value="module.driver.adc.resolution.resolution_12_bit"/>
       <property id="module.driver.adc.alignment" value="module.driver.adc.alignment.alignment_right"/>
       <property id="module.driver.adc.clearing" value="module.driver.adc.clearing.clear_after_read_on"/>
       <property id="module.driver.adc.mode" value="module.driver.adc.mode.mode_single_scan"/>

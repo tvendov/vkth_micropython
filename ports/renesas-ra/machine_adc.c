@@ -40,6 +40,22 @@ typedef struct {
     uint8_t dummy;
 } ADC_TypeDef;
 
+static void machine_adc_validate_bits(mp_int_t bits) {
+    #if defined(RA4M2)
+    if (bits != 8 && bits != 10 && bits != 12) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bits must be 8, 10 or 12"));
+    }
+    #elif defined(RA4M1) || defined(RA4W1)
+    if (bits != 12 && bits != 14) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bits must be 12 or 14"));
+    }
+    #else
+    if (bits != 8 && bits != 10 && bits != 12) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bits must be 8, 10 or 12"));
+    }
+    #endif
+}
+
 // Timeout for waiting for end-of-conversion
 #define ADC_EOC_TIMEOUT_MS (10)
 
@@ -76,12 +92,23 @@ static void mp_machine_adc_print(const mp_print_t *print, mp_obj_t self_in, mp_p
     mp_printf(print, "<ADC%u channel=%u>", resolution, self->channel);
 }
 
-// ADC(id)
+// ADC(source, *, bits=...)
 static mp_obj_t mp_machine_adc_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
-    // Check number of arguments
-    mp_arg_check_num(n_args, n_kw, 1, 1, false);
+    enum { ARG_source, ARG_bits };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_id, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_bits, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+    };
 
-    mp_obj_t source = all_args[0];
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    mp_obj_t source = args[ARG_source].u_obj;
+    mp_int_t bits = args[ARG_bits].u_int;
+    if (bits != -1) {
+        machine_adc_validate_bits(bits);
+    }
+
     bool find = false;
     uint8_t channel;
     uint32_t pin;
@@ -100,7 +127,13 @@ static mp_obj_t mp_machine_adc_make_new(const mp_obj_type_t *type, size_t n_args
         }
         pin = pin_obj->pin;
     }
+
     ra_adc_init();
+    if (bits != -1) {
+        // ADC resolution is global to the peripheral in this port.
+        ra_adc_set_resolution((uint8_t)bits);
+    }
+
     machine_adc_obj_t *o = mp_obj_malloc(machine_adc_obj_t, &machine_adc_type);
     o->adc = (ADC_TypeDef *)NULL;
     o->channel = channel;

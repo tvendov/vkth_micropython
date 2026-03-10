@@ -350,7 +350,7 @@ const adc_cfg_t g_adc0_cfg =
 {
     .unit = 0,
     .mode = ADC_MODE_SINGLE_SCAN,
-    .resolution = ADC_RESOLUTION_14_BIT,
+    .resolution = ADC_RESOLUTION_12_BIT,
     .alignment = (adc_alignment_t)ADC_ALIGNMENT_RIGHT,
     .trigger = ADC_TRIGGER_SOFTWARE,
     .p_callback = NULL,

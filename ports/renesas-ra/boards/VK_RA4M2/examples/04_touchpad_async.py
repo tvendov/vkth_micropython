@@ -1,21 +1,39 @@
-from machine import Pin, TouchPad
-import uasyncio as asyncio
+# Пример: Асинхронно четене на TouchPad с кеширани стойности на VK_RA4M2.
+# Ресурси на VK_RA4M2: ADC външни входове = 13 броя -> P000, P001, P002, P003, P004, P005, P006, P007, P008, P013, P014, P015, P500.
+# Ресурси на VK_RA4M2: ADC вътрешни източници = 3 броя -> ADC.CORE_TEMP, ADC.CORE_VREF, ADC.VREF.
+# Ресурси на VK_RA4M2: DAC изходи = 2 броя -> P014, P015.
+# Ресурси на VK_RA4M2: PWM изходи = 14 броя -> P107, P106, P105, P104, P113, P114, P112, P115, P608, P409, P408, P600, P304, P303.
+# Ресурси на VK_RA4M2: UART инстанции = 4 броя -> UART(0), UART(2), UART(7), UART(9).
+# Ресурси на VK_RA4M2: I2C master = 2 броя -> I2C(0)=P400/P401 и I2C(1)=P100/P101.
+# Ресурси на VK_RA4M2: I2CTarget = 2 броя -> I2CTarget(0)=P400/P401 и I2CTarget(1)=P100/P101.
+# Ресурси на VK_RA4M2: SPI канали = 1 брой -> SPI=P103/P102/P100/P101.
+# Ресурси на VK_RA4M2: TouchPad входове = 12 броя -> P205, P206, P407, P408, P409, P410, P411, P412, P413, P414, P415, P708.
+# Ресурси на VK_RA4M2: LED = 1 брой -> LED1=P204, бутон = 1 брой -> SW1=P400.
+# Ресурси на VK_RA4M2: Хардуерни Timer = 2 броя -> Timer(1), Timer(2), софтуерен Timer = Timer(-1), RTC = 1 брой, Data Flash = 8 KB, /flash = около 94 KB.
+
+from machine import Pin, TouchPad  # Импортираме Pin и TouchPad, за да работим с капацитивния вход.
+import uasyncio as asyncio  # Импортираме uasyncio под име asyncio за по-лесно четене на примера.
+
+TOUCH_PIN_NAME = "P205"  # Избираме валиден TouchPad пин, който е TS01 на тази платка.
+TOUCH_THRESHOLD = 600  # Това е примерен праг за детекция и може да се донастрои според конкретния сензор.
+
+TouchPad.sample_rate(50)  # Настройваме глобалния кеширащ семплер на 50 пълни сканирания в секунда.
+tp = TouchPad(Pin(TOUCH_PIN_NAME))  # Създаваме TouchPad обект върху пин P205.
+tp.config(TOUCH_THRESHOLD)  # Записваме прага, над който приемаме, че има докосване.
 
 
-TouchPad.sample_rate(50)
-
-tp = TouchPad(Pin("P205"))
-tp.config(600)
-
-
-async def touch_task():
-    while True:
-        if tp.ready():
-            raw = tp.read_cached()
-            pressed = tp.value_cached()
-            if pressed:
-                print("touch", raw, tp.age_ms())
-        await asyncio.sleep_ms(20)
+async def touch_task():  # Създаваме асинхронна задача, която ще следи състоянието на TouchPad входа.
+    while True:  # Повтаряме четенето безкрайно, докато програмата не бъде спряна.
+        if tp.ready():  # Проверяваме дали вече има налична кеширана измерена стойност.
+            raw_value = tp.read_cached()  # Четем последната кеширана сурова стойност от CTSU периферията.
+            pressed = tp.value_cached()  # Четем готовото логическо решение дали входът е натиснат.
+            if pressed:  # Ако има докосване, влизаме в този клон.
+                print("TouchPad е активен.", "raw =", raw_value, "age_ms =", tp.age_ms())  # Печатаме суровата стойност и възрастта на кеша.
+        await asyncio.sleep_ms(20)  # Изчакваме 20 ms без блокиране, за да работим кооперативно с други задачи.
 
 
-asyncio.run(touch_task())
+print("=== Асинхронно следене на TouchPad ===")  # Показваме заглавие на примера.
+print("Валидни TouchPad пинове: P205, P206, P407, P408, P409, P410, P411, P412, P413, P414, P415, P708.")  # Напомняме списъка с валидните touch пинове.
+print("Текущо използван пин:", TOUCH_PIN_NAME)  # Показваме кой точно вход използва примерът.
+print("Натисни Ctrl+C за спиране.")  # Даваме кратка инструкция за спиране на безкрайната програма.
+asyncio.run(touch_task())  # Стартираме event loop-а и асинхронната задача.

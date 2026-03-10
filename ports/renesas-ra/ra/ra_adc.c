@@ -350,7 +350,22 @@ static void udelay(uint32_t us) {
 void ra_adc_set_resolution(uint8_t res) {
     uint16_t adcer;
     uint16_t adprc;
-    #if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
+    #if defined(RA4M2)
+    if ((res == 12) | (res == 10) | (res == 8)) {
+        if (res == 12) {
+            adprc = 0x0000;
+        } else if (res == 10) {
+            adprc = 0x0002;
+        } else {
+            adprc = 0x0004;
+        }
+        adcer = adc_reg->ADCER;
+        adcer &= (uint16_t) ~0x0006;
+        adcer |= (uint16_t)adprc;
+        adc_reg->ADCER = adcer;
+        resolution = res;
+    }
+    #elif defined(RA4M1) | defined(RA4W1)
     if ((res == 14) | (res == 12)) {
         if (res == 14) {
             adprc = 0x0006;
@@ -360,7 +375,7 @@ void ra_adc_set_resolution(uint8_t res) {
         adcer = adc_reg->ADCER;
         adcer &= (uint16_t) ~0x0006;
         adcer |= (uint16_t)adprc;
-        adc_reg->ADCER;
+        adc_reg->ADCER = adcer;
         resolution = res;
     }
     #else
@@ -375,7 +390,7 @@ void ra_adc_set_resolution(uint8_t res) {
         adcer = adc_reg->ADCER;
         adcer &= (uint16_t) ~0x0006;
         adcer |= (uint16_t)adprc;
-        adc_reg->ADCER;
+        adc_reg->ADCER = adcer;
         resolution = res;
     }
     #endif
@@ -386,7 +401,15 @@ uint8_t ra_adc_get_resolution(void) {
     uint16_t adcer;
     adcer = adc_reg->ADCER;
     adcer &= 0x0006;
-    #if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
+    #if defined(RA4M2)
+    if (adcer == 0x0000) {
+        res = 12;
+    } else if (adcer == 0x0002) {
+        res = 10;
+    } else if (adcer == 0x0004) {
+        res = 8;
+    }
+    #elif defined(RA4M1) | defined(RA4W1)
     if (adcer == 0x0006) {
         res = 14;
     } else if (adcer == 0x0000) {
