@@ -76,7 +76,7 @@ async def main():  # Стартираме всички задачи.
         button_producer(),  # Производител.
         led_consumer(),  # Консуматор.
         watchdog_task(),  # Наблюдател.
-    )
+    )  # Край на gather.
 
 
 asyncio.run(main())  # Стартираме event loop-а.

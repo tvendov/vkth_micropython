@@ -96,6 +96,18 @@ def build_styles():
     )
     styles.add(
         ParagraphStyle(
+            name="CourseH4",
+            parent=styles["Heading4"],
+            fontName="CourseBold",
+            fontSize=10.5,
+            leading=14,
+            spaceBefore=5,
+            spaceAfter=4,
+            textColor=HexColor("#111111"),
+        )
+    )
+    styles.add(
+        ParagraphStyle(
             name="CourseCode",
             parent=styles["BodyText"],
             fontName="CourseMono",
@@ -106,6 +118,38 @@ def build_styles():
         )
     )
     return styles
+
+
+def parse_heading_line(line):
+    if line.startswith("# "):
+        return 1, line[2:].strip()
+    if line.startswith("## "):
+        return 2, line[3:].strip()
+    if line.startswith("### "):
+        return 3, line[4:].strip()
+    if line.startswith("#### "):
+        return 4, line[5:].strip()
+    return None, None
+
+
+def collect_heading_anchors(markdown_text):
+    heading_links = {}
+    heading_sequence = []
+    heading_index = 1
+    current_h2 = None
+    for raw_line in markdown_text.splitlines():
+        heading_level, heading_text = parse_heading_line(raw_line)
+        if heading_text is None:
+            continue
+        if heading_level == 2:
+            current_h2 = heading_text
+        if current_h2 == "Съдържание" and heading_level == 3:
+            continue
+        anchor_name = f"section-{heading_index}"
+        heading_sequence.append(anchor_name)
+        heading_links.setdefault(heading_text, anchor_name)
+        heading_index += 1
+    return heading_links, heading_sequence
 
 
 def apply_inline_markup(text):
@@ -122,25 +166,49 @@ def apply_inline_markup(text):
     return "".join(result)
 
 
+def add_heading_anchor(text, anchor_name):
+    markup = apply_inline_markup(text)
+    if not anchor_name:
+        return markup
+    return f"<a name='{anchor_name}'/>{markup}"
+
+
+def add_internal_link(text, anchor_name):
+    markup = apply_inline_markup(text)
+    if not anchor_name:
+        return markup
+    return f"<a href='#{anchor_name}'><u>{markup}</u></a>"
+
+
 def format_code_line(line):
     escaped = escape(line)
     return escaped.replace(" ", "&nbsp;").replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
 
 
-def paragraph_for_line(line, styles):
+def paragraph_for_line(line, styles, heading_links=None, current_h2=None, heading_anchor_name=None):
     if line.startswith("# "):
-        return Paragraph(apply_inline_markup(line[2:].strip()), styles["CourseH1"])
+        return Paragraph(add_heading_anchor(line[2:].strip(), heading_anchor_name), styles["CourseH1"])
     if line.startswith("## "):
-        return Paragraph(apply_inline_markup(line[3:].strip()), styles["CourseH2"])
+        return Paragraph(add_heading_anchor(line[3:].strip(), heading_anchor_name), styles["CourseH2"])
     if line.startswith("### "):
-        return Paragraph(apply_inline_markup(line[4:].strip()), styles["CourseH3"])
+        heading_text = line[4:].strip()
+        if current_h2 == "Съдържание":
+            return Paragraph(add_internal_link(heading_text, (heading_links or {}).get(heading_text)), styles["CourseH3"])
+        return Paragraph(add_heading_anchor(heading_text, heading_anchor_name), styles["CourseH3"])
+    if line.startswith("#### "):
+        return Paragraph(add_heading_anchor(line[5:].strip(), heading_anchor_name), styles["CourseH4"])
     if line.startswith("- "):
-        return Paragraph(apply_inline_markup(line[2:].strip()), styles["CourseBullet"], bulletText="•")
+        bullet_text = line[2:].strip()
+        if current_h2 == "Съдържание":
+            return Paragraph(add_internal_link(bullet_text, (heading_links or {}).get(bullet_text)), styles["CourseBullet"], bulletText="•")
+        return Paragraph(apply_inline_markup(bullet_text), styles["CourseBullet"], bulletText="•")
     stripped = line.lstrip()
     numbered_match = re.match(r"^(\d+)\.\s+(.*)$", stripped)
     if numbered_match:
         number = numbered_match.group(1)
         text = numbered_match.group(2)
+        if current_h2 == "Съдържание":
+            return Paragraph(add_internal_link(text.strip(), (heading_links or {}).get(text.strip())), styles["CourseBullet"], bulletText=f"{number}.")
         return Paragraph(apply_inline_markup(text.strip()), styles["CourseBullet"], bulletText=f"{number}.")
     return Paragraph(apply_inline_markup(line), styles["CourseBody"])
 
@@ -148,6 +216,9 @@ def paragraph_for_line(line, styles):
 def build_story(markdown_text, styles):
     story = []
     in_code_block = False
+    current_h2 = None
+    heading_links, heading_sequence = collect_heading_anchors(markdown_text)
+    heading_index = 0
     for raw_line in markdown_text.splitlines():
         if raw_line.strip().startswith("```"):
             in_code_block = not in_code_block
@@ -162,7 +233,14 @@ def build_story(markdown_text, styles):
         if raw_line.strip() == "":
             story.append(Spacer(1, 4))
             continue
-        story.append(paragraph_for_line(raw_line, styles))
+        heading_level, heading_text = parse_heading_line(raw_line)
+        if heading_level == 2:
+            current_h2 = heading_text
+        heading_anchor_name = None
+        if heading_text is not None and not (current_h2 == "Съдържание" and heading_level == 3):
+            heading_anchor_name = heading_sequence[heading_index]
+            heading_index += 1
+        story.append(paragraph_for_line(raw_line, styles, heading_links, current_h2, heading_anchor_name))
     return story
 
 

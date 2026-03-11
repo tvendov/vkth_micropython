@@ -23,9 +23,10 @@ touch.start()  # Стартираме non-blocking scan, ако не е в хо�
 
 for service_step in range(5):  # Изпълняваме няколко service стъпки, за да съберем cached проби.
     TouchPad.service()  # Придвижваме вътрешния sampler една стъпка от VM контекст.
-    print("Стъпка", service_step + 1, "ready() =", touch.ready(),
-          "cached =", touch.read_cached(),
-          "value_cached =", touch.value_cached())  # Показваме cached състоянието след всяка стъпка.
+    print("Стъпка", service_step + 1,  # Показваме номера на текущата service стъпка.
+          "ready() =", touch.ready(),  # Показваме дали пробата е готова.
+          "cached =", touch.read_cached(),  # Показваме cached суровата стойност.
+          "value_cached =", touch.value_cached())  # Показваме cached логическата стойност.
 
 print("age_ms() =", touch.age_ms())  # Печатаме възрастта на последната cached проба.
 print("diagnose(8) =", touch.diagnose(8))  # Печатаме резултат от кратък диагностичен цикъл.
