@@ -111,11 +111,11 @@
 #define MICROPY_HW_SPI2_MOSI        (pin_P112)
 #define MICROPY_HW_SPI2_MISO        (pin_P113)
 
-// WS2812 over SCI2 TX-only.
+// WS2812 over SCI TX-only.
 // Notes:
-// - Uses only P112 as data output.
+// - P112 is the default data output for WS2812(...), but any valid SCI TX/MOSI pin can be selected at runtime.
 // - This intentionally does not use the external SCK/MISO pins.
-// - SCI2 is shared with UART(2) and SPI(2), so only one of them can be active at a time.
+// - Channel ownership is enforced, so WS2812 cannot share a given SCI block with UART/SPI at the same time.
 #define MICROPY_HW_WS2812_SCI_CH    (2)
 #define MICROPY_HW_WS2812_DATA      (pin_P112)
 

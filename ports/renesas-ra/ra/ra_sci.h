@@ -41,6 +41,7 @@ enum {
 // static bool find_irq_to_ch(IRQn_Type *irq_tbl, IRQn_Type irq, uint32_t *ch);
 // static void delay_us(volatile unsigned int us);
 bool ra_af_find_ch_af(ra_af_pin_t *af_pin, uint32_t size, uint32_t pin, uint32_t *ch, uint32_t *af);
+bool ra_sci_find_tx_ch_af(uint32_t pin, uint32_t *ch, uint32_t *af);
 // static void ra_sci_tx_set_pin(uint32_t pin);
 // static void ra_sci_rx_set_pin(uint32_t pin);
 // static void ra_sci_cts_set_pin(uint32_t pin);

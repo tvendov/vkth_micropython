@@ -164,22 +164,18 @@ typedef struct {
     uint8_t mddr;
 } ra_sci_ws2812_div_setting_t;
 
-static bool ra_sci_ws2812_is_default_pin(uint32_t data_pin) {
-    return data_pin == MICROPY_HW_WS2812_DATA->pin;
+static bool ra_sci_ws2812_find_pin_af_ch(uint32_t data_pin, uint32_t *ch, uint32_t *af) {
+    return ra_sci_find_tx_ch_af(data_pin, ch, af);
 }
 
-static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin) {
-    if (ra_sci_ws2812_is_default_pin(data_pin)) {
-        ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, AF_SCI1);
-    }
+static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin, uint32_t af) {
+    ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, af);
 }
 
 static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin) {
-    if (ra_sci_ws2812_is_default_pin(data_pin)) {
-        ra_gpio_write(data_pin, 0);
-        ra_gpio_config(data_pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
-        ra_gpio_write(data_pin, 0);
-    }
+    ra_gpio_write(data_pin, 0);
+    ra_gpio_config(data_pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
+    ra_gpio_write(data_pin, 0);
 }
 
 static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
@@ -213,18 +209,22 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
 }
 
 bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
-    bool ok = ra_sci_ws2812_is_default_pin(data_pin);
+    uint32_t found_ch;
+    uint32_t af;
+    bool ok = ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af);
     if (ok && ch != NULL) {
-        *ch = MICROPY_HW_WS2812_SCI_CH;
+        *ch = (uint8_t)found_ch;
     }
     return ok;
 }
 
 bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
-    uint8_t found_ch = 0xff;
-    if (!ra_sci_ws2812_find_ch(data_pin, &found_ch) || found_ch != ch) {
+    uint32_t found_ch = 0xff;
+    uint32_t af = 0;
+    if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
         return false;
     }
+    (void)af;
     if (!ra_sci_owner_acquire(ch, RA_SCI_OWNER_WS2812)) {
         return false;
     }
@@ -275,6 +275,8 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
 }
 
 void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
+    uint32_t found_ch = 0xff;
+    uint32_t af = 0;
     uint32_t idx = ws2812_ch_to_idx[ch];
     R_SCI0_Type *sci_reg = ws2812_regs[idx];
 
@@ -284,7 +286,13 @@ void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uin
         return;
     }
 
-    ra_sci_ws2812_set_data_pin_af(data_pin);
+    if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
+        ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
+        mp_hal_delay_us(latch_us);
+        return;
+    }
+
+    ra_sci_ws2812_set_data_pin_af(data_pin, af);
     sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk) | R_SCI0_SCR_TE_Msk);
 
     for (uint32_t i = 0; i < len; ++i) {

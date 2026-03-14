@@ -180,7 +180,7 @@ static mp_obj_t machine_ws2812_make_new(const mp_obj_type_t *type, size_t n_args
     }
 
     machine_ws2812_obj_t *self = &machine_ws2812_obj;
-    const machine_pin_obj_t *pin = self->pin;
+    const machine_pin_obj_t *pin = MICROPY_HW_WS2812_DATA;
     if (args[ARG_pin].u_obj != MP_OBJ_NULL) {
         pin = machine_pin_find(args[ARG_pin].u_obj);
     }

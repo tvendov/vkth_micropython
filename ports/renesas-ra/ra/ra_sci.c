@@ -1027,6 +1027,10 @@ bool ra_af_find_ch_af(ra_af_pin_t *af_pin, uint32_t size, uint32_t pin, uint32_t
     return find;
 }
 
+bool ra_sci_find_tx_ch_af(uint32_t pin, uint32_t *ch, uint32_t *af) {
+    return ra_af_find_ch_af((ra_af_pin_t *)&ra_sci_tx_pins, SCI_TX_PINS_SIZE, pin, ch, af);
+}
+
 static void ra_sci_tx_set_pin(uint32_t pin) {
     bool find = false;
     uint32_t ch;
