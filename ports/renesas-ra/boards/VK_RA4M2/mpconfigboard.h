@@ -102,6 +102,23 @@
 #define MICROPY_HW_SPI1_MISO        (pin_P110)
 #define MICROPY_HW_SPI1_MOSI        (pin_P109)
 
+// SPI2 via SCI2 simple SPI.
+// Notes:
+// - This is a separate backend from the dedicated SPI/RSPI peripheral.
+// - Current port support is master-only, 8-bit, blocking.
+// - SCI2 shares the hardware block with UART(2), so they cannot be used at the same time.
+#define MICROPY_HW_SPI2_SCK         (pin_P111)
+#define MICROPY_HW_SPI2_MOSI        (pin_P112)
+#define MICROPY_HW_SPI2_MISO        (pin_P113)
+
+// WS2812 over SCI2 TX-only.
+// Notes:
+// - Uses only P112 as data output.
+// - This intentionally does not use the external SCK/MISO pins.
+// - SCI2 is shared with UART(2) and SPI(2), so only one of them can be active at a time.
+#define MICROPY_HW_WS2812_SCI_CH    (2)
+#define MICROPY_HW_WS2812_DATA      (pin_P112)
+
 // DAC
 // RA4M2 DAC output pins.
 // Note: this port exposes DA0 and DA1 when enabled.

@@ -840,6 +840,38 @@ static uint32_t ra_sci_init_flag[] = {
     0,
     #endif
 };
+static uint8_t ra_sci_owner[] = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+};
 static SCI_CB sci_cb[] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
     (SCI_CB)0,
@@ -1071,6 +1103,26 @@ bool ra_sci_is_rxirq_enable(uint32_t ch) {
     uint32_t idx = ch_to_idx[ch];
     uint32_t _irq = (uint32_t)idx_to_rxirq[idx];
     return NVIC->ISER[(_irq >> 5UL)] == (uint32_t)(1UL << (_irq & 0x1FUL));
+}
+
+bool ra_sci_owner_acquire(uint32_t ch, uint32_t owner) {
+    uint32_t idx = ch_to_idx[ch];
+    uint32_t state = ra_disable_irq();
+    bool ok = ra_sci_owner[idx] == RA_SCI_OWNER_NONE || ra_sci_owner[idx] == owner;
+    if (ok) {
+        ra_sci_owner[idx] = owner;
+    }
+    ra_enable_irq(state);
+    return ok;
+}
+
+void ra_sci_owner_release(uint32_t ch, uint32_t owner) {
+    uint32_t idx = ch_to_idx[ch];
+    uint32_t state = ra_disable_irq();
+    if (ra_sci_owner[idx] == owner) {
+        ra_sci_owner[idx] = RA_SCI_OWNER_NONE;
+    }
+    ra_enable_irq(state);
 }
 
 static void ra_sci_irq_priority(uint32_t ch, uint32_t ipl) {
@@ -1401,7 +1453,7 @@ void ra_sci_init_with_flow(uint32_t ch, uint32_t tx_pin, uint32_t rx_pin, uint32
         ch_9bit[idx] = 0;
     }
     if (flow) {
-        sci_reg->SPMR |= 0x01;
+        sci_reg->SPMR |= R_SCI0_SPMR_CTSE_Msk;
     }
     sci_reg->SCMR = scmr;
     sci_reg->SEMR = (uint8_t)0xc0;

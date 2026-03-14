@@ -31,6 +31,13 @@
 
 typedef int (*SCI_CB)(uint32_t ch, uint32_t d);
 
+enum {
+    RA_SCI_OWNER_NONE = 0,
+    RA_SCI_OWNER_UART = 1,
+    RA_SCI_OWNER_SPI = 2,
+    RA_SCI_OWNER_WS2812 = 3,
+};
+
 // static bool find_irq_to_ch(IRQn_Type *irq_tbl, IRQn_Type irq, uint32_t *ch);
 // static void delay_us(volatile unsigned int us);
 bool ra_af_find_ch_af(ra_af_pin_t *af_pin, uint32_t size, uint32_t pin, uint32_t *ch, uint32_t *af);
@@ -45,6 +52,8 @@ void ra_sci_rx_set_callback(int ch, SCI_CB cb);
 void ra_sci_rxirq_disable(uint32_t ch);
 void ra_sci_rxirq_enable(uint32_t ch);
 bool ra_sci_is_rxirq_enable(uint32_t ch);
+bool ra_sci_owner_acquire(uint32_t ch, uint32_t owner);
+void ra_sci_owner_release(uint32_t ch, uint32_t owner);
 // static void ra_sci_irq_priority(uint32_t ch, uint32_t ipl);
 // static void ra_sci_isr_rx(uint32_t ch);
 // static void ra_sci_isr_er(uint32_t ch);

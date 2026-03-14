@@ -139,6 +139,11 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, mp_uint_t len) {
 }
 
 void mp_hal_ticks_cpu_enable(void) {
+    #if __CORTEX_M >= 4 && __CORTEX_M != 23
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    #endif
 }
 
 void mp_hal_pin_config(mp_hal_pin_obj_t pin_obj, uint32_t mode, uint32_t pull, uint32_t drive, uint32_t alt) {

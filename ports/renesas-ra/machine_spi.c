@@ -34,11 +34,13 @@
 #include "extmod/modmachine.h"
 #include "pin.h"
 #include "spi.h"
+#include "ra/ra_sci_spi.h"
 #include "ra/ra_spi.h"
 
 typedef struct _machine_hard_spi_obj_t {
     mp_obj_base_t base;
     uint8_t spi_id;
+    uint8_t backend;
     uint8_t polarity;
     uint8_t phase;
     uint8_t bits;
@@ -49,6 +51,11 @@ typedef struct _machine_hard_spi_obj_t {
     mp_hal_pin_obj_t miso;
     mp_hal_pin_obj_t cs;
 } machine_hard_spi_obj_t;
+
+enum {
+    MACHINE_SPI_BACKEND_RSPI = 0,
+    MACHINE_SPI_BACKEND_SCI = 1,
+};
 
 #define DEFAULT_SPI_BAUDRATE      (500000)
 #define DEFAULT_SPI_POLARITY      (0)
@@ -70,7 +77,7 @@ typedef struct _machine_hard_spi_obj_t {
 static machine_hard_spi_obj_t machine_hard_spi_obj[] = {
     #if defined(MICROPY_HW_SPI0_RSPCK)
     {
-        {&machine_spi_type}, 0,
+        {&machine_spi_type}, 0, MACHINE_SPI_BACKEND_RSPI,
         DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS,
         DEFAULT_SPI_FIRSTBIT, DEFAULT_SPI_BAUDRATE,
         MICROPY_HW_SPI0_RSPCK, MICROPY_HW_SPI0_MOSI, MICROPY_HW_SPI0_MISO,
@@ -83,7 +90,7 @@ static machine_hard_spi_obj_t machine_hard_spi_obj[] = {
     #endif
     #if defined(MICROPY_HW_SPI1_RSPCK)
     {
-        {&machine_spi_type}, 1,
+        {&machine_spi_type}, 1, MACHINE_SPI_BACKEND_RSPI,
         DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS,
         DEFAULT_SPI_FIRSTBIT, DEFAULT_SPI_BAUDRATE,
         MICROPY_HW_SPI1_RSPCK, MICROPY_HW_SPI1_MOSI, MICROPY_HW_SPI1_MISO,
@@ -94,11 +101,25 @@ static machine_hard_spi_obj_t machine_hard_spi_obj[] = {
         #endif
     },
     #endif
+    #if defined(MICROPY_HW_SPI2_SCK) && defined(MICROPY_HW_SPI2_MOSI) && defined(MICROPY_HW_SPI2_MISO)
+    {
+        {&machine_spi_type}, 2, MACHINE_SPI_BACKEND_SCI,
+        DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS,
+        DEFAULT_SPI_FIRSTBIT, DEFAULT_SPI_BAUDRATE,
+        MICROPY_HW_SPI2_SCK, MICROPY_HW_SPI2_MOSI, MICROPY_HW_SPI2_MISO,
+        NULL,
+    },
+    #endif
 };
 
 static void spi_validate_pins(machine_hard_spi_obj_t *self, const machine_pin_obj_t *sck, const machine_pin_obj_t *mosi, const machine_pin_obj_t *miso) {
     uint8_t ch = 0;
-    bool ok = ra_spi_find_af_ch(mosi->pin, miso->pin, sck->pin, &ch);
+    bool ok;
+    if (self->backend == MACHINE_SPI_BACKEND_SCI) {
+        ok = ra_sci_spi_find_af_ch(mosi->pin, miso->pin, sck->pin, &ch);
+    } else {
+        ok = ra_spi_find_af_ch(mosi->pin, miso->pin, sck->pin, &ch);
+    }
     if (!ok || ch != self->spi_id) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad SPI pins"));
     }
@@ -136,6 +157,9 @@ static void spi_update_pins_from_args(machine_hard_spi_obj_t *self, mp_obj_t sck
         self->cs = NULL;
         return;
     }
+    if (self->backend == MACHINE_SPI_BACKEND_SCI) {
+        mp_raise_NotImplementedError(MP_ERROR_TEXT("SCI CS"));
+    }
     const machine_pin_obj_t *cs = machine_pin_find(cs_in);
     uint8_t ssln = 0;
     if (!ra_spi_find_ssln(cs->pin, &ssln)) {
@@ -145,11 +169,20 @@ static void spi_update_pins_from_args(machine_hard_spi_obj_t *self, mp_obj_t sck
 }
 
 static void spi_init(machine_hard_spi_obj_t *self) {
-    uint32_t cs_pin = RA_SPI_NO_CS;
-    if (self->cs != NULL) {
-        cs_pin = self->cs->pin;
+    if (self->backend == MACHINE_SPI_BACKEND_SCI) {
+        if (self->bits != 8) {
+            mp_raise_ValueError(MP_ERROR_TEXT("bad bits"));
+        }
+        if (!ra_sci_spi_init(self->spi_id, self->mosi->pin, self->miso->pin, self->sck->pin, self->baudrate, self->polarity, self->phase, self->firstbit)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("SPI bus busy"));
+        }
+    } else {
+        uint32_t cs_pin = RA_SPI_NO_CS;
+        if (self->cs != NULL) {
+            cs_pin = self->cs->pin;
+        }
+        ra_spi_init(self->spi_id, self->mosi->pin, self->miso->pin, self->sck->pin, cs_pin, self->baudrate, self->bits, self->polarity, self->phase, self->firstbit);
     }
-    ra_spi_init(self->spi_id, self->mosi->pin, self->miso->pin, self->sck->pin, cs_pin, self->baudrate, self->bits, self->polarity, self->phase, self->firstbit);
 }
 
 static void machine_hard_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
@@ -294,12 +327,20 @@ static void machine_hard_spi_init(mp_obj_base_t *self_in, size_t n_args, const m
 
 static void machine_hard_spi_deinit(mp_obj_base_t *self_in) {
     machine_hard_spi_obj_t *self = (machine_hard_spi_obj_t *)self_in;
-    spi_deinit(self->spi_id);
+    if (self->backend == MACHINE_SPI_BACKEND_SCI) {
+        ra_sci_spi_deinit(self->spi_id);
+    } else {
+        spi_deinit(self->spi_id);
+    }
 }
 
 static void machine_hard_spi_transfer(mp_obj_base_t *self_in, size_t len, const uint8_t *src, uint8_t *dest) {
     machine_hard_spi_obj_t *self = (machine_hard_spi_obj_t *)self_in;
-    spi_transfer(self->spi_id, self->bits, len, src, dest, SPI_TRANSFER_TIMEOUT(len));
+    if (self->backend == MACHINE_SPI_BACKEND_SCI) {
+        ra_sci_spi_transfer(self->spi_id, src, dest, len);
+    } else {
+        spi_transfer(self->spi_id, self->bits, len, src, dest, SPI_TRANSFER_TIMEOUT(len));
+    }
 }
 
 static const mp_machine_spi_p_t machine_hard_spi_p = {
@@ -330,6 +371,10 @@ void spi_deinit(uint32_t ch) {
     #if defined(MICROPY_HW_SPI1_RSPCK)
     } else if (ch == 1) {
         ra_spi_deinit(ch, 0);
+    #endif
+    #if defined(MICROPY_HW_SPI2_SCK)
+    } else if (ch == 2) {
+        ra_sci_spi_deinit(ch);
     #endif
     }
 }

@@ -90,7 +90,11 @@ static inline void mp_hal_usb_set_vdcen(void) {
 
 void mp_hal_ticks_cpu_enable(void);
 static inline mp_uint_t mp_hal_ticks_cpu(void) {
+    #if __CORTEX_M >= 4 && __CORTEX_M != 23
+    return DWT->CYCCNT;
+    #else
     return 0;
+    #endif
 }
 #define SPI_FIRSTBIT_MSB                (0x00000000U)
 #define SPI_FIRSTBIT_LSB                (0x00000001U)

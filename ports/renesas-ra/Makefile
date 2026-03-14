@@ -242,11 +242,13 @@ SRC_C += \
 	uart.c \
 	gccollect.c \
 	help.c \
+	machine_bitstream.c \
 	machine_dac.c \
 	machine_i2c.c \
 	machine_opamp.c \
 	machine_comparator.c \
 	machine_spi.c \
+	machine_ws2812.c \
 	machine_pin.c \
 	machine_rtc.c \
 	machine_sdcard.c \
@@ -368,6 +370,8 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_acmplp.c \
 	ra_rtc.c \
 	ra_sci.c \
+	ra_sci_spi.c \
+	ra_sci_ws2812.c \
 	ra_spi.c \
 	ra_timer.c \
 	ra_gpt.c \

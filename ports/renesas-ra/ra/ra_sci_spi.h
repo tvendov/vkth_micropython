@@ -1,10 +1,7 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
- *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013-2015 Damien P. George
- * Copyright (c) 2022 Renesas Electronics Corporation
+ * Copyright (c) 2026
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,23 +21,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#ifndef MICROPY_INCLUDED_RENESAS_RA_MODMACHINE_H
-#define MICROPY_INCLUDED_RENESAS_RA_MODMACHINE_H
 
-#include "py/obj.h"
+#ifndef RA_RA_SCI_SPI_H_
+#define RA_RA_SCI_SPI_H_
 
-extern const mp_obj_type_t machine_touchpad_type;
-extern const mp_obj_type_t machine_dac_type;
-extern const mp_obj_type_t machine_sdcard_type;
-extern const mp_obj_type_t machine_ws2812_type;
+#include <stdbool.h>
+#include <stdint.h>
 
-void machine_init(void);
-void machine_deinit(void);
-void machine_pin_init(void);
-void machine_pin_deinit(void);
-void machine_i2s_init0(void);
+bool ra_sci_spi_find_af_ch(uint32_t mosi, uint32_t miso, uint32_t sck, uint8_t *ch);
+bool ra_sci_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, uint32_t baud, uint32_t polarity, uint32_t phase, uint32_t firstbit);
+void ra_sci_spi_deinit(uint32_t ch);
+void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count);
 
-MP_DECLARE_CONST_FUN_OBJ_0(machine_disable_irq_obj);
-MP_DECLARE_CONST_FUN_OBJ_VAR_BETWEEN(machine_enable_irq_obj);
-
-#endif // MICROPY_INCLUDED_RENESAS_RA_MODMACHINE_H
+#endif /* RA_RA_SCI_SPI_H_ */

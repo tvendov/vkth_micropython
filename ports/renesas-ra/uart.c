@@ -381,6 +381,10 @@ bool uart_init(machine_uart_obj_t *uart_obj,
     uart_obj->rts = pins[2];
     uart_obj->cts = pins[3];
 
+    if (!ra_sci_owner_acquire(uart_obj->uart_id, RA_SCI_OWNER_UART)) {
+        return false;
+    }
+
     if (flow && (uart_obj->rts != 0) && (uart_obj->cts != 0)) {
         ra_sci_init_with_flow(uart_obj->uart_id, (uint32_t)uart_obj->tx->pin, (uint32_t)uart_obj->rx->pin, baudrate, bits, parity, stop, flow, (uint32_t)uart_obj->rts->pin, (uint32_t)uart_obj->cts->pin);
     } else {
@@ -431,6 +435,7 @@ void uart_set_rxbuf(machine_uart_obj_t *self, size_t len, void *buf) {
 void uart_deinit(machine_uart_obj_t *self) {
     self->is_enabled = false;
     ra_sci_deinit(self->uart_id);
+    ra_sci_owner_release(self->uart_id, RA_SCI_OWNER_UART);
 }
 
 void uart_attach_to_repl(machine_uart_obj_t *self, bool attached) {
