@@ -665,6 +665,12 @@ static void ra_agt_timer_chk_callback(uint32_t ch, ra_agt_irq_source_t source) {
         return;
     }
 
+    clear_mask = ra_agt_timer_irq_flag_mask(event);
+    if (clear_mask != 0U) {
+        agtcr = agt_regs[ch]->CTRL.AGTCR;
+        agt_regs[ch]->CTRL.AGTCR = (uint8_t)(agtcr & ~clear_mask);
+    }
+
     if (ra_agt_timer_state[ch].fast_irq && ra_agt_timer_state[ch].fast_entry != NULL) {
         agt_fast_asm_fun_t fast_fn = (agt_fast_asm_fun_t)ra_agt_timer_state[ch].fast_entry;
         fast_fn(ra_agt_timer_state[ch].fast_param);
@@ -673,12 +679,6 @@ static void ra_agt_timer_chk_callback(uint32_t ch, ra_agt_irq_source_t source) {
 
     if (ra_agt_timer_state[ch].callback) {
         (*ra_agt_timer_state[ch].callback)(ra_agt_timer_state[ch].callback_param);
-    }
-
-    clear_mask = ra_agt_timer_irq_flag_mask(event);
-    if (clear_mask != 0U) {
-        agtcr = agt_regs[ch]->CTRL.AGTCR;
-        agt_regs[ch]->CTRL.AGTCR = (uint8_t)(agtcr & ~clear_mask);
     }
 }
 
