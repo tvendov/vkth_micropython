@@ -103,6 +103,12 @@ void ra_mstpcre_start(uint32_t mod_mask);
 #endif
 
 /* mask bit definition for Module Stop Control Register D */
+#ifndef R_MSTP_MSTPCRD_MSTPD0_Msk
+#define R_MSTP_MSTPCRD_MSTPD0_Msk    (0x1UL << 0)
+#endif
+#ifndef R_MSTP_MSTPCRD_MSTPD1_Msk
+#define R_MSTP_MSTPCRD_MSTPD1_Msk    (0x1UL << 1)
+#endif
 #ifndef R_MSTP_MSTPCRD_MSTPD2_Msk
 #define R_MSTP_MSTPCRD_MSTPD2_Msk    (0x1UL << 2)
 #endif
@@ -126,6 +132,14 @@ void ra_mstpcre_start(uint32_t mod_mask);
 #endif
 #ifndef R_MSTP_MSTPCRD_MSTPD22_Msk
 #define R_MSTP_MSTPCRD_MSTPD22_Msk    (0x1UL << 22)
+#endif
+
+/* mask bit definition for Module Stop Control Register E */
+#ifndef R_MSTP_MSTPCRE_MSTPE14_Msk
+#define R_MSTP_MSTPCRE_MSTPE14_Msk    (0x1UL << 14)
+#endif
+#ifndef R_MSTP_MSTPCRE_MSTPE15_Msk
+#define R_MSTP_MSTPCRE_MSTPE15_Msk    (0x1UL << 15)
 #endif
 
 #endif /* RA_RA_UTILS_H_ */

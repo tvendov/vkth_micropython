@@ -37,6 +37,8 @@
 #pragma GCC diagnostic ignored "-Wconversion"
 #endif
 
+#define RA_SCI_SPI_SCMR_RESERVED_MASK (0x62U)
+
 static R_SCI0_Type *sci_spi_regs[] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
     R_SCI0,
@@ -219,6 +221,8 @@ static void ra_sci_spi_calc_baud(uint32_t baud, ra_sci_spi_div_setting_t *div) {
         }
     }
 
+    // Match the Renesas FSP SCI SPI bitrate calculation when MDDR is used.
+    brr = (int32_t)PCLK / divisor - 1;
     if (brr < 0) {
         brr = 0;
     } else if (brr > UINT8_MAX) {
@@ -272,7 +276,7 @@ bool ra_sci_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, ui
     ra_sci_spi_calc_baud(baud, &div);
 
     uint8_t smr = R_SCI0_SMR_CM_Msk | (uint8_t)(div.cks << R_SCI0_SMR_CKS_Pos);
-    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk);
+    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | RA_SCI_SPI_SCMR_RESERVED_MASK);
     uint8_t semr = 0;
     uint8_t spmr = 0;
 

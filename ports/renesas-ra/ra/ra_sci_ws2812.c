@@ -37,6 +37,8 @@
 #pragma GCC diagnostic ignored "-Wconversion"
 #endif
 
+#define RA_SCI_WS2812_SCMR_RESERVED_MASK (0x62U)
+
 static R_SCI0_Type *ws2812_regs[] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
     R_SCI0,
@@ -157,6 +159,7 @@ static uint32_t ws2812_module_mask[] = {
 };
 
 static bool ws2812_active[SCI_CH_MAX];
+static uint32_t ws2812_baudrate[SCI_CH_MAX];
 
 typedef struct {
     uint8_t brr;
@@ -164,18 +167,68 @@ typedef struct {
     uint8_t mddr;
 } ra_sci_ws2812_div_setting_t;
 
+typedef struct {
+    uint8_t ch;
+    uint32_t pin;
+    uint32_t af;
+} ra_sci_ws2812_sck_pin_t;
+
+#if defined(RA4M2)
+static const ra_sci_ws2812_sck_pin_t ra_sci_ws2812_sck_pins[] = {
+    { 0, P102, AF_SCI1 },
+    { 1, P503, AF_SCI1 },
+    { 2, P111, AF_SCI1 },
+    { 9, P600, AF_SCI2 },
+};
+#else
+static const ra_sci_ws2812_sck_pin_t ra_sci_ws2812_sck_pins[] = {
+};
+#endif
+
 static bool ra_sci_ws2812_find_pin_af_ch(uint32_t data_pin, uint32_t *ch, uint32_t *af) {
     return ra_sci_find_tx_ch_af(data_pin, ch, af);
 }
 
+static bool ra_sci_ws2812_find_sck_pin_af(uint32_t ch, uint32_t *sck_pin, uint32_t *sck_af) {
+    for (size_t i = 0; i < sizeof(ra_sci_ws2812_sck_pins) / sizeof(ra_sci_ws2812_sck_pin_t); ++i) {
+        if (ra_sci_ws2812_sck_pins[i].ch == ch) {
+            if (sck_pin != NULL) {
+                *sck_pin = ra_sci_ws2812_sck_pins[i].pin;
+            }
+            if (sck_af != NULL) {
+                *sck_af = ra_sci_ws2812_sck_pins[i].af;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin, uint32_t af) {
-    ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, af);
+    // WS2812 timing margins are tight enough that a stronger output drive is preferable.
+    ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, af);
 }
 
 static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin) {
     ra_gpio_write(data_pin, 0);
     ra_gpio_config(data_pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
     ra_gpio_write(data_pin, 0);
+}
+
+static void ra_sci_ws2812_set_sck_pin_af(uint32_t ch) {
+    uint32_t sck_pin = 0;
+    uint32_t sck_af = 0;
+    if (ra_sci_ws2812_find_sck_pin_af(ch, &sck_pin, &sck_af)) {
+        ra_gpio_config(sck_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, sck_af);
+    }
+}
+
+static void ra_sci_ws2812_release_sck_pin(uint32_t ch) {
+    uint32_t sck_pin = 0;
+    uint32_t sck_af = 0;
+    if (ra_sci_ws2812_find_sck_pin_af(ch, &sck_pin, &sck_af)) {
+        ra_gpio_config(sck_pin, GPIO_MODE_INPUT, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
+    }
 }
 
 static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
@@ -192,6 +245,8 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
         }
     }
 
+    // Match the Renesas FSP SCI SPI bitrate calculation when MDDR is used.
+    brr = (int32_t)PCLK / divisor - 1;
     if (brr < 0) {
         brr = 0;
     } else if (brr > UINT8_MAX) {
@@ -206,6 +261,23 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
     div->brr = (uint8_t)brr;
     div->cks = (uint8_t)(cks & 3);
     div->mddr = (uint8_t)mddr;
+}
+
+static void ra_sci_ws2812_delay_cycles(volatile uint32_t cycles) {
+    while (cycles-- > 0) {
+        __asm__ __volatile__ ("nop");
+    }
+}
+
+static void ra_sci_ws2812_delay_bit_time(uint32_t baud) {
+    if (baud == 0) {
+        return;
+    }
+    uint32_t cycles = (PCLK + baud - 1) / baud;
+    if (cycles == 0) {
+        cycles = 1;
+    }
+    ra_sci_ws2812_delay_cycles(cycles);
 }
 
 bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
@@ -224,7 +296,9 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
         return false;
     }
-    (void)af;
+    if (!ra_sci_ws2812_find_sck_pin_af(ch, NULL, NULL)) {
+        return false;
+    }
     if (!ra_sci_owner_acquire(ch, RA_SCI_OWNER_WS2812)) {
         return false;
     }
@@ -234,6 +308,7 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     ra_sci_ws2812_div_setting_t div;
 
     ra_mstpcrb_start(ws2812_module_mask[idx]);
+    ra_sci_ws2812_set_sck_pin_af(ch);
     ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
 
     sci_reg->SCR = 0;
@@ -244,7 +319,7 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     ra_sci_ws2812_calc_baud(baudrate, &div);
 
     uint8_t smr = R_SCI0_SMR_CM_Msk | (uint8_t)(div.cks << R_SCI0_SMR_CKS_Pos);
-    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | R_SCI0_SCMR_SDIR_Msk);
+    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | RA_SCI_WS2812_SCMR_RESERVED_MASK | R_SCI0_SCMR_SDIR_Msk);
     uint8_t semr = 0;
     uint8_t spmr = R_SCI0_SPMR_CKPH_Msk;
 
@@ -268,9 +343,13 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     sci_reg->SIMR3 = 0;
     sci_reg->CDR = 0;
     sci_reg->DCCR = R_SCI0_DCCR_IDSEL_Msk;
-    sci_reg->SPTR = R_SCI0_SPTR_SPB2DT_Msk;
+    sci_reg->SPTR = 0;
+
+    // Give the SCI baud generator time to settle while the data pin is still held low as GPIO.
+    ra_sci_ws2812_delay_bit_time(baudrate);
 
     ws2812_active[ch] = true;
+    ws2812_baudrate[ch] = baudrate;
     return true;
 }
 
@@ -292,10 +371,13 @@ void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uin
         return;
     }
 
+    sci_reg->SSR;
+    sci_reg->SSR = (uint8_t)(R_SCI0_SSR_TDRE_Msk | R_SCI0_SSR_TEND_Msk);
     ra_sci_ws2812_set_data_pin_af(data_pin, af);
     sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk) | R_SCI0_SCR_TE_Msk);
+    sci_reg->TDR = buf[0];
 
-    for (uint32_t i = 0; i < len; ++i) {
+    for (uint32_t i = 1; i < len; ++i) {
         while ((sci_reg->SSR & R_SCI0_SSR_TDRE_Msk) == 0) {
             ;
         }
@@ -319,9 +401,11 @@ void ra_sci_ws2812_deinit(uint32_t ch, uint32_t data_pin) {
         sci_reg->SCR &= (uint8_t)R_SCI0_SCR_CKE_Msk;
         ra_mstpcrb_stop(ws2812_module_mask[idx]);
         ws2812_active[ch] = false;
+        ws2812_baudrate[ch] = 0;
     }
 
     ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
+    ra_sci_ws2812_release_sck_pin(ch);
     ra_sci_owner_release(ch, RA_SCI_OWNER_WS2812);
 }
 
