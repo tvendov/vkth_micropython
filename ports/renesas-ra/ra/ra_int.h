@@ -27,9 +27,11 @@
 
 #include <stdint.h>
 
-#if defined(RA4M1) | defined(RA4M2) | defined(RA4W1)
+#if defined(VECTOR_DATA_IRQ_COUNT)
+#define IRQ_MAX VECTOR_DATA_IRQ_COUNT
+#elif defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
 #define IRQ_MAX 48
-#elif defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
+#elif defined(RA6M1) || defined(RA6M2) || defined(RA6M3) || defined(RA6M5)
 #define IRQ_MAX 128
 #else
 #error "CMSIS MCU Series is not specified."

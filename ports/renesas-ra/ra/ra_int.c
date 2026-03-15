@@ -39,8 +39,56 @@ void ra_int_init(void) {
     #if defined(VECTOR_NUMBER_AGT0_INT)
     irq_to_ch[VECTOR_NUMBER_AGT0_INT] = 0;
     #endif
+    #if defined(VECTOR_NUMBER_AGT0_COMPARE_A)
+    irq_to_ch[VECTOR_NUMBER_AGT0_COMPARE_A] = 0;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT0_COMPARE_B)
+    irq_to_ch[VECTOR_NUMBER_AGT0_COMPARE_B] = 0;
+    #endif
     #if defined(VECTOR_NUMBER_AGT1_INT)
     irq_to_ch[VECTOR_NUMBER_AGT1_INT] = 1;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT1_COMPARE_A)
+    irq_to_ch[VECTOR_NUMBER_AGT1_COMPARE_A] = 1;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT1_COMPARE_B)
+    irq_to_ch[VECTOR_NUMBER_AGT1_COMPARE_B] = 1;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT2_INT)
+    irq_to_ch[VECTOR_NUMBER_AGT2_INT] = 2;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT2_COMPARE_A)
+    irq_to_ch[VECTOR_NUMBER_AGT2_COMPARE_A] = 2;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT2_COMPARE_B)
+    irq_to_ch[VECTOR_NUMBER_AGT2_COMPARE_B] = 2;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT3_INT)
+    irq_to_ch[VECTOR_NUMBER_AGT3_INT] = 3;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT3_COMPARE_A)
+    irq_to_ch[VECTOR_NUMBER_AGT3_COMPARE_A] = 3;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT3_COMPARE_B)
+    irq_to_ch[VECTOR_NUMBER_AGT3_COMPARE_B] = 3;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT4_INT)
+    irq_to_ch[VECTOR_NUMBER_AGT4_INT] = 4;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT4_COMPARE_A)
+    irq_to_ch[VECTOR_NUMBER_AGT4_COMPARE_A] = 4;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT4_COMPARE_B)
+    irq_to_ch[VECTOR_NUMBER_AGT4_COMPARE_B] = 4;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT5_INT)
+    irq_to_ch[VECTOR_NUMBER_AGT5_INT] = 5;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT5_COMPARE_A)
+    irq_to_ch[VECTOR_NUMBER_AGT5_COMPARE_A] = 5;
+    #endif
+    #if defined(VECTOR_NUMBER_AGT5_COMPARE_B)
+    irq_to_ch[VECTOR_NUMBER_AGT5_COMPARE_B] = 5;
     #endif
     #if defined(VECTOR_NUMBER_IIC0_RXI)
     irq_to_ch[VECTOR_NUMBER_IIC0_RXI] = 0;

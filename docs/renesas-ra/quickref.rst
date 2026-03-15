@@ -77,18 +77,33 @@ Use the :mod:`time <time>` module::
 Timers
 ------
 
-The RA MCU's system timer peripheral provides a global microsecond timebase and generates interrupts for it. The software timer is available currently and there are unlimited number of them (memory permitting). There is no need to specify the timer id (id=-1 is supported at the moment) as it will default to this.
+The RA port provides software timers via ``Timer(-1)`` and, on board builds
+that enable them, hardware timers via positive timer ids.
 
-Use the :mod:`machine.Timer` class::
+Use ``Timer(-1)`` for a software timer::
 
     from machine import Timer
 
     tim = Timer(-1)
-    tim.init(period=5000, mode=Timer.ONE_SHOT, callback=lambda t:print(1))
+    tim.init(period=5000, mode=Timer.ONE_SHOT, callback=lambda t: print(1))
     tim.init(period=2000, mode=Timer.PERIODIC, callback=lambda t: print(2))
 
-Following functions are not supported at the present::
-    Timer(id)  # hardware timer is not supported.
+On builds with hardware timer support, use a positive id::
+
+    from machine import Timer
+
+    tim = Timer(1)
+    tim.init(freq=10, mode=Timer.PERIODIC, callback=lambda t: print("tick"))
+    print(tim.period())
+    print(tim.counter())
+
+For the current ``VK_RA4M2`` firmware in this tree:
+
+- ``Timer(1)`` .. ``Timer(6)`` are hardware AGT timers
+- ``Timer(-1)`` is a software timer
+- hardware timers support ``ONE_SHOT`` and ``PERIODIC`` modes
+- hardware timers also support ``period()``, ``counter()``, output compare,
+  input capture, and event count on supported pins
 
 Pins and GPIO
 -------------

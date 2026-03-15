@@ -42,6 +42,9 @@ FROZEN_MANIFEST ?= boards/manifest.py
 # include py core make definitions
 include $(TOP)/py/py.mk
 include $(TOP)/extmod/extmod.mk
+SRC_EXTMOD_C := $(filter-out extmod/machine_timer.c,$(SRC_EXTMOD_C))
+PY_O := $(filter-out $(BUILD)/extmod/machine_timer.o,$(PY_O))
+SRC_QSTR := $(filter-out extmod/machine_timer.c,$(SRC_QSTR))
 
 GIT_SUBMODULES += lib/fsp lib/tinyusb
 
@@ -242,6 +245,7 @@ SRC_C += \
 	uart.c \
 	gccollect.c \
 	help.c \
+	machine_timer.c \
 	machine_bitstream.c \
 	machine_dac.c \
 	machine_i2c.c \

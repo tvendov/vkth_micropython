@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (46)
+#define VECTOR_DATA_IRQ_COUNT    (64)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -33,6 +33,7 @@ void iic_master_eri_isr(void);
 void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
+void agt_int_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_RTC_ALARM ((IRQn_Type)0)  /* RTC ALARM (Alarm interrupt) */
@@ -131,6 +132,42 @@ void ctsu_end_isr(void);
 #define ICU_IRQ14_IRQn          ((IRQn_Type)44)  /* ICU IRQ14 (External pin interrupt 14) */
 #define VECTOR_NUMBER_ICU_IRQ15 ((IRQn_Type)45)  /* ICU IRQ15 (External pin interrupt 15) */
 #define ICU_IRQ15_IRQn          ((IRQn_Type)45)  /* ICU IRQ15 (External pin interrupt 15) */
+#define VECTOR_NUMBER_AGT0_INT ((IRQn_Type)46)  /* AGT0 INT (AGT interrupt) */
+#define AGT0_INT_IRQn          ((IRQn_Type)46)  /* AGT0 INT (AGT interrupt) */
+#define VECTOR_NUMBER_AGT1_INT ((IRQn_Type)47)  /* AGT1 INT (AGT interrupt) */
+#define AGT1_INT_IRQn          ((IRQn_Type)47)  /* AGT1 INT (AGT interrupt) */
+#define VECTOR_NUMBER_AGT2_INT ((IRQn_Type)48)  /* AGT2 INT (AGT interrupt) */
+#define AGT2_INT_IRQn          ((IRQn_Type)48)  /* AGT2 INT (AGT interrupt) */
+#define VECTOR_NUMBER_AGT3_INT ((IRQn_Type)49)  /* AGT3 INT (AGT interrupt) */
+#define AGT3_INT_IRQn          ((IRQn_Type)49)  /* AGT3 INT (AGT interrupt) */
+#define VECTOR_NUMBER_AGT4_INT ((IRQn_Type)50)  /* AGT4 INT (AGT interrupt) */
+#define AGT4_INT_IRQn          ((IRQn_Type)50)  /* AGT4 INT (AGT interrupt) */
+#define VECTOR_NUMBER_AGT5_INT ((IRQn_Type)51)  /* AGT5 INT (AGT interrupt) */
+#define AGT5_INT_IRQn          ((IRQn_Type)51)  /* AGT5 INT (AGT interrupt) */
+#define VECTOR_NUMBER_AGT0_COMPARE_A ((IRQn_Type)52)  /* AGT0 COMPAREA (Compare match A) */
+#define AGT0_COMPARE_A_IRQn          ((IRQn_Type)52)  /* AGT0 COMPAREA (Compare match A) */
+#define VECTOR_NUMBER_AGT0_COMPARE_B ((IRQn_Type)53)  /* AGT0 COMPAREB (Compare match B) */
+#define AGT0_COMPARE_B_IRQn          ((IRQn_Type)53)  /* AGT0 COMPAREB (Compare match B) */
+#define VECTOR_NUMBER_AGT1_COMPARE_A ((IRQn_Type)54)  /* AGT1 COMPAREA (Compare match A) */
+#define AGT1_COMPARE_A_IRQn          ((IRQn_Type)54)  /* AGT1 COMPAREA (Compare match A) */
+#define VECTOR_NUMBER_AGT1_COMPARE_B ((IRQn_Type)55)  /* AGT1 COMPAREB (Compare match B) */
+#define AGT1_COMPARE_B_IRQn          ((IRQn_Type)55)  /* AGT1 COMPAREB (Compare match B) */
+#define VECTOR_NUMBER_AGT2_COMPARE_A ((IRQn_Type)56)  /* AGT2 COMPAREA (Compare match A) */
+#define AGT2_COMPARE_A_IRQn          ((IRQn_Type)56)  /* AGT2 COMPAREA (Compare match A) */
+#define VECTOR_NUMBER_AGT2_COMPARE_B ((IRQn_Type)57)  /* AGT2 COMPAREB (Compare match B) */
+#define AGT2_COMPARE_B_IRQn          ((IRQn_Type)57)  /* AGT2 COMPAREB (Compare match B) */
+#define VECTOR_NUMBER_AGT3_COMPARE_A ((IRQn_Type)58)  /* AGT3 COMPAREA (Compare match A) */
+#define AGT3_COMPARE_A_IRQn          ((IRQn_Type)58)  /* AGT3 COMPAREA (Compare match A) */
+#define VECTOR_NUMBER_AGT3_COMPARE_B ((IRQn_Type)59)  /* AGT3 COMPAREB (Compare match B) */
+#define AGT3_COMPARE_B_IRQn          ((IRQn_Type)59)  /* AGT3 COMPAREB (Compare match B) */
+#define VECTOR_NUMBER_AGT4_COMPARE_A ((IRQn_Type)60)  /* AGT4 COMPAREA (Compare match A) */
+#define AGT4_COMPARE_A_IRQn          ((IRQn_Type)60)  /* AGT4 COMPAREA (Compare match A) */
+#define VECTOR_NUMBER_AGT4_COMPARE_B ((IRQn_Type)61)  /* AGT4 COMPAREB (Compare match B) */
+#define AGT4_COMPARE_B_IRQn          ((IRQn_Type)61)  /* AGT4 COMPAREB (Compare match B) */
+#define VECTOR_NUMBER_AGT5_COMPARE_A ((IRQn_Type)62)  /* AGT5 COMPAREA (Compare match A) */
+#define AGT5_COMPARE_A_IRQn          ((IRQn_Type)62)  /* AGT5 COMPAREA (Compare match A) */
+#define VECTOR_NUMBER_AGT5_COMPARE_B ((IRQn_Type)63)  /* AGT5 COMPAREB (Compare match B) */
+#define AGT5_COMPARE_B_IRQn          ((IRQn_Type)63)  /* AGT5 COMPAREB (Compare match B) */
 
 #ifdef __cplusplus
 }

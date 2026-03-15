@@ -1,12 +1,12 @@
 /*
-                  Linker File for RA4M2 MCU (384KB Flash, 128KB RAM)
+                  Linker File for RA4M2 MCU (512KB Flash, 128KB RAM)
 */
 
 /* Linker script to configure memory regions. */
 MEMORY
 {
-  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00048800  /* 290KB/384KB */
-  FLASH_FS (r)       : ORIGIN = 0x00048800, LENGTH = 0x00017800  /* 94KB/384KB */
+  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x0004D800  /* 310KB/512KB */
+  FLASH_FS (r)       : ORIGIN = 0x0004D800, LENGTH = 0x00032800  /* 202KB/512KB */
   RAM (rwx)          : ORIGIN = 0x20000000, LENGTH = 0x00020000  /* 128KB */
   DATA_FLASH (rx)    : ORIGIN = 0x08000000, LENGTH = 0x00002000  /* 8KB */
   ID_CODE (rx)       : ORIGIN = 0x01010018, LENGTH = 0x00000020  /* 32bytes */
@@ -328,5 +328,3 @@ _heap_end = __HeapLimit; /* tunable */
 
 _micropy_hw_internal_flash_storage_start = ORIGIN(FLASH_FS);
 _micropy_hw_internal_flash_storage_end   = ORIGIN(FLASH_FS) + LENGTH(FLASH_FS);
-
-

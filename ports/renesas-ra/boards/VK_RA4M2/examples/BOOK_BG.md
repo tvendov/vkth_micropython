@@ -2,7 +2,7 @@
 
 ## Цел
 
-Тази книга е направена върху реално наличния пакет от `67` примерни `.py` файла за `VK_RA4M2`.
+Тази книга е направена върху реално наличния пакет от примерни `.py` файла за `VK_RA4M2`.
 
 Тук целта не е само да се изброят файловете.
 
@@ -53,6 +53,8 @@
 
 ### Част IV: Таймери, прекъсвания и време
 - Глава 14. Закъснения, хардуерни таймери и `Timer(-1)`
+- Подглава 14.1. Хардуерни таймери: `periodic`, `one-shot`, `counter`, `period`, `output compare`, `input capture`, `event count`
+- Подглава 14.2. Практически checklist за AGT тестове
 - Глава 15. Прекъсвания
 - Глава 16. Дебаунс на бутон
 - Глава 17. Четене на бутон: `polling`, IRQ, `Timer(-1)`, debounce и събития
@@ -118,7 +120,7 @@
 - SoftSPI: наличен
 - TouchPad входове: `12 броя` -> `P205`, `P206`, `P407`, `P408`, `P409`, `P410`, `P411`, `P412`, `P413`, `P414`, `P415`, `P708`
 - CTSU специален пин: `P207 = TSCAP`
-- Хардуерни таймери: `2 броя` -> `Timer(1)`, `Timer(2)`
+- Хардуерни таймери: `6 броя` -> `Timer(1)`, `Timer(2)`, `Timer(3)`, `Timer(4)`, `Timer(5)`, `Timer(6)`
 - Софтуерен таймер: `Timer(-1)`
 - RTC: `1 брой`
 - Вътрешна файлова система: `/flash`
@@ -175,6 +177,11 @@
 - `Таймери и закъснения` -> `examples/23_timing/01_delays_and_timers.py`
 - `Софтуерен таймер` -> `examples/23_timing/04_software_timer_minus1.py`
 - `Хардуерен срещу софтуерен таймер` -> `examples/23_timing/05_timer_compare_hw_sw.py`
+- `Хардуерен periodic и one-shot таймер` -> `examples/23_timing/13_hardware_timer_periodic_oneshot.py`
+- `Timer.period()` и `Timer.counter()` при хардуерен таймер -> `examples/23_timing/13_hardware_timer_periodic_oneshot.py`
+- `Хардуерен output compare callback` -> `examples/23_timing/14_hardware_timer_output_compare.py`
+- `Хардуерен input capture: период и pulse width` -> `examples/23_timing/15_hardware_timer_input_capture.py`
+- `Хардуерен event count и callback на всеки N импулса` -> `examples/23_timing/16_hardware_timer_event_count.py`
 - `time.ticks_us()` и относителни измервания -> `examples/23_timing/07_adc_timing_measure.py`
 - `Прекъсвания` -> `examples/23_timing/02_interrupts.py`
 - `Измерване на interrupt latency` -> `examples/23_timing/08_interrupt_latency_measure.py`
@@ -928,7 +935,7 @@ time.sleep_ms(300)  # Това закъснение блокира изпълн�
 ```python
 from machine import Timer  # Импортираме Timer за хардуерния таймер.
 
-timer = Timer(1)  # Използваме първия от двата налични machine.Timer канала.
+timer = Timer(1)  # Използваме един от наличните хардуерни machine.Timer канали от Timer(1) до Timer(6).
 timer.init(freq=4, callback=timer_callback, hard=False)  # Стартираме Timer(1) на 4 Hz с callback извън hard IRQ контекст.
 ```
 
@@ -958,7 +965,7 @@ if not started:  # Ако още не сме стартирали таймера
 
 Тук трябва да остане ясно:
 
-- `Timer(1)` и `Timer(2)` са хардуерни
+- `Timer(1)` до `Timer(6)` са хардуерни
 - `Timer(-1)` е софтуерен
 - `asyncio` е още една неблокираща алтернатива
 
@@ -974,6 +981,180 @@ if not started:  # Ако още не сме стартирали таймера
 - `examples/23_timing/04_software_timer_minus1.py`
 - `examples/23_timing/05_timer_compare_hw_sw.py`
 - `examples/23_timing/07_adc_timing_measure.py`
+- `examples/23_timing/13_hardware_timer_periodic_oneshot.py`
+- `examples/23_timing/14_hardware_timer_output_compare.py`
+- `examples/23_timing/15_hardware_timer_input_capture.py`
+- `examples/23_timing/16_hardware_timer_event_count.py`
+
+#### Подглава 14.1. Хардуерни таймери
+
+След базовата идея за `Timer(1)` и `Timer(-1)` е важно да се види какво реално може хардуерният таймер на този порт.
+
+В текущия firmware за `VK_RA4M2`:
+
+- `Timer(1)` до `Timer(6)` са хардуерни AGT таймери
+- `Timer(-1)` е софтуерен таймер върху системния tick
+- хардуерните таймери поддържат `Timer.PERIODIC` и `Timer.ONE_SHOT`
+- налични са `freq()`, `period()` и `counter()`
+- налични са `output compare`, `input capture` и `event count`
+- при `event count` няма channel callback; ако искате callback на всеки `N` импулса, ползвате базовия `Timer.callback()` и задавате `period=N`
+
+Базов пример за periodic и one-shot:
+
+```python
+from machine import Timer  # Импортираме Timer, за да използваме хардуерните таймери.
+
+periodic_timer = Timer(1)  # Вземаме Timer(1) за периодичен режим.
+oneshot_timer = Timer(2)  # Вземаме Timer(2) за еднократен режим.
+
+periodic_timer.init(mode=Timer.PERIODIC, freq=2, callback=periodic_callback, hard=False)  # Пускаме периодичен таймер на 2 Hz.
+print(periodic_timer.period())  # Показваме периода в сурови AGT counts.
+print(periodic_timer.counter())  # Показваме текущия суров counter.
+
+oneshot_timer.init(mode=Timer.ONE_SHOT, freq=2, callback=oneshot_callback, hard=False)  # Пускаме еднократен таймер със същия базов период.
+```
+
+Това се вижда подробно в:
+
+- `examples/23_timing/13_hardware_timer_periodic_oneshot.py`
+
+Пример за output compare callback:
+
+```python
+from machine import Timer  # Импортираме Timer, защото output compare работи през хардуерния таймер.
+
+timer = Timer(1)  # Използваме Timer(1) като базов таймер за compare събитията.
+timer.init(mode=Timer.PERIODIC, freq=10, callback=cycle_callback, hard=False)  # Пускаме бавен периодичен таймер на 10 Hz.
+
+period_counts = timer.period()  # Вземаме периода в сурови counts.
+channel_a = timer.channel(1, mode=Timer.OC, compare=period_counts // 4, callback=compare_a_callback)  # Настройваме compare A на 1/4 от периода.
+channel_b = timer.channel(2, mode=Timer.OC, compare=(period_counts * 3) // 4, callback=compare_b_callback)  # Настройваме compare B на 3/4 от периода.
+```
+
+Това се вижда подробно в:
+
+- `examples/23_timing/14_hardware_timer_output_compare.py`
+
+Пример за input capture:
+
+```python
+from machine import Pin, PWM, Timer  # Импортираме Pin, PWM и Timer за генерация и измерване на тестов сигнал.
+
+signal_pwm = PWM(Pin("P107"), freq=1000, duty=50)  # Генерираме тестов квадратен сигнал 1 kHz на P107.
+timer = Timer(1)  # Използваме Timer(1) за input capture измерването.
+
+timer.init(mode=Timer.PERIODIC, freq=1_000_000, hard=False)  # Пускаме Timer(1) на 1 MHz, за да е 1 count приблизително 1 us.
+period_channel = timer.channel(0, mode=Timer.IC, pin=Pin("P100"), measure=Timer.IC_PERIOD, edge=Timer.RISING)  # Мерим периода на сигнала на P100.
+```
+
+Това се вижда подробно в:
+
+- `examples/23_timing/15_hardware_timer_input_capture.py`
+
+Пример за event count и callback на всеки `N` импулса:
+
+```python
+from machine import Pin, PWM, Timer  # Импортираме Pin, PWM и Timer за броене на входни импулси.
+
+signal_pwm = PWM(Pin("P107"), freq=200, duty=50)  # Генерираме входен тестов сигнал 200 Hz на P107.
+timer = Timer(1)  # Използваме Timer(1) като хардуерен брояч на събития.
+
+timer.init(mode=Timer.PERIODIC, period=20, callback=every_n_events_callback, hard=False)  # Искаме callback на всеки 20 импулса.
+counter_channel = timer.channel(0, mode=Timer.IC, pin=Pin("P100"), measure=Timer.IC_EVENT_COUNT, edge=Timer.RISING)  # Пускаме channel(0) в event count режим.
+print(counter_channel.capture())  # Четем частичния брой импулси в текущия прозорец.
+```
+
+Тук е важната идея:
+
+- channel callback за `Timer.IC_EVENT_COUNT` няма
+- `capture()` се ползва за polling на частичния брой
+- базовият `Timer.callback()` се ползва когато искате реакция на всеки `N` входни импулса
+
+Това се вижда подробно в:
+
+- `examples/23_timing/16_hardware_timer_event_count.py`
+
+#### Подглава 14.2. Практически checklist за AGT тестове
+
+Тази подглава е кратък runtime checklist за проверка на новия хардуерен timer слой директно на борда.
+
+Ако искаш отделен файл за работа до платката, използвай и:
+
+- `examples/AGT_TEST_CHECKLIST.md`
+
+Преди старта:
+
+- качи актуалния firmware на борда
+- качи актуалната директория `examples/` на `/flash/examples`
+- отвори REPL, за да виждаш `print()` резултатите
+- ако ще гледаш физически изходи, подготви логически анализатор или осцилоскоп
+
+Бърз ред на тестовете:
+
+1. Стартирай `examples/23_timing/13_hardware_timer_periodic_oneshot.py`
+2. Стартирай `examples/23_timing/14_hardware_timer_output_compare.py`
+3. Свържи `P107 -> P100` с джъмпер
+4. Стартирай `examples/23_timing/15_hardware_timer_input_capture.py`
+5. Остави същия джъмпер `P107 -> P100`
+6. Стартирай `examples/23_timing/16_hardware_timer_event_count.py`
+
+Тест 1: periodic и one-shot
+
+- `Timer(1)` трябва да сработва многократно
+- `Timer(2)` трябва да сработи само веднъж
+- `Timer(1).counter()` трябва да се променя, докато таймерът работи
+- проблем е ако one-shot не дойде или ако дойде повече от веднъж
+
+Тест 2: output compare callback
+
+- `Cycle-end callback count` трябва да расте
+- `Compare A callback count` трябва да расте
+- `Compare B callback count` трябва да расте
+- проблем е ако cycle callback работи, а compare callback-ите стоят на `0`
+
+Опционален хардуерен тест за output compare:
+
+- за `Timer(1)` можеш да добавиш `pin=Pin("P500")` на `channel(1)`
+- за `Timer(1)` можеш да добавиш `pin=Pin("P501")` на `channel(2)`
+- на осцилоскоп очаквай събития около `1/4` и `3/4` от периода
+
+Тест 3: input capture
+
+- нужен е джъмпер `P107 -> P100`
+- при PWM `1 kHz / 50% duty` очаквай `Измерен период` около `1000`
+- при същия сигнал очаквай `Измерена high ширина` около `500`
+- проблем е ако стойностите са `0`, силно шумни или high ширината е по-голяма от периода
+
+Тест 4: event count
+
+- нужен е джъмпер `P107 -> P100`
+- входният PWM е `200 Hz`
+- прозорецът е `20` импулса
+- за около `1.1 s` очаквай приблизително `10` или `11` завършени прозореца
+- `Частичен брой в текущия прозорец` трябва да е между `0` и `19`
+- `Приблизителен общ брой импулси` трябва да е близо до `220`
+
+Тук е важно:
+
+- при `Timer.IC_EVENT_COUNT` няма channel callback
+- `capture()` се ползва за polling на частичния брой
+- базовият `Timer.callback()` се ползва когато искаш реакция на всеки `N` импулса
+
+Ако нещо не работи:
+
+- провери първо джъмпера `P107 -> P100`
+- провери дали не е останал стар обект `PWM` или `Timer` от предишен тест
+- извикай `deinit()` на използваните обекти и повтори теста
+- ако `periodic` работи, но `compare` не работи, проблемът е в compare IRQ path-а
+- ако `compare` работи, но `capture` и `event count` не работят, проблемът е в AGT input pin или input mode path-а
+
+Минимален smoke test:
+
+1. `examples/23_timing/13_hardware_timer_periodic_oneshot.py`
+2. `examples/23_timing/15_hardware_timer_input_capture.py` с джъмпер `P107 -> P100`
+3. `examples/23_timing/16_hardware_timer_event_count.py` със същия джъмпер
+
+Ако тези три минат, базовият AGT слой е в добро състояние.
 
 #### Резюме
 - Главата развива темата „Закъснения, хардуерни таймери и `Timer(-1)`“ около време, събития и реакция на системата.
@@ -2803,6 +2984,11 @@ strip.write()  # Изпращаме буфера към модула през SC
 - `examples/23_timing/10_button_irq_deferred.py` : бутон по прекъсване с отложена debounce обработка
 - `examples/23_timing/11_button_soft_timer_hold.py` : `Timer(-1)` sampler с `PRESS`, `RELEASE`, `HOLD_START` и `HOLD_REPEAT`
 - `examples/23_timing/12_button_shift_debounce.py` : debounce чрез битово изместване и shift-register история
+- `examples/23_timing/13_hardware_timer_periodic_oneshot.py` : хардуерен `Timer.PERIODIC`, `Timer.ONE_SHOT`, `period()` и `counter()`
+- `examples/23_timing/14_hardware_timer_output_compare.py` : `output compare` callback-и за `channel(1)` и `channel(2)`
+- `examples/23_timing/15_hardware_timer_input_capture.py` : `input capture` за период и `pulse width`
+- `examples/23_timing/16_hardware_timer_event_count.py` : `event count` и callback на всеки `N` импулса чрез базовия timer callback
+- `examples/AGT_TEST_CHECKLIST.md` : практичен runtime checklist за AGT таймерния слой на борда
 - `examples/24_i2c/01_i2c_master_basic.py` : базов I2C master
 - `examples/24_i2c/02_i2c_runtime_pins.py` : I2C с runtime зададени пинове
 - `examples/24_i2c/03_softi2c_basic.py` : SoftI2C

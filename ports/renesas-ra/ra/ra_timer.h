@@ -25,6 +25,7 @@
 #ifndef RA_RA_TIMER_H_
 #define RA_RA_TIMER_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 void SysTick_Handler(void);
@@ -35,14 +36,60 @@ uint32_t HAL_GetTick(void);
 #define MSEC_COUNT    (PCLK / DEF_CLKDEV / 100)
 
 typedef void (*AGT_TIMER_CB)(void *);
+typedef enum {
+    RA_AGT_TIMER_MODE_PERIODIC = 0,
+    RA_AGT_TIMER_MODE_ONE_SHOT = 1,
+} ra_agt_timer_mode_t;
+typedef enum {
+    RA_AGT_TIMER_IRQ_EVENT_NONE = 0,
+    RA_AGT_TIMER_IRQ_EVENT_CYCLE_END = 1,
+    RA_AGT_TIMER_IRQ_EVENT_CAPTURE = 2,
+    RA_AGT_TIMER_IRQ_EVENT_COMPARE_A = 3,
+    RA_AGT_TIMER_IRQ_EVENT_COMPARE_B = 4,
+} ra_agt_timer_irq_event_t;
+typedef enum {
+    RA_AGT_TIMER_CAPTURE_EDGE_RISING = 0,
+    RA_AGT_TIMER_CAPTURE_EDGE_FALLING = 1,
+    RA_AGT_TIMER_CAPTURE_EDGE_BOTH = 8,
+} ra_agt_timer_capture_edge_t;
+typedef enum {
+    RA_AGT_TIMER_CAPTURE_MEASURE_PERIOD = 0,
+    RA_AGT_TIMER_CAPTURE_MEASURE_PULSE_WIDTH_LOW = 1,
+    RA_AGT_TIMER_CAPTURE_MEASURE_PULSE_WIDTH_HIGH = 2,
+    RA_AGT_TIMER_CAPTURE_MEASURE_EVENT_COUNT = 3,
+} ra_agt_timer_capture_measure_t;
 
+bool ra_agt_timer_is_valid(uint32_t ch);
 void ra_agt_timer_set_callback(uint32_t ch, AGT_TIMER_CB cb, void *param);
 void ra_agt_int_isr0(void);
 void ra_agt_int_isr1(void);
+void ra_agt_timer_set_mode(uint32_t ch, ra_agt_timer_mode_t mode);
+ra_agt_timer_mode_t ra_agt_timer_get_mode(uint32_t ch);
 void ra_agt_timer_start(uint32_t ch);
 void ra_agt_timer_stop(uint32_t ch);
 void ra_agt_timer_set_freq(uint32_t ch, float freq);
 float ra_agt_timer_get_freq(uint32_t ch);
+bool ra_agt_timer_set_period(uint32_t ch, uint32_t period_counts);
+uint32_t ra_agt_timer_get_period(uint32_t ch);
+bool ra_agt_timer_set_counter(uint32_t ch, uint32_t counter);
+uint32_t ra_agt_timer_get_counter(uint32_t ch);
+bool ra_agt_timer_is_output_channel(uint32_t ch, uint32_t output);
+bool ra_agt_timer_is_input_capture_supported(uint32_t ch);
+bool ra_agt_timer_channel_pin_assign(uint32_t ch, uint32_t output, uint32_t pin);
+void ra_agt_timer_channel_pin_release(uint32_t ch, uint32_t output);
+bool ra_agt_timer_input_pin_assign(uint32_t ch, uint32_t pin, ra_agt_timer_capture_measure_t measure, ra_agt_timer_capture_edge_t edge);
+void ra_agt_timer_input_pin_release(uint32_t ch);
+bool ra_agt_timer_input_is_configured(uint32_t ch);
+bool ra_agt_timer_has_compare(uint32_t ch, uint32_t output);
+bool ra_agt_timer_set_compare(uint32_t ch, uint32_t output, uint32_t compare);
+uint32_t ra_agt_timer_get_compare(uint32_t ch, uint32_t output);
+uint32_t ra_agt_timer_get_capture(uint32_t ch);
+ra_agt_timer_irq_event_t ra_agt_timer_get_irq_event(uint32_t ch);
+void ra_agt_timer_set_compare_irq(uint32_t ch, uint32_t output, bool enable);
+void ra_agt_timer_set_fast_irq(uint32_t ch, bool fast_irq, void *fast_entry, uintptr_t fast_param);
+bool ra_agt_timer_get_fast_irq(uint32_t ch);
+void *ra_agt_timer_get_fast_entry(uint32_t ch);
+uintptr_t ra_agt_timer_get_fast_param(uint32_t ch);
 void ra_agt_timer_init(uint32_t ch, float freq);
 void ra_agt_timer_deinit(uint32_t ch);
 __WEAK void agt_int_isr(void);

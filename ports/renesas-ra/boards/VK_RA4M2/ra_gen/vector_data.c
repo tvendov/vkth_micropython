@@ -58,6 +58,24 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [43] = r_icu_isr,         /* ICU IRQ13 (External pin interrupt 13) */
     [44] = r_icu_isr,         /* ICU IRQ14 (External pin interrupt 14) */
     [45] = r_icu_isr,         /* ICU IRQ15 (External pin interrupt 15) */
+    [46] = agt_int_isr,         /* AGT0 INT (AGT interrupt) */
+    [47] = agt_int_isr,         /* AGT1 INT (AGT interrupt) */
+    [48] = agt_int_isr,         /* AGT2 INT (AGT interrupt) */
+    [49] = agt_int_isr,         /* AGT3 INT (AGT interrupt) */
+    [50] = agt_int_isr,         /* AGT4 INT (AGT interrupt) */
+    [51] = agt_int_isr,         /* AGT5 INT (AGT interrupt) */
+    [52] = agt_int_isr,         /* AGT0 COMPAREA (Compare match A) */
+    [53] = agt_int_isr,         /* AGT0 COMPAREB (Compare match B) */
+    [54] = agt_int_isr,         /* AGT1 COMPAREA (Compare match A) */
+    [55] = agt_int_isr,         /* AGT1 COMPAREB (Compare match B) */
+    [56] = agt_int_isr,         /* AGT2 COMPAREA (Compare match A) */
+    [57] = agt_int_isr,         /* AGT2 COMPAREB (Compare match B) */
+    [58] = agt_int_isr,         /* AGT3 COMPAREA (Compare match A) */
+    [59] = agt_int_isr,         /* AGT3 COMPAREB (Compare match B) */
+    [60] = agt_int_isr,         /* AGT4 COMPAREA (Compare match A) */
+    [61] = agt_int_isr,         /* AGT4 COMPAREB (Compare match B) */
+    [62] = agt_int_isr,         /* AGT5 COMPAREA (Compare match A) */
+    [63] = agt_int_isr,         /* AGT5 COMPAREB (Compare match B) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -107,5 +125,23 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [43] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ13),         /* ICU IRQ13 (External pin interrupt 13) */
     [44] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ14),         /* ICU IRQ14 (External pin interrupt 14) */
     [45] = BSP_PRV_IELS_ENUM(EVENT_ICU_IRQ15),         /* ICU IRQ15 (External pin interrupt 15) */
+    [46] = BSP_PRV_IELS_ENUM(EVENT_AGT0_INT),         /* AGT0 INT (AGT interrupt) */
+    [47] = BSP_PRV_IELS_ENUM(EVENT_AGT1_INT),         /* AGT1 INT (AGT interrupt) */
+    [48] = BSP_PRV_IELS_ENUM(EVENT_AGT2_INT),         /* AGT2 INT (AGT interrupt) */
+    [49] = BSP_PRV_IELS_ENUM(EVENT_AGT3_INT),         /* AGT3 INT (AGT interrupt) */
+    [50] = BSP_PRV_IELS_ENUM(EVENT_AGT4_INT),         /* AGT4 INT (AGT interrupt) */
+    [51] = BSP_PRV_IELS_ENUM(EVENT_AGT5_INT),         /* AGT5 INT (AGT interrupt) */
+    [52] = BSP_PRV_IELS_ENUM(EVENT_AGT0_COMPARE_A),         /* AGT0 COMPAREA (Compare match A) */
+    [53] = BSP_PRV_IELS_ENUM(EVENT_AGT0_COMPARE_B),         /* AGT0 COMPAREB (Compare match B) */
+    [54] = BSP_PRV_IELS_ENUM(EVENT_AGT1_COMPARE_A),         /* AGT1 COMPAREA (Compare match A) */
+    [55] = BSP_PRV_IELS_ENUM(EVENT_AGT1_COMPARE_B),         /* AGT1 COMPAREB (Compare match B) */
+    [56] = BSP_PRV_IELS_ENUM(EVENT_AGT2_COMPARE_A),         /* AGT2 COMPAREA (Compare match A) */
+    [57] = BSP_PRV_IELS_ENUM(EVENT_AGT2_COMPARE_B),         /* AGT2 COMPAREB (Compare match B) */
+    [58] = BSP_PRV_IELS_ENUM(EVENT_AGT3_COMPARE_A),         /* AGT3 COMPAREA (Compare match A) */
+    [59] = BSP_PRV_IELS_ENUM(EVENT_AGT3_COMPARE_B),         /* AGT3 COMPAREB (Compare match B) */
+    [60] = BSP_PRV_IELS_ENUM(EVENT_AGT4_COMPARE_A),         /* AGT4 COMPAREA (Compare match A) */
+    [61] = BSP_PRV_IELS_ENUM(EVENT_AGT4_COMPARE_B),         /* AGT4 COMPAREB (Compare match B) */
+    [62] = BSP_PRV_IELS_ENUM(EVENT_AGT5_COMPARE_A),         /* AGT5 COMPAREA (Compare match A) */
+    [63] = BSP_PRV_IELS_ENUM(EVENT_AGT5_COMPARE_B),         /* AGT5 COMPAREB (Compare match B) */
 };
         #endif

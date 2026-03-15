@@ -263,13 +263,14 @@ static mp_obj_t machine_pin_high(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_high_obj, machine_pin_high);
 
-// pin.irq(handler=None, trigger=IRQ_FALLING|IRQ_RISING, hard=False)
+// pin.irq(handler=None, trigger=IRQ_FALLING|IRQ_RISING, hard=False, fast=False)
 static mp_obj_t machine_pin_irq(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    enum { ARG_handler, ARG_trigger, ARG_hard };
+    enum { ARG_handler, ARG_trigger, ARG_hard, ARG_fast };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_handler, MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
         { MP_QSTR_trigger, MP_ARG_INT, {.u_int = MP_HAL_PIN_TRIGGER_RISING | MP_HAL_PIN_TRIGGER_FALLING} },
         { MP_QSTR_hard, MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_fast, MP_ARG_BOOL, {.u_bool = false} },
     };
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -282,7 +283,7 @@ static mp_obj_t machine_pin_irq(size_t n_args, const mp_obj_t *pos_args, mp_map_
     if (n_args > 1 || kw_args->used != 0) {
         // configure irq
         extint_register_pin(self, args[ARG_trigger].u_int,
-            args[ARG_hard].u_bool, args[ARG_handler].u_obj);
+            args[ARG_hard].u_bool, args[ARG_fast].u_bool, args[ARG_handler].u_obj);
     }
 
     // TODO should return an IRQ object

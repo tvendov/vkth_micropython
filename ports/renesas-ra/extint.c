@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "py/objfun.h"
 #include "py/runtime.h"
 #include "py/gc.h"
 #include "py/mphal.h"
@@ -93,15 +94,48 @@ typedef struct {
 
 static uint8_t pyb_extint_mode[EXTI_NUM_VECTORS];
 static bool pyb_extint_hard_irq[EXTI_NUM_VECTORS];
+static bool pyb_extint_fast_irq[EXTI_NUM_VECTORS];
+static void *pyb_extint_fast_entry[EXTI_NUM_VECTORS];
 
 // The callback arg is a small-int or a ROM Pin object, so no need to scan by GC
 mp_obj_t pyb_extint_callback_arg[EXTI_NUM_VECTORS];
 uint extint_irq_no[EXTI_NUM_VECTORS];
 
+typedef mp_uint_t (*extint_fast_asm_fun_t)(mp_uint_t);
+
+static void *extint_get_fast_asm_entry(mp_obj_t handler) {
+    if (handler == mp_const_none) {
+        return NULL;
+    }
+
+    #if MICROPY_EMIT_INLINE_THUMB
+    if (mp_obj_is_type(handler, &mp_type_fun_asm)) {
+        mp_obj_fun_asm_t *fun = MP_OBJ_TO_PTR(handler);
+        if (fun->n_args != 1) {
+            mp_raise_TypeError(MP_ERROR_TEXT("fast IRQ handler must take 1 argument"));
+        }
+        return MICROPY_MAKE_POINTER_CALLABLE((void *)fun->fun_data);
+    }
+    #endif
+
+    return NULL;
+}
+
+static void extint_set_fast_state(uint32_t line, bool fast_irq, void *fast_entry) {
+    pyb_extint_fast_irq[line] = fast_irq;
+    pyb_extint_fast_entry[line] = fast_entry;
+}
+
 void extint_callback(void *param) {
     uint irq_no = *((uint *)param);
     mp_obj_t *cb = &MP_STATE_PORT(pyb_extint_callback)[irq_no];
     if (*cb != mp_const_none) {
+        if (pyb_extint_fast_irq[irq_no]) {
+            extint_fast_asm_fun_t fast_fn = (extint_fast_asm_fun_t)pyb_extint_fast_entry[irq_no];
+            fast_fn((mp_uint_t)irq_no);
+            return;
+        }
+
         mp_sched_lock();
         // When executing code within a handler we must lock the GC to prevent
         // any memory allocations.  We must also catch any exceptions.
@@ -154,6 +188,7 @@ uint extint_register(mp_obj_t pin_obj, uint32_t mode, uint32_t pull, mp_obj_t ca
 
     *cb = callback_obj;
     pyb_extint_mode[v_line] = mode;
+    extint_set_fast_state(v_line, false, NULL);
     pyb_extint_callback_arg[v_line] = MP_OBJ_NEW_SMALL_INT(v_line);
     if (*cb != mp_const_none) {
         pyb_extint_callback_arg[v_line] = MP_OBJ_NEW_SMALL_INT(v_line);
@@ -176,8 +211,9 @@ uint extint_register(mp_obj_t pin_obj, uint32_t mode, uint32_t pull, mp_obj_t ca
 }
 
 // This function is intended to be used by the Pin.irq() method
-void extint_register_pin(const machine_pin_obj_t *pin, uint32_t mode, bool hard_irq, mp_obj_t callback_obj) {
+void extint_register_pin(const machine_pin_obj_t *pin, uint32_t mode, bool hard_irq, bool fast_irq, mp_obj_t callback_obj) {
     uint32_t line = 0;
+    void *fast_entry = NULL;
 
     bool find = ra_icu_find_irq_no((uint32_t)pin->pin, (uint8_t *)&line);
     if (!find) {
@@ -196,10 +232,18 @@ void extint_register_pin(const machine_pin_obj_t *pin, uint32_t mode, bool hard_
         }
     }
 
+    if (callback_obj != mp_const_none && fast_irq) {
+        fast_entry = extint_get_fast_asm_entry(callback_obj);
+        if (fast_entry == NULL) {
+            mp_raise_TypeError(MP_ERROR_TEXT("fast IRQ requires @micropython.asm_thumb handler"));
+        }
+    }
+
     extint_disable(line);
 
     *cb = callback_obj;
     pyb_extint_mode[line] = mode;
+    extint_set_fast_state(line, fast_entry != NULL, fast_entry);
 
     if (*cb != mp_const_none) {
         // Configure and enable the callback
@@ -390,6 +434,7 @@ void extint_init0(void) {
     ra_icu_deinit();
     for (int i = 0; i < PYB_EXTI_NUM_VECTORS; i++) {
         MP_STATE_PORT(pyb_extint_callback)[i] = mp_const_none;
+        extint_set_fast_state(i, false, NULL);
     }
 }
 
