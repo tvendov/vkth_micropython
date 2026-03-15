@@ -39,122 +39,71 @@
 
 #define RA_SCI_WS2812_SCMR_RESERVED_MASK (0x62U)
 
-static R_SCI0_Type *ws2812_regs[] = {
+// Sparse arrays indexed directly by SCI channel number (0..SCI_CH_MAX-1).
+// Slots for channels not present on this board are NULL / 0.
+static R_SCI0_Type *ws2812_regs[SCI_CH_MAX] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
-    R_SCI0,
+    [0] = R_SCI0,
     #endif
     #if defined(VECTOR_NUMBER_SCI1_RXI)
-    R_SCI1,
+    [1] = R_SCI1,
     #endif
     #if defined(VECTOR_NUMBER_SCI2_RXI)
-    R_SCI2,
+    [2] = R_SCI2,
     #endif
     #if defined(VECTOR_NUMBER_SCI3_RXI)
-    R_SCI3,
+    [3] = R_SCI3,
     #endif
     #if defined(VECTOR_NUMBER_SCI4_RXI)
-    R_SCI4,
+    [4] = R_SCI4,
     #endif
     #if defined(VECTOR_NUMBER_SCI5_RXI)
-    R_SCI5,
+    [5] = R_SCI5,
     #endif
     #if defined(VECTOR_NUMBER_SCI6_RXI)
-    R_SCI6,
+    [6] = R_SCI6,
     #endif
     #if defined(VECTOR_NUMBER_SCI7_RXI)
-    R_SCI7,
+    [7] = R_SCI7,
     #endif
     #if defined(VECTOR_NUMBER_SCI8_RXI)
-    R_SCI8,
+    [8] = R_SCI8,
     #endif
     #if defined(VECTOR_NUMBER_SCI9_RXI)
-    R_SCI9,
+    [9] = R_SCI9,
     #endif
 };
 
-static uint32_t ws2812_ch_to_idx[SCI_CH_MAX] = {
+static uint32_t ws2812_module_mask[SCI_CH_MAX] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
-    0,
-    #else
-    0,
+    [0] = R_MSTP_MSTPCRB_MSTPB31_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI1_RXI)
-    1,
-    #else
-    0,
+    [1] = R_MSTP_MSTPCRB_MSTPB30_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI2_RXI)
-    2,
-    #else
-    0,
+    [2] = R_MSTP_MSTPCRB_MSTPB29_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI3_RXI)
-    3,
-    #else
-    0,
+    [3] = R_MSTP_MSTPCRB_MSTPB28_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI4_RXI)
-    4,
-    #else
-    0,
+    [4] = R_MSTP_MSTPCRB_MSTPB27_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI5_RXI)
-    5,
-    #else
-    0,
+    [5] = R_MSTP_MSTPCRB_MSTPB26_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI6_RXI)
-    6,
-    #else
-    0,
+    [6] = R_MSTP_MSTPCRB_MSTPB25_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI7_RXI)
-    7,
-    #else
-    0,
+    [7] = R_MSTP_MSTPCRB_MSTPB24_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI8_RXI)
-    8,
-    #else
-    0,
+    [8] = R_MSTP_MSTPCRB_MSTPB23_Msk,
     #endif
     #if defined(VECTOR_NUMBER_SCI9_RXI)
-    9,
-    #else
-    0,
-    #endif
-};
-
-static uint32_t ws2812_module_mask[] = {
-    #if defined(VECTOR_NUMBER_SCI0_RXI)
-    R_MSTP_MSTPCRB_MSTPB31_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI1_RXI)
-    R_MSTP_MSTPCRB_MSTPB30_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI2_RXI)
-    R_MSTP_MSTPCRB_MSTPB29_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI3_RXI)
-    R_MSTP_MSTPCRB_MSTPB28_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI4_RXI)
-    R_MSTP_MSTPCRB_MSTPB27_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI5_RXI)
-    R_MSTP_MSTPCRB_MSTPB26_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI6_RXI)
-    R_MSTP_MSTPCRB_MSTPB25_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI7_RXI)
-    R_MSTP_MSTPCRB_MSTPB24_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI8_RXI)
-    R_MSTP_MSTPCRB_MSTPB23_Msk,
-    #endif
-    #if defined(VECTOR_NUMBER_SCI9_RXI)
-    R_MSTP_MSTPCRB_MSTPB22_Msk,
+    [9] = R_MSTP_MSTPCRB_MSTPB22_Msk,
     #endif
 };
 
@@ -202,6 +151,10 @@ static bool ra_sci_ws2812_find_sck_pin_af(uint32_t ch, uint32_t *sck_pin, uint32
         }
     }
     return false;
+}
+
+static bool ra_sci_ws2812_is_valid_channel(uint32_t ch) {
+    return ch < SCI_CH_MAX && ws2812_regs[ch] != NULL && ws2812_module_mask[ch] != 0;
 }
 
 static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin, uint32_t af) {
@@ -296,6 +249,9 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
         return false;
     }
+    if (!ra_sci_ws2812_is_valid_channel(ch)) {
+        return false;
+    }
     if (!ra_sci_ws2812_find_sck_pin_af(ch, NULL, NULL)) {
         return false;
     }
@@ -303,11 +259,10 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
         return false;
     }
 
-    uint32_t idx = ws2812_ch_to_idx[ch];
-    R_SCI0_Type *sci_reg = ws2812_regs[idx];
+    R_SCI0_Type *sci_reg = ws2812_regs[ch];
     ra_sci_ws2812_div_setting_t div;
 
-    ra_mstpcrb_start(ws2812_module_mask[idx]);
+    ra_mstpcrb_start(ws2812_module_mask[ch]);
     ra_sci_ws2812_set_sck_pin_af(ch);
     ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
 
@@ -356,14 +311,14 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
 void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
     uint32_t found_ch = 0xff;
     uint32_t af = 0;
-    uint32_t idx = ws2812_ch_to_idx[ch];
-    R_SCI0_Type *sci_reg = ws2812_regs[idx];
 
-    if (!ws2812_active[ch] || buf == NULL || len == 0) {
+    if (!ra_sci_ws2812_is_valid_channel(ch) || !ws2812_active[ch] || buf == NULL || len == 0) {
         ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
         mp_hal_delay_us(latch_us);
         return;
     }
+
+    R_SCI0_Type *sci_reg = ws2812_regs[ch];
 
     if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
         ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
@@ -394,12 +349,11 @@ void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uin
 }
 
 void ra_sci_ws2812_deinit(uint32_t ch, uint32_t data_pin) {
-    uint32_t idx = ws2812_ch_to_idx[ch];
-    R_SCI0_Type *sci_reg = ws2812_regs[idx];
+    R_SCI0_Type *sci_reg = ra_sci_ws2812_is_valid_channel(ch) ? ws2812_regs[ch] : NULL;
 
-    if (ws2812_active[ch]) {
+    if (sci_reg != NULL && ws2812_active[ch]) {
         sci_reg->SCR &= (uint8_t)R_SCI0_SCR_CKE_Msk;
-        ra_mstpcrb_stop(ws2812_module_mask[idx]);
+        ra_mstpcrb_stop(ws2812_module_mask[ch]);
         ws2812_active[ch] = false;
         ws2812_baudrate[ch] = 0;
     }
