@@ -1,4 +1,4 @@
-# Пример: WS2812 през machine.WS2812 върху P112 с TX-only SCI2 backend.
+# Пример: WS2812 през machine.WS2812 върху P112 с работещия SCI TX-only backend.
 # Ресурси на VK_RA4M2: ADC външни входове = 13 броя -> P000, P001, P002, P003, P004, P005, P006, P007, P008, P013, P014, P015, P500.
 # Ресурси на VK_RA4M2: ADC вътрешни източници = 3 броя -> ADC.CORE_TEMP, ADC.CORE_VREF, ADC.VREF.
 # Ресурси на VK_RA4M2: DAC изходи = 2 броя -> P014, P015.
@@ -12,21 +12,21 @@
 # Ресурси на VK_RA4M2: Хардуерни Timer = 6 броя -> Timer(1), Timer(2), Timer(3), Timer(4), Timer(5), Timer(6), софтуерен Timer = Timer(-1), RTC = 1 брой, Data Flash = 8 KB, /flash = около 94 KB.
 # Бележка: Този пример ползва само P112 като data изход към WS2812 и не изисква външен clock pin.
 # Бележка: machine.WS2812 споделя SCI2 с UART(2) и SPI(2), така че тези интерфейси не трябва да са активни едновременно.
-# Бележка: P500 е подходящ за единичен модул или много къса лента, не за дълга RGB лента.
+# Бележка: P500 трябва да бъде включен задължително, за да е активен WS2812 модулът в този setup.
+# Бележка: При по-голям товар може да е нужно отделно основно захранване, но enable pin-ът P500 остава задължителен.
 
-from machine import Pin  # Импортираме Pin за захранващия GPIO и за явното подаване на data pin към драйвера.
-from machine import WS2812  # Импортираме новия WS2812 драйвер, който използва SCI2 TX-only backend.
+from machine import Pin  # Импортираме Pin за задължителния power-enable pin и за data линията.
+from machine import WS2812  # Импортираме WS2812 драйвера, реализиран върху SCI TX-only backend.
 import time  # Импортираме time за видими паузи между цветовете.
 
-POWER_PIN = "P500"  # Използваме P500 като малко захранване за единичен външен модул.
+POWER_PIN = "P500"  # Използваме P500 като задължителен power-enable pin за WS2812 модула в този setup.
 DATA_PIN = "P112"  # Използваме P112 като единствена data линия към DIN на WS2812.
 PIXEL_COUNT = 1  # Тук демонстрираме един пиксел за най-прост и безопасен старт.
-STEP_DELAY_MS = 500  # Държим всеки цвят половин секунда, за да се вижда ясно.
-BAUDRATE = 2500000  # Настройваме точни 2.5 MHz за 3-битово кодиране на WS2812 потока през SCI2.
-LATCH_US = 80  # Държим линията ниска поне 80 микросекунди за latch/reset на пиксела.
+STEP_DELAY_MS = 1000  # Държим всеки цвят 1 секунда, за да се вижда ясно.
 
-vcc = Pin(POWER_PIN, Pin.OUT, value=1)  # Включваме захранването към външния модул.
-strip = WS2812(pixel_count=PIXEL_COUNT, pin=Pin(DATA_PIN), channels=3, baudrate=BAUDRATE, latch_us=LATCH_US)  # Създаваме WS2812 обекта върху P112.
+vcc = Pin(POWER_PIN, Pin.OUT, value=1)  # Включваме P500, защото без него модулът не стартира коректно в този setup.
+time.sleep_ms(100)  # Изчакваме power-enable линията и модулът да се стабилизират.
+strip = WS2812(pixel_count=PIXEL_COUNT, pin=Pin(DATA_PIN), channels=3)  # Ползваме дефолтните, вече калибрирани timing настройки на драйвера.
 
 colors = [  # Подготвяме кратка цветова дъга с умерена яркост.
     (40, 0, 0),  # Червено.
@@ -41,7 +41,8 @@ colors = [  # Подготвяме кратка цветова дъга с ум�
 
 print("=== WS2812 over SCI2 on P112 ===")  # Печатаме заглавие на примера.
 print("POWER =", POWER_PIN, "DATA =", DATA_PIN, "PIXELS =", PIXEL_COUNT)  # Показваме използваните пинове и броя пиксели.
-print("BAUDRATE =", BAUDRATE, "LATCH_US =", LATCH_US)  # Показваме и основните timing параметри на драйвера.
+print("P500 must be enabled in this setup.")  # Напомняме, че P500 е задължителен enable pin.
+print("Timing = driver defaults")  # Показваме, че примерът разчита на работещите дефолтни timing настройки.
 
 try:  # Стартираме безкраен цикъл с чисто спиране при Ctrl+C.
     while True:  # Повтаряме цветната дъга непрекъснато.
