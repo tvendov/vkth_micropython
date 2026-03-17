@@ -24,11 +24,13 @@
 
 #include "py/mphal.h"
 #include "hal_data.h"
+#include "r_dtc.h"
 #include "ra_config.h"
 #include "ra_gpio.h"
 #include "ra_sci.h"
 #include "ra_sci_ws2812.h"
 #include "ra_utils.h"
+#include "vector_data.h"
 
 #if defined(MICROPY_HW_WS2812_DATA) && defined(MICROPY_HW_WS2812_SCI_CH)
 
@@ -37,10 +39,8 @@
 #pragma GCC diagnostic ignored "-Wconversion"
 #endif
 
-#define RA_SCI_WS2812_SCMR_RESERVED_MASK (0x62U)
-
-// Sparse arrays indexed directly by SCI channel number (0..SCI_CH_MAX-1).
-// Slots for channels not present on this board are NULL / 0.
+// Git baseline from f2f762d46, but keep sparse channel-indexed arrays to avoid
+// the old ws2812_ch_to_idx out-of-bounds bug on VK_RA4M2.
 static R_SCI0_Type *ws2812_regs[SCI_CH_MAX] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
     [0] = R_SCI0,
@@ -117,71 +117,192 @@ typedef struct {
 } ra_sci_ws2812_div_setting_t;
 
 typedef struct {
-    uint8_t ch;
-    uint32_t pin;
-    uint32_t af;
-} ra_sci_ws2812_sck_pin_t;
+    dtc_instance_ctrl_t ctrl;
+    transfer_info_t info;
+    transfer_cfg_t cfg;
+    dtc_extended_cfg_t ext;
+    IRQn_Type txi_irq;
+    bool open;
+} ra_sci_ws2812_dtc_state_t;
 
-#if defined(RA4M2)
-static const ra_sci_ws2812_sck_pin_t ra_sci_ws2812_sck_pins[] = {
-    { 0, P102, AF_SCI1 },
-    { 1, P503, AF_SCI1 },
-    { 2, P111, AF_SCI1 },
-    { 9, P600, AF_SCI2 },
-};
-#else
-static const ra_sci_ws2812_sck_pin_t ra_sci_ws2812_sck_pins[] = {
-};
-#endif
+static ra_sci_ws2812_dtc_state_t ws2812_dtc[SCI_CH_MAX];
+
+static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin, uint32_t af);
+static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin);
 
 static bool ra_sci_ws2812_find_pin_af_ch(uint32_t data_pin, uint32_t *ch, uint32_t *af) {
     return ra_sci_find_tx_ch_af(data_pin, ch, af);
-}
-
-static bool ra_sci_ws2812_find_sck_pin_af(uint32_t ch, uint32_t *sck_pin, uint32_t *sck_af) {
-    for (size_t i = 0; i < sizeof(ra_sci_ws2812_sck_pins) / sizeof(ra_sci_ws2812_sck_pin_t); ++i) {
-        if (ra_sci_ws2812_sck_pins[i].ch == ch) {
-            if (sck_pin != NULL) {
-                *sck_pin = ra_sci_ws2812_sck_pins[i].pin;
-            }
-            if (sck_af != NULL) {
-                *sck_af = ra_sci_ws2812_sck_pins[i].af;
-            }
-            return true;
-        }
-    }
-    return false;
 }
 
 static bool ra_sci_ws2812_is_valid_channel(uint32_t ch) {
     return ch < SCI_CH_MAX && ws2812_regs[ch] != NULL && ws2812_module_mask[ch] != 0;
 }
 
+static IRQn_Type ra_sci_ws2812_ch_to_txi_irq(uint32_t ch) {
+    switch (ch) {
+        #if defined(VECTOR_NUMBER_SCI0_TXI)
+        case 0:
+            return VECTOR_NUMBER_SCI0_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI1_TXI)
+        case 1:
+            return VECTOR_NUMBER_SCI1_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI2_TXI)
+        case 2:
+            return VECTOR_NUMBER_SCI2_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI3_TXI)
+        case 3:
+            return VECTOR_NUMBER_SCI3_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI4_TXI)
+        case 4:
+            return VECTOR_NUMBER_SCI4_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI5_TXI)
+        case 5:
+            return VECTOR_NUMBER_SCI5_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI6_TXI)
+        case 6:
+            return VECTOR_NUMBER_SCI6_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI7_TXI)
+        case 7:
+            return VECTOR_NUMBER_SCI7_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI8_TXI)
+        case 8:
+            return VECTOR_NUMBER_SCI8_TXI;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI9_TXI)
+        case 9:
+            return VECTOR_NUMBER_SCI9_TXI;
+        #endif
+        default:
+            return (IRQn_Type)-1;
+    }
+}
+
+static bool ra_sci_ws2812_dtc_open(uint32_t ch, R_SCI0_Type *sci_reg) {
+    ra_sci_ws2812_dtc_state_t *dtc = &ws2812_dtc[ch];
+    IRQn_Type txi_irq = ra_sci_ws2812_ch_to_txi_irq(ch);
+    if (txi_irq < (IRQn_Type)0) {
+        return false;
+    }
+
+    memset(dtc, 0, sizeof(*dtc));
+    dtc->txi_irq = txi_irq;
+    dtc->info.transfer_settings_word = 0;
+    dtc->info.transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_FIXED;
+    dtc->info.transfer_settings_word_b.repeat_area = TRANSFER_REPEAT_AREA_DESTINATION;
+    dtc->info.transfer_settings_word_b.irq = TRANSFER_IRQ_END;
+    dtc->info.transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
+    dtc->info.transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED;
+    dtc->info.transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+    dtc->info.transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+    dtc->info.p_src = NULL;
+    dtc->info.p_dest = (void *)&sci_reg->TDR;
+    dtc->info.num_blocks = 0;
+    dtc->info.length = 1;
+    dtc->ext.activation_source = txi_irq;
+    dtc->cfg.p_info = &dtc->info;
+    dtc->cfg.p_extend = &dtc->ext;
+
+    R_BSP_IrqDisable(txi_irq);
+    R_BSP_IrqStatusClear(txi_irq);
+
+    if (R_DTC_Open((transfer_ctrl_t *)&dtc->ctrl, &dtc->cfg) != FSP_SUCCESS) {
+        memset(dtc, 0, sizeof(*dtc));
+        return false;
+    }
+
+    dtc->open = true;
+    return true;
+}
+
+static void ra_sci_ws2812_dtc_close(uint32_t ch) {
+    ra_sci_ws2812_dtc_state_t *dtc = &ws2812_dtc[ch];
+    if (!dtc->open) {
+        return;
+    }
+    R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+    R_BSP_IrqStatusClear(dtc->txi_irq);
+    R_BSP_IrqDisable(dtc->txi_irq);
+    R_DTC_Close((transfer_ctrl_t *)&dtc->ctrl);
+    memset(dtc, 0, sizeof(*dtc));
+}
+
+static void ra_sci_ws2812_write_polling_payload(R_SCI0_Type *sci_reg, uint32_t data_pin, uint32_t af, const uint8_t *buf, uint32_t len) {
+    while ((sci_reg->SSR & R_SCI0_SSR_TDRE_Msk) == 0) {
+        ;
+    }
+    sci_reg->TDR = buf[0];
+    sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk) | R_SCI0_SCR_TE_Msk);
+    ra_sci_ws2812_set_data_pin_af(data_pin, af);
+
+    for (uint32_t i = 1; i < len; ++i) {
+        while ((sci_reg->SSR & R_SCI0_SSR_TDRE_Msk) == 0) {
+            ;
+        }
+        sci_reg->TDR = buf[i];
+    }
+}
+
+static bool ra_sci_ws2812_write_dtc_payload(uint32_t ch, R_SCI0_Type *sci_reg, uint32_t data_pin, uint32_t af, const uint8_t *buf, uint32_t len) {
+    ra_sci_ws2812_dtc_state_t *dtc = &ws2812_dtc[ch];
+    if (!dtc->open || len == 0 || len > UINT16_MAX) {
+        return false;
+    }
+
+    // Re-arm the channel for this exact transfer: one contiguous TXI->DTC stream,
+    // no CPU-fed per-byte handoff inside the visible payload.
+    R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+    R_BSP_IrqStatusClear(dtc->txi_irq);
+
+    if (R_DTC_Reset((transfer_ctrl_t *)&dtc->ctrl, (void *)buf, (void *)&sci_reg->TDR, (uint16_t)len) != FSP_SUCCESS) {
+        return false;
+    }
+    if (R_DTC_Enable((transfer_ctrl_t *)&dtc->ctrl) != FSP_SUCCESS) {
+        return false;
+    }
+
+    // Start TXI->DTC from a fully disabled state while the line is still held low.
+    // This keeps the SCI start transition inside the raw-zero prefix instead of
+    // on the first encoded WS2812 payload bit.
+    sci_reg->SCR = (uint8_t)(sci_reg->SCR & R_SCI0_SCR_CKE_Msk);
+    sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk) | R_SCI0_SCR_TE_Msk | R_SCI0_SCR_TIE_Msk);
+    ra_sci_ws2812_set_data_pin_af(data_pin, af);
+
+    uint32_t timeout_ms = (uint32_t)((((uint64_t)len * 8ULL * 1000ULL) + ws2812_baudrate[ch] - 1) / ws2812_baudrate[ch]) + 5;
+    mp_uint_t start_ms = mp_hal_ticks_ms();
+    transfer_properties_t props;
+    do {
+        R_DTC_InfoGet((transfer_ctrl_t *)&dtc->ctrl, &props);
+        if (props.transfer_length_remaining == 0 && (sci_reg->SSR & R_SCI0_SSR_TEND_Msk) != 0) {
+            R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+            R_BSP_IrqStatusClear(dtc->txi_irq);
+            sci_reg->SCR &= (uint8_t)~R_SCI0_SCR_TIE_Msk;
+            return true;
+        }
+    } while (mp_hal_ticks_ms() - start_ms < timeout_ms);
+
+    R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+    R_BSP_IrqStatusClear(dtc->txi_irq);
+    sci_reg->SCR &= (uint8_t)~R_SCI0_SCR_TIE_Msk;
+    return false;
+}
+
 static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin, uint32_t af) {
-    // WS2812 timing margins are tight enough that a stronger output drive is preferable.
-    ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, af);
+    ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_MID_POWER, af);
 }
 
 static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin) {
+    // Drive low before switching mode so the line never floats during latch/reset.
     ra_gpio_write(data_pin, 0);
-    ra_gpio_config(data_pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
+    ra_gpio_config(data_pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_MID_POWER, AF_GPIO);
     ra_gpio_write(data_pin, 0);
-}
-
-static void ra_sci_ws2812_set_sck_pin_af(uint32_t ch) {
-    uint32_t sck_pin = 0;
-    uint32_t sck_af = 0;
-    if (ra_sci_ws2812_find_sck_pin_af(ch, &sck_pin, &sck_af)) {
-        ra_gpio_config(sck_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, sck_af);
-    }
-}
-
-static void ra_sci_ws2812_release_sck_pin(uint32_t ch) {
-    uint32_t sck_pin = 0;
-    uint32_t sck_af = 0;
-    if (ra_sci_ws2812_find_sck_pin_af(ch, &sck_pin, &sck_af)) {
-        ra_gpio_config(sck_pin, GPIO_MODE_INPUT, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
-    }
 }
 
 static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
@@ -198,8 +319,6 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
         }
     }
 
-    // Match the Renesas FSP SCI SPI bitrate calculation when MDDR is used.
-    brr = (int32_t)PCLK / divisor - 1;
     if (brr < 0) {
         brr = 0;
     } else if (brr > UINT8_MAX) {
@@ -216,23 +335,6 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
     div->mddr = (uint8_t)mddr;
 }
 
-static void ra_sci_ws2812_delay_cycles(volatile uint32_t cycles) {
-    while (cycles-- > 0) {
-        __asm__ __volatile__ ("nop");
-    }
-}
-
-static void ra_sci_ws2812_delay_bit_time(uint32_t baud) {
-    if (baud == 0) {
-        return;
-    }
-    uint32_t cycles = (PCLK + baud - 1) / baud;
-    if (cycles == 0) {
-        cycles = 1;
-    }
-    ra_sci_ws2812_delay_cycles(cycles);
-}
-
 bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
     uint32_t found_ch;
     uint32_t af;
@@ -243,7 +345,7 @@ bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
     return ok;
 }
 
-bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
+bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate, uint32_t polarity, uint32_t phase) {
     uint32_t found_ch = 0xff;
     uint32_t af = 0;
     if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
@@ -252,18 +354,18 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     if (!ra_sci_ws2812_is_valid_channel(ch)) {
         return false;
     }
-    if (!ra_sci_ws2812_find_sck_pin_af(ch, NULL, NULL)) {
-        return false;
-    }
     if (!ra_sci_owner_acquire(ch, RA_SCI_OWNER_WS2812)) {
         return false;
     }
+
+    // Baseline recovery keeps the original working SCI mode from f2f762d46.
+    (void)polarity;
+    (void)phase;
 
     R_SCI0_Type *sci_reg = ws2812_regs[ch];
     ra_sci_ws2812_div_setting_t div;
 
     ra_mstpcrb_start(ws2812_module_mask[ch]);
-    ra_sci_ws2812_set_sck_pin_af(ch);
     ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
 
     sci_reg->SCR = 0;
@@ -274,9 +376,9 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     ra_sci_ws2812_calc_baud(baudrate, &div);
 
     uint8_t smr = R_SCI0_SMR_CM_Msk | (uint8_t)(div.cks << R_SCI0_SMR_CKS_Pos);
-    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | RA_SCI_WS2812_SCMR_RESERVED_MASK | R_SCI0_SCMR_SDIR_Msk);
+    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | R_SCI0_SCMR_SDIR_Msk);
     uint8_t semr = 0;
-    uint8_t spmr = R_SCI0_SPMR_CKPH_Msk;
+    uint8_t spmr = 0;
 
     if (div.mddr > INT8_MAX) {
         semr |= R_SCI0_SEMR_BRME_Msk;
@@ -298,24 +400,23 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
     sci_reg->SIMR3 = 0;
     sci_reg->CDR = 0;
     sci_reg->DCCR = R_SCI0_DCCR_IDSEL_Msk;
+    // SPTR behavior is only guaranteed in async mode; keep neutral value here.
     sci_reg->SPTR = 0;
 
-    // Give the SCI baud generator time to settle while the data pin is still held low as GPIO.
-    ra_sci_ws2812_delay_bit_time(baudrate);
-
-    ws2812_active[ch] = true;
     ws2812_baudrate[ch] = baudrate;
+    ra_sci_ws2812_dtc_open(ch, sci_reg);
+    ws2812_active[ch] = true;
     return true;
 }
 
-void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
+bool ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
     uint32_t found_ch = 0xff;
     uint32_t af = 0;
 
     if (!ra_sci_ws2812_is_valid_channel(ch) || !ws2812_active[ch] || buf == NULL || len == 0) {
         ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
         mp_hal_delay_us(latch_us);
-        return;
+        return false;
     }
 
     R_SCI0_Type *sci_reg = ws2812_regs[ch];
@@ -323,29 +424,28 @@ void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uin
     if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
         ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
         mp_hal_delay_us(latch_us);
-        return;
+        return false;
     }
 
-    sci_reg->SSR;
-    sci_reg->SSR = (uint8_t)(R_SCI0_SSR_TDRE_Msk | R_SCI0_SSR_TEND_Msk);
-    ra_sci_ws2812_set_data_pin_af(data_pin, af);
-    sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk) | R_SCI0_SCR_TE_Msk);
-    sci_reg->TDR = buf[0];
+    sci_reg->SCR = (uint8_t)(sci_reg->SCR & R_SCI0_SCR_CKE_Msk);
+    ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
 
-    for (uint32_t i = 1; i < len; ++i) {
-        while ((sci_reg->SSR & R_SCI0_SSR_TDRE_Msk) == 0) {
-            ;
-        }
-        sci_reg->TDR = buf[i];
+    // Prefer DTC so IRQ load cannot create byte-to-byte gaps in the visible frame.
+    bool use_dtc = ra_sci_ws2812_write_dtc_payload(ch, sci_reg, data_pin, af, buf, len);
+    if (!use_dtc) {
+        ra_sci_ws2812_write_polling_payload(sci_reg, data_pin, af, buf, len);
     }
 
     while ((sci_reg->SSR & R_SCI0_SSR_TEND_Msk) == 0) {
         ;
     }
 
+    // After the last stop bit, return the pin to a driven low GPIO and let the
+    // raw-zero suffix plus latch delay cover the LED reset window.
     sci_reg->SCR &= (uint8_t)R_SCI0_SCR_CKE_Msk;
     ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
     mp_hal_delay_us(latch_us);
+    return true;
 }
 
 void ra_sci_ws2812_deinit(uint32_t ch, uint32_t data_pin) {
@@ -358,8 +458,8 @@ void ra_sci_ws2812_deinit(uint32_t ch, uint32_t data_pin) {
         ws2812_baudrate[ch] = 0;
     }
 
+    ra_sci_ws2812_dtc_close(ch);
     ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
-    ra_sci_ws2812_release_sck_pin(ch);
     ra_sci_owner_release(ch, RA_SCI_OWNER_WS2812);
 }
 
@@ -371,19 +471,22 @@ bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
     return false;
 }
 
-bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate) {
+bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate, uint32_t polarity, uint32_t phase) {
     (void)ch;
     (void)data_pin;
     (void)baudrate;
+    (void)polarity;
+    (void)phase;
     return false;
 }
 
-void ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
+bool ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
     (void)ch;
     (void)data_pin;
     (void)buf;
     (void)len;
     (void)latch_us;
+    return false;
 }
 
 void ra_sci_ws2812_deinit(uint32_t ch, uint32_t data_pin) {
