@@ -60,6 +60,10 @@ typedef enum {
 } ra_agt_timer_capture_measure_t;
 
 bool ra_agt_timer_is_valid(uint32_t ch);
+bool ra_agt_timer_reserve(uint32_t ch);
+void ra_agt_timer_release_reservation(uint32_t ch);
+void ra_agt_timer_clear_all_reservations(void);
+bool ra_agt_timer_is_reserved(uint32_t ch);
 void ra_agt_timer_set_callback(uint32_t ch, AGT_TIMER_CB cb, void *param);
 void ra_agt_int_isr0(void);
 void ra_agt_int_isr1(void);

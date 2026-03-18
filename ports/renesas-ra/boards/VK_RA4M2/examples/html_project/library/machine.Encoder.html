@@ -1,0 +1,272 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>class Encoder – quadrature decoding &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../_static/favicon.ico"/>
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../_static/doctools.js?v=888ff710"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="class WDT – watchdog timer" href="machine.WDT.html" />
+    <link rel="prev" title="class Counter – pulse counter" href="machine.Counter.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">MicroPython libraries</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#python-standard-libraries-and-micro-libraries">Python standard libraries and micro-libraries</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#micropython-specific-libraries">MicroPython-specific libraries</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="bluetooth.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">bluetooth</span></code> — low-level Bluetooth</a></li>
+<li class="toctree-l3"><a class="reference internal" href="btree.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">btree</span></code> – simple BTree database</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cryptolib.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cryptolib</span></code> – cryptographic ciphers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deflate.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">deflate</span></code> – deflate compression &amp; decompression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="framebuf.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">framebuf</span></code> — frame buffer manipulation</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="machine.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">machine</span></code> — functions related to the hardware</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="machine.html#memory-access">Memory access</a></li>
+<li class="toctree-l4"><a class="reference internal" href="machine.html#reset-related-functions">Reset related functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="machine.html#interrupt-related-functions">Interrupt related functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="machine.html#power-related-functions">Power related functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="machine.html#miscellaneous-functions">Miscellaneous functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="machine.html#constants">Constants</a></li>
+<li class="toctree-l4 current"><a class="reference internal" href="machine.html#classes">Classes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="micropython.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">micropython</span></code> – access and control MicroPython internals</a></li>
+<li class="toctree-l3"><a class="reference internal" href="neopixel.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">neopixel</span></code> — control of WS2812 / NeoPixel LEDs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="network.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">network</span></code> — network configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="openamp.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">openamp</span></code> – provides standard Asymmetric Multiprocessing (AMP) support</a></li>
+<li class="toctree-l3"><a class="reference internal" href="uctypes.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">uctypes</span></code> – access binary data in a structured way</a></li>
+<li class="toctree-l3"><a class="reference internal" href="vfs.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">vfs</span></code> – virtual filesystem control</a></li>
+<li class="toctree-l3"><a class="reference internal" href="wm8960.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">WM8960</span></code> – Driver for the WM8960 codec</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#port-specific-libraries">Port-specific libraries</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#extending-built-in-libraries-from-python">Extending built-in libraries from Python</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../esp32/quickref.html">Quick reference for the ESP32</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mimxrt/quickref.html">Quick reference for the i.MXRT family</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../renesas-ra/quickref.html">Quick reference for the Renesas RA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">MicroPython libraries</a></li>
+          <li class="breadcrumb-item"><a href="machine.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">machine</span></code> — functions related to the hardware</a></li>
+      <li class="breadcrumb-item active">class Encoder – quadrature decoding</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/library/machine.Encoder.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="class-encoder-quadrature-decoding">
+<span id="machine-encoder"></span><h1>class Encoder – quadrature decoding<a class="headerlink" href="#class-encoder-quadrature-decoding" title="Link to this heading"></a></h1>
+<p>Encoder implements decoding of quadrature signals as commonly output from
+rotary encoders, by counting either up or down depending on the order of two
+input pulses.</p>
+<p>Minimal example usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pin</span><span class="p">,</span> <span class="n">Encoder</span>
+
+<span class="n">counter</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">Pin</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">Pin</span><span class="o">.</span><span class="n">IN</span><span class="p">),</span> <span class="n">Pin</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">Pin</span><span class="o">.</span><span class="n">IN</span><span class="p">))</span>   <span class="c1"># create Encoder for pins 0, 1 and begin counting</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>                                <span class="c1"># retrieve current count</span>
+</pre></div>
+</div>
+<p>Availability: <strong>ESP32</strong></p>
+<section id="constructors">
+<h2>Constructors<a class="headerlink" href="#constructors" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="machine.Encoder">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">machine.</span></span><span class="sig-name descname"><span class="pre">Encoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">...</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#machine.Encoder" title="Link to this definition"></a></dt>
+<dd><p>Returns the singleton Encoder object for the the given <em>id</em>. Values of <em>id</em>
+depend on a particular port and its hardware. Values 0, 1, etc. are commonly
+used to select hardware block #0, #1, etc.</p>
+<p>Additional arguments are passed to the <a class="reference internal" href="#machine.Encoder.init" title="machine.Encoder.init"><code class="xref py py-meth docutils literal notranslate"><span class="pre">init()</span></code></a> method described below,
+and will cause the Encoder instance to be re-initialised and reset.</p>
+<p>On ESP32, the <em>id</em> corresponds to a <a class="reference internal" href="esp32.html#esp32-pcnt"><span class="std std-ref">PCNT unit</span></a>.</p>
+</dd></dl>
+
+</section>
+<section id="methods">
+<h2>Methods<a class="headerlink" href="#methods" title="Link to this heading"></a></h2>
+<dl class="py method">
+<dt class="sig sig-object py" id="machine.Encoder.init">
+<span class="sig-prename descclassname"><span class="pre">Encoder.</span></span><span class="sig-name descname"><span class="pre">init</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">phase_a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">...</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#machine.Encoder.init" title="Link to this definition"></a></dt>
+<dd><p>Initialise and reset the Encoder with the given parameters:</p>
+<ul class="simple">
+<li><p><em>phase_a</em> specifies the first input pin as a
+<a class="reference internal" href="machine.Pin.html#machine-pin"><span class="std std-ref">machine.Pin</span></a> object.</p></li>
+<li><p><em>phase_b</em> specifies the second input pin as a
+<a class="reference internal" href="machine.Pin.html#machine-pin"><span class="std std-ref">machine.Pin</span></a> object.</p></li>
+</ul>
+<p>These pins may be omitted on ports that have predefined pins for a given
+hardware block.</p>
+<p>Additional keyword-only parameters that may be supported by a port are:</p>
+<ul class="simple">
+<li><p><em>filter_ns</em> specifies a minimum period of time in nanoseconds that the
+source signal needs to be stable for a pulse to be counted. Implementations
+should use the longest filter supported by the hardware that is less than
+or equal to this value. The default is 0 (no filter). <em>(Supported on ESP32)</em></p></li>
+<li><p><em>phases</em> specifies the number of signal edges to count and thus the
+granularity of the decoding. e.g. 4 phases corresponds to “4x quadrature
+decoding”, and will result in four counts per pulse. Ports may support
+either 1, 2, or 4 phases and the default is 1 phase. <em>(Supported on ESP32)</em></p></li>
+</ul>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="machine.Encoder.deinit">
+<span class="sig-prename descclassname"><span class="pre">Encoder.</span></span><span class="sig-name descname"><span class="pre">deinit</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#machine.Encoder.deinit" title="Link to this definition"></a></dt>
+<dd><p>Stops the Encoder, disabling any interrupts and releasing hardware resources.
+A Soft Reset should deinitialize all Encoder objects.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="machine.Encoder.value">
+<span class="sig-prename descclassname"><span class="pre">Encoder.</span></span><span class="sig-name descname"><span class="pre">value</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#machine.Encoder.value" title="Link to this definition"></a></dt>
+<dd><p>Get, and optionally set, the encoder value as a signed integer.
+Implementations should aim to do the get and set atomically.</p>
+<p>See <a class="reference internal" href="machine.Counter.html#machine.Counter.value" title="machine.Counter.value"><code class="xref py py-meth docutils literal notranslate"><span class="pre">machine.Counter.value()</span></code></a> for details about overflow of this value.</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="machine.Counter.html" class="btn btn-neutral float-left" title="class Counter – pulse counter" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="machine.WDT.html" class="btn btn-neutral float-right" title="class WDT – watchdog timer" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 18 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

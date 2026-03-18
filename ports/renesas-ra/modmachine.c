@@ -87,6 +87,12 @@ extern const mp_obj_type_t machine_comparator_type;
 #define MICROPY_PY_MACHINE_WS2812_ENTRY
 #endif
 
+#if defined(MICROPY_HW_ENCODER_A)
+#define MICROPY_PY_MACHINE_ENCODER_ENTRY { MP_ROM_QSTR(MP_QSTR_Encoder), MP_ROM_PTR(&machine_encoder_type) },
+#else
+#define MICROPY_PY_MACHINE_ENCODER_ENTRY
+#endif
+
 #define MICROPY_PY_MACHINE_EXTRA_GLOBALS \
     { MP_ROM_QSTR(MP_QSTR_info),                MP_ROM_PTR(&machine_info_obj) }, \
     { MP_ROM_QSTR(MP_QSTR_sleep),               MP_ROM_PTR(&machine_lightsleep_obj) }, \
@@ -96,6 +102,7 @@ extern const mp_obj_type_t machine_comparator_type;
     { MP_ROM_QSTR(MP_QSTR_Pin),                 MP_ROM_PTR(&machine_pin_type) }, \
 	    MICROPY_PY_MACHINE_TOUCHPAD_ENTRY \
     MICROPY_PY_MACHINE_WS2812_ENTRY \
+    MICROPY_PY_MACHINE_ENCODER_ENTRY \
     \
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \
     { MP_ROM_QSTR(MP_QSTR_Timer),               MP_ROM_PTR(&machine_timer_type) }, \

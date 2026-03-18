@@ -206,6 +206,7 @@ typedef struct _ra_agt_timer_state_t {
 } ra_agt_timer_state_t;
 
 static ra_agt_timer_state_t ra_agt_timer_state[AGT_CH_SIZE];
+static bool agt_reserved[AGT_CH_SIZE];
 
 typedef struct _ra_agt_output_pin_t {
     uint8_t timer;
@@ -274,6 +275,47 @@ static const ra_agt_input_pin_t ra_agt_input_pins[] = {
 
 bool ra_agt_timer_is_valid(uint32_t ch) {
     return ch < AGT_CH_SIZE && agt_regs[ch] != NULL && ch_to_irq[ch] != FSP_INVALID_VECTOR;
+}
+
+bool ra_agt_timer_reserve(uint32_t ch) {
+    if (ch >= AGT_CH_SIZE || agt_reserved[ch]) {
+        return false;
+    }
+    // Reject if the hardware timer is currently running
+    if (agt_regs[ch] != NULL && agt_regs[ch]->CTRL.AGTCR_b.TCSTF != 0U) {
+        return false;
+    }
+    // Reject if any software state indicates the channel is in use
+    ra_agt_timer_state_t *st = &ra_agt_timer_state[ch];
+    if (st->callback != NULL || st->freq != 0.0f || st->period_counts != 0U) {
+        return false;
+    }
+    if (st->input_enabled) {
+        return false;
+    }
+    for (size_t i = 0; i < AGT_OUTPUT_CHANNELS; ++i) {
+        if (st->output_enabled[i] || st->compare_irq_enabled[i]) {
+            return false;
+        }
+    }
+    agt_reserved[ch] = true;
+    return true;
+}
+
+void ra_agt_timer_release_reservation(uint32_t ch) {
+    if (ch < AGT_CH_SIZE) {
+        agt_reserved[ch] = false;
+    }
+}
+
+void ra_agt_timer_clear_all_reservations(void) {
+    for (size_t i = 0; i < AGT_CH_SIZE; ++i) {
+        agt_reserved[i] = false;
+    }
+}
+
+bool ra_agt_timer_is_reserved(uint32_t ch) {
+    return ch < AGT_CH_SIZE && agt_reserved[ch];
 }
 
 static uint32_t ra_agt_timer_clock_frequency_get(uint32_t ch) {
@@ -1032,6 +1074,7 @@ void ra_agt_timer_deinit(uint32_t ch) {
     ra_agt_timer_stop(ch);
     ra_agt_timer_release_input_pin(ch);
     ra_agt_timer_release_all_output_pins(ch);
+    ra_agt_timer_release_reservation(ch);
     memset(&ra_agt_timer_state[ch], 0, sizeof(ra_agt_timer_state[ch]));
     ra_agt_timer_module_stop(ch);
 }

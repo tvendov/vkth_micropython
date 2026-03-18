@@ -35,6 +35,8 @@
 #include "timer.h"
 #include "pin.h"
 #include "irq.h"
+#include "ra/ra_timer.h"
+#include "ra/ra_utils.h"
 
 #define TIMER_SIZE MICROPY_HW_MAX_TIMER
 #define TIMER_CHANNEL (1)
@@ -91,10 +93,14 @@ void timer_init0(void) {
 void timer_deinit(void) {
     for (uint i = 0; i < PYB_TIMER_OBJ_ALL_NUM; i++) {
         pyb_timer_obj_t *tim = MP_STATE_PORT(pyb_timer_obj_all)[i];
-        if (tim != NULL) {
+        if (tim != NULL && !ra_agt_timer_is_reserved(i)) {
             pyb_timer_deinit(MP_OBJ_FROM_PTR(tim));
         }
     }
+    // Clear all reservation bits so they don't survive soft reset.
+    // Internal drivers (e.g. WS2812) will re-reserve on next init.
+    ra_agt_timer_clear_all_reservations();
+    ra_dmac_clear_all_reservations();
 }
 
 #if defined(TIMER_CHANNEL)
@@ -251,6 +257,9 @@ static mp_obj_t pyb_timer_init_helper(pyb_timer_obj_t *self, size_t n_args, cons
     if (!ra_agt_timer_is_valid(ch)) {
         mp_raise_ValueError(MP_ERROR_TEXT("Timer doesn't exist"));
     }
+    if (ra_agt_timer_is_reserved(ch)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+    }
     if (have_freq == have_period) {
         mp_raise_TypeError(MP_ERROR_TEXT("must specify exactly one of freq or period"));
     }
@@ -335,6 +344,10 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(pyb_timer_init_obj, 1, pyb_timer_init);
 static mp_obj_t pyb_timer_deinit(mp_obj_t self_in) {
     pyb_timer_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
+    if (ra_agt_timer_is_reserved(self->tim_id - 1)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+    }
+
     // Disable the base interrupt
     pyb_timer_callback(self_in, mp_const_none);
 
@@ -402,6 +415,10 @@ static mp_obj_t pyb_timer_channel(size_t n_args, const mp_obj_t *pos_args, mp_ma
     uint8_t channel_mode;
     ra_agt_timer_capture_edge_t edge;
     ra_agt_timer_capture_measure_t measure;
+
+    if (ra_agt_timer_is_reserved(timer_ch)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+    }
 
     if (n_args == 2 && kw_args->used == 0) {
         pyb_timer_channel_obj_t *existing = self->channel;
@@ -528,6 +545,9 @@ static mp_obj_t pyb_timer_counter(size_t n_args, const mp_obj_t *args) {
         return mp_obj_new_int_from_uint(ra_agt_timer_get_counter(ch));
     } else {
         // set
+        if (ra_agt_timer_is_reserved(ch)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+        }
         if (!ra_agt_timer_set_counter(ch, (uint32_t)mp_obj_get_int(args[1]))) {
             mp_raise_ValueError(MP_ERROR_TEXT("invalid counter"));
         }
@@ -554,6 +574,9 @@ static mp_obj_t pyb_timer_freq(size_t n_args, const mp_obj_t *args) {
         #endif
     } else {
         // set
+        if (ra_agt_timer_is_reserved(ch)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+        }
         mp_float_t freq;
         if (0) {
         #if MICROPY_PY_BUILTINS_FLOAT
@@ -585,6 +608,9 @@ static mp_obj_t pyb_timer_period(size_t n_args, const mp_obj_t *args) {
         return mp_obj_new_int_from_uint(ra_agt_timer_get_period(ch));
     } else {
         // set
+        if (ra_agt_timer_is_reserved(ch)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+        }
         uint32_t period = (uint32_t)mp_obj_get_int(args[1]);
         if (period == 0) {
             mp_raise_ValueError(MP_ERROR_TEXT("period must not be 0"));
@@ -608,6 +634,10 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pyb_timer_period_obj, 1, 2, pyb_timer
 static mp_obj_t pyb_timer_callback(mp_obj_t self_in, mp_obj_t callback) {
     pyb_timer_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t ch = self->tim_id - 1;
+
+    if (ra_agt_timer_is_reserved(ch)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+    }
 
     ra_agt_timer_set_fast_irq(ch, false, NULL, 0);
 
@@ -688,6 +718,9 @@ static mp_obj_t pyb_timer_channel_capture_compare(size_t n_args, const mp_obj_t 
         return mp_obj_new_int_from_uint(ra_agt_timer_get_compare(ch, self->channel));
     } else {
         // set
+        if (ra_agt_timer_is_reserved(ch)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+        }
         if (self->mode == TIMER_CHANNEL_MODE_IC) {
             mp_raise_ValueError(MP_ERROR_TEXT("capture is read-only"));
         }
@@ -709,6 +742,10 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pyb_timer_channel_capture_compare_obj
 static mp_obj_t pyb_timer_channel_callback(mp_obj_t self_in, mp_obj_t callback) {
     pyb_timer_channel_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t ch = self->timer->tim_id - 1;
+
+    if (ra_agt_timer_is_reserved(ch)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Timer channel is reserved"));
+    }
 
     if (self->mode == TIMER_CHANNEL_MODE_IC &&
         self->measure == RA_AGT_TIMER_CAPTURE_MEASURE_EVENT_COUNT &&

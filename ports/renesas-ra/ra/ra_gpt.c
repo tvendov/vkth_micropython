@@ -343,6 +343,10 @@ bool ra_gpt_timer_is_pwm_pin(uint32_t pin) {
     return ra_af_find_ch_af((ra_af_pin_t *)&ra_gpt_timer_pins, GPT_TMR_PINS_SIZE, pin, &ch, &af);
 }
 
+bool ra_gpt_find_pin_channel(uint32_t pin, uint32_t *ch, uint32_t *af) {
+    return ra_af_find_ch_af((ra_af_pin_t *)&ra_gpt_timer_pins, GPT_TMR_PINS_SIZE, pin, ch, af);
+}
+
 void ra_gpt_timer_start(uint32_t ch) {
     if (CH_GAP || (ch >= GPT_CH_SIZE)) {
         return;

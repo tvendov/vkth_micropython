@@ -54,6 +54,10 @@ void ra_mstpcrd_stop(uint32_t mod_mask);
 void ra_mstpcrd_start(uint32_t mod_mask);
 void ra_mstpcre_stop(uint32_t mod_mask);
 void ra_mstpcre_start(uint32_t mod_mask);
+bool ra_dmac_reserve(uint32_t ch);
+void ra_dmac_release(uint32_t ch);
+void ra_dmac_clear_all_reservations(void);
+bool ra_dmac_is_reserved(uint32_t ch);
 
 /* mask bit definition for Module Stop Control Register B */
 #ifndef R_MSTP_MSTPCRB_MSTPB7_Msk
@@ -132,6 +136,11 @@ void ra_mstpcre_start(uint32_t mod_mask);
 #endif
 #ifndef R_MSTP_MSTPCRD_MSTPD22_Msk
 #define R_MSTP_MSTPCRD_MSTPD22_Msk    (0x1UL << 22)
+#endif
+
+/* mask bit definition for Module Stop Control Register C */
+#ifndef R_MSTP_MSTPCRC_MSTPC14_Msk
+#define R_MSTP_MSTPCRC_MSTPC14_Msk    (0x1UL << 14)
 #endif
 
 /* mask bit definition for Module Stop Control Register E */

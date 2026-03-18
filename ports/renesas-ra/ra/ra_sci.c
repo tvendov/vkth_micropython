@@ -904,6 +904,135 @@ static SCI_CB sci_cb[] = {
     (SCI_CB)0,
     #endif
 };
+static void (*sci_tei_cb[])(uint32_t ch) = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+};
+static uint8_t sci_tei_cb_owner[] = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+};
+// --- TXI callback (owner-based dispatch, mirrors TEI pattern) ---
+static void (*sci_txi_cb[])(uint32_t ch) = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+};
+static uint8_t sci_txi_cb_owner[] = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+};
 static uint8_t ch_9bit[] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
     0,
@@ -1073,6 +1202,30 @@ void ra_sci_rx_set_callback(int ch, SCI_CB cb) {
     sci_cb[ch_to_idx[ch]] = cb;
 }
 
+void ra_sci_set_tei_callback(uint32_t ch, uint32_t owner, void (*cb)(uint32_t)) {
+    uint32_t idx = ch_to_idx[ch];
+    sci_tei_cb[idx] = cb;
+    sci_tei_cb_owner[idx] = (uint8_t)owner;
+}
+
+void ra_sci_clear_tei_callback(uint32_t ch) {
+    uint32_t idx = ch_to_idx[ch];
+    sci_tei_cb[idx] = (void (*)(uint32_t))0;
+    sci_tei_cb_owner[idx] = RA_SCI_OWNER_NONE;
+}
+
+void ra_sci_set_txi_callback(uint32_t ch, uint32_t owner, void (*cb)(uint32_t)) {
+    uint32_t idx = ch_to_idx[ch];
+    sci_txi_cb[idx] = cb;
+    sci_txi_cb_owner[idx] = (uint8_t)owner;
+}
+
+void ra_sci_clear_txi_callback(uint32_t ch) {
+    uint32_t idx = ch_to_idx[ch];
+    sci_txi_cb[idx] = (void (*)(uint32_t))0;
+    sci_txi_cb_owner[idx] = RA_SCI_OWNER_NONE;
+}
+
 static void ra_sci_irq_disable(uint32_t ch) {
     uint32_t idx = ch_to_idx[ch];
     R_BSP_IrqDisable(idx_to_rxirq[idx]);
@@ -1190,9 +1343,24 @@ static void ra_sci_isr_er(uint32_t ch) {
     }
 }
 
+// Diagnostic counter — incremented when TXI fires for a WS2812-owned channel.
+// Defined in ra_sci_ws2812.c; declared here so the shared ISR can reach it.
+extern volatile uint32_t ws2812_diag_txi __attribute__((weak));
+
 static void ra_sci_isr_tx(uint32_t ch) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint32_t idx = ch_to_idx[ch];
+    // Diagnostic: track WS2812 TXI events
+    if (ra_sci_owner[idx] == RA_SCI_OWNER_WS2812 && &ws2812_diag_txi != NULL) {
+        ws2812_diag_txi++;
+    }
+    // Owner-matched TXI callback dispatch (e.g. WS2812 last-byte handler)
+    if (sci_txi_cb[idx] != (void (*)(uint32_t))0 &&
+        ra_sci_owner[idx] == sci_txi_cb_owner[idx]) {
+        R_BSP_IrqStatusClear(irq);
+        sci_txi_cb[idx](ch);
+        return;
+    }
     uint32_t size = tx_fifo[idx].size;
     sci_fifo *txfifo = (sci_fifo *)&tx_fifo[idx];
     if (txfifo->len != 0) {
@@ -1221,6 +1389,16 @@ static void ra_sci_isr_tx(uint32_t ch) {
 void ra_sci_isr_te(uint32_t ch) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint32_t idx = ch_to_idx[ch];
+    if (sci_tei_cb[idx] != (void (*)(uint32_t))0 &&
+        ra_sci_owner[idx] == sci_tei_cb_owner[idx]) {
+        /* Owner-matched TEI callback — dispatch to it.
+         * The callback is responsible for clearing TEIE and any other
+         * SCI bits it needs. */
+        R_BSP_IrqStatusClear(irq);
+        sci_tei_cb[idx](ch);
+        return;
+    }
+    /* Default UART path */
     tx_fifo[idx].busy = 0;
     sci_regs[idx]->SCR &= (uint8_t) ~0x84; /* TIE and TEIE disable */
     R_BSP_IrqStatusClear(irq);
@@ -1483,6 +1661,10 @@ void ra_sci_deinit(uint32_t ch) {
             ra_sci_irq_disable(ch);
             ra_sci_module_stop(ch);
             sci_cb[idx] = 0;
+            sci_txi_cb[idx] = (void (*)(uint32_t))0;
+            sci_txi_cb_owner[idx] = RA_SCI_OWNER_NONE;
+            sci_tei_cb[idx] = (void (*)(uint32_t))0;
+            sci_tei_cb_owner[idx] = RA_SCI_OWNER_NONE;
         }
     }
 }

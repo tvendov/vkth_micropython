@@ -37,13 +37,18 @@ and this is (The Lazy way)
    (The Hard way it is)
 */
 
+#include <string.h>
+
 #include "hal_data.h"
+#include "r_dmac.h"
+#include "r_dtc.h"
 #include "ra_config.h"
+#include "ra_dac.h"
 #include "ra_gpio.h"
 #include "ra_sci.h"
-// #include "ra_int.h"
+#include "ra_timer.h"
 #include "ra_utils.h"
-#include "ra_dac.h"
+#include "vector_data.h"
 
 
 
@@ -72,6 +77,40 @@ static const ra_af_pin_t ra_dac_pins[] = {
     #error "CMSIS MCU Series is not specified."
     #endif
 };
+
+typedef struct _ra_dac_stream_state_t {
+    bool active;
+    bool loop;
+    bool timer_reserved;
+    bool timer_initialized;
+    bool transfer_open;
+    bool dmac_reserved;
+    bool agt_iels_detached;
+    uint8_t timer_ch;
+    uint8_t dmac_ch;
+    uint32_t freq;
+    uint32_t agt_iels_saved;
+    IRQn_Type agt_irq;
+    ra_dac_transfer_t transfer;
+    transfer_info_t info;
+    transfer_cfg_t cfg;
+    dmac_instance_ctrl_t dmac_ctrl;
+    dmac_extended_cfg_t dmac_ext;
+    dtc_instance_ctrl_t dtc_ctrl;
+    dtc_extended_cfg_t dtc_ext;
+} ra_dac_stream_state_t;
+
+static ra_dac_stream_state_t ra_dac_stream_state[DAC_CH_SIZE];
+static ra_dac_hw_stage_t ra_dac_last_stage[DAC_CH_SIZE];
+static int32_t ra_dac_last_error[DAC_CH_SIZE];
+static void ra_dac_stream_cleanup(uint8_t ch);
+
+static void ra_dac_set_last_error(uint8_t ch, ra_dac_hw_stage_t stage, fsp_err_t err) {
+    if (ch < DAC_CH_SIZE) {
+        ra_dac_last_stage[ch] = stage;
+        ra_dac_last_error[ch] = (int32_t)err;
+    }
+}
 
 static void ra_dac_set_pin(uint32_t pin) {
     bool find = false;
@@ -106,6 +145,360 @@ bool ra_dac_is_dac_pin(uint32_t pin) {
     return ra_af_find_ch_af((ra_af_pin_t *)&ra_dac_pins, DAC_PINS_SIZE, pin, &ch, &af);
 }
 
+static IRQn_Type ra_dac_agt_irq(uint32_t ch) {
+    switch (ch) {
+        #if defined(VECTOR_NUMBER_AGT0_INT)
+        case 0:
+            return VECTOR_NUMBER_AGT0_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_AGT1_INT)
+        case 1:
+            return VECTOR_NUMBER_AGT1_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_AGT2_INT)
+        case 2:
+            return VECTOR_NUMBER_AGT2_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_AGT3_INT)
+        case 3:
+            return VECTOR_NUMBER_AGT3_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_AGT4_INT)
+        case 4:
+            return VECTOR_NUMBER_AGT4_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_AGT5_INT)
+        case 5:
+            return VECTOR_NUMBER_AGT5_INT;
+        #endif
+        default:
+            return FSP_INVALID_VECTOR;
+    }
+}
+
+static elc_event_t ra_dac_agt_event(uint32_t ch) {
+    switch (ch) {
+        case 0:
+            return ELC_EVENT_AGT0_INT;
+        case 1:
+            return ELC_EVENT_AGT1_INT;
+        #if BSP_FEATURE_AGT_MAX_CHANNEL_NUM >= 2
+        case 2:
+            return ELC_EVENT_AGT2_INT;
+        #endif
+        #if BSP_FEATURE_AGT_MAX_CHANNEL_NUM >= 3
+        case 3:
+            return ELC_EVENT_AGT3_INT;
+        #endif
+        #if BSP_FEATURE_AGT_MAX_CHANNEL_NUM >= 4
+        case 4:
+            return ELC_EVENT_AGT4_INT;
+        #endif
+        #if BSP_FEATURE_AGT_MAX_CHANNEL_NUM >= 5
+        case 5:
+            return ELC_EVENT_AGT5_INT;
+        #endif
+        default:
+            return ELC_EVENT_NONE;
+    }
+}
+
+static IRQn_Type ra_dac_dmac_irq(uint32_t ch) {
+    switch (ch) {
+        #if defined(VECTOR_NUMBER_DMAC0_INT)
+        case 0:
+            return VECTOR_NUMBER_DMAC0_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC1_INT)
+        case 1:
+            return VECTOR_NUMBER_DMAC1_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC2_INT)
+        case 2:
+            return VECTOR_NUMBER_DMAC2_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC3_INT)
+        case 3:
+            return VECTOR_NUMBER_DMAC3_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC4_INT)
+        case 4:
+            return VECTOR_NUMBER_DMAC4_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC5_INT)
+        case 5:
+            return VECTOR_NUMBER_DMAC5_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC6_INT)
+        case 6:
+            return VECTOR_NUMBER_DMAC6_INT;
+        #endif
+        #if defined(VECTOR_NUMBER_DMAC7_INT)
+        case 7:
+            return VECTOR_NUMBER_DMAC7_INT;
+        #endif
+        default:
+            return FSP_INVALID_VECTOR;
+    }
+}
+
+static bool ra_dac_dmac_channel_acquire(uint8_t *channel) {
+    for (uint8_t ch = 0; ch < BSP_FEATURE_DMAC_MAX_CHANNEL; ++ch) {
+        if (ra_dmac_reserve(ch)) {
+            *channel = ch;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void ra_dac_dmac_channel_release(uint8_t channel) {
+    if (channel < BSP_FEATURE_DMAC_MAX_CHANNEL) {
+        ra_dmac_release(channel);
+    }
+}
+
+static void ra_dac_dmac_error_clear(void) {
+    if (R_DMA->DMECHR_b.DMESTA != 0U) {
+        R_DMA->DMECHR = R_DMA_DMECHR_DMESTA_Msk;
+    }
+    if (R_BUS->BUS3ERRSTAT != 0U) {
+        R_BUS->BUS3ERRCLR = (uint8_t)(R_BUS->BUS3ERRSTAT &
+            (R_BUS_B_BUS3ERRCLR_SLERRCLR_Msk |
+             R_BUS_B_BUS3ERRCLR_STERRCLR_Msk |
+             R_BUS_B_BUS3ERRCLR_MMERRCLR_Msk |
+             R_BUS_B_BUS3ERRCLR_ILERRCLR_Msk));
+    }
+    if (R_BUS->DMACDTCERRSTAT_b.MTERRSTAT != 0U) {
+        R_BUS->DMACDTCERRCLR = R_BUS_B_DMACDTCERRCLR_MTERRCLR_Msk;
+    }
+}
+
+static void ra_dac_dmac_make_channel_secure(uint8_t channel) {
+    uint32_t mask = 1UL << channel;
+
+    R_BSP_RegisterProtectDisable(BSP_REG_PROTECT_SAR);
+    R_CPSCU->ICUSARC = (R_CPSCU->ICUSARC | ~R_CPSCU_ICUSARC_SADMACn_Msk) & ~mask;
+    R_BSP_RegisterProtectEnable(BSP_REG_PROTECT_SAR);
+}
+
+static int32_t ra_dac_dmac_runtime_diag(uint8_t dmac_ch) {
+    uint32_t diag = 0U;
+
+    diag |= (R_DMA->DMECHR & 0x0001FFFFUL);
+    diag |= ((uint32_t)R_BUS->BUS3ERRSTAT & 0xFFUL) << 17;
+    diag |= ((uint32_t)R_BUS->DMACDTCERRSTAT & 0xFFUL) << 25;
+    diag |= ((uint32_t)dmac_ch & 0x7UL) << 29;
+    return (int32_t)diag;
+}
+
+static void ra_dac_stream_cleanup(uint8_t ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return;
+    }
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    if (state->timer_initialized) {
+        ra_agt_timer_set_callback(state->timer_ch, NULL, NULL);
+    }
+    if (state->active && state->timer_initialized) {
+        ra_agt_timer_stop(state->timer_ch);
+    }
+
+    if (state->transfer_open) {
+        if (state->transfer == RA_DAC_TRANSFER_DMAC) {
+            R_DMAC_Disable((transfer_ctrl_t *)&state->dmac_ctrl);
+            R_DMAC_Close((transfer_ctrl_t *)&state->dmac_ctrl);
+        } else if (state->transfer == RA_DAC_TRANSFER_DTC) {
+            R_DTC_Disable((transfer_ctrl_t *)&state->dtc_ctrl);
+            R_DTC_Close((transfer_ctrl_t *)&state->dtc_ctrl);
+        }
+    }
+
+    if (state->timer_initialized) {
+        ra_agt_timer_deinit(state->timer_ch);
+    } else if (state->timer_reserved) {
+        ra_agt_timer_release_reservation(state->timer_ch);
+    }
+
+    if (state->agt_iels_detached && state->agt_irq >= (IRQn_Type)0) {
+        R_ICU->IELSR[state->agt_irq] = state->agt_iels_saved;
+        FSP_REGISTER_READ(R_ICU->IELSR[state->agt_irq]);
+    }
+
+    if (state->dmac_reserved) {
+        ra_dac_dmac_channel_release(state->dmac_ch);
+    }
+
+    memset(state, 0, sizeof(*state));
+}
+
+static void ra_dac_elc_enable(void) {
+    // DMAC peripheral/IRQ activation on RA4M2 uses the event-link fabric even
+    // though the route is programmed through ICU.DELSR.
+    ra_mstpcrc_start(R_MSTP_MSTPCRC_MSTPC14_Msk);
+    R_ELC->ELCR = R_ELC_ELCR_ELCON_Msk;
+}
+
+static void ra_dac_dmac_detach_agt_iels(ra_dac_stream_state_t *state) {
+    IRQn_Type agt_irq = ra_dac_agt_irq(state->timer_ch);
+    if (agt_irq < (IRQn_Type)0) {
+        return;
+    }
+
+    R_BSP_IrqDisable(agt_irq);
+    R_BSP_IrqStatusClear(agt_irq);
+    state->agt_irq = agt_irq;
+    state->agt_iels_saved = R_ICU->IELSR[agt_irq];
+    R_ICU->IELSR[agt_irq] = 0U;
+    FSP_REGISTER_READ(R_ICU->IELSR[agt_irq]);
+    state->agt_iels_detached = true;
+}
+
+static void ra_dac_dtc_complete_callback(void *param) {
+    uint8_t ch = (uint8_t)(uintptr_t)param;
+    if (ch >= DAC_CH_SIZE) {
+        return;
+    }
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    if (state->active && !state->loop && state->transfer == RA_DAC_TRANSFER_DTC) {
+        ra_dac_stream_cleanup(ch);
+    }
+}
+
+static void ra_dac_dmac_complete_callback(dmac_callback_args_t *args) {
+    if (args == NULL) {
+        return;
+    }
+
+    uint8_t ch = (uint8_t)(uintptr_t)args->p_context;
+    if (ch >= DAC_CH_SIZE) {
+        return;
+    }
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    if (state->active && !state->loop && state->transfer == RA_DAC_TRANSFER_DMAC) {
+        ra_dac_stream_cleanup(ch);
+    }
+}
+
+static bool ra_dac_timer_reserve(int8_t requested, uint8_t *timer_ch) {
+    if (requested >= 0) {
+        if (!ra_agt_timer_is_valid((uint32_t)requested)) {
+            return false;
+        }
+        if (!ra_agt_timer_reserve((uint32_t)requested)) {
+            return false;
+        }
+        *timer_ch = (uint8_t)requested;
+        return true;
+    }
+
+    for (uint32_t ch = 0; ch <= BSP_FEATURE_AGT_MAX_CHANNEL_NUM; ++ch) {
+        if (ra_agt_timer_reserve(ch)) {
+            *timer_ch = (uint8_t)ch;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool ra_dac_stream_start_transfer(uint8_t ch, const uint16_t *buf, size_t sample_count, bool loop) {
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    IRQn_Type agt_irq = ra_dac_agt_irq(state->timer_ch);
+
+    memset(&state->info, 0, sizeof(state->info));
+    memset(&state->cfg, 0, sizeof(state->cfg));
+    state->info.transfer_settings_word = 0;
+    state->info.transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_FIXED;
+    state->info.transfer_settings_word_b.repeat_area = TRANSFER_REPEAT_AREA_SOURCE;
+    state->info.transfer_settings_word_b.irq = TRANSFER_IRQ_END;
+    state->info.transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
+    state->info.transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED;
+    state->info.transfer_settings_word_b.size = TRANSFER_SIZE_2_BYTE;
+    state->info.transfer_settings_word_b.mode = loop ? TRANSFER_MODE_REPEAT : TRANSFER_MODE_NORMAL;
+    state->info.p_src = buf;
+    state->info.p_dest = (void *)&R_DAC->DADR[ch];
+    state->info.num_blocks = 0;
+    state->info.length = (uint16_t)sample_count;
+
+    if (agt_irq >= (IRQn_Type)0) {
+        R_BSP_IrqDisable(agt_irq);
+        R_BSP_IrqStatusClear(agt_irq);
+    }
+
+    state->cfg.p_info = &state->info;
+
+    if (state->transfer == RA_DAC_TRANSFER_DMAC) {
+        memset(&state->dmac_ctrl, 0, sizeof(state->dmac_ctrl));
+        memset(&state->dmac_ext, 0, sizeof(state->dmac_ext));
+        if (!ra_dac_dmac_channel_acquire(&state->dmac_ch)) {
+            return false;
+        }
+
+        state->dmac_reserved = true;
+        state->dmac_ext.channel = state->dmac_ch;
+        state->dmac_ext.irq = FSP_INVALID_VECTOR;
+        state->dmac_ext.ipl = 0;
+        state->dmac_ext.activation_source = ra_dac_agt_event(state->timer_ch);
+        if (!loop) {
+            IRQn_Type dmac_irq = ra_dac_dmac_irq(state->dmac_ch);
+            if (dmac_irq >= (IRQn_Type)0) {
+                state->dmac_ext.irq = dmac_irq;
+                state->dmac_ext.ipl = 1;
+                state->dmac_ext.p_callback = ra_dac_dmac_complete_callback;
+                state->dmac_ext.p_context = (void *)(uintptr_t)ch;
+            }
+        }
+        if (state->dmac_ext.activation_source == ELC_EVENT_NONE) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_EVENT_MAP, FSP_ERR_UNSUPPORTED);
+            return false;
+        }
+
+        ra_dac_dmac_detach_agt_iels(state);
+        ra_dac_dmac_make_channel_secure(state->dmac_ch);
+        ra_dac_elc_enable();
+        ra_dac_dmac_error_clear();
+        state->cfg.p_extend = &state->dmac_ext;
+        fsp_err_t err = R_DMAC_Open((transfer_ctrl_t *)&state->dmac_ctrl, &state->cfg);
+        if (err != FSP_SUCCESS) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_OPEN, err);
+            return false;
+        }
+        state->transfer_open = true;
+        err = R_DMAC_Enable((transfer_ctrl_t *)&state->dmac_ctrl);
+        if (err != FSP_SUCCESS) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_ENABLE, err);
+            return false;
+        }
+    } else {
+        memset(&state->dtc_ctrl, 0, sizeof(state->dtc_ctrl));
+        memset(&state->dtc_ext, 0, sizeof(state->dtc_ext));
+        if (agt_irq < (IRQn_Type)0) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_EVENT_MAP, FSP_ERR_UNSUPPORTED);
+            return false;
+        }
+
+        state->dtc_ext.activation_source = agt_irq;
+        state->cfg.p_extend = &state->dtc_ext;
+        fsp_err_t err = R_DTC_Open((transfer_ctrl_t *)&state->dtc_ctrl, &state->cfg);
+        if (err != FSP_SUCCESS) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DTC_OPEN, err);
+            return false;
+        }
+        state->transfer_open = true;
+        err = R_DTC_Enable((transfer_ctrl_t *)&state->dtc_ctrl);
+        if (err != FSP_SUCCESS) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DTC_ENABLE, err);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 uint8_t ra_dac_is_running(uint8_t ch) {
     if (ch < DAC_CH_SIZE) {
         return ch? R_DAC->DACR_b.DAOE1 : R_DAC->DACR_b.DAOE0;
@@ -135,7 +528,7 @@ void ra_dac_stop(uint8_t ch) {
 }
 
 void ra_dac_write(uint8_t ch, uint16_t val) {
-    if ((ch < DAC_CH_SIZE) || (val < 4096)) {
+    if ((ch < DAC_CH_SIZE) && (val < 4096)) {
         R_DAC->DADR[ch] = val;
     }
 }
@@ -164,6 +557,7 @@ void ra_dac_init(uint32_t dac_pin, uint8_t ch) {
 
 void ra_dac_deinit(uint32_t dac_pin, uint8_t ch) {
     if (ch < DAC_CH_SIZE) {
+        ra_dac_stream_cleanup(ch);
         ra_dac_stop(ch);
         ra_dac_release_pin(dac_pin);
 
@@ -180,4 +574,155 @@ void ra_dac_deinit(uint32_t dac_pin, uint8_t ch) {
             ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD20_Msk);
         }
     }
+}
+
+ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_t sample_count, uint32_t freq,
+    bool loop, ra_dac_transfer_t transfer, int8_t timer_ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return RA_DAC_STREAM_STATUS_INVALID_CHANNEL;
+    }
+    if (buf == NULL || sample_count == 0U) {
+        return RA_DAC_STREAM_STATUS_INVALID_LENGTH;
+    }
+    if (freq == 0U) {
+        return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+    }
+
+    if (transfer == RA_DAC_TRANSFER_AUTO) {
+        transfer = loop ? RA_DAC_TRANSFER_DTC : RA_DAC_TRANSFER_DMAC;
+    }
+
+    if (loop) {
+        if (transfer != RA_DAC_TRANSFER_DTC || sample_count > DTC_MAX_REPEAT_TRANSFER_LENGTH) {
+            return RA_DAC_STREAM_STATUS_LOOP_UNSUPPORTED;
+        }
+    } else {
+        if (transfer == RA_DAC_TRANSFER_DMAC && sample_count > DMAC_MAX_NORMAL_TRANSFER_LENGTH) {
+            return RA_DAC_STREAM_STATUS_INVALID_LENGTH;
+        }
+        if (transfer == RA_DAC_TRANSFER_DTC && sample_count > UINT16_MAX) {
+            return RA_DAC_STREAM_STATUS_INVALID_LENGTH;
+        }
+    }
+
+    if (timer_ch >= 0 && !ra_agt_timer_is_valid((uint32_t)timer_ch)) {
+        return RA_DAC_STREAM_STATUS_INVALID_TIMER;
+    }
+
+    ra_dac_stream_cleanup(ch);
+    ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_NONE, FSP_SUCCESS);
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    state->transfer = transfer;
+    state->loop = loop;
+    state->freq = freq;
+
+    if (!ra_dac_timer_reserve(timer_ch, &state->timer_ch)) {
+        return RA_DAC_STREAM_STATUS_TIMER_BUSY;
+    }
+    state->timer_reserved = true;
+
+    ra_agt_timer_init(state->timer_ch, (float)freq);
+    state->timer_initialized = true;
+    if (!loop && transfer == RA_DAC_TRANSFER_DTC) {
+        ra_agt_timer_set_callback(state->timer_ch, ra_dac_dtc_complete_callback, (void *)(uintptr_t)ch);
+    }
+    if (ra_agt_timer_get_freq(state->timer_ch) <= 0.0f) {
+        ra_dac_stream_cleanup(ch);
+        return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+    }
+
+    if (!ra_dac_stream_start_transfer(ch, buf, sample_count, loop)) {
+        ra_dac_stream_status_t err =
+            (transfer == RA_DAC_TRANSFER_DMAC && !state->dmac_reserved) ? RA_DAC_STREAM_STATUS_TRANSFER_BUSY : RA_DAC_STREAM_STATUS_HW_ERROR;
+        ra_dac_stream_cleanup(ch);
+        return err;
+    }
+
+    if (!ra_dac_is_running(ch)) {
+        ra_dac_start(ch);
+    }
+
+    IRQn_Type agt_irq = ra_dac_agt_irq(state->timer_ch);
+    if (agt_irq >= (IRQn_Type)0) {
+        R_BSP_IrqStatusClear(agt_irq);
+    }
+    state->active = true;
+    ra_agt_timer_start(state->timer_ch);
+    if (!loop && transfer == RA_DAC_TRANSFER_DTC && agt_irq >= (IRQn_Type)0) {
+        R_BSP_IrqEnable(agt_irq);
+    }
+
+    return RA_DAC_STREAM_STATUS_OK;
+}
+
+void ra_dac_stream_stop(uint8_t ch) {
+    ra_dac_stream_cleanup(ch);
+}
+
+bool ra_dac_stream_is_active(uint8_t ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return false;
+    }
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    if (!state->active) {
+        return false;
+    }
+    if (state->loop || !state->transfer_open) {
+        return true;
+    }
+
+    if (state->transfer == RA_DAC_TRANSFER_DMAC) {
+        R_DMAC0_Type *dmac_reg = state->dmac_ctrl.p_reg;
+        uint16_t remaining = dmac_reg->DMCRA_b.DMCRAL;
+        bool dte = dmac_reg->DMCNT_b.DTE != 0U;
+        bool done = dmac_reg->DMSTS_b.DTIF != 0U || remaining == 0U;
+        bool runtime_error =
+            (!dte && !done) ||
+            (R_DMA->DMECHR_b.DMESTA != 0U && R_DMA->DMECHR_b.DMECH == state->dmac_ch) ||
+            (R_BUS->BUS3ERRSTAT != 0U) ||
+            (R_BUS->DMACDTCERRSTAT_b.MTERRSTAT != 0U) ||
+            ((R_ICU->DELSR[state->dmac_ch] & 0x1FFU) == 0U && remaining != 0U);
+
+        if (runtime_error) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, ra_dac_dmac_runtime_diag(state->dmac_ch));
+            ra_dac_stream_cleanup(ch);
+            return false;
+        }
+
+        if (done) {
+            ra_dac_stream_cleanup(ch);
+            return false;
+        }
+    }
+
+    transfer_properties_t props;
+    fsp_err_t err;
+    if (state->transfer == RA_DAC_TRANSFER_DMAC) {
+        err = R_DMAC_InfoGet((transfer_ctrl_t *)&state->dmac_ctrl, &props);
+    } else {
+        err = R_DTC_InfoGet((transfer_ctrl_t *)&state->dtc_ctrl, &props);
+    }
+
+    if (err == FSP_SUCCESS && props.transfer_length_remaining != 0U) {
+        return true;
+    }
+
+    ra_dac_stream_cleanup(ch);
+    return false;
+}
+
+ra_dac_hw_stage_t ra_dac_stream_last_stage(uint8_t ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return RA_DAC_HW_STAGE_NONE;
+    }
+    return ra_dac_last_stage[ch];
+}
+
+int32_t ra_dac_stream_last_error(uint8_t ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return (int32_t)FSP_SUCCESS;
+    }
+    return ra_dac_last_error[ch];
 }

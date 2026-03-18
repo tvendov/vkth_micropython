@@ -1,5 +1,6 @@
 /* generated vector source file - do not edit */
         #include "bsp_api.h"
+        #include "ra_encoder.h"
 
 /* Weak ISR stubs for CTSU. These allow builds to succeed even when the CTSU driver
  * (r_ctsu) is not compiled in. If r_ctsu is added, its strong ISR definitions will
@@ -76,6 +77,16 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [61] = agt_int_isr,         /* AGT4 COMPAREB (Compare match B) */
     [62] = agt_int_isr,         /* AGT5 COMPAREA (Compare match A) */
     [63] = agt_int_isr,         /* AGT5 COMPAREB (Compare match B) */
+    [64] = dmac_int_isr,         /* DMAC0 INT (DMAC transfer end 0) */
+    [65] = dmac_int_isr,         /* DMAC1 INT (DMAC transfer end 1) */
+    [66] = dmac_int_isr,         /* DMAC2 INT (DMAC transfer end 2) */
+    [67] = dmac_int_isr,         /* DMAC3 INT (DMAC transfer end 3) */
+    [68] = dmac_int_isr,         /* DMAC4 INT (DMAC transfer end 4) */
+    [69] = dmac_int_isr,         /* DMAC5 INT (DMAC transfer end 5) */
+    [70] = dmac_int_isr,         /* DMAC6 INT (DMAC transfer end 6) */
+    [71] = dmac_int_isr,         /* DMAC7 INT (DMAC transfer end 7) */
+    [72] = encoder_compare_a_isr,  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
+    [73] = encoder_compare_b_isr,  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -143,5 +154,15 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [61] = BSP_PRV_IELS_ENUM(EVENT_AGT4_COMPARE_B),         /* AGT4 COMPAREB (Compare match B) */
     [62] = BSP_PRV_IELS_ENUM(EVENT_AGT5_COMPARE_A),         /* AGT5 COMPAREA (Compare match A) */
     [63] = BSP_PRV_IELS_ENUM(EVENT_AGT5_COMPARE_B),         /* AGT5 COMPAREB (Compare match B) */
+    [64] = BSP_PRV_IELS_ENUM(EVENT_DMAC0_INT),         /* DMAC0 INT (DMAC transfer end 0) */
+    [65] = BSP_PRV_IELS_ENUM(EVENT_DMAC1_INT),         /* DMAC1 INT (DMAC transfer end 1) */
+    [66] = BSP_PRV_IELS_ENUM(EVENT_DMAC2_INT),         /* DMAC2 INT (DMAC transfer end 2) */
+    [67] = BSP_PRV_IELS_ENUM(EVENT_DMAC3_INT),         /* DMAC3 INT (DMAC transfer end 3) */
+    [68] = BSP_PRV_IELS_ENUM(EVENT_DMAC4_INT),         /* DMAC4 INT (DMAC transfer end 4) */
+    [69] = BSP_PRV_IELS_ENUM(EVENT_DMAC5_INT),         /* DMAC5 INT (DMAC transfer end 5) */
+    [70] = BSP_PRV_IELS_ENUM(EVENT_DMAC6_INT),         /* DMAC6 INT (DMAC transfer end 6) */
+    [71] = BSP_PRV_IELS_ENUM(EVENT_DMAC7_INT),         /* DMAC7 INT (DMAC transfer end 7) */
+    [72] = BSP_PRV_IELS_ENUM(EVENT_GPT4_CAPTURE_COMPARE_A),  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
+    [73] = BSP_PRV_IELS_ENUM(EVENT_GPT4_CAPTURE_COMPARE_B),  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
 };
         #endif

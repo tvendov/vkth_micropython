@@ -39,5 +39,6 @@ uint32_t ra_gpt_timer_get_duty(uint32_t ch, uint8_t id);
 void ra_gpt_timer_init(uint32_t pwm_pin, uint32_t ch, uint8_t id, uint32_t duty, float freq);
 void ra_gpt_timer_deinit(uint32_t pwm_pin, uint32_t ch, uint8_t id);
 bool ra_gpt_timer_is_pwm_pin(uint32_t pin);
+bool ra_gpt_find_pin_channel(uint32_t pin, uint32_t *ch, uint32_t *af);
 
 #endif /* RA_RA_GPT_H_ */

@@ -1,0 +1,885 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>esp32 — functionality specific to the ESP32 &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../_static/favicon.ico"/>
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../_static/doctools.js?v=888ff710"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="espnow — support for the ESP-NOW wireless protocol" href="espnow.html" />
+    <link rel="prev" title="esp — functions related to the ESP8266 and ESP32" href="esp.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">MicroPython libraries</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="index.html#python-standard-libraries-and-micro-libraries">Python standard libraries and micro-libraries</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#micropython-specific-libraries">MicroPython-specific libraries</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html#port-specific-libraries">Port-specific libraries</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="index.html#libraries-specific-to-the-pyboard">Libraries specific to the pyboard</a></li>
+<li class="toctree-l3"><a class="reference internal" href="index.html#libraries-specific-to-the-wipy">Libraries specific to the WiPy</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="index.html#libraries-specific-to-the-esp8266-and-esp32">Libraries specific to the ESP8266 and ESP32</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="esp.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">esp</span></code> — functions related to the ESP8266 and ESP32</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">esp32</span></code> — functionality specific to the ESP32</a></li>
+<li class="toctree-l4"><a class="reference internal" href="espnow.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">espnow</span></code> — support for the ESP-NOW wireless protocol</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="index.html#libraries-specific-to-the-rp2040">Libraries specific to the RP2040</a></li>
+<li class="toctree-l3"><a class="reference internal" href="index.html#libraries-specific-to-zephyr">Libraries specific to Zephyr</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#extending-built-in-libraries-from-python">Extending built-in libraries from Python</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../esp32/quickref.html">Quick reference for the ESP32</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mimxrt/quickref.html">Quick reference for the i.MXRT family</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../renesas-ra/quickref.html">Quick reference for the Renesas RA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">MicroPython libraries</a></li>
+      <li class="breadcrumb-item active"><code class="xref py py-mod docutils literal notranslate"><span class="pre">esp32</span></code> — functionality specific to the ESP32</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/library/esp32.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="module-esp32">
+<span id="esp32-functionality-specific-to-the-esp32"></span><h1><a class="reference internal" href="#module-esp32" title="esp32: functionality specific to the ESP32"><code class="xref py py-mod docutils literal notranslate"><span class="pre">esp32</span></code></a> — functionality specific to the ESP32<a class="headerlink" href="#module-esp32" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">esp32</span></code> module contains functions and classes specifically aimed at
+controlling ESP32 modules.</p>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.wake_on_touch">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">wake_on_touch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wake</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.wake_on_touch" title="Link to this definition"></a></dt>
+<dd><p>Configure whether or not a touch will wake the device from sleep.
+<em>wake</em> should be a boolean value.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is only available for boards that have touch sensor support.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.wake_on_ulp">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">wake_on_ulp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wake</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.wake_on_ulp" title="Link to this definition"></a></dt>
+<dd><p>Configure whether or not the Ultra-Low-Power co-processor can wake the
+device from sleep. <em>wake</em> should be a boolean value.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is only available for boards that have ULP coprocessor support.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.wake_on_ext0">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">wake_on_ext0</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.wake_on_ext0" title="Link to this definition"></a></dt>
+<dd><p>Configure how EXT0 wakes the device from sleep.  <em>pin</em> can be <code class="docutils literal notranslate"><span class="pre">None</span></code>
+or a valid Pin object.  <em>level</em> should be <code class="docutils literal notranslate"><span class="pre">esp32.WAKEUP_ALL_LOW</span></code> or
+<code class="docutils literal notranslate"><span class="pre">esp32.WAKEUP_ANY_HIGH</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is only available for boards that have ext0 support.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.wake_on_ext1">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">wake_on_ext1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pins</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.wake_on_ext1" title="Link to this definition"></a></dt>
+<dd><p>Configure how EXT1 wakes the device from sleep.  <em>pins</em> can be <code class="docutils literal notranslate"><span class="pre">None</span></code>
+or a tuple/list of valid Pin objects.  <em>level</em> should be <code class="docutils literal notranslate"><span class="pre">esp32.WAKEUP_ALL_LOW</span></code>
+or <code class="docutils literal notranslate"><span class="pre">esp32.WAKEUP_ANY_HIGH</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is only available for boards that have ext1 support.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.wake_on_gpio">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">wake_on_gpio</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pins</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.wake_on_gpio" title="Link to this definition"></a></dt>
+<dd><p>Configure how GPIO wakes the device from sleep.  <em>pins</em> can be <code class="docutils literal notranslate"><span class="pre">None</span></code>
+or a tuple/list of valid Pin objects.  <em>level</em> should be <code class="docutils literal notranslate"><span class="pre">esp32.WAKEUP_ALL_LOW</span></code>
+or <code class="docutils literal notranslate"><span class="pre">esp32.WAKEUP_ANY_HIGH</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Some boards don’t support waking on GPIO from deep sleep,
+on those boards, the pins set here can only be used to wake from light sleep.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.gpio_deep_sleep_hold">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">gpio_deep_sleep_hold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.gpio_deep_sleep_hold" title="Link to this definition"></a></dt>
+<dd><p>Configure whether non-RTC GPIO pin configuration is retained during
+deep-sleep mode for held pads. <em>enable</em> should be a boolean value.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.raw_temperature">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">raw_temperature</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.raw_temperature" title="Link to this definition"></a></dt>
+<dd><p>Read the raw value of the internal temperature sensor, returning an integer.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.idf_heap_info">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">idf_heap_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">capabilities</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.idf_heap_info" title="Link to this definition"></a></dt>
+<dd><p>Returns information about the ESP-IDF heap memory regions. One of them contains
+the MicroPython heap and the others are used by ESP-IDF, e.g., for network
+buffers and other data. This data is useful to get a sense of how much memory
+is available to ESP-IDF and the networking stack in particular. It may shed
+some light on situations where ESP-IDF operations fail due to allocation failures.</p>
+<p>The capabilities parameter corresponds to ESP-IDF’s <code class="docutils literal notranslate"><span class="pre">MALLOC_CAP_XXX</span></code> values but the
+two most useful ones are predefined as <a class="reference internal" href="#esp32.HEAP_DATA" title="esp32.HEAP_DATA"><code class="xref any py py-data docutils literal notranslate"><span class="pre">esp32.HEAP_DATA</span></code></a> for data heap regions and
+<a class="reference internal" href="#esp32.HEAP_EXEC" title="esp32.HEAP_EXEC"><code class="xref any py py-data docutils literal notranslate"><span class="pre">esp32.HEAP_EXEC</span></code></a> for executable regions as used by the native code emitter.</p>
+<p>The return value is a list of 4-tuples, where each 4-tuple corresponds to one heap
+and contains: the total bytes, the free bytes, the largest free block, and
+the minimum free seen over time.</p>
+<p>Example after booting:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">esp32</span><span class="p">;</span> <span class="n">esp32</span><span class="o">.</span><span class="n">idf_heap_info</span><span class="p">(</span><span class="n">esp32</span><span class="o">.</span><span class="n">HEAP_DATA</span><span class="p">)</span>
+<span class="go">[(240, 0, 0, 0), (7288, 0, 0, 0), (16648, 4, 4, 4), (79912, 35712, 35512, 35108),</span>
+<span class="go"> (15072, 15036, 15036, 15036), (113840, 0, 0, 0)]</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Free IDF heap memory in the <a class="reference internal" href="#esp32.HEAP_DATA" title="esp32.HEAP_DATA"><code class="xref any py py-data docutils literal notranslate"><span class="pre">esp32.HEAP_DATA</span></code></a> region is available
+to be automatically added to the MicroPython heap to prevent a
+MicroPython allocation from failing. However, the information returned
+here is otherwise <em>not</em> useful to troubleshoot Python allocation
+failures. <a class="reference internal" href="micropython.html#micropython.mem_info" title="micropython.mem_info"><code class="xref py py-func docutils literal notranslate"><span class="pre">micropython.mem_info()</span></code></a> and <a class="reference internal" href="gc.html#gc.mem_free" title="gc.mem_free"><code class="xref py py-func docutils literal notranslate"><span class="pre">gc.mem_free()</span></code></a> should
+be used instead:</p>
+<p>The “max new split” value in <a class="reference internal" href="micropython.html#micropython.mem_info" title="micropython.mem_info"><code class="xref py py-func docutils literal notranslate"><span class="pre">micropython.mem_info()</span></code></a> output
+corresponds to the largest free block of ESP-IDF heap that could be
+automatically added on demand to the MicroPython heap.</p>
+<p>The result of <a class="reference internal" href="gc.html#gc.mem_free" title="gc.mem_free"><code class="xref py py-func docutils literal notranslate"><span class="pre">gc.mem_free()</span></code></a> is the total of the current “free”
+and “max new split” values printed by <a class="reference internal" href="micropython.html#micropython.mem_info" title="micropython.mem_info"><code class="xref py py-func docutils literal notranslate"><span class="pre">micropython.mem_info()</span></code></a>.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="esp32.idf_task_info">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">idf_task_info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.idf_task_info" title="Link to this definition"></a></dt>
+<dd><p>Returns information about running ESP-IDF/FreeRTOS tasks, which include
+MicroPython threads. This data is useful to gain insight into how much time
+tasks spend running or if they are blocked for significant parts of time,
+and to determine if allocated stacks are fully utilized or might be reduced.</p>
+<p><code class="docutils literal notranslate"><span class="pre">CONFIG_FREERTOS_USE_TRACE_FACILITY=y</span></code> must be set in the board
+configuration to make this method available. Additionally configuring
+<code class="docutils literal notranslate"><span class="pre">CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y</span></code> and
+<code class="docutils literal notranslate"><span class="pre">CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y</span></code> is recommended to be able to
+retrieve the total and per-task runtime and the core ID respectively.</p>
+<p>The return value is a 2-tuple where the first value is the total runtime,
+and the second a list of tasks. Each task is a 7-tuple containing: the task
+ID, name, current state, priority, runtime, stack high water mark, and the
+ID of the core it is running on. Runtime and core ID will be None when the
+respective FreeRTOS configuration option is not enabled.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For an easier to use output based on this function you can use the
+<a class="reference external" href="https://github.com/micropython/micropython-lib/tree/master/micropython/utop">utop library</a>,
+which implements a live overview similar to the Unix <code class="docutils literal notranslate"><span class="pre">top</span></code> command.</p>
+</div>
+</dd></dl>
+
+</section>
+<section id="flash-partitions">
+<h2>Flash partitions<a class="headerlink" href="#flash-partitions" title="Link to this heading"></a></h2>
+<p>This class gives access to the partitions in the device’s flash memory and includes
+methods to enable over-the-air (OTA) updates.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="esp32.Partition">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">Partition</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4096</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">/</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition" title="Link to this definition"></a></dt>
+<dd><p>Create an object representing a partition.  <em>id</em> can be a string which is the label
+of the partition to retrieve, or one of the constants: <code class="docutils literal notranslate"><span class="pre">BOOT</span></code> or <code class="docutils literal notranslate"><span class="pre">RUNNING</span></code>.
+<em>block_size</em> specifies the byte size of an individual block.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.find">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">find</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">TYPE_APP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0xff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4096</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.find" title="Link to this definition"></a></dt>
+<dd><p>Find a partition specified by <em>type</em>, <em>subtype</em> and <em>label</em>.  Returns a
+(possibly empty) list of Partition objects. Note: <code class="docutils literal notranslate"><span class="pre">subtype=0xff</span></code> matches any subtype
+and <code class="docutils literal notranslate"><span class="pre">label=None</span></code> matches any label.</p>
+<p><em>block_size</em> specifies the byte size of an individual block used by the returned
+objects.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.info">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.info" title="Link to this definition"></a></dt>
+<dd><p>Returns a 6-tuple <code class="docutils literal notranslate"><span class="pre">(type,</span> <span class="pre">subtype,</span> <span class="pre">addr,</span> <span class="pre">size,</span> <span class="pre">label,</span> <span class="pre">encrypted)</span></code>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.readblocks">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">readblocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block_num</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">buf</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.readblocks" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">readblocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block_num</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">buf</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset</span></span></em><span class="sig-paren">)</span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.writeblocks">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">writeblocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block_num</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">buf</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.writeblocks" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">writeblocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block_num</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">buf</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset</span></span></em><span class="sig-paren">)</span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.ioctl">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">ioctl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cmd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">arg</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.ioctl" title="Link to this definition"></a></dt>
+<dd><p>These methods implement the simple and <a class="reference internal" href="vfs.html#block-device-interface"><span class="std std-ref">extended</span></a> block protocol defined by
+<a class="reference internal" href="vfs.html#vfs.AbstractBlockDev" title="vfs.AbstractBlockDev"><code class="xref py py-class docutils literal notranslate"><span class="pre">vfs.AbstractBlockDev</span></code></a>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.set_boot">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">set_boot</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.set_boot" title="Link to this definition"></a></dt>
+<dd><p>Sets the partition as the boot partition.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Do not enter <a class="reference internal" href="machine.html#machine.deepsleep" title="machine.deepsleep"><code class="xref py py-func docutils literal notranslate"><span class="pre">deepsleep</span></code></a> after changing
+the OTA boot partition, without first performing a hard
+<a class="reference internal" href="machine.html#machine.reset" title="machine.reset"><code class="xref py py-func docutils literal notranslate"><span class="pre">reset</span></code></a> or power cycle. This ensures the bootloader
+will validate the new image before booting.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.get_next_update">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">get_next_update</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.get_next_update" title="Link to this definition"></a></dt>
+<dd><p>Gets the next update partition after this one, and returns a new Partition object.
+Typical usage is <code class="docutils literal notranslate"><span class="pre">Partition(Partition.RUNNING).get_next_update()</span></code>
+which returns the next partition to update given the current running one.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.Partition.mark_app_valid_cancel_rollback">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">mark_app_valid_cancel_rollback</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.Partition.mark_app_valid_cancel_rollback" title="Link to this definition"></a></dt>
+<dd><p>Signals that the current boot is considered successful.
+Calling <code class="docutils literal notranslate"><span class="pre">mark_app_valid_cancel_rollback</span></code> is required on the first boot of a new
+partition to avoid an automatic rollback at the next boot.
+This uses the ESP-IDF “app rollback” feature with “CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE”
+and  an <code class="docutils literal notranslate"><span class="pre">OSError(-261)</span></code> is raised if called on firmware that doesn’t have the
+feature enabled.
+It is OK to call <code class="docutils literal notranslate"><span class="pre">mark_app_valid_cancel_rollback</span></code> on every boot and it is not
+necessary when booting firmware that was loaded using esptool.</p>
+</dd></dl>
+
+<section id="constants">
+<h3>Constants<a class="headerlink" href="#constants" title="Link to this heading"></a></h3>
+<dl class="py data">
+<dt class="sig sig-object py" id="esp32.Partition.BOOT">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">BOOT</span></span><a class="headerlink" href="#esp32.Partition.BOOT" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py" id="esp32.Partition.RUNNING">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">RUNNING</span></span><a class="headerlink" href="#esp32.Partition.RUNNING" title="Link to this definition"></a></dt>
+<dd><p>Used in the <a class="reference internal" href="#esp32.Partition" title="esp32.Partition"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Partition</span></code></a> constructor to fetch various partitions: <code class="docutils literal notranslate"><span class="pre">BOOT</span></code> is the
+partition that will be booted at the next reset and <code class="docutils literal notranslate"><span class="pre">RUNNING</span></code> is the currently
+running partition.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="esp32.Partition.TYPE_APP">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">TYPE_APP</span></span><a class="headerlink" href="#esp32.Partition.TYPE_APP" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py" id="esp32.Partition.TYPE_DATA">
+<span class="sig-prename descclassname"><span class="pre">Partition.</span></span><span class="sig-name descname"><span class="pre">TYPE_DATA</span></span><a class="headerlink" href="#esp32.Partition.TYPE_DATA" title="Link to this definition"></a></dt>
+<dd><p>Used in <a class="reference internal" href="#esp32.Partition.find" title="esp32.Partition.find"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">Partition.find</span></code></a> to specify the partition type: <code class="docutils literal notranslate"><span class="pre">APP</span></code> is for bootable
+firmware partitions (typically labelled <code class="docutils literal notranslate"><span class="pre">factory</span></code>, <code class="docutils literal notranslate"><span class="pre">ota_0</span></code>, <code class="docutils literal notranslate"><span class="pre">ota_1</span></code>), and
+<code class="docutils literal notranslate"><span class="pre">DATA</span></code> is for other partitions, e.g. <code class="docutils literal notranslate"><span class="pre">nvs</span></code>, <code class="docutils literal notranslate"><span class="pre">otadata</span></code>, <code class="docutils literal notranslate"><span class="pre">phy_init</span></code>, <code class="docutils literal notranslate"><span class="pre">vfs</span></code>.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="esp32.HEAP_DATA">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">HEAP_DATA</span></span><a class="headerlink" href="#esp32.HEAP_DATA" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py" id="esp32.HEAP_EXEC">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">HEAP_EXEC</span></span><a class="headerlink" href="#esp32.HEAP_EXEC" title="Link to this definition"></a></dt>
+<dd><p>Used in <a class="reference internal" href="#esp32.idf_heap_info" title="esp32.idf_heap_info"><code class="xref any py py-func docutils literal notranslate"><span class="pre">idf_heap_info</span></code></a>.</p>
+</dd></dl>
+
+</section>
+</section>
+<section id="pcnt">
+<span id="esp32-pcnt"></span><h2>PCNT<a class="headerlink" href="#pcnt" title="Link to this heading"></a></h2>
+<p>This class provides access to the ESP32 hardware support for pulse counting.
+There are 8 pulse counter units, with id 0..7.</p>
+<p>See the <a class="reference internal" href="machine.Counter.html#machine-counter"><span class="std std-ref">machine.Counter</span></a> and
+<a class="reference internal" href="machine.Encoder.html#machine-encoder"><span class="std std-ref">machine.Encoder</span></a> classes for simpler and portable
+abstractions of common pulse counting applications. These classes are
+implemented as thin Python shims around <a class="reference internal" href="#esp32.PCNT" title="esp32.PCNT"><code class="xref py py-class docutils literal notranslate"><span class="pre">PCNT</span></code></a>.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="esp32.PCNT">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">PCNT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">...</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.PCNT" title="Link to this definition"></a></dt>
+<dd><p>Returns the singleton PCNT instance for the given unit <code class="docutils literal notranslate"><span class="pre">id</span></code>.</p>
+<p>Keyword arguments are passed to the <code class="docutils literal notranslate"><span class="pre">init()</span></code> method as described
+below.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.PCNT.init">
+<span class="sig-prename descclassname"><span class="pre">PCNT.</span></span><span class="sig-name descname"><span class="pre">init</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">...</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.PCNT.init" title="Link to this definition"></a></dt>
+<dd><p>(Re-)initialise a pulse counter unit. Supported keyword arguments are:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">channel</span></code>: see description below</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pin</span></code>: the input Pin to monitor for pulses</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rising</span></code>: an action to take on a rising edge - one of
+<code class="docutils literal notranslate"><span class="pre">PCNT.INCREMENT</span></code>, <code class="docutils literal notranslate"><span class="pre">PCNT.DECREMENT</span></code> or <code class="docutils literal notranslate"><span class="pre">PCNT.IGNORE</span></code> (the default)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">falling</span></code>: an action to take on a falling edge (takes the save values
+as the <code class="docutils literal notranslate"><span class="pre">rising</span></code> argument).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mode_pin</span></code>: ESP32 pulse counters support monitoring a second pin and
+altering the behaviour of the counter based on its level - set this
+keyword to any input Pin</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mode_low</span></code>: set to either <code class="docutils literal notranslate"><span class="pre">PCNT.HOLD</span></code> or <code class="docutils literal notranslate"><span class="pre">PCNT.REVERSE</span></code> to
+either suspend counting or reverse the direction of the counter (i.e.,
+<code class="docutils literal notranslate"><span class="pre">PCNT.INCREMENT</span></code> behaves as <code class="docutils literal notranslate"><span class="pre">PCNT.DECREMENT</span></code> and vice versa)
+when <code class="docutils literal notranslate"><span class="pre">mode_pin</span></code> is low</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mode_high</span></code>: as <code class="docutils literal notranslate"><span class="pre">mode_low</span></code> but for the behaviour when <code class="docutils literal notranslate"><span class="pre">mode_pin</span></code>
+is high</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">filter</span></code>: set to a value 1..1023, in ticks of the 80MHz clock, to
+enable the pulse width filter</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">min</span></code>: set to the minimum level of the counter value when
+decrementing (-32768..-1) or 0 to disable</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max</span></code>: set to the maximum level of the counter value when
+incrementing (1..32767) or 0 to disable</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">threshold0</span></code>: sets the counter value for the
+<code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_THRESHOLD0</span></code> event (see <code class="docutils literal notranslate"><span class="pre">irq</span></code> method)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">threshold1</span></code>: sets the counter value for the
+<code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_THRESHOLD1</span></code> event (see <code class="docutils literal notranslate"><span class="pre">irq</span></code> method)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">value</span></code>: can be set to <code class="docutils literal notranslate"><span class="pre">0</span></code> to reset the counter value</p></li>
+</ul>
+</div></blockquote>
+<p>The hardware initialisation is done in stages and so some of the keyword
+arguments can be used in groups or in isolation to partially reconfigure a
+unit:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>the <code class="docutils literal notranslate"><span class="pre">pin</span></code> keyword (optionally combined with <code class="docutils literal notranslate"><span class="pre">mode_pin</span></code>) can be used
+to change just the bound pin(s)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rising</span></code>, <code class="docutils literal notranslate"><span class="pre">falling</span></code>, <code class="docutils literal notranslate"><span class="pre">mode_low</span></code> and <code class="docutils literal notranslate"><span class="pre">mode_high</span></code> can be used
+(singly or together) to change the counting logic - omitted keywords
+use their default (<code class="docutils literal notranslate"><span class="pre">PCNT.IGNORE</span></code> or <code class="docutils literal notranslate"><span class="pre">PCNT.NORMAL</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">filter</span></code> can be used to change only the pulse width filter (with 0
+disabling it)</p></li>
+<li><p>each of <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">threshold0</span></code> and <code class="docutils literal notranslate"><span class="pre">threshold1</span></code> can
+be used to change these limit/event values individually; however,
+setting any will reset the counter to zero (i.e., they imply
+<code class="docutils literal notranslate"><span class="pre">value=0</span></code>)</p></li>
+</ul>
+</div></blockquote>
+<p>Each pulse counter unit supports two channels, 0 and 1, each able to
+monitor different pins with different counting logic but updating the same
+counter value. Use <code class="docutils literal notranslate"><span class="pre">channel=1</span></code> with the <code class="docutils literal notranslate"><span class="pre">pin</span></code>, <code class="docutils literal notranslate"><span class="pre">rising</span></code>, <code class="docutils literal notranslate"><span class="pre">falling</span></code>,
+<code class="docutils literal notranslate"><span class="pre">mode_pin</span></code>, <code class="docutils literal notranslate"><span class="pre">mode_low</span></code> and <code class="docutils literal notranslate"><span class="pre">mode_high</span></code> keywords to configure the
+second channel.</p>
+<p>The second channel can be used to configure 4X quadrature decoding with a
+single counter unit:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pin_a</span> <span class="o">=</span> <span class="n">Pin</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">Pin</span><span class="o">.</span><span class="n">INPUT</span><span class="p">,</span> <span class="n">pull</span><span class="o">=</span><span class="n">Pin</span><span class="o">.</span><span class="n">PULL_UP</span><span class="p">)</span>
+<span class="n">pin_b</span> <span class="o">=</span> <span class="n">Pin</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">Pin</span><span class="o">.</span><span class="n">INPUT</span><span class="p">,</span> <span class="n">pull</span><span class="o">=</span><span class="n">Pin</span><span class="o">.</span><span class="n">PULL_UP</span><span class="p">)</span>
+<span class="n">rotary</span> <span class="o">=</span> <span class="n">PCNT</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="o">=-</span><span class="mi">32000</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="mi">32000</span><span class="p">)</span>
+<span class="n">rotary</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">pin</span><span class="o">=</span><span class="n">pin_a</span><span class="p">,</span> <span class="n">falling</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">INCREMENT</span><span class="p">,</span> <span class="n">rising</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">DECREMENT</span><span class="p">,</span> <span class="n">mode_pin</span><span class="o">=</span><span class="n">pin_b</span><span class="p">,</span> <span class="n">mode_low</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">REVERSE</span><span class="p">)</span>
+<span class="n">rotary</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">channel</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">pin</span><span class="o">=</span><span class="n">pin_b</span><span class="p">,</span> <span class="n">falling</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">DECREMENT</span><span class="p">,</span> <span class="n">rising</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">INCREMENT</span><span class="p">,</span> <span class="n">mode_pin</span><span class="o">=</span><span class="n">pin_a</span><span class="p">,</span> <span class="n">mode_low</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">REVERSE</span><span class="p">)</span>
+<span class="n">rotary</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.PCNT.value">
+<span class="sig-prename descclassname"><span class="pre">PCNT.</span></span><span class="sig-name descname"><span class="pre">value</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.PCNT.value" title="Link to this definition"></a></dt>
+<dd><p>Call this method with no arguments to return the current counter value.</p>
+<p>If the optional <em>value</em> argument is set to <code class="docutils literal notranslate"><span class="pre">0</span></code> then the counter is
+reset (but the previous value is returned). Read and reset is not atomic and
+so it is possible for a pulse to be missed. Any value other than <code class="docutils literal notranslate"><span class="pre">0</span></code> will
+raise an error.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.PCNT.irq">
+<span class="sig-prename descclassname"><span class="pre">PCNT.</span></span><span class="sig-name descname"><span class="pre">irq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">handler</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trigger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">PCNT.IRQ_ZERO</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.PCNT.irq" title="Link to this definition"></a></dt>
+<dd><p>ESP32 pulse counters support interrupts on these counter events:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_ZERO</span></code>: the counter has reset to zero</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_MIN</span></code>: the counter has hit the <code class="docutils literal notranslate"><span class="pre">min</span></code> value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_MAX</span></code>: the counter has hit the <code class="docutils literal notranslate"><span class="pre">max</span></code> value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_THRESHOLD0</span></code>: the counter has hit the <code class="docutils literal notranslate"><span class="pre">threshold0</span></code> value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PCNT.IRQ_THRESHOLD1</span></code>: the counter has hit the <code class="docutils literal notranslate"><span class="pre">threshold1</span></code> value</p></li>
+</ul>
+</div></blockquote>
+<p><code class="docutils literal notranslate"><span class="pre">trigger</span></code> should be a bit-mask of the desired events OR’ed together. The
+<code class="docutils literal notranslate"><span class="pre">handler</span></code> function should take a single argument which is the
+<a class="reference internal" href="#esp32.PCNT" title="esp32.PCNT"><code class="xref py py-class docutils literal notranslate"><span class="pre">PCNT</span></code></a> instance that raised the event.</p>
+<p>This method returns a callback object. The callback object can be used to
+access the bit-mask of events that are outstanding on the PCNT unit.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">pcnt_irq</span><span class="p">(</span><span class="n">pcnt</span><span class="p">):</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="n">pcnt</span><span class="o">.</span><span class="n">irq</span><span class="p">()</span><span class="o">.</span><span class="n">flags</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="n">PCNT</span><span class="o">.</span><span class="n">IRQ_ZERO</span><span class="p">:</span>
+       <span class="c1"># reset</span>
+    <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="n">PCNT</span><span class="o">.</span><span class="n">IRQ_MAX</span><span class="p">:</span>
+       <span class="c1"># overflow...</span>
+    <span class="o">...</span> <span class="n">etc</span>
+
+<span class="n">pcnt</span><span class="o">.</span><span class="n">irq</span><span class="p">(</span><span class="n">handler</span><span class="o">=</span><span class="n">pcnt_irq</span><span class="p">,</span> <span class="n">trigger</span><span class="o">=</span><span class="n">PCNT</span><span class="o">.</span><span class="n">IRQ_ZERO</span> <span class="o">|</span> <span class="n">PCNT</span><span class="o">.</span><span class="n">IRQ_MAX</span> <span class="o">|</span> <span class="o">...</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Note:</strong> Accessing <code class="docutils literal notranslate"><span class="pre">irq.flags()</span></code> will clear the flags, so only call it
+once per invocation of the handler.</p>
+<p>The handler is called with the MicroPython scheduler and so will run at a
+point after the interrupt. If another interrupt occurs before the handler
+has been called then the events will be coalesced together into a single
+call and the bit mask will indicate all events that have occurred.</p>
+<p>To avoid race conditions between a handler being called and retrieving the
+current counter value, the <code class="docutils literal notranslate"><span class="pre">value()</span></code> method will force execution of any
+pending events before returning the current counter value (and potentially
+resetting the value).</p>
+<p>Only one handler can be in place per-unit. Set <code class="docutils literal notranslate"><span class="pre">handler</span></code> to <code class="docutils literal notranslate"><span class="pre">None</span></code> to
+disable the event interrupt.</p>
+</dd></dl>
+
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>ESP32 pulse counters reset to <em>zero</em> when reaching the minimum or maximum
+value. Thus the <code class="docutils literal notranslate"><span class="pre">IRQ_ZERO</span></code> event will also trigger when either of these
+events occurs.</p>
+</div>
+<p>See the <a class="reference internal" href="machine.Counter.html#machine-counter"><span class="std std-ref">machine.Counter</span></a> and
+<a class="reference internal" href="machine.Encoder.html#machine-encoder"><span class="std std-ref">machine.Encoder</span></a> classes for simpler abstractions of
+common pulse counting applications.</p>
+</section>
+<section id="rmt">
+<span id="esp32-rmt"></span><h2>RMT<a class="headerlink" href="#rmt" title="Link to this heading"></a></h2>
+<p>The RMT (Remote Control) module, specific to the ESP32, was originally designed
+to send and receive infrared remote control signals. However, due to a flexible
+design and very accurate (as low as 12.5ns) pulse generation, it can also be
+used to transmit or receive many other types of digital signals:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">esp32</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pin</span>
+
+<span class="n">r</span> <span class="o">=</span> <span class="n">esp32</span><span class="o">.</span><span class="n">RMT</span><span class="p">(</span><span class="n">pin</span><span class="o">=</span><span class="n">Pin</span><span class="p">(</span><span class="mi">18</span><span class="p">),</span> <span class="n">resolution_hz</span><span class="o">=</span><span class="mi">10000000</span><span class="p">)</span>
+<span class="n">r</span>  <span class="c1"># RMT(pin=18, source_freq=80000000, resolution_hz=10000000, idle_level=0)</span>
+
+<span class="c1"># To apply a carrier frequency to the high output</span>
+<span class="n">r</span> <span class="o">=</span> <span class="n">esp32</span><span class="o">.</span><span class="n">RMT</span><span class="p">(</span><span class="n">pin</span><span class="o">=</span><span class="n">Pin</span><span class="p">(</span><span class="mi">18</span><span class="p">),</span> <span class="n">resolution_hz</span><span class="o">=</span><span class="mi">10000000</span><span class="p">,</span> <span class="n">tx_carrier</span><span class="o">=</span><span class="p">(</span><span class="mi">38000</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+
+<span class="c1"># The channel resolution is 100ns (1/resolution_hz)</span>
+<span class="n">r</span><span class="o">.</span><span class="n">write_pulses</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">40</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>  <span class="c1"># Send 0 for 100ns, 1 for 2000ns, 0 for 200ns, 1 for 4000ns</span>
+</pre></div>
+</div>
+<p>The input to the RMT module is an 80MHz clock (in the future it may be able to
+configure the input clock but, for now, it’s fixed). <code class="docutils literal notranslate"><span class="pre">resolution_hz</span></code> determines
+the resolution of the RMT channel. The numbers specified in <code class="docutils literal notranslate"><span class="pre">write_pulses</span></code> are
+multiplied by the resolution to
+define the pulses.</p>
+<p>So, in the example above, the resolution is resolution is (1/10Mhz) = 100ns.
+Since the <code class="docutils literal notranslate"><span class="pre">start</span></code> level is 0 and toggles with each number, the bitstream is
+<code class="docutils literal notranslate"><span class="pre">0101</span></code> with durations of [100ns, 2000ns, 100ns, 4000ns].</p>
+<p>For more details see Espressif’s <a class="reference external" href="https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/rmt.html">ESP-IDF RMT documentation.</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The current MicroPython RMT implementation lacks some features, most notably
+receiving pulses. RMT should be considered a
+<em>beta feature</em> and the interface may change in the future.</p>
+</div>
+<dl class="py class">
+<dt class="sig sig-object py" id="esp32.RMT">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">RMT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution_hz</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">clock_div</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">idle_level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_symbols</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">48</span> <span class="pre">|</span> <span class="pre">64</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tx_carrier</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT" title="Link to this definition"></a></dt>
+<dd><p>This class provides access to one of the eight RMT channels. <em>channel</em> is
+optional and a dummy parameter for backward compatibility. <em>pin</em> is required
+and configures which Pin is bound to the RMT channel.
+<em>resolution_hz</em> defines the resolution/unit of the samples.
+For example, 1,000,000 means the unit is microsecond. The pulse widths can
+assume values up to <em>RMT.PULSE_MAX</em>, so the resolution should be selected
+accordingly to the signal to be transmitted.
+<em>clock_div</em> (deprecated) is equivalent to <em>resolution_hz</em>, but expressed as
+a clock divider that divides the source clock (80MHz) to the RMT
+channel allowing the resolution to be specified. Either <em>clock_div</em> and
+<em>resolution_hz</em> may be supplied, but not both.
+<em>num_symbols</em> specifies the
+RMT buffer allocated for this channel (minimum 48 or 64, depending on chip), from a small pool of
+symbols (192 to 512, depending on chip) that are shared by all channels. This buffer does not limit the
+size of the pulse train that you can send, but bigger buffers reduce the
+CPU load and the potential of glitches/imprecise pulse lengths. <em>idle_level</em> specifies
+what level the output will be when no transmission is in progress and can
+be any value that converts to a boolean, with <code class="docutils literal notranslate"><span class="pre">True</span></code> representing high
+voltage and <code class="docutils literal notranslate"><span class="pre">False</span></code> representing low.</p>
+<p>To enable the transmission carrier feature, <em>tx_carrier</em> should be a tuple
+of three positive integers: carrier frequency, duty percent (<code class="docutils literal notranslate"><span class="pre">0</span></code> to
+<code class="docutils literal notranslate"><span class="pre">100</span></code>) and the output level to apply the carrier to (a boolean as per
+<em>idle_level</em>).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.source_freq">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">source_freq</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.source_freq" title="Link to this definition"></a></dt>
+<dd><p>Returns the source clock frequency. Currently the source clock is not
+configurable so this will always return 80MHz.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.clock_div">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">clock_div</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.clock_div" title="Link to this definition"></a></dt>
+<dd><p>Return the clock divider. Note that the channel resolution is
+<code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">/</span> <span class="pre">(source_freq</span> <span class="pre">/</span> <span class="pre">clock_div)</span></code>. (Method deprecated. The value may
+not be faithful if resolution was supplied as <em>resolution_hz</em>.)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.wait_done">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">wait_done</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.wait_done" title="Link to this definition"></a></dt>
+<dd><p>Returns <code class="docutils literal notranslate"><span class="pre">True</span></code> if the channel is idle or <code class="docutils literal notranslate"><span class="pre">False</span></code> if a sequence of
+pulses started with <a class="reference internal" href="#esp32.RMT.write_pulses" title="esp32.RMT.write_pulses"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">RMT.write_pulses</span></code></a> is being transmitted. If the
+<em>timeout</em> keyword argument is given then block for up to this many
+milliseconds for transmission to complete. Timeout of -1 blocks until
+transmission is complete (and blocks forever if loop is enabled).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.loop">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">loop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable_loop</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.loop" title="Link to this definition"></a></dt>
+<dd><p>Configure looping on the channel. <em>enable_loop</em> is bool, set to <code class="docutils literal notranslate"><span class="pre">True</span></code> to
+enable looping on the <em>next</em> call to <a class="reference internal" href="#esp32.RMT.write_pulses" title="esp32.RMT.write_pulses"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">RMT.write_pulses</span></code></a>. If called with
+<code class="docutils literal notranslate"><span class="pre">False</span></code> while a looping sequence is currently being transmitted then the
+transmission will stop. (Method deprecated by <a class="reference internal" href="#esp32.RMT.loop_count" title="esp32.RMT.loop_count"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">RMT.loop_count</span></code></a>.)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.loop_count">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">loop_count</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.loop_count" title="Link to this definition"></a></dt>
+<dd><p>Configure looping on the channel. <em>n</em> is int. Affects the <em>next</em> call to
+<a class="reference internal" href="#esp32.RMT.write_pulses" title="esp32.RMT.write_pulses"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">RMT.write_pulses</span></code></a>. Set to <code class="docutils literal notranslate"><span class="pre">0</span></code> to disable looping, <code class="docutils literal notranslate"><span class="pre">-1</span></code> to enable
+infinite looping, or a positive number to loop for a given number of times.
+If <em>n</em> is changed, the current transmission is stopped.</p>
+<p>Note: looping for a finite number of times is not supported by all flavors
+of ESP32.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.active">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">active</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">boolean</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.active" title="Link to this definition"></a></dt>
+<dd><p>If called without parameters, returns <em>True</em> if there is an ongoing transmission.</p>
+<p>If called with parameter <em>False</em>, stops the ongoing transmission.
+This is useful to stop an infinite transmission loop.
+The current loop is finished and transmission stops.
+The object is not invalidated, and the RMT channel is again enabled when a new
+transmission is started.</p>
+<p>Calling with parameter <em>True</em> does not restart transmission. A new transmission
+should always be initiated by <em>write_pulses()</em>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.deinit">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">deinit</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.deinit" title="Link to this definition"></a></dt>
+<dd><p>Release all RMT resources and invalidate the object. All subsequent method
+calls will raise OSError. Useful to free RMT resources without having to wait
+for the object to be garbage-collected.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.write_pulses">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">write_pulses</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">duration</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.write_pulses" title="Link to this definition"></a></dt>
+<dd><p>Begin transmitting a sequence. There are three ways to specify this:</p>
+<p><strong>Mode 1:</strong> <em>duration</em> is a list or tuple of durations. The optional <em>data</em>
+argument specifies the initial output level. The output level will toggle
+after each duration.</p>
+<p><strong>Mode 2:</strong> <em>duration</em> is a positive integer and <em>data</em> is a list or tuple
+of output levels. <em>duration</em> specifies a fixed duration for each.</p>
+<p><strong>Mode 3:</strong> <em>duration</em> and <em>data</em> are lists or tuples of equal length,
+specifying individual durations and the output level for each.</p>
+<p>Durations are in integer units of the channel resolution (as
+described above), between 1 and <code class="docutils literal notranslate"><span class="pre">PULSE_MAX</span></code> units. Output levels
+are any value that can be converted to a boolean, with <code class="docutils literal notranslate"><span class="pre">True</span></code>
+representing high voltage and <code class="docutils literal notranslate"><span class="pre">False</span></code> representing low.</p>
+<p>If transmission of an earlier sequence is in progress then this method will
+block until that transmission is complete before beginning the new sequence.</p>
+<p>If looping has been enabled with <a class="reference internal" href="#esp32.RMT.loop" title="esp32.RMT.loop"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">RMT.loop</span></code></a>, the sequence will be
+repeated indefinitely. Further calls to this method will block until the
+end of the current loop iteration before immediately beginning to loop the
+new sequence of pulses. Looping sequences longer than 126 pulses is not
+supported by the hardware.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.bitstream_rmt">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">bitstream_rmt</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.bitstream_rmt" title="Link to this definition"></a></dt>
+<dd><p>Configure RMT usage in the <a class="reference internal" href="machine.html#machine.bitstream" title="machine.bitstream"><code class="xref any py py-func docutils literal notranslate"><span class="pre">machine.bitstream</span></code></a> implementation.</p>
+<p>If <em>value</em> is <code class="docutils literal notranslate"><span class="pre">True</span></code>, bitstream tries to use RMT if possible. If <em>value</em>
+is <code class="docutils literal notranslate"><span class="pre">False</span></code>, bitstream sticks to the bit-banging implementation.</p>
+<p>If no parameter is supplied, it returns the current state. The default state
+is <code class="docutils literal notranslate"><span class="pre">True</span></code>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.RMT.bitstream_channel">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">bitstream_channel</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.RMT.bitstream_channel" title="Link to this definition"></a></dt>
+<dd><p><em>This function is deprecated and will be replaced by `RMT.bitstream_rmt()`.</em></p>
+<p>Passing in no argument will return <code class="docutils literal notranslate"><span class="pre">1</span></code> if RMT was enabled for the <a class="reference internal" href="machine.html#machine.bitstream" title="machine.bitstream"><code class="xref any py py-func docutils literal notranslate"><span class="pre">machine.bitstream</span></code></a>
+feature, and <code class="docutils literal notranslate"><span class="pre">None</span></code> otherwise.</p>
+<p>Passing any non-negative integer argument is equivalent to calling <code class="docutils literal notranslate"><span class="pre">RMT.bitstream_rmt(True)</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>In previous versions of MicroPython it was necessary to use this function to assign
+a specific RMT channel number for the bitstream, but the channel number is now assigned
+dynamically.</p>
+</div>
+</dd></dl>
+
+</section>
+<section id="id1">
+<h2>Constants<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="esp32.RMT.PULSE_MAX">
+<span class="sig-prename descclassname"><span class="pre">RMT.</span></span><span class="sig-name descname"><span class="pre">PULSE_MAX</span></span><a class="headerlink" href="#esp32.RMT.PULSE_MAX" title="Link to this definition"></a></dt>
+<dd><p>Maximum integer that can be set for a pulse duration.</p>
+</dd></dl>
+
+</section>
+<section id="ultra-low-power-co-processor">
+<h2>Ultra-Low-Power co-processor<a class="headerlink" href="#ultra-low-power-co-processor" title="Link to this heading"></a></h2>
+<p>This class gives access to the Ultra Low Power (ULP) co-processor on the ESP32,
+ESP32-S2 and ESP32-S3 chips.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This class does not provide access to the RISCV ULP co-processor available
+on the ESP32-S2 and ESP32-S3 chips.</p>
+</div>
+<dl class="py class">
+<dt class="sig sig-object py" id="esp32.ULP">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">ULP</span></span><a class="headerlink" href="#esp32.ULP" title="Link to this definition"></a></dt>
+<dd><p>This class provides access to the Ultra-Low-Power co-processor.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.ULP.set_wakeup_period">
+<span class="sig-prename descclassname"><span class="pre">ULP.</span></span><span class="sig-name descname"><span class="pre">set_wakeup_period</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">period_index</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">period_us</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.ULP.set_wakeup_period" title="Link to this definition"></a></dt>
+<dd><p>Set the wake-up period.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.ULP.load_binary">
+<span class="sig-prename descclassname"><span class="pre">ULP.</span></span><span class="sig-name descname"><span class="pre">load_binary</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">load_addr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">program_binary</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.ULP.load_binary" title="Link to this definition"></a></dt>
+<dd><p>Load a <em>program_binary</em> into the ULP at the given <em>load_addr</em>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.ULP.run">
+<span class="sig-prename descclassname"><span class="pre">ULP.</span></span><span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entry_point</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.ULP.run" title="Link to this definition"></a></dt>
+<dd><p>Start the ULP running at the given <em>entry_point</em>.</p>
+</dd></dl>
+
+</section>
+<section id="id2">
+<h2>Constants<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="esp32.esp32.WAKEUP_ALL_LOW">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">WAKEUP_ALL_LOW</span></span><a class="headerlink" href="#esp32.esp32.WAKEUP_ALL_LOW" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py" id="esp32.esp32.WAKEUP_ANY_HIGH">
+<span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">WAKEUP_ANY_HIGH</span></span><a class="headerlink" href="#esp32.esp32.WAKEUP_ANY_HIGH" title="Link to this definition"></a></dt>
+<dd><p>Selects the wake level for pins.</p>
+</dd></dl>
+
+</section>
+<section id="non-volatile-storage">
+<h2>Non-Volatile Storage<a class="headerlink" href="#non-volatile-storage" title="Link to this heading"></a></h2>
+<p>This class gives access to the Non-Volatile storage managed by ESP-IDF. The NVS is partitioned
+into namespaces and each namespace contains typed key-value pairs. The keys are strings and the
+values may be various integer types, strings, and binary blobs. The driver currently only
+supports 32-bit signed integers and blobs.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Changes to NVS need to be committed to flash by calling the commit method. Failure
+to call commit results in changes being lost at the next reset.</p>
+</div>
+<dl class="py class">
+<dt class="sig sig-object py" id="esp32.NVS">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">esp32.</span></span><span class="sig-name descname"><span class="pre">NVS</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">namespace</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS" title="Link to this definition"></a></dt>
+<dd><p>Create an object providing access to a namespace (which is automatically created if not
+present).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.NVS.set_i32">
+<span class="sig-prename descclassname"><span class="pre">NVS.</span></span><span class="sig-name descname"><span class="pre">set_i32</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS.set_i32" title="Link to this definition"></a></dt>
+<dd><p>Sets a 32-bit signed integer value for the specified key. Remember to call <em>commit</em>!</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.NVS.get_i32">
+<span class="sig-prename descclassname"><span class="pre">NVS.</span></span><span class="sig-name descname"><span class="pre">get_i32</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS.get_i32" title="Link to this definition"></a></dt>
+<dd><p>Returns the signed integer value for the specified key. Raises an OSError if the key does not
+exist or has a different type.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.NVS.set_blob">
+<span class="sig-prename descclassname"><span class="pre">NVS.</span></span><span class="sig-name descname"><span class="pre">set_blob</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS.set_blob" title="Link to this definition"></a></dt>
+<dd><p>Sets a binary blob value for the specified key. The value passed in must support the buffer
+protocol, e.g. bytes, bytearray, str. (Note that esp-idf distinguishes blobs and strings, this
+method always writes a blob even if a string is passed in as value.)
+Remember to call <em>commit</em>!</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.NVS.get_blob">
+<span class="sig-prename descclassname"><span class="pre">NVS.</span></span><span class="sig-name descname"><span class="pre">get_blob</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">buffer</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS.get_blob" title="Link to this definition"></a></dt>
+<dd><p>Reads the value of the blob for the specified key into the buffer, which must be a bytearray.
+Returns the actual length read. Raises an OSError if the key does not exist, has a different
+type, or if the buffer is too small.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.NVS.erase_key">
+<span class="sig-prename descclassname"><span class="pre">NVS.</span></span><span class="sig-name descname"><span class="pre">erase_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS.erase_key" title="Link to this definition"></a></dt>
+<dd><p>Erases a key-value pair.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="esp32.NVS.commit">
+<span class="sig-prename descclassname"><span class="pre">NVS.</span></span><span class="sig-name descname"><span class="pre">commit</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#esp32.NVS.commit" title="Link to this definition"></a></dt>
+<dd><p>Commits changes made by <em>set_xxx</em> methods to flash.</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="esp.html" class="btn btn-neutral float-left" title="esp — functions related to the ESP8266 and ESP32" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="espnow.html" class="btn btn-neutral float-right" title="espnow — support for the ESP-NOW wireless protocol" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 18 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

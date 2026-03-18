@@ -1,0 +1,453 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2. Pulse Width Modulation &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../../_static/favicon.ico"/>
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../../_static/doctools.js?v=888ff710"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="3. Accessing peripherals directly via registers" href="peripheral_access.html" />
+    <link rel="prev" title="1. Getting started with MicroPython on the ESP32" href="intro.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../library/index.html">MicroPython libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../quickref.html">Quick reference for the ESP32</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../general.html">General information about the ESP32 port</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">MicroPython tutorial for ESP32</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="intro.html">1. Getting started with MicroPython on the ESP32</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">2. Pulse Width Modulation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="peripheral_access.html">3. Accessing peripherals directly via registers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reset.html">4. Factory reset</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#installing-micropython">Installing MicroPython</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#general-board-control">General board control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#networking">Networking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#delay-and-timing">Delay and timing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#timers">Timers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pins-and-gpio">Pins and GPIO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#uart-serial-bus">UART (serial bus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pwm-pulse-width-modulation">PWM (pulse width modulation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#dac-digital-to-analog-conversion">DAC (digital to analog conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#adc-analog-to-digital-conversion">ADC (analog to digital conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pulse-counter-pin-pulse-edge-counting">Pulse Counter (pin pulse/edge counting)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#software-spi-bus">Software SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#hardware-spi-bus">Hardware SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#software-i2c-bus">Software I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#hardware-i2c-bus">Hardware I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#i2s-bus">I2S bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#real-time-clock-rtc">Real time clock (RTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#wdt-watchdog-timer">WDT (Watchdog timer)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#deep-sleep-mode">Deep-sleep mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#sd-card">SD card</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#rmt">RMT</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#onewire-driver">OneWire driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#neopixel-and-apa106-driver">NeoPixel and APA106 driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#capacitive-touch">Capacitive touch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#dht-driver">DHT driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#webrepl-web-browser-interactive-prompt">WebREPL (web browser interactive prompt)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../mimxrt/quickref.html">Quick reference for the i.MXRT family</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../renesas-ra/quickref.html">Quick reference for the Renesas RA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../quickref.html">Quick reference for the ESP32</a></li>
+          <li class="breadcrumb-item"><a href="index.html">MicroPython tutorial for ESP32</a></li>
+      <li class="breadcrumb-item active"><span class="section-number">2. </span>Pulse Width Modulation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/esp32/tutorial/pwm.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="pulse-width-modulation">
+<span id="esp32-pwm"></span><h1><span class="section-number">2. </span>Pulse Width Modulation<a class="headerlink" href="#pulse-width-modulation" title="Link to this heading"></a></h1>
+<p>Pulse width modulation (PWM) is a way to get an artificial analog output on a
+digital pin.  It achieves this by rapidly toggling the pin from low to high.
+There are two parameters associated with this: the frequency of the toggling,
+and the duty cycle.  The duty cycle is defined to be how long the pin is high
+compared with the length of a single period (low plus high time).  Maximum
+duty cycle is when the pin is high all of the time, and minimum is when it is
+low all of the time.</p>
+<ul>
+<li><p>More comprehensive example with all <strong>16 PWM channels and 8 timers</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">time</span><span class="w"> </span><span class="kn">import</span> <span class="n">sleep</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pin</span><span class="p">,</span> <span class="n">PWM</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">F</span> <span class="o">=</span> <span class="mi">10000</span>  <span class="c1"># Hz</span>
+    <span class="n">D</span> <span class="o">=</span> <span class="mi">65536</span> <span class="o">//</span> <span class="mi">16</span>  <span class="c1"># 6.25%</span>
+    <span class="n">pins</span> <span class="o">=</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">,</span> <span class="mi">14</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">19</span><span class="p">,</span> <span class="mi">22</span><span class="p">,</span> <span class="mi">23</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">27</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">33</span><span class="p">)</span>
+    <span class="n">pwms</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">pin</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">pins</span><span class="p">):</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">F</span> <span class="o">*</span> <span class="p">(</span><span class="n">i</span> <span class="o">//</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="mi">65535</span><span class="p">,</span> <span class="n">D</span> <span class="o">*</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">pwms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">PWM</span><span class="p">(</span><span class="n">pin</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="n">f</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="n">d</span><span class="p">))</span>
+        <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span> <span class="o">/</span> <span class="n">f</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">pwms</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+<span class="k">finally</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">pwm</span> <span class="ow">in</span> <span class="n">pwms</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">pwm</span><span class="o">.</span><span class="n">deinit</span><span class="p">()</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span>
+</pre></div>
+</div>
+<p>Output is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">4096</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">4</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">8192</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">12</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">20000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">12288</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">13</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">20000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">16384</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">14</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">30030</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">20480</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">15</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">30030</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">24576</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">16</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">40000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">28672</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">18</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">40000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">19</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">50000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">36864</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">22</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">50000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">40960</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">23</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">60060</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">45056</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">25</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">60060</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">49152</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">26</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">69930</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">53248</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">69930</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">57344</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">80000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">61440</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">33</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">80000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">65535</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p>Example of a <strong>smooth frequency change</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">time</span><span class="w"> </span><span class="kn">import</span> <span class="n">sleep</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pin</span><span class="p">,</span> <span class="n">PWM</span>
+
+<span class="n">F_MIN</span> <span class="o">=</span> <span class="mi">1000</span>
+<span class="n">F_MAX</span> <span class="o">=</span> <span class="mi">10000</span>
+
+<span class="n">f</span> <span class="o">=</span> <span class="n">F_MIN</span>
+<span class="n">delta_f</span> <span class="o">=</span> <span class="n">F_MAX</span> <span class="o">//</span> <span class="mi">50</span>
+
+<span class="n">pwm</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">f</span><span class="p">)</span>
+
+<span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+    <span class="n">pwm</span><span class="o">.</span><span class="n">freq</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">f</span><span class="p">)</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">pwm</span><span class="p">)</span>
+
+    <span class="n">f</span> <span class="o">+=</span> <span class="n">delta_f</span>
+    <span class="k">if</span> <span class="n">f</span> <span class="o">&gt;</span> <span class="n">F_MAX</span> <span class="ow">or</span> <span class="n">f</span> <span class="o">&lt;</span> <span class="n">F_MIN</span><span class="p">:</span>
+        <span class="n">delta_f</span> <span class="o">=</span> <span class="o">-</span><span class="n">delta_f</span>
+        <span class="nb">print</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="o">&gt;</span> <span class="n">F_MAX</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">F_MAX</span>
+        <span class="k">elif</span> <span class="n">f</span> <span class="o">&lt;</span> <span class="n">F_MIN</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">F_MIN</span>
+</pre></div>
+</div>
+<p>See PWM wave on Pin(27) with an oscilloscope.</p>
+<p>Output is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1202</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1401</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1598</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="o">...</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">9398</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">9615</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">9804</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">9804</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">9615</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">9398</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="o">...</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1598</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1401</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1202</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p>Example of a <strong>smooth duty change</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">time</span><span class="w"> </span><span class="kn">import</span> <span class="n">sleep</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pin</span><span class="p">,</span> <span class="n">PWM</span>
+
+<span class="n">DUTY_MAX</span> <span class="o">=</span> <span class="mi">65535</span>
+
+<span class="n">duty_u16</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">delta_d</span> <span class="o">=</span> <span class="mi">256</span>
+
+<span class="n">pwm</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="n">duty_u16</span><span class="p">)</span>
+
+<span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+    <span class="n">pwm</span><span class="o">.</span><span class="n">duty_u16</span><span class="p">(</span><span class="n">duty_u16</span><span class="p">)</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span> <span class="o">/</span> <span class="n">pwm</span><span class="o">.</span><span class="n">freq</span><span class="p">())</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">pwm</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">duty_u16</span> <span class="o">&gt;=</span> <span class="n">DUTY_MAX</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">()</span>
+        <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">duty_u16</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">()</span>
+        <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="n">duty_u16</span> <span class="o">+=</span> <span class="n">delta_d</span>
+    <span class="k">if</span> <span class="n">duty_u16</span> <span class="o">&gt;=</span> <span class="n">DUTY_MAX</span><span class="p">:</span>
+        <span class="n">duty_u16</span> <span class="o">=</span> <span class="n">DUTY_MAX</span>
+        <span class="n">delta_d</span> <span class="o">=</span> <span class="o">-</span><span class="n">delta_d</span>
+    <span class="k">elif</span> <span class="n">duty_u16</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">duty_u16</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">delta_d</span> <span class="o">=</span> <span class="o">-</span><span class="n">delta_d</span>
+</pre></div>
+</div>
+<p>PWM wave on Pin(27) with an oscilloscope.</p>
+<p>Output is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">1024</span><span class="p">)</span>
+<span class="o">...</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">64512</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">64768</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">65024</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">65280</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">65535</span><span class="p">)</span>
+
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">65279</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">65023</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">64767</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">64511</span><span class="p">)</span>
+<span class="o">...</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">1023</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">767</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">511</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">255</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">998</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p>Example of a <strong>smooth duty change and PWM output inversion</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">utime</span><span class="w"> </span><span class="kn">import</span> <span class="n">sleep</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pin</span><span class="p">,</span> <span class="n">PWM</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">DUTY_MAX</span> <span class="o">=</span> <span class="mi">65535</span>
+
+    <span class="n">duty_u16</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">delta_d</span> <span class="o">=</span> <span class="mi">65536</span> <span class="o">//</span> <span class="mi">32</span>
+
+    <span class="n">pwm</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">))</span>
+    <span class="n">pwmi</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">invert</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="n">pwm</span><span class="o">.</span><span class="n">duty_u16</span><span class="p">(</span><span class="n">duty_u16</span><span class="p">)</span>
+        <span class="n">pwmi</span><span class="o">.</span><span class="n">duty_u16</span><span class="p">(</span><span class="n">duty_u16</span><span class="p">)</span>
+
+        <span class="n">duty_u16</span> <span class="o">+=</span> <span class="n">delta_d</span>
+        <span class="k">if</span> <span class="n">duty_u16</span> <span class="o">&gt;=</span> <span class="n">DUTY_MAX</span><span class="p">:</span>
+            <span class="n">duty_u16</span> <span class="o">=</span> <span class="n">DUTY_MAX</span>
+            <span class="n">delta_d</span> <span class="o">=</span> <span class="o">-</span><span class="n">delta_d</span>
+        <span class="k">elif</span> <span class="n">duty_u16</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">duty_u16</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">delta_d</span> <span class="o">=</span> <span class="o">-</span><span class="n">delta_d</span>
+
+        <span class="n">sleep</span><span class="p">(</span><span class="mf">.01</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">pwm</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">pwmi</span><span class="p">)</span>
+
+<span class="k">finally</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">pwm</span><span class="o">.</span><span class="n">deinit</span><span class="p">()</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">pwmi</span><span class="o">.</span><span class="n">deinit</span><span class="p">()</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="k">pass</span>
+</pre></div>
+</div>
+<p>Output is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">32768</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">2048</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">4096</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">6144</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">6144</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">27</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">8192</span><span class="p">)</span>
+<span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span> <span class="n">duty_u16</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="o">...</span>
+</pre></div>
+</div>
+<p>See PWM waves on Pin(27) and Pin(32) with an oscilloscope.</p>
+</li>
+</ul>
+<p>Note: New PWM parameters take effect in the next PWM cycle.</p>
+<blockquote>
+<div><p>pwm = PWM(2, duty=512)
+print(pwm)
+&gt;&gt;&gt; PWM(Pin(2), freq=5000, duty=1023)  # the duty is not relevant
+pwm.init(freq=2, duty=64)
+print(pwm)
+&gt;&gt;&gt; PWM(Pin(2), freq=2, duty=16)  # the duty is not relevant
+time.sleep(1 / 2)                # wait one PWM period
+print(pwm)
+&gt;&gt;&gt; PWM(Pin(2), freq=2, duty=64)  # the duty is actual</p>
+</div></blockquote>
+<p>Note: machine.freq(20_000_000) reduces the highest PWM frequency to 10 MHz.</p>
+<p>Note: the Pin.OUT mode does not need to be specified. The channel is initialized
+to PWM mode internally once for each Pin that is passed to the PWM constructor.</p>
+<p>The following code is wrong:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pwm</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="n">Pin</span><span class="o">.</span><span class="n">OUT</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">duty</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>  <span class="c1"># Pin(5) in PWM mode here</span>
+<span class="n">pwm</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="n">Pin</span><span class="o">.</span><span class="n">OUT</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">duty</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>  <span class="c1"># Pin(5) in OUT mode here, PWM is off</span>
+</pre></div>
+</div>
+<p>Use this code instead:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pwm</span> <span class="o">=</span> <span class="n">PWM</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span> <span class="n">freq</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">duty</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<span class="n">pwm</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">freq</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">duty</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="intro.html" class="btn btn-neutral float-left" title="1. Getting started with MicroPython on the ESP32" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="peripheral_access.html" class="btn btn-neutral float-right" title="3. Accessing peripherals directly via registers" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 18 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

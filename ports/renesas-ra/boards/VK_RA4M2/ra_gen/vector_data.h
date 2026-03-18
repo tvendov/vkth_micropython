@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (64)
+#define VECTOR_DATA_IRQ_COUNT    (74)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -34,6 +34,9 @@ void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
 void agt_int_isr(void);
+void dmac_int_isr(void);
+void encoder_compare_a_isr(void);
+void encoder_compare_b_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_RTC_ALARM ((IRQn_Type)0)  /* RTC ALARM (Alarm interrupt) */
@@ -168,6 +171,26 @@ void agt_int_isr(void);
 #define AGT5_COMPARE_A_IRQn          ((IRQn_Type)62)  /* AGT5 COMPAREA (Compare match A) */
 #define VECTOR_NUMBER_AGT5_COMPARE_B ((IRQn_Type)63)  /* AGT5 COMPAREB (Compare match B) */
 #define AGT5_COMPARE_B_IRQn          ((IRQn_Type)63)  /* AGT5 COMPAREB (Compare match B) */
+#define VECTOR_NUMBER_DMAC0_INT ((IRQn_Type)64)  /* DMAC0 INT (DMAC transfer end 0) */
+#define DMAC0_INT_IRQn          ((IRQn_Type)64)  /* DMAC0 INT (DMAC transfer end 0) */
+#define VECTOR_NUMBER_DMAC1_INT ((IRQn_Type)65)  /* DMAC1 INT (DMAC transfer end 1) */
+#define DMAC1_INT_IRQn          ((IRQn_Type)65)  /* DMAC1 INT (DMAC transfer end 1) */
+#define VECTOR_NUMBER_DMAC2_INT ((IRQn_Type)66)  /* DMAC2 INT (DMAC transfer end 2) */
+#define DMAC2_INT_IRQn          ((IRQn_Type)66)  /* DMAC2 INT (DMAC transfer end 2) */
+#define VECTOR_NUMBER_DMAC3_INT ((IRQn_Type)67)  /* DMAC3 INT (DMAC transfer end 3) */
+#define DMAC3_INT_IRQn          ((IRQn_Type)67)  /* DMAC3 INT (DMAC transfer end 3) */
+#define VECTOR_NUMBER_DMAC4_INT ((IRQn_Type)68)  /* DMAC4 INT (DMAC transfer end 4) */
+#define DMAC4_INT_IRQn          ((IRQn_Type)68)  /* DMAC4 INT (DMAC transfer end 4) */
+#define VECTOR_NUMBER_DMAC5_INT ((IRQn_Type)69)  /* DMAC5 INT (DMAC transfer end 5) */
+#define DMAC5_INT_IRQn          ((IRQn_Type)69)  /* DMAC5 INT (DMAC transfer end 5) */
+#define VECTOR_NUMBER_DMAC6_INT ((IRQn_Type)70)  /* DMAC6 INT (DMAC transfer end 6) */
+#define DMAC6_INT_IRQn          ((IRQn_Type)70)  /* DMAC6 INT (DMAC transfer end 6) */
+#define VECTOR_NUMBER_DMAC7_INT ((IRQn_Type)71)  /* DMAC7 INT (DMAC transfer end 7) */
+#define DMAC7_INT_IRQn          ((IRQn_Type)71)  /* DMAC7 INT (DMAC transfer end 7) */
+#define VECTOR_NUMBER_GPT4_CAPTURE_COMPARE_A ((IRQn_Type)72)  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
+#define GPT4_CAPTURE_COMPARE_A_IRQn          ((IRQn_Type)72)  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
+#define VECTOR_NUMBER_GPT4_CAPTURE_COMPARE_B ((IRQn_Type)73)  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
+#define GPT4_CAPTURE_COMPARE_B_IRQn          ((IRQn_Type)73)  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
 
 #ifdef __cplusplus
 }

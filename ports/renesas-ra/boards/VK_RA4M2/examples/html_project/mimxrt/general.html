@@ -1,0 +1,306 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>General information about the MIMXRT port &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../_static/favicon.ico"/>
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../_static/doctools.js?v=888ff710"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Getting started with MicroPython on the i.MXRT" href="tutorial/intro.html" />
+    <link rel="prev" title="Quick reference for the i.MXRT family" href="quickref.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../library/index.html">MicroPython libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../esp32/quickref.html">Quick reference for the ESP32</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="quickref.html">Quick reference for the i.MXRT family</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">General information about the MIMXRT port</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#multitude-of-boards">Multitude of boards</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#supported-mcus">Supported MCUs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#technical-specifications-and-soc-datasheets">Technical specifications and SoC datasheets</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial/intro.html">Getting started with MicroPython on the i.MXRT</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pinout.html">Pinout for the i.MXRT machine modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#installing-micropython">Installing MicroPython</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#general-board-control">General board control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#delay-and-timing">Delay and timing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#timers">Timers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#pins-and-gpio">Pins and GPIO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#uart-serial-bus">UART (serial bus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#pwm-pulse-width-modulation">PWM (pulse width modulation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#adc-analog-to-digital-conversion">ADC (analog to digital conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#software-spi-bus">Software SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#hardware-spi-bus">Hardware SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#software-i2c-bus">Software I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#hardware-i2c-bus">Hardware I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#i2s-bus">I2S bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#real-time-clock-rtc">Real time clock (RTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#sd-card">SD card</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#onewire-driver">OneWire driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#dht-driver">DHT driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#ethernet-driver">Ethernet driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickref.html#transferring-files">Transferring files</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../renesas-ra/quickref.html">Quick reference for the Renesas RA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="quickref.html">Quick reference for the i.MXRT family</a></li>
+      <li class="breadcrumb-item active">General information about the MIMXRT port</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/mimxrt/general.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="general-information-about-the-mimxrt-port">
+<span id="mimxrt-general"></span><h1>General information about the MIMXRT port<a class="headerlink" href="#general-information-about-the-mimxrt-port" title="Link to this heading"></a></h1>
+<p>The i.MXRT MCU family is a high performance family of devices made by NXP.
+Based on an ARM7 core, they provide many on-chip I/O units for building
+small to medium sized devices.</p>
+<section id="multitude-of-boards">
+<h2>Multitude of boards<a class="headerlink" href="#multitude-of-boards" title="Link to this heading"></a></h2>
+<p>There is a multitude of modules and boards from different sources which carry
+an i.MXRT chip.  MicroPython aims to provide a generic port which runs on
+as many boards/modules as possible, but there may be limitations.  The
+NXP IMXRT1020-EVK and the Teensy 4.0 and Teensy 4.1 development boards are taken
+as reference for the port (for example, testing is performed on them).
+For any board you are using please make sure you have a data sheet, schematics
+and other reference materials so you can look up any board-specific functions.</p>
+<p>The following boards are supported by the port:</p>
+<ul class="simple">
+<li><p>MIMXRT1010-EVK</p></li>
+<li><p>MIMXRT1020-EVK</p></li>
+<li><p>MIMXRT1050-EVK</p></li>
+<li><p>MIMXRT1060-EVK</p></li>
+<li><p>MIMXRT1064-EVK</p></li>
+<li><p>Teensy 4.0</p></li>
+<li><p>Teensy 4.1</p></li>
+</ul>
+</section>
+<section id="supported-mcus">
+<h2>Supported MCUs<a class="headerlink" href="#supported-mcus" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Product</p></th>
+<th class="head"><p>CPU</p></th>
+<th class="head"><p>Memory</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>i.MX RT1064</p></td>
+<td><p>Cortex-M7 &#64;600 MHz</p></td>
+<td><p>1 MB SRAM, 4 MB Flash</p></td>
+</tr>
+<tr class="row-odd"><td><p>i.MX RT1061</p></td>
+<td><p>Cortex-M7 &#64;600 MHz</p></td>
+<td><p>1 MB SRAM</p></td>
+</tr>
+<tr class="row-even"><td><p>i.MX RT1062</p></td>
+<td><p>Cortex-M7 &#64;600 MHz</p></td>
+<td><p>1 MB SRAM</p></td>
+</tr>
+<tr class="row-odd"><td><p>i.MX RT1050</p></td>
+<td><p>Cortex-M7 &#64;600 MHz</p></td>
+<td><p>512 kB SRAM</p></td>
+</tr>
+<tr class="row-even"><td><p>i.MX RT1020</p></td>
+<td><p>Cortex-M7 &#64;500 MHz</p></td>
+<td><p>256 kB SRAM</p></td>
+</tr>
+<tr class="row-odd"><td><p>i.MX RT1015</p></td>
+<td><p>Cortex-M7 &#64;500 MHz</p></td>
+<td><p>128 kB SRAM</p></td>
+</tr>
+<tr class="row-even"><td><p>i.MX RT1010</p></td>
+<td><p>Cortex-M7 &#64;500 MHz</p></td>
+<td><p>128 kB SRAM</p></td>
+</tr>
+</tbody>
+</table>
+<p>Note: Most of the controllers do not have internal flash memory. Therefore
+their flash capacity is dependent on an external flash chip.</p>
+<p>To make a generic MIMXRT port and support as many boards as possible the
+following design and implementation decision were made:</p>
+<ul class="simple">
+<li><p>GPIO pin numbering is based on the board numbering as well as on the
+MCU numbering.  Please have the manual/pin diagram of your board at hand
+to find correspondence between your board pins and actual i.MXRT pins.</p></li>
+<li><p>All MCU pins are supported by MicroPython but not all are usable on any given board.</p></li>
+</ul>
+</section>
+<section id="technical-specifications-and-soc-datasheets">
+<h2>Technical specifications and SoC datasheets<a class="headerlink" href="#technical-specifications-and-soc-datasheets" title="Link to this heading"></a></h2>
+<p>The data sheets and other reference material for i.MXRT chip are available
+from the vendor site: <a class="reference external" href="https://www.nxp.com/products/processors-and-microcontrollers/arm-microcontrollers/i-mx-rt-crossover-mcus:IMX-RT-SERIES">https://www.nxp.com/products/processors-and-microcontrollers/arm-microcontrollers/i-mx-rt-crossover-mcus:IMX-RT-SERIES</a> .
+They are the primary reference for the chip technical specifications, capabilities,
+operating modes, internal functioning, etc.</p>
+<p>For your convenience, a few technical specifications are provided below:</p>
+<ul class="simple">
+<li><p>Architecture: ARM Cortex M7</p></li>
+<li><p>CPU frequency: up to 600MHz</p></li>
+<li><p>Total RAM available: up to 1 MByte (see table)</p></li>
+<li><p>BootROM: 96KB</p></li>
+<li><p>External FlashROM: code and data, via SPI Flash; usual size 2 - 16 MB
+Some boards provide additional external RAM and SPI flash.</p></li>
+<li><p>GPIO: up to 124 (GPIOs are multiplexed with other functions, including
+external FlashROM, UART, etc.)</p></li>
+<li><p>UART: 4 or 8 RX/TX UART. Hardware handshaking is supported by the MCU,
+but the boards used for testing do not expose the signals.</p></li>
+<li><p>SPI: 2 or 4 low power SPI interfaces (software implementation available on every pin)</p></li>
+<li><p>I2C: 2 or 4 low power I2C interfaces (software implementation available on every pin)</p></li>
+<li><p>I2S: 1 to 3 I2S interfaces</p></li>
+<li><p>ADC: one or two 12-bit SAR ADC converters</p></li>
+<li><p>Ethernet controller (except i.MX RT1010/-1015)</p></li>
+<li><p>Programming: using BootROM bootloader from USB - due to external FlashROM
+and always-available BootROM bootloader, the MIMXRT is not brickable</p></li>
+</ul>
+<p>The lower numbers for UART, SPI and I2C apply to the i.MXRT 101x MCU.</p>
+<p>For more information see the i.MXRT data sheets or reference manuals.
+NXP provides software support through it’s SDK packages.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="quickref.html" class="btn btn-neutral float-left" title="Quick reference for the i.MXRT family" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tutorial/intro.html" class="btn btn-neutral float-right" title="Getting started with MicroPython on the i.MXRT" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 18 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

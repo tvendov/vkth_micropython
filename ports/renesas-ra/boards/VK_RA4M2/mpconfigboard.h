@@ -127,6 +127,12 @@
 #define MICROPY_HW_DAC0             (pin_P014)
 #define MICROPY_HW_DAC1             (pin_P015)
 
+// Quadrature Encoder (GPT Phase Counting)
+// Uses GPT4: P302=GTIOC4A (encoder A), P301=GTIOC4B (encoder B)
+// Board-edge pins. Note: shares pins with UART2 — do not use both simultaneously.
+#define MICROPY_HW_ENCODER_A        (pin_P302) // GTIOC4A
+#define MICROPY_HW_ENCODER_B        (pin_P301) // GTIOC4B
+
 // PWM (GPT)
 // RA4M2 has GPT0-7 (GPT0-3: 32-bit, GPT4-7: 16-bit).
 // Pin selection avoids conflicts with UART0/2/7/9, I2C0/1, SPI0/1, DAC, TouchPad, LED, SW.
@@ -141,8 +147,8 @@
 #define MICROPY_HW_PWM_3B           (pin_P112) // GTIOC3B
 #define MICROPY_HW_PWM_4A           (pin_P115) // GTIOC4A
 #define MICROPY_HW_PWM_4B           (pin_P608) // GTIOC4B (P204=LED, P301=UART2)
-#define MICROPY_HW_PWM_5A           (pin_P409) // GTIOC5A (P101=I2C1, P203=alt)
-#define MICROPY_HW_PWM_5B           (pin_P408) // GTIOC5B (P100=I2C1, P202=alt)
+#define MICROPY_HW_PWM_5A           (pin_P409) // GTIOC5A
+#define MICROPY_HW_PWM_5B           (pin_P408) // GTIOC5B
 // GPT6A: no conflict-free pin (P400=I2C0, P411=UART0, P601=UART9)
 #define MICROPY_HW_PWM_6B           (pin_P600) // GTIOC6B (P401=I2C0, P410=UART0)
 #define MICROPY_HW_PWM_7A           (pin_P304) // GTIOC7A (P603=UART9)

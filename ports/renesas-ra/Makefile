@@ -253,6 +253,7 @@ SRC_C += \
 	machine_comparator.c \
 	machine_spi.c \
 	machine_ws2812.c \
+	machine_encoder.c \
 	machine_pin.c \
 	machine_rtc.c \
 	machine_sdcard.c \
@@ -338,6 +339,9 @@ ifneq ($(USE_FSP_SDHI), 1)
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_dtc/r_dtc.c
 endif
 
+# DMAC for DAC streaming
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_dmac/r_dmac.c
+
 ifeq ($(USE_FSP_FLASH), 1)
 CFLAGS += -DUSE_FSP_FLASH
 
@@ -379,6 +383,7 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_spi.c \
 	ra_timer.c \
 	ra_gpt.c \
+	ra_encoder.c \
 	ra_utils.c \
 	)
 

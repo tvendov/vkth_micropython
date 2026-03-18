@@ -1,0 +1,605 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>5. Audio and Retro Synth on VK-RA4M2 &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../../_static/favicon.ico"/>
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../../_static/doctools.js?v=888ff710"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="6. Write a program in internal file system" href="program_in_flash.html" />
+    <link rel="prev" title="4. VK_RA4M2 Practical Guide (BG)" href="vk_ra4m2_practical_guide_bg.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../library/index.html">MicroPython libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp32/quickref.html">Quick reference for the ESP32</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../mimxrt/quickref.html">Quick reference for the i.MXRT family</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../quickref.html">Quick reference for the Renesas RA</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../general.html">General information about Renesas RA port</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">MicroPython tutorial for Renesas RA port</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="intro.html">1. Getting started with MicroPython on the Renesas RA</a></li>
+<li class="toctree-l3"><a class="reference internal" href="using_peripheral.html">2. Using peripherals</a></li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_book_bg.html">3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</a></li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html">4. VK_RA4M2 Practical Guide (BG)</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">5. Audio and Retro Synth on VK-RA4M2</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#overview">5.1. Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#pins">5.2. Pins</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#basic-dac-use">5.3. Basic DAC use</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#timed-playback">5.4. Timed Playback</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#why-256-samples-is-enough">5.5. Why 256 samples is enough</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#hardware-verified-status">5.6. Hardware-Verified Status</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#example-files">5.7. Example Files</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#retrosynth-helper">5.8. RetroSynth Helper</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#ready-examples">5.9. Ready Examples</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#firmware-probe">5.10. Firmware Probe</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#practical-tips">5.11. Practical Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="program_in_flash.html">6. Write a program in internal file system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reset.html">7. Reset and boot mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="troubleshooting.html">8. Trouble Shooting</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#installing-micropython">Installing MicroPython</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#general-board-control">General board control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#delay-and-timing">Delay and timing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#timers">Timers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pins-and-gpio">Pins and GPIO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#uart-serial-bus">UART (serial bus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#real-time-clock-rtc">Real time clock (RTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#adc-analog-to-digital-conversion">ADC (analog to digital conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#dac-digital-to-analog-conversion">DAC (digital to analog conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#spi-bus">SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#i2c-bus">I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pwm-pulse-width-modulation">PWM (pulse width modulation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#wdt-watchdog-timer">WDT (Watchdog timer)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#sdcard">SDCard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#onewire-driver">OneWire driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#neopixel-and-apa106-driver">NeoPixel and APA106 driver</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../quickref.html">Quick reference for the Renesas RA</a></li>
+          <li class="breadcrumb-item"><a href="index.html">MicroPython tutorial for Renesas RA port</a></li>
+      <li class="breadcrumb-item active"><span class="section-number">5. </span>Audio and Retro Synth on VK-RA4M2</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/renesas-ra/tutorial/audio_synth.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="audio-and-retro-synth-on-vk-ra4m2">
+<span id="renesas-ra-audio-synth"></span><h1><span class="section-number">5. </span>Audio and Retro Synth on VK-RA4M2<a class="headerlink" href="#audio-and-retro-synth-on-vk-ra4m2" title="Link to this heading"></a></h1>
+<p>This page describes the current timed-DAC audio support on <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> and
+shows how to use it for retro game sound effects and simple music playback.
+The companion example files live in
+<code class="docutils literal notranslate"><span class="pre">ports/renesas-ra/boards/VK_RA4M2/examples/</span></code>.</p>
+<section id="overview">
+<h2><span class="section-number">5.1. </span>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The current <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> firmware supports timed DAC playback through the
+<code class="docutils literal notranslate"><span class="pre">machine.DAC</span></code> class.  The sample path is hardware-driven:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.write_timed(...)</span></code> sets up playback</p></li>
+<li><p>an <code class="docutils literal notranslate"><span class="pre">AGT</span></code> timer provides the sample clock</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DMAC</span></code> or <code class="docutils literal notranslate"><span class="pre">DTC</span></code> transfers samples from RAM to the DAC data register</p></li>
+<li><p>the DAC converts those values to the analog output</p></li>
+</ul>
+<p>This is a good fit for:</p>
+<ul class="simple">
+<li><p>chiptune-style tones</p></li>
+<li><p>small wavetable loops</p></li>
+<li><p>jump / coin / laser / explosion style sound effects</p></li>
+<li><p>simple melodies and arpeggios</p></li>
+</ul>
+<p>It is not intended for long hi-fi PCM playback.</p>
+</section>
+<section id="pins">
+<h2><span class="section-number">5.2. </span>Pins<a class="headerlink" href="#pins" title="Link to this heading"></a></h2>
+<p>On <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">P014</span></code> is <code class="docutils literal notranslate"><span class="pre">DA0</span></code> on <code class="docutils literal notranslate"><span class="pre">J19-5</span></code> and Arduino <code class="docutils literal notranslate"><span class="pre">A4</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">P015</span></code> is <code class="docutils literal notranslate"><span class="pre">DA1</span></code> on <code class="docutils literal notranslate"><span class="pre">J19-6</span></code> and Arduino <code class="docutils literal notranslate"><span class="pre">A5</span></code></p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">J16</span></code> is the boot-mode jumper.  It is not a DAC output.</p>
+</div>
+</section>
+<section id="basic-dac-use">
+<h2><span class="section-number">5.3. </span>Basic DAC use<a class="headerlink" href="#basic-dac-use" title="Link to this heading"></a></h2>
+<p>Use the DAC as a normal analog output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">DAC</span><span class="p">,</span> <span class="n">Pin</span>
+
+<span class="n">dac</span> <span class="o">=</span> <span class="n">DAC</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="s2">&quot;P014&quot;</span><span class="p">))</span>
+<span class="n">dac</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="mi">2048</span><span class="p">)</span>      <span class="c1"># about mid-scale</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dac</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+<span class="n">dac</span><span class="o">.</span><span class="n">write_mv</span><span class="p">(</span><span class="mi">1650</span><span class="p">)</span>   <span class="c1"># about half of 3.3 V</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dac</span><span class="o">.</span><span class="n">read_mv</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+<section id="timed-playback">
+<h2><span class="section-number">5.4. </span>Timed Playback<a class="headerlink" href="#timed-playback" title="Link to this heading"></a></h2>
+<p>Timed playback uses a 16-bit aligned buffer of 12-bit samples in the range
+<code class="docutils literal notranslate"><span class="pre">0</span></code> to <code class="docutils literal notranslate"><span class="pre">4095</span></code>.  <code class="docutils literal notranslate"><span class="pre">array('H',</span> <span class="pre">...)</span></code> is the recommended buffer type:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">array</span><span class="w"> </span><span class="kn">import</span> <span class="n">array</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">DAC</span><span class="p">,</span> <span class="n">Pin</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="n">wave</span> <span class="o">=</span> <span class="n">array</span><span class="p">(</span><span class="s2">&quot;H&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">3072</span><span class="p">,</span> <span class="mi">4095</span><span class="p">,</span> <span class="mi">3072</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1024</span><span class="p">])</span>
+<span class="n">dac</span> <span class="o">=</span> <span class="n">DAC</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="s2">&quot;P014&quot;</span><span class="p">))</span>
+
+<span class="n">dac</span><span class="o">.</span><span class="n">write_timed</span><span class="p">(</span>
+    <span class="n">wave</span><span class="p">,</span>
+    <span class="mi">440</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">wave</span><span class="p">),</span>
+    <span class="n">mode</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">CIRCULAR</span><span class="p">,</span>
+    <span class="n">transfer</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">TRANSFER_DTC</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">time</span><span class="o">.</span><span class="n">sleep_ms</span><span class="p">(</span><span class="mi">500</span><span class="p">)</span>
+<span class="n">dac</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Playback modes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.NORMAL</span></code> runs the buffer once</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.CIRCULAR</span></code> loops the buffer</p></li>
+</ul>
+<p>Transfer backends:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.TRANSFER_AUTO</span></code> chooses the default backend</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.TRANSFER_DMAC</span></code> selects <code class="docutils literal notranslate"><span class="pre">DMAC</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.TRANSFER_DTC</span></code> selects <code class="docutils literal notranslate"><span class="pre">DTC</span></code></p></li>
+</ul>
+<p>On the current <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> implementation:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.NORMAL</span></code> supports <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> and <code class="docutils literal notranslate"><span class="pre">DTC</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DAC.CIRCULAR</span></code> uses <code class="docutils literal notranslate"><span class="pre">DTC</span></code></p></li>
+<li><p>circular mode currently supports up to <code class="docutils literal notranslate"><span class="pre">256</span></code> samples</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">timer=&lt;n&gt;</span></code> can be used to request a specific <code class="docutils literal notranslate"><span class="pre">AGT</span></code> channel</p></li>
+</ul>
+</section>
+<section id="why-256-samples-is-enough">
+<h2><span class="section-number">5.5. </span>Why 256 samples is enough<a class="headerlink" href="#why-256-samples-is-enough" title="Link to this heading"></a></h2>
+<p>For retro audio the buffer is usually one waveform period, not a long recorded
+sample.  The tone frequency comes from the playback rate:</p>
+<p><code class="docutils literal notranslate"><span class="pre">sample_rate</span> <span class="pre">=</span> <span class="pre">note_frequency</span> <span class="pre">*</span> <span class="pre">table_length</span></code></p>
+<p>Examples with a <code class="docutils literal notranslate"><span class="pre">256</span></code>-sample table:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">220</span> <span class="pre">Hz</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">56320</span> <span class="pre">Hz</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">440</span> <span class="pre">Hz</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">112640</span> <span class="pre">Hz</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">880</span> <span class="pre">Hz</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">225280</span> <span class="pre">Hz</span></code></p></li>
+</ul>
+<p>This is enough for:</p>
+<ul class="simple">
+<li><p>square and pulse waves</p></li>
+<li><p>triangle and saw waves</p></li>
+<li><p>short looping wavetables</p></li>
+<li><p>synthetic game sound effects</p></li>
+</ul>
+</section>
+<section id="hardware-verified-status">
+<h2><span class="section-number">5.6. </span>Hardware-Verified Status<a class="headerlink" href="#hardware-verified-status" title="Link to this heading"></a></h2>
+<p>The current firmware on <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> has been verified on real hardware for:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DTC</span></code> circular playback</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DTC</span></code> one-shot playback</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DMAC</span></code> one-shot playback</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> path required a TrustZone-related fix so that the selected DMAC
+channel uses the correct security attribution before playback starts.</p>
+</section>
+<section id="example-files">
+<h2><span class="section-number">5.7. </span>Example Files<a class="headerlink" href="#example-files" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> board example directory includes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">retro_synth.py</span></code>: reusable helper for notes, sweeps, arpeggios, and SFX</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dac_retro_sfx.py</span></code>: ready-to-run coin / jump / laser / explosion demo</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dac_retro_music.py</span></code>: ready-to-run melody plus arpeggio demo</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dac_firmware_probe.py</span></code>: direct firmware validation for timed DAC paths</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dac_dmac_diag.py</span></code>: extra DMAC register diagnostics if you need to debug
+the one-shot transfer path</p></li>
+</ul>
+</section>
+<section id="retrosynth-helper">
+<h2><span class="section-number">5.8. </span>RetroSynth Helper<a class="headerlink" href="#retrosynth-helper" title="Link to this heading"></a></h2>
+<p>The board examples include a reusable helper module named <code class="docutils literal notranslate"><span class="pre">retro_synth.py</span></code>.
+It provides:</p>
+<ul class="simple">
+<li><p>waveform tables: <code class="docutils literal notranslate"><span class="pre">square</span></code>, <code class="docutils literal notranslate"><span class="pre">pulse50</span></code>, <code class="docutils literal notranslate"><span class="pre">pulse25</span></code>, <code class="docutils literal notranslate"><span class="pre">pulse12</span></code>, <code class="docutils literal notranslate"><span class="pre">triangle</span></code>, <code class="docutils literal notranslate"><span class="pre">saw</span></code></p></li>
+<li><p>note names like <code class="docutils literal notranslate"><span class="pre">&quot;A4&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;C#5&quot;</span></code></p></li>
+<li><p>note playback</p></li>
+<li><p>pitch sweep</p></li>
+<li><p>arpeggio playback</p></li>
+<li><p>simple melody playback</p></li>
+<li><p>ready-made sound effects</p></li>
+<li><p>automatic <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> then <code class="docutils literal notranslate"><span class="pre">DTC</span></code> fallback for the noise-burst helper</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">retro_synth</span><span class="w"> </span><span class="kn">import</span> <span class="n">RetroSynth</span>
+
+<span class="n">synth</span> <span class="o">=</span> <span class="n">RetroSynth</span><span class="p">(</span><span class="s2">&quot;P014&quot;</span><span class="p">)</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">play_note</span><span class="p">(</span><span class="s2">&quot;A4&quot;</span><span class="p">,</span> <span class="mi">120</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">)</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">play_arpeggio</span><span class="p">(</span><span class="s2">&quot;A3&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">),</span> <span class="n">step_ms</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">cycles</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">wave</span><span class="o">=</span><span class="s2">&quot;triangle&quot;</span><span class="p">)</span>
+<span class="n">synth</span><span class="o">.</span><span class="n">coin</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Built-in sound effects:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">coin()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">jump()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">laser()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">explosion()</span></code></p></li>
+</ul>
+</section>
+<section id="ready-examples">
+<h2><span class="section-number">5.9. </span>Ready Examples<a class="headerlink" href="#ready-examples" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">dac_retro_sfx.py</span></code> plays a short sound-effects demo:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">retro_synth</span><span class="w"> </span><span class="kn">import</span> <span class="n">RetroSynth</span>
+
+
+<span class="n">DAC_PIN</span> <span class="o">=</span> <span class="s2">&quot;P014&quot;</span>  <span class="c1"># J19-5 / A4 / DA0</span>
+<span class="n">synth</span> <span class="o">=</span> <span class="n">RetroSynth</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">demo</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;DAC retro SFX demo on </span><span class="si">{}</span><span class="s2"> (J19-5 / A4 / DA0)&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;coin -&gt; jump -&gt; laser -&gt; explosion&quot;</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">coin</span><span class="p">()</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep_ms</span><span class="p">(</span><span class="mi">120</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">jump</span><span class="p">()</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep_ms</span><span class="p">(</span><span class="mi">120</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">laser</span><span class="p">()</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep_ms</span><span class="p">(</span><span class="mi">120</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">explosion</span><span class="p">()</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Done.&quot;</span><span class="p">)</span>
+
+
+<span class="n">demo</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">dac_retro_music.py</span></code> plays a simple melody and an arpeggio bed:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># VK_RA4M2 retro music demo using the reusable retro_synth helper.</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">retro_synth</span><span class="w"> </span><span class="kn">import</span> <span class="n">RetroSynth</span>
+
+
+<span class="n">DAC_PIN</span> <span class="o">=</span> <span class="s2">&quot;P014&quot;</span>  <span class="c1"># J19-5 / A4 / DA0</span>
+<span class="n">synth</span> <span class="o">=</span> <span class="n">RetroSynth</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">)</span>
+
+
+<span class="n">MELODY</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;E5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;B4&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;C5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;D5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;C5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;B4&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;A4&quot;</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">40</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;A4&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;C5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;E5&quot;</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;D5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;C5&quot;</span><span class="p">,</span> <span class="mi">110</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;B4&quot;</span><span class="p">,</span> <span class="mi">220</span><span class="p">,</span> <span class="s2">&quot;pulse25&quot;</span><span class="p">),</span>
+<span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">demo</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Retro music demo on </span><span class="si">{}</span><span class="s2"> (J19-5 / A4 / DA0)&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;melody -&gt; arpeggio bed -&gt; coin&quot;</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">play_melody</span><span class="p">(</span><span class="n">MELODY</span><span class="p">,</span> <span class="n">gap_ms</span><span class="o">=</span><span class="mi">12</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">play_arpeggio</span><span class="p">(</span><span class="s2">&quot;A3&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">),</span> <span class="n">step_ms</span><span class="o">=</span><span class="mi">55</span><span class="p">,</span> <span class="n">cycles</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">wave</span><span class="o">=</span><span class="s2">&quot;triangle&quot;</span><span class="p">,</span> <span class="n">gap_ms</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">coin</span><span class="p">()</span>
+    <span class="n">synth</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Done.&quot;</span><span class="p">)</span>
+
+
+<span class="n">demo</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="firmware-probe">
+<h2><span class="section-number">5.10. </span>Firmware Probe<a class="headerlink" href="#firmware-probe" title="Link to this heading"></a></h2>
+<p>If you want to validate the firmware itself, not just the examples, run the
+dedicated probe:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">array</span><span class="w"> </span><span class="kn">import</span> <span class="n">array</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">machine</span><span class="w"> </span><span class="kn">import</span> <span class="n">DAC</span><span class="p">,</span> <span class="n">Pin</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+
+<span class="n">DAC_PIN</span> <span class="o">=</span> <span class="s2">&quot;P014&quot;</span>  <span class="c1"># J19-5 / A4 / DA0</span>
+<span class="n">ALT_DAC_PIN</span> <span class="o">=</span> <span class="s2">&quot;P015&quot;</span>  <span class="c1"># J19-6 / A5 / DA1</span>
+<span class="n">MID</span> <span class="o">=</span> <span class="mi">2048</span>
+<span class="n">AMP</span> <span class="o">=</span> <span class="mi">1200</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">clamp12</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="mi">4095</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">4095</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">make_triangle</span><span class="p">(</span><span class="n">length</span><span class="p">):</span>
+    <span class="n">buf</span> <span class="o">=</span> <span class="n">array</span><span class="p">(</span><span class="s2">&quot;H&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">MID</span><span class="p">]</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span>
+    <span class="n">top</span> <span class="o">=</span> <span class="n">clamp12</span><span class="p">(</span><span class="n">MID</span> <span class="o">+</span> <span class="n">AMP</span><span class="p">)</span>
+    <span class="n">bottom</span> <span class="o">=</span> <span class="n">clamp12</span><span class="p">(</span><span class="n">MID</span> <span class="o">-</span> <span class="n">AMP</span><span class="p">)</span>
+    <span class="n">half</span> <span class="o">=</span> <span class="n">length</span> <span class="o">//</span> <span class="mi">2</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">length</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">half</span><span class="p">:</span>
+            <span class="n">buf</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">bottom</span> <span class="o">+</span> <span class="p">((</span><span class="n">top</span> <span class="o">-</span> <span class="n">bottom</span><span class="p">)</span> <span class="o">*</span> <span class="n">i</span><span class="p">)</span> <span class="o">//</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">half</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">j</span> <span class="o">=</span> <span class="n">i</span> <span class="o">-</span> <span class="n">half</span>
+            <span class="n">buf</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">top</span> <span class="o">-</span> <span class="p">((</span><span class="n">top</span> <span class="o">-</span> <span class="n">bottom</span><span class="p">)</span> <span class="o">*</span> <span class="n">j</span><span class="p">)</span> <span class="o">//</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">half</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">buf</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">make_ramp</span><span class="p">(</span><span class="n">length</span><span class="p">):</span>
+    <span class="n">buf</span> <span class="o">=</span> <span class="n">array</span><span class="p">(</span><span class="s2">&quot;H&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">MID</span><span class="p">]</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">clamp12</span><span class="p">(</span><span class="n">MID</span> <span class="o">-</span> <span class="n">AMP</span><span class="p">)</span>
+    <span class="n">span</span> <span class="o">=</span> <span class="n">clamp12</span><span class="p">(</span><span class="n">MID</span> <span class="o">+</span> <span class="n">AMP</span><span class="p">)</span> <span class="o">-</span> <span class="n">start</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">length</span><span class="p">):</span>
+        <span class="n">buf</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="p">(</span><span class="n">span</span> <span class="o">*</span> <span class="n">i</span><span class="p">)</span> <span class="o">//</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">length</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">buf</span>
+
+
+<span class="n">DTC_LOOP</span> <span class="o">=</span> <span class="n">make_triangle</span><span class="p">(</span><span class="mi">128</span><span class="p">)</span>
+<span class="n">DTC_ONESHOT</span> <span class="o">=</span> <span class="n">make_triangle</span><span class="p">(</span><span class="mi">192</span><span class="p">)</span>
+<span class="n">DMAC_ONESHOT</span> <span class="o">=</span> <span class="n">make_ramp</span><span class="p">(</span><span class="mi">2048</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">wait_until_idle</span><span class="p">(</span><span class="n">dac</span><span class="p">,</span> <span class="n">timeout_ms</span><span class="o">=</span><span class="mi">2000</span><span class="p">):</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">ticks_ms</span><span class="p">()</span>
+    <span class="n">deadline</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">ticks_add</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">ticks_ms</span><span class="p">(),</span> <span class="n">timeout_ms</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">dac</span><span class="o">.</span><span class="n">playing</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">ticks_diff</span><span class="p">(</span><span class="n">deadline</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">ticks_ms</span><span class="p">())</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;timeout waiting for timed DAC to stop&quot;</span><span class="p">)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep_ms</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">time</span><span class="o">.</span><span class="n">ticks_diff</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">ticks_ms</span><span class="p">(),</span> <span class="n">start</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">expect_playback_time</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="n">elapsed_ms</span><span class="p">,</span> <span class="n">sample_count</span><span class="p">,</span> <span class="n">freq</span><span class="p">):</span>
+    <span class="n">expected_ms</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="n">sample_count</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">)</span> <span class="o">//</span> <span class="n">freq</span><span class="p">)</span>
+    <span class="n">min_ms</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="p">(</span><span class="n">expected_ms</span> <span class="o">*</span> <span class="mi">3</span><span class="p">)</span> <span class="o">//</span> <span class="mi">4</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">elapsed_ms</span> <span class="o">&lt;</span> <span class="n">min_ms</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="s2">&quot;</span><span class="si">{}</span><span class="s2"> stopped too early (</span><span class="si">{}</span><span class="s2"> ms, expected about </span><span class="si">{}</span><span class="s2"> ms)&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                <span class="n">label</span><span class="p">,</span>
+                <span class="n">elapsed_ms</span><span class="p">,</span>
+                <span class="n">expected_ms</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">pass_line</span><span class="p">(</span><span class="n">label</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;PASS:&quot;</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Timed DAC firmware probe&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;J16 is boot-mode jumper, not DAC output.&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Use </span><span class="si">{}</span><span class="s2"> or </span><span class="si">{}</span><span class="s2">.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">,</span> <span class="n">ALT_DAC_PIN</span><span class="p">))</span>
+    <span class="n">dac</span> <span class="o">=</span> <span class="n">DAC</span><span class="p">(</span><span class="n">Pin</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">))</span>
+    <span class="n">dac</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">MID</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;1/3 DTC circular on </span><span class="si">{}</span><span class="s2"> (J19-5 / A4 / DA0)&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">DAC_PIN</span><span class="p">))</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">write_timed</span><span class="p">(</span>
+            <span class="n">DTC_LOOP</span><span class="p">,</span>
+            <span class="mi">440</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">DTC_LOOP</span><span class="p">),</span>
+            <span class="n">mode</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">CIRCULAR</span><span class="p">,</span>
+            <span class="n">transfer</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">TRANSFER_DTC</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep_ms</span><span class="p">(</span><span class="mi">400</span><span class="p">)</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">MID</span><span class="p">)</span>
+        <span class="n">pass_line</span><span class="p">(</span><span class="s2">&quot;DTC circular&quot;</span><span class="p">)</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;2/3 DTC one-shot&quot;</span><span class="p">)</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">write_timed</span><span class="p">(</span>
+            <span class="n">DTC_ONESHOT</span><span class="p">,</span>
+            <span class="mi">12000</span><span class="p">,</span>
+            <span class="n">mode</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">NORMAL</span><span class="p">,</span>
+            <span class="n">transfer</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">TRANSFER_DTC</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">elapsed_ms</span> <span class="o">=</span> <span class="n">wait_until_idle</span><span class="p">(</span><span class="n">dac</span><span class="p">)</span>
+        <span class="n">expect_playback_time</span><span class="p">(</span><span class="s2">&quot;DTC one-shot&quot;</span><span class="p">,</span> <span class="n">elapsed_ms</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">DTC_ONESHOT</span><span class="p">),</span> <span class="mi">12000</span><span class="p">)</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">MID</span><span class="p">)</span>
+        <span class="n">pass_line</span><span class="p">(</span><span class="s2">&quot;DTC one-shot&quot;</span><span class="p">)</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;3/3 DMAC one-shot&quot;</span><span class="p">)</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">write_timed</span><span class="p">(</span>
+            <span class="n">DMAC_ONESHOT</span><span class="p">,</span>
+            <span class="mi">12000</span><span class="p">,</span>
+            <span class="n">mode</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">NORMAL</span><span class="p">,</span>
+            <span class="n">transfer</span><span class="o">=</span><span class="n">DAC</span><span class="o">.</span><span class="n">TRANSFER_DMAC</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">elapsed_ms</span> <span class="o">=</span> <span class="n">wait_until_idle</span><span class="p">(</span><span class="n">dac</span><span class="p">)</span>
+        <span class="n">expect_playback_time</span><span class="p">(</span><span class="s2">&quot;DMAC one-shot&quot;</span><span class="p">,</span> <span class="n">elapsed_ms</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">DMAC_ONESHOT</span><span class="p">),</span> <span class="mi">12000</span><span class="p">)</span>
+        <span class="n">dac</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">MID</span><span class="p">)</span>
+        <span class="n">pass_line</span><span class="p">(</span><span class="s2">&quot;DMAC one-shot&quot;</span><span class="p">)</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;ALL PASS&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">dac</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+</pre></div>
+</div>
+<p>The probe checks:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">DTC</span></code> circular playback</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DTC</span></code> one-shot playback</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DMAC</span></code> one-shot playback</p></li>
+</ul>
+<p>Expected successful output ends with <code class="docutils literal notranslate"><span class="pre">ALL</span> <span class="pre">PASS</span></code>.</p>
+</section>
+<section id="practical-tips">
+<h2><span class="section-number">5.11. </span>Practical Tips<a class="headerlink" href="#practical-tips" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">P014</span></code> unless you explicitly want the second DAC channel on <code class="docutils literal notranslate"><span class="pre">P015</span></code>.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">array('H',</span> <span class="pre">...)</span></code> for sample buffers.</p></li>
+<li><p>Keep sample values within <code class="docutils literal notranslate"><span class="pre">0</span></code> to <code class="docutils literal notranslate"><span class="pre">4095</span></code>.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">DTC</span></code> circular mode for looping synth tones.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> one-shot mode for burst effects such as noise or impact sounds.</p></li>
+<li><p>For retro sound design, think in terms of synthesis and control-rate changes,
+not long audio clips.</p></li>
+</ul>
+<p>Suggested next steps:</p>
+<ul class="simple">
+<li><p>add more wavetable shapes</p></li>
+<li><p>add envelopes and vibrato</p></li>
+<li><p>layer multiple effects in Python control code</p></li>
+<li><p>build a small game-audio API on top of <code class="docutils literal notranslate"><span class="pre">RetroSynth</span></code></p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="vk_ra4m2_practical_guide_bg.html" class="btn btn-neutral float-left" title="4. VK_RA4M2 Practical Guide (BG)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="program_in_flash.html" class="btn btn-neutral float-right" title="6. Write a program in internal file system" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 18 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
