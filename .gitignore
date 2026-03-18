@@ -32,3 +32,7 @@ user.props
 # Created by ci.sh esp8266 targets
 /xtensa-lx106-elf-standalone.tar.gz
 /xtensa-lx106-elf/
+
+# Local generated artefacts for the VK_RA4M2 docs bundle
+/ports/renesas-ra/boards/VK_RA4M2/examples/BOOK_BG.generated.pdf
+/ports/renesas-ra/boards/VK_RA4M2/examples/html_project/.doctrees/
