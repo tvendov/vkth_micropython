@@ -1,0 +1,342 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VK_RA4M2 Learning Paths (BG) &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../../_static/favicon.ico"/>
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../../_static/doctools.js?v=888ff710"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери" href="vk_ra4m2_book_bg.html" />
+    <link rel="prev" title="2. Using peripherals" href="using_peripheral.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../library/index.html">MicroPython libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp32/quickref.html">Quick reference for the ESP32</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../mimxrt/quickref.html">Quick reference for the i.MXRT family</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../quickref.html">Quick reference for the Renesas RA</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../general.html">General information about Renesas RA port</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">MicroPython tutorial for Renesas RA port</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="intro.html">1. Getting started with MicroPython on the Renesas RA</a></li>
+<li class="toctree-l3"><a class="reference internal" href="using_peripheral.html">2. Using peripherals</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">VK_RA4M2 Learning Paths (BG)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#choose-your-path">Choose Your Path</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#path-1-beginner-route">Path 1: Beginner Route</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#path-2-peripherals-and-system-logic">Path 2: Peripherals And System Logic</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#path-3-audio-and-retro-synth">Path 3: Audio And Retro Synth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#recommended-milestones">Recommended Milestones</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#which-page-to-open-next">Which Page To Open Next</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_book_bg.html">3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</a></li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html">4. VK_RA4M2 Practical Guide (BG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="audio_synth.html">5. Audio and Retro Synth on VK-RA4M2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="program_in_flash.html">6. Write a program in internal file system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reset.html">7. Reset and boot mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="troubleshooting.html">8. Trouble Shooting</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#installing-micropython">Installing MicroPython</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#general-board-control">General board control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#delay-and-timing">Delay and timing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#timers">Timers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pins-and-gpio">Pins and GPIO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#uart-serial-bus">UART (serial bus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#real-time-clock-rtc">Real time clock (RTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#adc-analog-to-digital-conversion">ADC (analog to digital conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#dac-digital-to-analog-conversion">DAC (digital to analog conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#spi-bus">SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#i2c-bus">I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pwm-pulse-width-modulation">PWM (pulse width modulation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#wdt-watchdog-timer">WDT (Watchdog timer)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#sdcard">SDCard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#onewire-driver">OneWire driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#neopixel-and-apa106-driver">NeoPixel and APA106 driver</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../quickref.html">Quick reference for the Renesas RA</a></li>
+          <li class="breadcrumb-item"><a href="index.html">MicroPython tutorial for Renesas RA port</a></li>
+      <li class="breadcrumb-item active">VK_RA4M2 Learning Paths (BG)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/renesas-ra/tutorial/vk_ra4m2_learning_paths_bg.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="vk-ra4m2-learning-paths-bg">
+<span id="renesas-ra-vk-ra4m2-learning-paths-bg"></span><h1>VK_RA4M2 Learning Paths (BG)<a class="headerlink" href="#vk-ra4m2-learning-paths-bg" title="Link to this heading"></a></h1>
+<p>Тази страница е кратък вход към материалите за <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code>.
+Целта ѝ не е да замени книгата, а да помогне да изберете правилния маршрут
+според вашата цел.</p>
+<p>Полезните опорни страници са:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html#renesas-ra-vk-ra4m2-practical-guide-bg"><span class="std std-ref">VK_RA4M2 Practical Guide (BG)</span></a> за по-кратък практически guide</p></li>
+<li><p><a class="reference internal" href="vk_ra4m2_book_bg.html#renesas-ra-vk-ra4m2-book-bg"><span class="std std-ref">Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</span></a> за пълната книга</p></li>
+<li><p><a class="reference internal" href="audio_synth.html#renesas-ra-audio-synth"><span class="std std-ref">Audio and Retro Synth on VK-RA4M2</span></a> за DAC audio и retro synth</p></li>
+</ul>
+<section id="choose-your-path">
+<h2>Choose Your Path<a class="headerlink" href="#choose-your-path" title="Link to this heading"></a></h2>
+<p>Най-полезните пътеки са три:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Начинаещ</span></code>: ако сега започвате с борда и с MicroPython</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Периферии</span> <span class="pre">и</span> <span class="pre">логика</span></code>: ако искате GPIO, таймери, интерфейси и FSM</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Audio</span> <span class="pre">и</span> <span class="pre">retro</span> <span class="pre">synth</span></code>: ако целта ви е звук, SFX и малки мелодии</p></li>
+</ol>
+</section>
+<section id="path-1-beginner-route">
+<h2>Path 1: Beginner Route<a class="headerlink" href="#path-1-beginner-route" title="Link to this heading"></a></h2>
+<p>Този маршрут е за първи успешни стъпки и за изграждане на увереност.</p>
+<p>Добър ред за минаване е:</p>
+<ol class="arabic simple">
+<li><p><a class="reference external" href="../../../20_language_basics/01_sample_program.py"><code class="docutils literal notranslate"><span class="pre">examples/20_language_basics/01_sample_program.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../01_blink_async.py"><code class="docutils literal notranslate"><span class="pre">examples/01_blink_async.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../21_digital_io/01_digital_output.py"><code class="docutils literal notranslate"><span class="pre">examples/21_digital_io/01_digital_output.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../21_digital_io/02_digital_input.py"><code class="docutils literal notranslate"><span class="pre">examples/21_digital_io/02_digital_input.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../22_analog/01_analog_input_adc.py"><code class="docutils literal notranslate"><span class="pre">examples/22_analog/01_analog_input_adc.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../23_timing/01_delays_and_timers.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/01_delays_and_timers.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../23_timing/03_button_debounce.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/03_button_debounce.py</span></code></a></p></li>
+</ol>
+<p>Какво ще получите от този маршрут:</p>
+<ul class="simple">
+<li><p>ще видите веднага реален ефект на платката</p></li>
+<li><p>ще разберете active-low поведението на <code class="docutils literal notranslate"><span class="pre">LED1</span></code></p></li>
+<li><p>ще започнете да мислите в GPIO, време и събития</p></li>
+<li><p>ще имате база за почти всички следващи глави</p></li>
+</ul>
+<p>След този блок преминете към:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html#renesas-ra-vk-ra4m2-practical-guide-bg"><span class="std std-ref">VK_RA4M2 Practical Guide (BG)</span></a></p></li>
+<li><p>Части I-IV от <a class="reference internal" href="vk_ra4m2_book_bg.html#renesas-ra-vk-ra4m2-book-bg"><span class="std std-ref">Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</span></a></p></li>
+</ul>
+</section>
+<section id="path-2-peripherals-and-system-logic">
+<h2>Path 2: Peripherals And System Logic<a class="headerlink" href="#path-2-peripherals-and-system-logic" title="Link to this heading"></a></h2>
+<p>Това е правилната пътека, ако целта ви е реално вградено приложение, а не само
+отделни примерчета.</p>
+<p>Препоръчителен ред:</p>
+<ol class="arabic simple">
+<li><p><a class="reference external" href="../../../22_analog/02_pwm_output.py"><code class="docutils literal notranslate"><span class="pre">examples/22_analog/02_pwm_output.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../23_timing/05_timer_compare_hw_sw.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/05_timer_compare_hw_sw.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../23_timing/13_hardware_timer_periodic_oneshot.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/13_hardware_timer_periodic_oneshot.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../24_i2c/01_i2c_master_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/24_i2c/01_i2c_master_basic.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../25_spi/01_spi_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/25_spi/01_spi_basic.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../32_uart/01_uart_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/32_uart/01_uart_basic.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../34_external_modules/01_i2c_module_probe.py"><code class="docutils literal notranslate"><span class="pre">examples/34_external_modules/01_i2c_module_probe.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../30_fsm/01_fsm_lamp_button.py"><code class="docutils literal notranslate"><span class="pre">examples/30_fsm/01_fsm_lamp_button.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../30_fsm/02_fsm_table.py"><code class="docutils literal notranslate"><span class="pre">examples/30_fsm/02_fsm_table.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../30_fsm/07_event_queue.py"><code class="docutils literal notranslate"><span class="pre">examples/30_fsm/07_event_queue.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../31_case_study/01_bathroom_control.py"><code class="docutils literal notranslate"><span class="pre">examples/31_case_study/01_bathroom_control.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../31_case_study/02_two_fsms.py"><code class="docutils literal notranslate"><span class="pre">examples/31_case_study/02_two_fsms.py</span></code></a></p></li>
+</ol>
+<p>Тази пътека учи на:</p>
+<ul class="simple">
+<li><p>работа с време като ресурс</p></li>
+<li><p>стабилни входове и събития</p></li>
+<li><p>комуникация с външни модули</p></li>
+<li><p>превръщане на логика в FSM</p></li>
+<li><p>преминаване от единичен пример към система</p></li>
+</ul>
+<p>Ако тази пътека е основната ви цел, четете приоритетно:</p>
+<ul class="simple">
+<li><p>Части III-XI от <a class="reference internal" href="vk_ra4m2_book_bg.html#renesas-ra-vk-ra4m2-book-bg"><span class="std std-ref">Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</span></a></p></li>
+</ul>
+</section>
+<section id="path-3-audio-and-retro-synth">
+<h2>Path 3: Audio And Retro Synth<a class="headerlink" href="#path-3-audio-and-retro-synth" title="Link to this heading"></a></h2>
+<p>Това е най-добрата пътека, ако искате game audio, retro SFX и кратки мелодии.</p>
+<p>Препоръчителен ред:</p>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="audio_synth.html#renesas-ra-audio-synth"><span class="std std-ref">Audio and Retro Synth on VK-RA4M2</span></a></p></li>
+<li><p><a class="reference external" href="../../../dac_firmware_probe.py"><code class="docutils literal notranslate"><span class="pre">examples/dac_firmware_probe.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../retro_synth.py"><code class="docutils literal notranslate"><span class="pre">examples/retro_synth.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../dac_retro_sfx.py"><code class="docutils literal notranslate"><span class="pre">examples/dac_retro_sfx.py</span></code></a></p></li>
+<li><p><a class="reference external" href="../../../dac_retro_music.py"><code class="docutils literal notranslate"><span class="pre">examples/dac_retro_music.py</span></code></a></p></li>
+</ol>
+<p>Този маршрут е особено полезен, ако проектът ви включва:</p>
+<ul class="simple">
+<li><p>coin / jump / laser / explosion звуци</p></li>
+<li><p>wavetable loop-ове</p></li>
+<li><p>арпежио и кратки мелодии</p></li>
+<li><p>аудио за ретро игри</p></li>
+</ul>
+<p>Важно да се помни:</p>
+<ul class="simple">
+<li><p>DAC изходите са <code class="docutils literal notranslate"><span class="pre">P014</span></code> и <code class="docutils literal notranslate"><span class="pre">P015</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">J16</span></code> не е DAC изход</p></li>
+<li><p>хардуерно потвърдени са <code class="docutils literal notranslate"><span class="pre">DTC</span></code> circular, <code class="docutils literal notranslate"><span class="pre">DTC</span></code> one-shot и <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> one-shot</p></li>
+<li><p>текущият <code class="docutils literal notranslate"><span class="pre">CIRCULAR</span></code> wavetable loop е най-подходящ за ретро synth, не за дълги PCM клипове</p></li>
+</ul>
+</section>
+<section id="recommended-milestones">
+<h2>Recommended Milestones<a class="headerlink" href="#recommended-milestones" title="Link to this heading"></a></h2>
+<p>Ако искате да мерите напредъка си, ползвайте тези междинни цели:</p>
+<ol class="arabic simple">
+<li><p>Да подкарате LED, бутон и ADC без помощ.</p></li>
+<li><p>Да различавате <code class="docutils literal notranslate"><span class="pre">sleep_ms()</span></code>, <code class="docutils literal notranslate"><span class="pre">Timer(-1)</span></code> и хардуерен <code class="docutils literal notranslate"><span class="pre">Timer(n)</span></code>.</p></li>
+<li><p>Да направите надежден debounce и бутонни събития.</p></li>
+<li><p>Да вдигнете поне един сериен интерфейс с работещ тест.</p></li>
+<li><p>Да организирате логика през FSM.</p></li>
+<li><p>Да подкарате DAC synth пример или firmware probe.</p></li>
+</ol>
+</section>
+<section id="which-page-to-open-next">
+<h2>Which Page To Open Next<a class="headerlink" href="#which-page-to-open-next" title="Link to this heading"></a></h2>
+<p>Използвайте това просто правило:</p>
+<ul class="simple">
+<li><p>ако искате бърза ориентация: <a class="reference internal" href="vk_ra4m2_practical_guide_bg.html#renesas-ra-vk-ra4m2-practical-guide-bg"><span class="std std-ref">VK_RA4M2 Practical Guide (BG)</span></a></p></li>
+<li><p>ако искате пълния учебен текст: <a class="reference internal" href="vk_ra4m2_book_bg.html#renesas-ra-vk-ra4m2-book-bg"><span class="std std-ref">Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</span></a></p></li>
+<li><p>ако искате звук веднага: <a class="reference internal" href="audio_synth.html#renesas-ra-audio-synth"><span class="std std-ref">Audio and Retro Synth on VK-RA4M2</span></a></p></li>
+</ul>
+<p>Ако трябва да посоча един най-добър старт за повечето хора, това е:</p>
+<ol class="arabic simple">
+<li><p>тази страница</p></li>
+<li><p><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html#renesas-ra-vk-ra4m2-practical-guide-bg"><span class="std std-ref">VK_RA4M2 Practical Guide (BG)</span></a></p></li>
+<li><p><a class="reference internal" href="vk_ra4m2_book_bg.html#renesas-ra-vk-ra4m2-book-bg"><span class="std std-ref">Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</span></a></p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="using_peripheral.html" class="btn btn-neutral float-left" title="2. Using peripherals" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="vk_ra4m2_book_bg.html" class="btn btn-neutral float-right" title="3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 19 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

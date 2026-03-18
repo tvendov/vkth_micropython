@@ -8,6 +8,9 @@ VK_RA4M2 Practical Guide (BG)
 примерни файлове в ``ports/renesas-ra/boards/VK_RA4M2/examples/``, без да
 повтаря дословно вътрешния учебен ръкопис.
 
+Ако искате още по-бърз избор на маршрут според целта си, вижте и
+:ref:`renesas-ra_vk-ra4m2_learning_paths_bg`.
+
 Ако искате по-разгърнат учебен текст с повече упражнения и каталожен стил,
 вижте :ref:`renesas-ra_vk-ra4m2_book_bg`.
 
