@@ -9,6 +9,7 @@ VK_RA4M2 Learning Paths (BG)
 
 Полезните опорни страници са:
 
+- :ref:`renesas-ra_vk-ra4m2_validation_matrix_bg` за консервативния хардуерен статус
 - :ref:`renesas-ra_vk-ra4m2_practical_guide_bg` за по-кратък практически guide
 - :ref:`renesas-ra_vk-ra4m2_book_bg` за пълната книга
 - :ref:`renesas-ra_audio_synth` за DAC audio и retro synth

@@ -1,0 +1,388 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VK_RA4M2 Hardware Validation Matrix (BG) &mdash; MicroPython latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=d5a28fe3" />
+      <link rel="stylesheet" href="../../_static/customstyle.css" type="text/css" />
+
+  
+    <link rel="shortcut icon" href="../../_static/favicon.ico"/>
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../../_static/doctools.js?v=888ff710"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери" href="vk_ra4m2_book_bg.html" />
+    <link rel="prev" title="VK_RA4M2 Learning Paths (BG)" href="vk_ra4m2_learning_paths_bg.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            MicroPython
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../library/index.html">MicroPython libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../reference/index.html">MicroPython language and implementation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../genrst/index.html">MicroPython differences from CPython</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../develop/index.html">MicroPython Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../license.html">MicroPython license information</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pyboard/quickref.html">Quick reference for the pyboard</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp8266/quickref.html">Quick reference for the ESP8266</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../esp32/quickref.html">Quick reference for the ESP32</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../rp2/quickref.html">Quick reference for the RP2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../mimxrt/quickref.html">Quick reference for the i.MXRT family</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../wipy/quickref.html">Quick reference for the WiPy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../unix/quickref.html">Quick reference for the UNIX and Windows ports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../zephyr/quickref.html">Quick reference for the Zephyr port</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../quickref.html">Quick reference for the Renesas RA</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../general.html">General information about Renesas RA port</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">MicroPython tutorial for Renesas RA port</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="intro.html">1. Getting started with MicroPython on the Renesas RA</a></li>
+<li class="toctree-l3"><a class="reference internal" href="using_peripheral.html">2. Using peripherals</a></li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_learning_paths_bg.html">VK_RA4M2 Learning Paths (BG)</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">VK_RA4M2 Hardware Validation Matrix (BG)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#status-legend">Status Legend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#current-matrix">Current Matrix</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#what-is-already-confirmed">What Is Already Confirmed</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#what-is-still-open">What Is Still Open</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#suggested-next-hardware-passes">Suggested Next Hardware Passes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#why-this-page-matters">Why This Page Matters</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#explicit-exclusion-for-now">Explicit Exclusion For Now</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_book_bg.html">3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</a></li>
+<li class="toctree-l3"><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html">4. VK_RA4M2 Practical Guide (BG)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="audio_synth.html">5. Audio and Retro Synth on VK-RA4M2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="program_in_flash.html">6. Write a program in internal file system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reset.html">7. Reset and boot mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="troubleshooting.html">8. Trouble Shooting</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#installing-micropython">Installing MicroPython</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#general-board-control">General board control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#delay-and-timing">Delay and timing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#timers">Timers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pins-and-gpio">Pins and GPIO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#uart-serial-bus">UART (serial bus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#real-time-clock-rtc">Real time clock (RTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#adc-analog-to-digital-conversion">ADC (analog to digital conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#dac-digital-to-analog-conversion">DAC (digital to analog conversion)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#spi-bus">SPI bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#i2c-bus">I2C bus</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#pwm-pulse-width-modulation">PWM (pulse width modulation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#wdt-watchdog-timer">WDT (Watchdog timer)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#sdcard">SDCard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#onewire-driver">OneWire driver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickref.html#neopixel-and-apa106-driver">NeoPixel and APA106 driver</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../samd/quickref.html">Quick reference for the SAMD21/SAMD51 family</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">MicroPython</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../quickref.html">Quick reference for the Renesas RA</a></li>
+          <li class="breadcrumb-item"><a href="index.html">MicroPython tutorial for Renesas RA port</a></li>
+      <li class="breadcrumb-item active">VK_RA4M2 Hardware Validation Matrix (BG)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/renesas-ra/tutorial/vk_ra4m2_validation_matrix_bg.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+  
+    <div class="wy-alert wy-alert-danger">
+      <p>
+        This is the documentation for the latest development branch of
+        MicroPython and may refer to features that are not available in released
+        versions.
+      </p>
+      <p>
+        If you are looking for the documentation for a specific release, use
+        the drop-down menu on the left and select the desired version.
+      </p>
+    </div>
+  
+  
+           <div itemprop="articleBody">
+             
+  <section id="vk-ra4m2-hardware-validation-matrix-bg">
+<span id="renesas-ra-vk-ra4m2-validation-matrix-bg"></span><h1>VK_RA4M2 Hardware Validation Matrix (BG)<a class="headerlink" href="#vk-ra4m2-hardware-validation-matrix-bg" title="Link to this heading"></a></h1>
+<p>Тази страница събира на едно място текущия, консервативен статус на
+валидиране за <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code>.</p>
+<p>Тук умишлено не се приема, че нещо е “доказано”, само защото има примерен
+файл. Маркираме даден path като хардуерно потвърден само когато има реално
+изпълнение на борд или изрично записана проверка в текущата работа по порта.</p>
+<p>Свързани страници:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="vk_ra4m2_learning_paths_bg.html#renesas-ra-vk-ra4m2-learning-paths-bg"><span class="std std-ref">VK_RA4M2 Learning Paths (BG)</span></a></p></li>
+<li><p><a class="reference internal" href="vk_ra4m2_practical_guide_bg.html#renesas-ra-vk-ra4m2-practical-guide-bg"><span class="std std-ref">VK_RA4M2 Practical Guide (BG)</span></a></p></li>
+<li><p><a class="reference internal" href="vk_ra4m2_book_bg.html#renesas-ra-vk-ra4m2-book-bg"><span class="std std-ref">Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери</span></a></p></li>
+<li><p><a class="reference internal" href="audio_synth.html#renesas-ra-audio-synth"><span class="std std-ref">Audio and Retro Synth on VK-RA4M2</span></a></p></li>
+</ul>
+<section id="status-legend">
+<h2>Status Legend<a class="headerlink" href="#status-legend" title="Link to this heading"></a></h2>
+<p>Използваните статуси са:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Hardware-verified</span></code>: потвърдено е на реален <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> в тази работа</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Example-backed</span></code>: има пример и docs покритие, но тук няма записано реално хардуерно потвърждение</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Needs</span> <span class="pre">external</span> <span class="pre">setup</span></code>: за смислена проверка е нужен външен модул, loopback, инструмент или специална постановка</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Caution</span></code>: има пример, но не бива да се приема за затворена тема без допълнителен тест</p></li>
+</ul>
+</section>
+<section id="current-matrix">
+<h2>Current Matrix<a class="headerlink" href="#current-matrix" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 28.0%" />
+<col style="width: 16.0%" />
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Area</p></th>
+<th class="head"><p>Primary examples</p></th>
+<th class="head"><p>Current status</p></th>
+<th class="head"><p>Hardware evidence</p></th>
+<th class="head"><p>Next check</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Digital output and input</p></td>
+<td><p><a class="reference external" href="../../../21_digital_io/01_digital_output.py"><code class="docutils literal notranslate"><span class="pre">examples/21_digital_io/01_digital_output.py</span></code></a>, <a class="reference external" href="../../../21_digital_io/02_digital_input.py"><code class="docutils literal notranslate"><span class="pre">examples/21_digital_io/02_digital_input.py</span></code></a>, <a class="reference external" href="../../../23_timing/03_button_debounce.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/03_button_debounce.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Example-backed</span></code></p></td>
+<td><p>No board run recorded here yet</p></td>
+<td><p>Quick on-board pass with <code class="docutils literal notranslate"><span class="pre">LED1</span></code> and <code class="docutils literal notranslate"><span class="pre">SW1</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>ADC</p></td>
+<td><p><a class="reference external" href="../../../22_analog/01_analog_input_adc.py"><code class="docutils literal notranslate"><span class="pre">examples/22_analog/01_analog_input_adc.py</span></code></a>, <a class="reference external" href="../../../23_timing/07_adc_timing_measure.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/07_adc_timing_measure.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Example-backed</span></code></p></td>
+<td><p>No board run recorded here yet</p></td>
+<td><p>Potentiometer or fixed known voltage on an ADC pin</p></td>
+</tr>
+<tr class="row-even"><td><p>PWM</p></td>
+<td><p><a class="reference external" href="../../../22_analog/02_pwm_output.py"><code class="docutils literal notranslate"><span class="pre">examples/22_analog/02_pwm_output.py</span></code></a>, <a class="reference external" href="../../../03_pwm_ab_same_channel.py"><code class="docutils literal notranslate"><span class="pre">examples/03_pwm_ab_same_channel.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Example-backed</span></code></p></td>
+<td><p>No board run recorded here yet</p></td>
+<td><p>Scope, LED, buzzer, or duty sweep observation</p></td>
+</tr>
+<tr class="row-odd"><td><p>Timers, IRQ, button events, RTC</p></td>
+<td><p><a class="reference external" href="../../../23_timing/01_delays_and_timers.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/01_delays_and_timers.py</span></code></a>, <a class="reference external" href="../../../23_timing/02_interrupts.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/02_interrupts.py</span></code></a>, <a class="reference external" href="../../../23_timing/06_rtc_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/06_rtc_basic.py</span></code></a>, <a class="reference external" href="../../../23_timing/17_fast_irq_two_buttons_queue.py"><code class="docutils literal notranslate"><span class="pre">examples/23_timing/17_fast_irq_two_buttons_queue.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Example-backed</span></code></p></td>
+<td><p>No board run recorded here yet</p></td>
+<td><p>Start with <code class="docutils literal notranslate"><span class="pre">Timer(-1)</span></code>, hardware timer, then RTC, then external IRQ pins</p></td>
+</tr>
+<tr class="row-even"><td><p>I2C master, runtime pins, SoftI2C, I2CTarget</p></td>
+<td><p><a class="reference external" href="../../../24_i2c/01_i2c_master_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/24_i2c/01_i2c_master_basic.py</span></code></a>, <a class="reference external" href="../../../24_i2c/02_i2c_runtime_pins.py"><code class="docutils literal notranslate"><span class="pre">examples/24_i2c/02_i2c_runtime_pins.py</span></code></a>, <a class="reference external" href="../../../24_i2c/03_softi2c_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/24_i2c/03_softi2c_basic.py</span></code></a>, <a class="reference external" href="../../../24_i2c/04_i2ctarget_memory.py"><code class="docutils literal notranslate"><span class="pre">examples/24_i2c/04_i2ctarget_memory.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Needs</span> <span class="pre">external</span> <span class="pre">setup</span></code></p></td>
+<td><p>No external-device validation recorded here yet</p></td>
+<td><p>External I2C device or second board for target-mode tests</p></td>
+</tr>
+<tr class="row-odd"><td><p>SPI and SoftSPI</p></td>
+<td><p><a class="reference external" href="../../../25_spi/01_spi_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/25_spi/01_spi_basic.py</span></code></a>, <a class="reference external" href="../../../25_spi/02_softspi_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/25_spi/02_softspi_basic.py</span></code></a>, <a class="reference external" href="../../../34_external_modules/02_spi_module_transaction.py"><code class="docutils literal notranslate"><span class="pre">examples/34_external_modules/02_spi_module_transaction.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Needs</span> <span class="pre">external</span> <span class="pre">setup</span></code></p></td>
+<td><p>No loopback or module validation recorded here yet</p></td>
+<td><p>SPI loopback first, then real module</p></td>
+</tr>
+<tr class="row-even"><td><p>UART</p></td>
+<td><p><a class="reference external" href="../../../32_uart/01_uart_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/32_uart/01_uart_basic.py</span></code></a>, <a class="reference external" href="../../../34_external_modules/03_uart_module_request_response.py"><code class="docutils literal notranslate"><span class="pre">examples/34_external_modules/03_uart_module_request_response.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Needs</span> <span class="pre">external</span> <span class="pre">setup</span></code></p></td>
+<td><p>No UART loopback or external-module validation recorded here yet</p></td>
+<td><p>USB-UART bridge, loopback, or text protocol module</p></td>
+</tr>
+<tr class="row-odd"><td><p>TouchPad</p></td>
+<td><p><a class="reference external" href="../../../26_touchpad/01_touchpad_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/26_touchpad/01_touchpad_basic.py</span></code></a>, <a class="reference external" href="../../../26_touchpad/02_touchpad_diagnostics.py"><code class="docutils literal notranslate"><span class="pre">examples/26_touchpad/02_touchpad_diagnostics.py</span></code></a>, <a class="reference external" href="../../../04_touchpad_async.py"><code class="docutils literal notranslate"><span class="pre">examples/04_touchpad_async.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Caution</span></code></p></td>
+<td><p>No physical touch/electrode validation recorded here yet</p></td>
+<td><p>Real pad or electrode, then cached and async path</p></td>
+</tr>
+<tr class="row-even"><td><p>Flash, dataflash, and storage</p></td>
+<td><p><a class="reference external" href="../../../27_storage/01_flash_blockdev.py"><code class="docutils literal notranslate"><span class="pre">examples/27_storage/01_flash_blockdev.py</span></code></a>, <a class="reference external" href="../../../27_storage/02_dataflash_basic.py"><code class="docutils literal notranslate"><span class="pre">examples/27_storage/02_dataflash_basic.py</span></code></a>, <a class="reference external" href="../../../27_storage/03_dataflash_state_led.py"><code class="docutils literal notranslate"><span class="pre">examples/27_storage/03_dataflash_state_led.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Example-backed</span></code></p></td>
+<td><p>No dedicated validation log recorded here yet</p></td>
+<td><p>Read/write persistence check across reset</p></td>
+</tr>
+<tr class="row-odd"><td><p>Sleep modes</p></td>
+<td><p><a class="reference external" href="../../../28_machine_misc/03_sleep_modes.py"><code class="docutils literal notranslate"><span class="pre">examples/28_machine_misc/03_sleep_modes.py</span></code></a>, <a class="reference external" href="../../../30_fsm/08_tickless_sleep.py"><code class="docutils literal notranslate"><span class="pre">examples/30_fsm/08_tickless_sleep.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Caution</span></code></p></td>
+<td><p>Documented conservatively; no validated scenario recorded here</p></td>
+<td><p>Short <code class="docutils literal notranslate"><span class="pre">lightsleep</span></code> measurement before any aggressive path</p></td>
+</tr>
+<tr class="row-even"><td><p>NeoPixel</p></td>
+<td><p><a class="reference external" href="../../../neopixel.py"><code class="docutils literal notranslate"><span class="pre">examples/neopixel.py</span></code></a>, <a class="reference external" href="../../../neopixel_test.py"><code class="docutils literal notranslate"><span class="pre">examples/neopixel_test.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Needs</span> <span class="pre">external</span> <span class="pre">setup</span></code></p></td>
+<td><p>No explicit hardware confirmation recorded here</p></td>
+<td><p>One-pixel smoke test with known power and data line</p></td>
+</tr>
+<tr class="row-odd"><td><p>WS2812 via <code class="docutils literal notranslate"><span class="pre">machine.WS2812</span></code></p></td>
+<td><p><a class="reference external" href="../../../ws2812_sci.py"><code class="docutils literal notranslate"><span class="pre">examples/ws2812_sci.py</span></code></a>, <a class="reference external" href="../../../ws2812_sci_test.py"><code class="docutils literal notranslate"><span class="pre">examples/ws2812_sci_test.py</span></code></a>, <a class="reference external" href="../../../ws2812_sci_p101.py"><code class="docutils literal notranslate"><span class="pre">examples/ws2812_sci_p101.py</span></code></a>, <a class="reference external" href="../../../ws2812_sci_p109.py"><code class="docutils literal notranslate"><span class="pre">examples/ws2812_sci_p109.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Needs</span> <span class="pre">external</span> <span class="pre">setup</span></code></p></td>
+<td><p>No current hardware confirmation recorded here</p></td>
+<td><p>One-pixel smoke test on a known-good SCI TX/MOSI pin</p></td>
+</tr>
+<tr class="row-even"><td><p>DAC timed playback and retro synth</p></td>
+<td><p><a class="reference external" href="../../../dac_firmware_probe.py"><code class="docutils literal notranslate"><span class="pre">examples/dac_firmware_probe.py</span></code></a>, <a class="reference external" href="../../../dac_retro_sfx.py"><code class="docutils literal notranslate"><span class="pre">examples/dac_retro_sfx.py</span></code></a>, <a class="reference external" href="../../../dac_retro_music.py"><code class="docutils literal notranslate"><span class="pre">examples/dac_retro_music.py</span></code></a>, <a class="reference external" href="../../../retro_synth.py"><code class="docutils literal notranslate"><span class="pre">examples/retro_synth.py</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Hardware-verified</span></code></p></td>
+<td><p>Confirmed on real <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> for <code class="docutils literal notranslate"><span class="pre">DTC</span></code> circular, <code class="docutils literal notranslate"><span class="pre">DTC</span></code> one-shot, and <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> one-shot</p></td>
+<td><p>Keep <code class="docutils literal notranslate"><span class="pre">P014/P015</span></code> as baseline reference path</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="what-is-already-confirmed">
+<h2>What Is Already Confirmed<a class="headerlink" href="#what-is-already-confirmed" title="Link to this heading"></a></h2>
+<p>Към момента консервативно потвърденото на реален <code class="docutils literal notranslate"><span class="pre">VK_RA4M2</span></code> е:</p>
+<ul class="simple">
+<li><p>timed DAC playback през <code class="docutils literal notranslate"><span class="pre">DTC</span></code> circular</p></li>
+<li><p>timed DAC playback през <code class="docutils literal notranslate"><span class="pre">DTC</span></code> one-shot</p></li>
+<li><p>timed DAC playback през <code class="docutils literal notranslate"><span class="pre">DMAC</span></code> one-shot</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dac_retro_sfx.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dac_retro_music.py</span></code></p></li>
+</ul>
+<p>Това прави audio path-а най-зрелия хардуерно потвърден блок в текущата работа.</p>
+</section>
+<section id="what-is-still-open">
+<h2>What Is Still Open<a class="headerlink" href="#what-is-still-open" title="Link to this heading"></a></h2>
+<p>Най-важните незатворени теми са:</p>
+<ul class="simple">
+<li><p>външни <code class="docutils literal notranslate"><span class="pre">I2C</span></code> устройства</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SPI</span></code> loopback и външни <code class="docutils literal notranslate"><span class="pre">SPI</span></code> модули</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">UART</span></code> loopback и text/binary request-response модул</p></li>
+<li><p>физическа TouchPad постановка</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">WS2812</span></code> smoke test на реален диоден модул</p></li>
+<li><p>кратък и безопасен <code class="docutils literal notranslate"><span class="pre">lightsleep</span></code> validation pass</p></li>
+</ul>
+</section>
+<section id="suggested-next-hardware-passes">
+<h2>Suggested Next Hardware Passes<a class="headerlink" href="#suggested-next-hardware-passes" title="Link to this heading"></a></h2>
+<p>Ако трябва да подредя следващите реални бордови проверки по стойност, това е
+най-разумният ред:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">UART</span></code> loopback или външен USB-UART path</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SPI</span></code> loopback</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">I2C</span></code> scan и базов външен модул</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">WS2812</span></code> еднопикселен smoke test</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TouchPad</span></code> с реален електрод</p></li>
+<li><p>кратък <code class="docutils literal notranslate"><span class="pre">lightsleep</span></code> timing check</p></li>
+</ol>
+</section>
+<section id="why-this-page-matters">
+<h2>Why This Page Matters<a class="headerlink" href="#why-this-page-matters" title="Link to this heading"></a></h2>
+<p>Тази матрица е полезна по две причини:</p>
+<ul class="simple">
+<li><p>показва ясно какво вече е доказано и какво още не е</p></li>
+<li><p>пази книгата и guide-а честни, без да смесва “има пример” с “хардуерно е затворено”</p></li>
+</ul>
+</section>
+<section id="explicit-exclusion-for-now">
+<h2>Explicit Exclusion For Now<a class="headerlink" href="#explicit-exclusion-for-now" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">Encoder</span></code> умишлено не е включен като готов path в тази матрица.
+Кодът и примерите вече съществуват в дървото, но feature-ът не трябва да се
+смята за завършен, докато не мине собствена отделна валидация и документация.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="vk_ra4m2_learning_paths_bg.html" class="btn btn-neutral float-left" title="VK_RA4M2 Learning Paths (BG)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="vk_ra4m2_book_bg.html" class="btn btn-neutral float-right" title="3. Книга: MicroPython за VK_RA4M2 чрез демонстрационни примери" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright - The MicroPython Documentation is Copyright © 2014-2025, MicroPython authors and contributors.
+      <span class="lastupdated">Last updated on 19 Mar 2026.
+      </span></p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> Versions and Downloads</span>
+    latest
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+      
+        <dd><a href="//en/latest">latest</a></dd>
+      
+    </dl>
+    <dl>
+      <dt>Downloads</dt>
+      
+        <dd><a href="//en/latest/micropython-docs.pdf">PDF</a></dd>
+      
+    </dl>
+    <hr/>
+    <dl>
+      <dt>External links</dt>
+        <dd>
+          <a href="https://www.micropython.org">micropython.org</a>
+        </dd>
+        <dd>
+          <a href="https://github.com/micropython/micropython">GitHub</a>
+        </dd>
+    </dl>
+  </div>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
