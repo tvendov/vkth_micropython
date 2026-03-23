@@ -28,6 +28,24 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Maximum number of GPT channels available for encoder use (MCU-dependent).
+// Used to size per-channel lookup arrays in both ra_encoder.c and machine_encoder.c.
+#if defined(RA4M1)
+#define RA_ENCODER_MAX_CH 8
+#elif defined(RA4M2)
+#define RA_ENCODER_MAX_CH 8
+#elif defined(RA4W1)
+#define RA_ENCODER_MAX_CH 9
+#elif defined(RA6M1)
+#define RA_ENCODER_MAX_CH 13
+#elif defined(RA6M2) || defined(RA6M3)
+#define RA_ENCODER_MAX_CH 14
+#elif defined(RA6M5)
+#define RA_ENCODER_MAX_CH 10
+#else
+#error "CMSIS MCU Series is not specified."
+#endif
+
 // Callback type for encoder movement notification (called from ISR context)
 typedef void (*encoder_irq_cb_t)(void *param);
 
@@ -73,15 +91,23 @@ typedef struct {
     int32_t max_val;            // Maximum counter value (software clamp)
     int32_t value;              // Current scaled position value
     int32_t init_val;           // Initial counter value
-    uint8_t debounce;           // Direction-change threshold (0=off, 2=default)
-    int8_t  confirmed_dir;     // Confirmed direction: +1, -1, 0(none)
-    int32_t reported_val;       // Last value reported after debounce
+    uint8_t debounce;           // Consecutive reverse counts required to confirm reversal (0=off)
+    int8_t  confirmed_dir;      // Confirmed direction: +1, -1, 0(none)
+    int8_t  pending_dir;        // Provisional reversal direction: +1, -1, 0(none)
+    uint8_t pending_count;      // Consecutive raw counts seen in pending_dir
+    int32_t reported_val;       // Last debounced value reported to the user
+    int32_t last_raw;           // Last clamped raw sample used for debounce step counting
     bool active;                // Instance is initialized and running
     // IRQ notification fields
     encoder_irq_cb_t irq_cb;   // User callback (NULL = disabled)
     void *irq_param;            // Parameter passed to callback
     int8_t irq_a;               // NVIC IRQ number for Compare Match A (-1 = none)
     int8_t irq_b;               // NVIC IRQ number for Compare Match B (-1 = none)
+    // Compare-window IRQ redesign:
+    // Notification fires when GTCNT leaves [irq_anchor - irq_step, irq_anchor + irq_step].
+    uint32_t irq_step;          // Compare quantum in counts (>= 1)
+    int32_t  irq_anchor;        // Current window center
+    uint32_t irq_mask;          // 0xFFFF for 16-bit GPT, else 0xFFFFFFFF
 } encoder_config_t;
 
 // Diagnostic snapshot of raw GPT registers
@@ -92,6 +118,10 @@ typedef struct {
     uint32_t gtdnsr;   // Down count source register
     uint32_t gtcr;     // Control register (CST, MD, TPCS)
     uint32_t gtior;    // I/O control register (noise filter bits)
+    uint32_t gtccra;   // Compare Match A register
+    uint32_t gtccrb;   // Compare Match B register
+    uint32_t irq_step; // Software compare-window step size
+    int32_t irq_anchor;// Software compare-window center
 } encoder_status_t;
 
 // ──── API ────
@@ -105,6 +135,11 @@ bool ra_encoder_init(encoder_config_t *cfg);
 
 // Read current counter value (GTCNT), apply scale and clamp to [min, max].
 int32_t ra_encoder_read(encoder_config_t *cfg);
+
+// Read the current hardware counter value from GTCNT.
+// Returns the signed raw count (sign-extended for 16-bit GPT), with no
+// debounce or software clamp applied.
+int32_t ra_encoder_read_hw_count(encoder_config_t *cfg);
 
 // Reset counter to given value.
 void ra_encoder_reset(encoder_config_t *cfg, int32_t value);
@@ -133,4 +168,3 @@ void encoder_compare_a_isr(void);
 void encoder_compare_b_isr(void);
 
 #endif /* RA_RA_ENCODER_H_ */
-

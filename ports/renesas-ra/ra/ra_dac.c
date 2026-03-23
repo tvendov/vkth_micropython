@@ -50,6 +50,7 @@ and this is (The Lazy way)
 #include "ra_utils.h"
 #include "vector_data.h"
 
+#define RA_DAC_OUTPUT_AMP_DELAY_US (4U)
 
 
 #if defined(RA4M2)
@@ -105,6 +106,41 @@ static ra_dac_hw_stage_t ra_dac_last_stage[DAC_CH_SIZE];
 static int32_t ra_dac_last_error[DAC_CH_SIZE];
 static void ra_dac_stream_cleanup(uint8_t ch);
 
+static void ra_dac_output_amp_init(uint8_t ch) {
+#if BSP_FEATURE_DAC_HAS_OUTPUT_AMPLIFIER
+    if (ch >= DAC_CH_SIZE) {
+        return;
+    }
+
+    uint16_t value = R_DAC->DADR[ch];
+    R_DAC->DADR[ch] = 0U;
+
+    if (ch == 0U) {
+        R_DAC->DACR_b.DAOE0 = 0U;
+        R_DAC->DAASWCR_b.DAASW0 = 1U;
+        R_DAC->DAAMPCR_b.DAAMP0 = 1U;
+        R_DAC->DACR_b.DAOE0 = 1U;
+    } else {
+        R_DAC->DACR_b.DAOE1 = 0U;
+        R_DAC->DAASWCR_b.DAASW1 = 1U;
+        R_DAC->DAAMPCR_b.DAAMP1 = 1U;
+        R_DAC->DACR_b.DAOE1 = 1U;
+    }
+
+    R_BSP_SoftwareDelay(RA_DAC_OUTPUT_AMP_DELAY_US, BSP_DELAY_UNITS_MICROSECONDS);
+
+    if (ch == 0U) {
+        R_DAC->DAASWCR_b.DAASW0 = 0U;
+    } else {
+        R_DAC->DAASWCR_b.DAASW1 = 0U;
+    }
+
+    R_DAC->DADR[ch] = value;
+#else
+    (void)ch;
+#endif
+}
+
 static void ra_dac_set_last_error(uint8_t ch, ra_dac_hw_stage_t stage, fsp_err_t err) {
     if (ch < DAC_CH_SIZE) {
         ra_dac_last_stage[ch] = stage;
@@ -119,10 +155,6 @@ static void ra_dac_set_pin(uint32_t pin) {
     find = ra_af_find_ch_af((ra_af_pin_t *)&ra_dac_pins, DAC_PINS_SIZE, pin, &ch, &af);
     if (find) {
         ra_gpio_config(pin, GPIO_MODE_ANALOG, GPIO_NOPULL, GPIO_LOW_POWER, af);
-        // pwpr_unprotect();
-        // _PXXPFS(GPIO_PORT(pin), GPIO_BIT(pin)) &= ~(PDR_MASK);
-        // _PXXPFS(GPIO_PORT(pin), GPIO_BIT(pin)) |= PDR_MASK;    // output
-        // pwpr_protect();
     }
 }
 
@@ -133,9 +165,6 @@ static void ra_dac_release_pin(uint32_t pin) {
     find = ra_af_find_ch_af((ra_af_pin_t *)&ra_dac_pins, DAC_PINS_SIZE, pin, &ch, &af);
     if (find) {
         ra_gpio_config(pin, GPIO_MODE_ANALOG, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
-        // pwpr_unprotect();
-        // _PXXPFS(GPIO_PORT(pin), GPIO_BIT(pin)) &= ~(PDR_MASK);
-        // pwpr_protect();
     }
 }
 
@@ -509,11 +538,15 @@ uint8_t ra_dac_is_running(uint8_t ch) {
 
 void ra_dac_start(uint8_t ch) {
     if (ch < DAC_CH_SIZE) {
+#if BSP_FEATURE_DAC_HAS_OUTPUT_AMPLIFIER
+        ra_dac_output_amp_init(ch);
+#else
         if (ch) {
             R_DAC->DACR_b.DAOE1 = 1U;
         } else {
             R_DAC->DACR_b.DAOE0 = 1U;
         }
+#endif
     }
 }
 
@@ -547,11 +580,16 @@ void ra_dac_init(uint32_t dac_pin, uint8_t ch) {
 
         R_DAC->DADPR_b.DPSEL = 0;    // Right-justified format
         R_DAC->DAADSCR_b.DAADST = 0;  // Do not synchronize with ADC14
-        R_DAC->DAVREFCR_b.REF = 1;   // AVCC0/AVSS0 selected
         R_DAC->DADR[ch] = 0;         // Output 0 Volts
 
+#if BSP_FEATURE_DAC_HAS_DAVREFCR
+        R_DAC->DAVREFCR_b.REF = 1;   // AVCC0/AVSS0 selected
+#endif
+
         ra_dac_set_pin(dac_pin);
-        ra_dac_start(ch);
+        if (!ra_dac_is_running(ch)) {
+            ra_dac_start(ch);
+        }
     }
 }
 
@@ -560,6 +598,14 @@ void ra_dac_deinit(uint32_t dac_pin, uint8_t ch) {
         ra_dac_stream_cleanup(ch);
         ra_dac_stop(ch);
         ra_dac_release_pin(dac_pin);
+
+#if BSP_FEATURE_DAC_HAS_OUTPUT_AMPLIFIER
+        if (ch == 0U) {
+            R_DAC->DAAMPCR_b.DAAMP0 = 0U;
+        } else {
+            R_DAC->DAAMPCR_b.DAAMP1 = 0U;
+        }
+#endif
 
         // Only fully power down the DAC block when no channel is running.
         bool any_running = false;
@@ -570,7 +616,9 @@ void ra_dac_deinit(uint32_t dac_pin, uint8_t ch) {
             }
         }
         if (!any_running) {
+#if BSP_FEATURE_DAC_HAS_DAVREFCR
             R_DAC->DAVREFCR_b.REF = 0;   // No reference voltage selected
+#endif
             ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD20_Msk);
         }
     }

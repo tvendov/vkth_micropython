@@ -9,6 +9,14 @@ const ioport_pin_cfg_t g_bsp_pin_cfg_data[] = {
         .pin_cfg = ((uint32_t)IOPORT_CFG_ANALOG_ENABLE)
     },
     {
+        .pin = BSP_IO_PORT_00_PIN_14,
+        .pin_cfg = ((uint32_t)IOPORT_CFG_ANALOG_ENABLE)
+    },
+    {
+        .pin = BSP_IO_PORT_00_PIN_15,
+        .pin_cfg = ((uint32_t)IOPORT_CFG_ANALOG_ENABLE)
+    },
+    {
         .pin = BSP_IO_PORT_01_PIN_05,
         .pin_cfg = ((uint32_t)IOPORT_CFG_PORT_DIRECTION_INPUT)
     },

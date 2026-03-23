@@ -31,29 +31,15 @@
 #include "ra_encoder.h"
 #include "bsp_api.h"
 
-// Singleton pointer used by ISRs to find the active encoder config.
-// Only one encoder instance is supported at a time.
-static encoder_config_t *enc_irq_cfg = NULL;
+// Direct IRQ→cfg lookup table for O(1) ISR dispatch.
+// Indexed by NVIC IRQ number. Populated by irq_enable, cleared by irq_disable.
+// Size = BSP_VECTOR_TABLE_MAX_ENTRIES (112 for RA4M2) — 448 bytes RAM.
+// This replaces the previous O(N) scan in enc_irq_find_by_irq().
+static encoder_config_t *enc_irq_lut[BSP_VECTOR_TABLE_MAX_ENTRIES] = {0};
 
 // ---- GPT register base pointers (same layout as ra_gpt.c) ----
 
-#if defined(RA4M1)
-#define ENC_GPT_CH_SIZE 8
-#elif defined(RA4M2)
-#define ENC_GPT_CH_SIZE 8
-#elif defined(RA4W1)
-#define ENC_GPT_CH_SIZE 9
-#elif defined(RA6M1)
-#define ENC_GPT_CH_SIZE 13
-#elif defined(RA6M2) || defined(RA6M3)
-#define ENC_GPT_CH_SIZE 14
-#elif defined(RA6M5)
-#define ENC_GPT_CH_SIZE 10
-#else
-#error "CMSIS MCU Series is not specified."
-#endif
-
-static R_GPT0_Type *enc_gpt_regs[ENC_GPT_CH_SIZE] = {
+static R_GPT0_Type *enc_gpt_regs[RA_ENCODER_MAX_CH] = {
 #if defined(RA4M1)
     R_GPT0, R_GPT1, R_GPT2, R_GPT3, R_GPT4, R_GPT5, R_GPT6, R_GPT7,
 #elif defined(RA4M2)
@@ -95,6 +81,15 @@ static inline int32_t enc_sign_extend_16(uint32_t raw) {
         return (int32_t)(raw | 0xFFFF0000);
     }
     return (int32_t)(raw & 0xFFFF);
+}
+
+static inline void enc_reset_debounce_state(encoder_config_t *cfg, int32_t value) {
+    cfg->value = value;
+    cfg->reported_val = value;
+    cfg->last_raw = value;
+    cfg->confirmed_dir = 0;
+    cfg->pending_dir = 0;
+    cfg->pending_count = 0;
 }
 
 // ---- Clock enable/disable helpers ----
@@ -161,7 +156,7 @@ bool ra_encoder_find_channel(uint32_t pin_a, uint32_t pin_b, uint32_t *ch) {
     if (ch_a != ch_b) {
         return false;  // Both pins must be on the same GPT channel
     }
-    if (ch_a >= ENC_GPT_CH_SIZE || enc_gpt_regs[ch_a] == NULL) {
+    if (ch_a >= RA_ENCODER_MAX_CH || enc_gpt_regs[ch_a] == NULL) {
         return false;
     }
     *ch = ch_a;
@@ -171,7 +166,7 @@ bool ra_encoder_find_channel(uint32_t pin_a, uint32_t pin_b, uint32_t *ch) {
 bool ra_encoder_init(encoder_config_t *cfg) {
     uint32_t ch = cfg->gpt_ch;
 
-    if (ch >= ENC_GPT_CH_SIZE || enc_gpt_regs[ch] == NULL) {
+    if (ch >= RA_ENCODER_MAX_CH || enc_gpt_regs[ch] == NULL) {
         return false;
     }
 
@@ -278,9 +273,7 @@ bool ra_encoder_init(encoder_config_t *cfg) {
     ra_gpio_config(cfg->pin_b, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_LOW_POWER, af_b);
 
     // Set initial state
-    cfg->value = cfg->init_val;
-    cfg->reported_val = cfg->init_val;
-    cfg->confirmed_dir = 0;
+    enc_reset_debounce_state(cfg, cfg->init_val);
     cfg->active = true;
     cfg->irq_cb = NULL;
     cfg->irq_param = NULL;
@@ -312,45 +305,56 @@ int32_t ra_encoder_read(encoder_config_t *cfg) {
         raw = (int32_t)gpt->GTCNT;
     }
 
-    // Clamp to [min_val, max_val]
-    // Manual: "Writing to the GTCNT register is prohibited during count operation."
-    // GTCR is write-protected — must unlock GTWP before stop/start.
+    // Software-only clamp to [min_val, max_val].
+    // read() is a pure getter — it does NOT write back to GTCNT.
+    // Use ra_encoder_reset() if you need to explicitly set the HW counter.
     if (raw < cfg->min_val) {
         raw = cfg->min_val;
-        gpt->GTWP = 0xA500U;
-        gpt->GTCR = 0;  // CST=0 (stop)
-        gpt->GTCNT = (uint32_t)raw;
-        gpt->GTCR = 1;  // CST=1 (start)
-        gpt->GTWP = 0xA501U;
     } else if (raw > cfg->max_val) {
         raw = cfg->max_val;
-        gpt->GTWP = 0xA500U;
-        gpt->GTCR = 0;  // CST=0 (stop)
-        gpt->GTCNT = (uint32_t)raw;
-        gpt->GTCR = 1;  // CST=1 (start)
-        gpt->GTWP = 0xA501U;
     }
 
-    // Software debounce: ignore direction reversals shorter than threshold.
-    // Requires `debounce` consecutive steps in the new direction to confirm.
+    // Software debounce: on reversal, keep the previous reported position
+    // until we confirm `debounce` consecutive raw counts in the new direction.
+    // NOTE: when debounce > 0, the returned value is the "debounced reported
+    // position" (reported_val), not the raw hardware count. This is the
+    // intended API behavior for UI knobs — enc.value() returns a stable,
+    // debounced position suitable for menu navigation etc.
     if (cfg->debounce > 0) {
-        int32_t delta = raw - cfg->reported_val;
+        int32_t delta = raw - cfg->last_raw;
         if (delta == 0) {
             cfg->value = cfg->reported_val;
             return cfg->reported_val;
         }
+        cfg->last_raw = raw;
+
         int8_t new_dir = (delta > 0) ? 1 : -1;
+        uint32_t step_count = (uint32_t)((delta > 0) ? delta : -delta);
 
         if (cfg->confirmed_dir == 0 || new_dir == cfg->confirmed_dir) {
             // Same direction or first move — accept immediately
             cfg->confirmed_dir = new_dir;
+            cfg->pending_dir = 0;
+            cfg->pending_count = 0;
             cfg->reported_val = raw;
         } else {
-            // Direction reversal — accept only if |delta| > debounce
-            int32_t abs_delta = (delta > 0) ? delta : -delta;
-            if (abs_delta > (int32_t)cfg->debounce) {
+            // Reversal: accumulate consecutive raw counts in the new direction.
+            if (cfg->pending_dir != new_dir) {
+                cfg->pending_dir = new_dir;
+                cfg->pending_count = 0;
+            }
+
+            uint32_t pending = (uint32_t)cfg->pending_count + step_count;
+            if (pending > UINT8_MAX) {
+                pending = UINT8_MAX;
+            }
+            cfg->pending_count = (uint8_t)pending;
+
+            if (cfg->pending_count >= cfg->debounce) {
                 cfg->confirmed_dir = new_dir;
                 cfg->reported_val = raw;
+                cfg->pending_dir = 0;
+                cfg->pending_count = 0;
             }
             // else: ignore bounce, keep reported_val unchanged
         }
@@ -359,7 +363,24 @@ int32_t ra_encoder_read(encoder_config_t *cfg) {
     }
 
     cfg->value = raw;
+    cfg->reported_val = raw;
+    cfg->last_raw = raw;
+    cfg->confirmed_dir = 0;
+    cfg->pending_dir = 0;
+    cfg->pending_count = 0;
     return raw;
+}
+
+int32_t ra_encoder_read_hw_count(encoder_config_t *cfg) {
+    if (cfg == NULL || !cfg->active) {
+        return (cfg != NULL) ? cfg->value : 0;
+    }
+    R_GPT0_Type *gpt = enc_gpt_regs[cfg->gpt_ch];
+    uint32_t raw = gpt->GTCNT;
+    if (enc_is_16bit(cfg->gpt_ch)) {
+        return (int32_t)(int16_t)(raw & 0xFFFFu);
+    }
+    return (int32_t)raw;
 }
 
 void ra_encoder_reset(encoder_config_t *cfg, int32_t value) {
@@ -380,9 +401,7 @@ void ra_encoder_reset(encoder_config_t *cfg, int32_t value) {
     gpt->GTWP = 0xA500U;
     gpt->GTCR = 0;  // CST=0 (stop counter)
     gpt->GTCNT = (uint32_t)value;
-    cfg->value = value;
-    cfg->reported_val = value;
-    cfg->confirmed_dir = 0;
+    enc_reset_debounce_state(cfg, value);
     gpt->GTCR = 1;  // CST=1 (restart counter)
     gpt->GTWP = 0xA501U;
 }
@@ -404,6 +423,10 @@ void ra_encoder_status(encoder_config_t *cfg, encoder_status_t *status) {
     status->gtdnsr = gpt->GTDNSR;
     status->gtcr  = gpt->GTCR;
     status->gtior = gpt->GTIOR;
+    status->gtccra = gpt->GTCCR[0];
+    status->gtccrb = gpt->GTCCR[1];
+    status->irq_step = cfg->irq_step;
+    status->irq_anchor = cfg->irq_anchor;
 }
 
 void ra_encoder_deinit(encoder_config_t *cfg) {
@@ -454,11 +477,11 @@ void ra_encoder_deinit(encoder_config_t *cfg) {
     gpt->GTPR = 0;
     gpt->GTPBR = 0;
 
+    // Reset counter (counter is stopped, GTCNT is write-protected by GTWP)
+    gpt->GTCNT = 0;
+
     // Re-lock write protection
     gpt->GTWP = 0xA501U;
-
-    // Reset counter (not write-protected, counter is stopped)
-    gpt->GTCNT = 0;
 
     // Release pins back to GPIO
     ra_gpio_config(cfg->pin_a, GPIO_MODE_INPUT, GPIO_NOPULL, GPIO_LOW_POWER, AF_GPIO);
@@ -470,34 +493,125 @@ void ra_encoder_deinit(encoder_config_t *cfg) {
     cfg->active = false;
 }
 
+// ---- Compare-window IRQ helpers ----
+
+static inline uint32_t enc_irq_mask_for_cfg(encoder_config_t *cfg) {
+    return enc_is_16bit(cfg->gpt_ch) ? 0xFFFFu : 0xFFFFFFFFu;
+}
+
+static inline int32_t enc_irq_read_count(encoder_config_t *cfg) {
+    R_GPT0_Type *gpt = enc_gpt_regs[cfg->gpt_ch];
+    uint32_t raw = gpt->GTCNT;
+    if (enc_is_16bit(cfg->gpt_ch)) {
+        return (int32_t)(int16_t)(raw & 0xFFFFu);
+    }
+    return (int32_t)raw;
+}
+
+// Clear compare-match A/B flags in GTST.
+// IMPORTANT: caller must hold GTWP unlocked (0xA500) — this function
+// does NOT manage GTWP itself to avoid redundant unlock/lock pairs.
+//
+// GTST W0C semantics (RA4M2 manual §21.2.16, Note 1):
+//   "Only 0 can be written to [flag] bits. Do not write 1."
+//   Writing 0 clears the flag; writing 1 is a no-op but discouraged.
+//   Reserved bits (14:8, 23:16, 28:25) "write value should be 0".
+//   Read-only bits (TUCF, ODF, OABHF, OABLF) ignore writes.
+//
+// We write 0 to the entire register. This:
+//   - Clears TCFA, TCFB (and all other W0C flags: TCFC-F, TCFPO/PU, PCF)
+//   - Writes 0 to reserved bits (as required)
+//   - Writes to R-only bits are ignored by hardware
+// For encoder use we don't need TCFC-F/overflow/underflow flags,
+// so clearing them all is safe and avoids RMW races in ISR context.
+static inline void enc_irq_clear_flags(R_GPT0_Type *gpt) {
+    gpt->GTST = 0;
+}
+
+// Rearm the compare window around a new anchor position.
+// Performs a single GTWP unlock/lock region covering GTCCRA, GTCCRB,
+// and GTST flag clear — all three are write-protected by GTWP.WP.
+static inline void enc_irq_rearm_window(encoder_config_t *cfg, int32_t anchor) {
+    R_GPT0_Type *gpt = enc_gpt_regs[cfg->gpt_ch];
+    uint32_t mask = cfg->irq_mask;
+    uint32_t step = cfg->irq_step;
+
+    cfg->irq_anchor = anchor;
+
+    // --- Begin GTWP-protected region ---
+    gpt->GTWP = 0xA500U;  // Unlock (WP=0)
+
+    // Window edges: A = anchor + step, B = anchor - step
+    gpt->GTCCR[0] = ((uint32_t)anchor + step) & mask;  // GTCCRA
+    gpt->GTCCR[1] = ((uint32_t)anchor - step) & mask;  // GTCCRB
+
+    // Clear compare flags so next match triggers a fresh interrupt
+    enc_irq_clear_flags(gpt);
+
+    gpt->GTWP = 0xA501U;  // Re-lock (WP=1)
+    // --- End GTWP-protected region ---
+}
+
 // ---- Compare Match IRQ notification ----
 
-// Common ISR logic for both Compare Match A and Compare Match B.
-// Reads current GTCNT, updates both compare registers to follow the counter,
-// clears the status flags, and invokes the user callback.
+// Window-based ISR: instead of CNT±1 (which races), we maintain
+// a window [anchor - step, anchor + step]. When GTCNT exits this
+// window, the ISR catches anchor up in step-sized chunks and rearms.
+//
+// Sequence:
+//   1. Clear NVIC pending (R_BSP_IrqStatusClear)
+//   2. Read GTCNT, compute new anchor
+//   3. Rearm compare window — enc_irq_rearm_window() handles:
+//      GTWP unlock → GTCCRA/B update → GTST flag clear → GTWP lock
+//   4. Deliver coarse movement notification to upper layer
+//
+// All GTWP-protected register writes happen inside enc_irq_rearm_window().
+// Compare flags are NOT cleared separately in this ISR — rearm does it.
+// O(1) IRQ→cfg lookup via enc_irq_lut[]. Populated by irq_enable/disable.
+static inline encoder_config_t *enc_irq_find_by_irq(IRQn_Type irq) {
+    if ((uint32_t)irq < BSP_VECTOR_TABLE_MAX_ENTRIES) {
+        return enc_irq_lut[(uint32_t)irq];
+    }
+    return NULL;
+}
+
 static void enc_compare_common_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     R_BSP_IrqStatusClear(irq);
 
-    encoder_config_t *cfg = enc_irq_cfg;
-    if (cfg == NULL || !cfg->active || cfg->irq_cb == NULL) {
+    encoder_config_t *cfg = enc_irq_find_by_irq(irq);
+    if (cfg == NULL) {
         return;
     }
 
-    R_GPT0_Type *gpt = enc_gpt_regs[cfg->gpt_ch];
-    uint32_t cnt = gpt->GTCNT;
-    uint32_t mask = enc_is_16bit(cfg->gpt_ch) ? 0xFFFF : 0xFFFFFFFF;
+    int32_t cnt = enc_irq_read_count(cfg);
+    int32_t anchor = cfg->irq_anchor;
+    int32_t step = (int32_t)(cfg->irq_step ? cfg->irq_step : 1);
 
-    // Update compare registers to track new position:
-    // GTCCRA = CNT+1 (detect forward movement)
-    // GTCCRB = CNT-1 (detect backward movement)
-    gpt->GTCCR[0] = (cnt + 1) & mask;  // GTCCRA
-    gpt->GTCCR[1] = (cnt - 1) & mask;  // GTCCRB
+    // Signed delta from current window center
+    int32_t delta = cnt - anchor;
 
-    // Clear both TCFA and TCFB flags (write 0 to clear, other bits preserved)
-    gpt->GTST &= ~(R_GPT0_GTST_TCFA_Msk | R_GPT0_GTST_TCFB_Msk);
+    // Catch up anchor in chunks of irq_step
+    if (delta >= step) {
+        int32_t n = delta / step;
+        anchor += n * step;
+    } else if (delta <= -step) {
+        int32_t n = (-delta) / step;
+        anchor -= n * step;
+    } else {
+        // Near boundary — nudge anchor one step in the direction of movement
+        if (delta > 0) {
+            anchor += step;
+        } else if (delta < 0) {
+            anchor -= step;
+        }
+        // delta == 0: leave anchor unchanged (spurious match)
+    }
 
-    // Invoke callback
+    // Rearm window (GTWP unlock/lock + GTCCR update + GTST clear all inside)
+    enc_irq_rearm_window(cfg, anchor);
+
+    // Deliver one coarse movement notification to upper layer
     cfg->irq_cb(cfg->irq_param);
 }
 
@@ -519,23 +633,31 @@ void ra_encoder_irq_enable(encoder_config_t *cfg, int8_t irq_a, int8_t irq_b,
     // Disable previous IRQ if any
     ra_encoder_irq_disable(cfg);
 
-    R_GPT0_Type *gpt = enc_gpt_regs[cfg->gpt_ch];
-    uint32_t cnt = gpt->GTCNT;
-    uint32_t mask = enc_is_16bit(cfg->gpt_ch) ? 0xFFFF : 0xFFFFFFFF;
-
-    // Set initial compare values to detect first movement
-    gpt->GTCCR[0] = (cnt + 1) & mask;  // GTCCRA = CNT+1
-    gpt->GTCCR[1] = (cnt - 1) & mask;  // GTCCRB = CNT-1
-
-    // Clear any pending flags
-    gpt->GTST &= ~(R_GPT0_GTST_TCFA_Msk | R_GPT0_GTST_TCFB_Msk);
-
     // Store callback and IRQ info
     cfg->irq_cb = cb;
     cfg->irq_param = param;
     cfg->irq_a = irq_a;
     cfg->irq_b = irq_b;
-    enc_irq_cfg = cfg;
+    cfg->irq_mask = enc_irq_mask_for_cfg(cfg);
+
+    // Default compare quantum: notify on every raw count for all modes.
+    // This keeps slow movement responsive; callers that want coarser events
+    // can coalesce them in software at a higher layer.
+    cfg->irq_step = 1;
+
+    // Initialize window around current count
+    cfg->irq_anchor = enc_irq_read_count(cfg);
+
+    // Populate direct IRQ→cfg lookup table for O(1) ISR dispatch
+    if (irq_a >= 0 && (uint32_t)irq_a < BSP_VECTOR_TABLE_MAX_ENTRIES) {
+        enc_irq_lut[(uint32_t)irq_a] = cfg;
+    }
+    if (irq_b >= 0 && (uint32_t)irq_b < BSP_VECTOR_TABLE_MAX_ENTRIES) {
+        enc_irq_lut[(uint32_t)irq_b] = cfg;
+    }
+
+    // Program initial compare window
+    enc_irq_rearm_window(cfg, cfg->irq_anchor);
 
     // Configure and enable NVIC interrupts
     // Priority 12 (lower than SysTick=0, same area as other peripherals)
@@ -552,20 +674,38 @@ void ra_encoder_irq_enable(encoder_config_t *cfg, int8_t irq_a, int8_t irq_b,
 }
 
 void ra_encoder_irq_disable(encoder_config_t *cfg) {
-    // Disable NVIC interrupts
+    if (cfg == NULL) {
+        return;
+    }
+
+    // Disable NVIC interrupts and clear IRQ→cfg LUT entries
     if (cfg->irq_a >= 0) {
         R_BSP_IrqDisable((IRQn_Type)cfg->irq_a);
+        if ((uint32_t)cfg->irq_a < BSP_VECTOR_TABLE_MAX_ENTRIES) {
+            enc_irq_lut[(uint32_t)cfg->irq_a] = NULL;
+        }
         cfg->irq_a = -1;
     }
     if (cfg->irq_b >= 0) {
         R_BSP_IrqDisable((IRQn_Type)cfg->irq_b);
+        if ((uint32_t)cfg->irq_b < BSP_VECTOR_TABLE_MAX_ENTRIES) {
+            enc_irq_lut[(uint32_t)cfg->irq_b] = NULL;
+        }
         cfg->irq_b = -1;
+    }
+
+    // Clear compare flags if hardware is still active.
+    // enc_irq_clear_flags requires GTWP unlocked — do it here.
+    if (cfg->active) {
+        R_GPT0_Type *gpt = enc_gpt_regs[cfg->gpt_ch];
+        gpt->GTWP = 0xA500U;  // Unlock
+        enc_irq_clear_flags(gpt);
+        gpt->GTWP = 0xA501U;  // Re-lock
     }
 
     cfg->irq_cb = NULL;
     cfg->irq_param = NULL;
-
-    if (enc_irq_cfg == cfg) {
-        enc_irq_cfg = NULL;
-    }
+    cfg->irq_step = 0;
+    cfg->irq_anchor = 0;
+    cfg->irq_mask = 0;
 }
