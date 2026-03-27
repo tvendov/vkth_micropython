@@ -1,72 +1,73 @@
+# Dual DAC demo: DA0 = pure triangle (half period), DA1 = triangle+sine mix
+# DA0 period = 20 ms (50 Hz), DA1 period = 40 ms (25 Hz)
 from array import array
 import math
 import time
+from machine import DAC, Pin
 
-import audiomixer
-
-
-SAMPLE_RATE = 22050
+MID = 2048
+AMP = 1800
+SINE_AMP = 500
 TRIANGLE_PERIOD_MS = 40
 SINE_CYCLES_PER_TRIANGLE = 20
+TBL = 256            # samples for DA1 (full period)
+TBL_HALF = TBL // 2  # 128 samples for DA0 (half period)
+FREQ_HZ = 1000 // TRIANGLE_PERIOD_MS  # 25 Hz (DA1)
+FREQ_HZ_HALF = FREQ_HZ * 2            # 50 Hz (DA0)
+SR = FREQ_HZ * TBL   # sample rate (same for both DACs)
 
 
-def make_triangle(period_ms, amplitude=0.78):
-    count = max(64, SAMPLE_RATE * period_ms // 1000)
-    out = array("h", [0] * count)
-
-    for i in range(count):
-        phase = i / count
-        triangle = 4.0 * abs(phase - 0.5) - 1.0
-        out[i] = int(32767 * amplitude * triangle)
-
-    return out
+def clamp12(v):
+    if v < 0:
+        return 0
+    if v > 4095:
+        return 4095
+    return v
 
 
-def make_fast_sine(period_ms, sine_cycles, amplitude=0.22):
-    count = max(64, SAMPLE_RATE * period_ms // 1000)
-    out = array("h", [0] * count)
+# --- CH0: pure triangle, HALF period (128 samples) ---
+tri_buf = array("H", [MID] * TBL_HALF)
+for i in range(TBL_HALF):
+    phase = i / TBL_HALF
+    tri = 4.0 * abs(phase - 0.5) - 1.0  # -1..+1
+    tri_buf[i] = clamp12(MID + int(AMP * tri))
 
-    for i in range(count):
-        phase = i / count
-        sine = math.sin(2.0 * math.pi * sine_cycles * phase)
-        out[i] = int(32767 * amplitude * sine)
+# --- CH1: triangle + sine mix, full period (256 samples) ---
+mix_buf = array("H", [MID] * TBL)
+for i in range(TBL):
+    phase = i / TBL
+    tri = 4.0 * abs(phase - 0.5) - 1.0
+    sine = math.sin(2.0 * math.pi * SINE_CYCLES_PER_TRIANGLE * phase)
+    mix_buf[i] = clamp12(MID + int(AMP * 0.7 * tri + SINE_AMP * sine))
 
-    return out
+dac0 = DAC(Pin("P014"))  # DA0
+dac1 = DAC(Pin("P015"))  # DA1
+dac0.write(MID)
+dac1.write(MID)
 
+sine_freq_hz = FREQ_HZ * SINE_CYCLES_PER_TRIANGLE
+print("Dual DAC waveform demo")
+print("DA0 (P014): pure triangle, {} Hz (half period, {} ms)".format(
+    FREQ_HZ_HALF, TRIANGLE_PERIOD_MS // 2))
+print("DA1 (P015): triangle+sine mix, {} Hz ({} ms)".format(
+    FREQ_HZ, TRIANGLE_PERIOD_MS))
+print("  Sine cycles per period: {}".format(SINE_CYCLES_PER_TRIANGLE))
+print("  Sine freq: {} Hz".format(sine_freq_hz))
+print("  DA0: {} samples, DA1: {} samples @ {} Hz".format(
+    TBL_HALF, TBL, SR))
+print("Ctrl+C to stop.")
 
-mixer = audiomixer.Mixer(
-    voice_count=2,
-    sample_rate=SAMPLE_RATE,
-    channel_count=1,
-    bits_per_sample=16,
-    buffer_size=4096,
-)
-
-triangle_wave = make_triangle(TRIANGLE_PERIOD_MS)
-sine_wave = make_fast_sine(TRIANGLE_PERIOD_MS, SINE_CYCLES_PER_TRIANGLE)
-
-triangle_freq_hz = 1000 / TRIANGLE_PERIOD_MS
-sine_freq_hz = triangle_freq_hz * SINE_CYCLES_PER_TRIANGLE
-
-print("Starting scope-friendly audiomixer demo on DA0...")
-print("Triangle period: {} ms".format(TRIANGLE_PERIOD_MS))
-print("Triangle freq: {:.2f} Hz".format(triangle_freq_hz))
-print("Sine cycles inside one triangle period: {}".format(SINE_CYCLES_PER_TRIANGLE))
-print("Sine freq: {:.2f} Hz".format(sine_freq_hz))
-print("Expected shape: triangle voice + sine voice mixed in real time.")
-print("Press Ctrl+C to stop.")
+dac0.write_timed(tri_buf, SR, mode=DAC.CIRCULAR, transfer=DAC.TRANSFER_DTC)
+dac1.write_timed(mix_buf, SR, mode=DAC.CIRCULAR, transfer=DAC.TRANSFER_DTC)
 
 try:
-    mixer.voice[0].level = 1.0
-    mixer.voice[1].level = 1.0
-    mixer.voice[0].play(triangle_wave, repeat=True)
-    mixer.voice[1].play(sine_wave, repeat=True)
-
     while True:
         time.sleep_ms(500)
 except KeyboardInterrupt:
-    print("Stopping audiomixer demo...")
-finally:
-    mixer.stop()
-    mixer.deinit()
-    print("Done.")
+    pass
+
+dac0.stop()
+dac1.stop()
+dac0.write(MID)
+dac1.write(MID)
+print("Stopped.")

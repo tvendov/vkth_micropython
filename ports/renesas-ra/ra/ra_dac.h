@@ -59,6 +59,9 @@ typedef enum {
     RA_DAC_HW_STAGE_DMAC_RUNTIME = 6,
 } ra_dac_hw_stage_t;
 
+typedef bool (*ra_dac_stream_double_buffer_fill_t)(void *context, uint16_t *buf, size_t sample_count);
+typedef void (*ra_dac_stream_double_buffer_stop_t)(void *context);
+
 void ra_dac_start(uint8_t ch);
 void ra_dac_stop(uint8_t ch);
 uint8_t ra_dac_is_running(uint8_t ch);
@@ -69,8 +72,12 @@ void ra_dac_deinit(uint32_t dac_pin, uint8_t ch);
 bool ra_dac_is_dac_pin(uint32_t pin);
 ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_t sample_count, uint32_t freq,
     bool loop, ra_dac_transfer_t transfer, int8_t timer_ch);
+ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *buf_a, uint16_t *buf_b,
+    bool buf_b_ready, size_t sample_count, uint32_t freq, ra_dac_stream_double_buffer_fill_t fill_cb,
+    ra_dac_stream_double_buffer_stop_t stop_cb, void *context, int8_t timer_ch);
 void ra_dac_stream_stop(uint8_t ch);
 bool ra_dac_stream_is_active(uint8_t ch);
+int8_t ra_dac_stream_timer(uint8_t ch);
 ra_dac_hw_stage_t ra_dac_stream_last_stage(uint8_t ch);
 int32_t ra_dac_stream_last_error(uint8_t ch);
 

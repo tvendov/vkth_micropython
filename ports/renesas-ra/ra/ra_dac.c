@@ -82,6 +82,7 @@ static const ra_af_pin_t ra_dac_pins[] = {
 typedef struct _ra_dac_stream_state_t {
     bool active;
     bool loop;
+    bool double_buffered;
     bool timer_reserved;
     bool timer_initialized;
     bool transfer_open;
@@ -99,6 +100,13 @@ typedef struct _ra_dac_stream_state_t {
     dmac_extended_cfg_t dmac_ext;
     dtc_instance_ctrl_t dtc_ctrl;
     dtc_extended_cfg_t dtc_ext;
+    uint16_t *buffers[2];
+    bool buffer_ready[2];
+    size_t buffer_sample_count;
+    uint8_t active_buffer;
+    ra_dac_stream_double_buffer_fill_t buffer_fill;
+    ra_dac_stream_double_buffer_stop_t buffer_stop;
+    void *buffer_context;
 } ra_dac_stream_state_t;
 
 static ra_dac_stream_state_t ra_dac_stream_state[DAC_CH_SIZE];
@@ -327,6 +335,10 @@ static void ra_dac_stream_cleanup(uint8_t ch) {
     }
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    bool was_active = state->active;
+    bool notify_double_buffer_stop = state->double_buffered && state->buffer_stop != NULL;
+    ra_dac_stream_double_buffer_stop_t stop_cb = state->buffer_stop;
+    void *stop_context = state->buffer_context;
     if (state->timer_initialized) {
         ra_agt_timer_set_callback(state->timer_ch, NULL, NULL);
     }
@@ -360,6 +372,10 @@ static void ra_dac_stream_cleanup(uint8_t ch) {
     }
 
     memset(state, 0, sizeof(*state));
+
+    if (was_active && notify_double_buffer_stop) {
+        stop_cb(stop_context);
+    }
 }
 
 static void ra_dac_elc_enable(void) {
@@ -408,6 +424,35 @@ static void ra_dac_dmac_complete_callback(dmac_callback_args_t *args) {
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
     if (!state->active || state->transfer != RA_DAC_TRANSFER_DMAC) {
+        return;
+    }
+
+    if (state->double_buffered) {
+        uint8_t completed = state->active_buffer;
+        uint8_t next = completed ^ 1U;
+
+        if (!state->buffer_ready[next] || state->buffers[next] == NULL) {
+            ra_dac_stream_cleanup(ch);
+            return;
+        }
+
+        fsp_err_t err = R_DMAC_Reset((transfer_ctrl_t *)&state->dmac_ctrl, state->buffers[next],
+            (void *)&R_DAC->DADR[ch], (uint16_t)state->buffer_sample_count);
+        if (err != FSP_SUCCESS) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, err);
+            ra_dac_stream_cleanup(ch);
+            return;
+        }
+
+        state->active_buffer = next;
+        state->buffer_ready[next] = false;
+
+        if (state->buffer_fill != NULL && state->buffers[completed] != NULL) {
+            state->buffer_ready[completed] = state->buffer_fill(state->buffer_context,
+                state->buffers[completed], state->buffer_sample_count);
+        } else {
+            state->buffer_ready[completed] = false;
+        }
         return;
     }
 
@@ -489,6 +534,10 @@ static bool ra_dac_stream_start_transfer(uint8_t ch, const uint16_t *buf, size_t
         state->dmac_ext.activation_source = ra_dac_agt_event(state->timer_ch);
         {
             IRQn_Type dmac_irq = ra_dac_dmac_irq(state->dmac_ch);
+            if (state->double_buffered && dmac_irq < (IRQn_Type)0) {
+                ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_EVENT_MAP, FSP_ERR_UNSUPPORTED);
+                return false;
+            }
             if (dmac_irq >= (IRQn_Type)0) {
                 state->dmac_ext.irq = dmac_irq;
                 state->dmac_ext.ipl = 1;
@@ -734,6 +783,75 @@ ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_
     return RA_DAC_STREAM_STATUS_OK;
 }
 
+ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *buf_a, uint16_t *buf_b,
+    bool buf_b_ready, size_t sample_count, uint32_t freq, ra_dac_stream_double_buffer_fill_t fill_cb,
+    ra_dac_stream_double_buffer_stop_t stop_cb, void *context, int8_t timer_ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return RA_DAC_STREAM_STATUS_INVALID_CHANNEL;
+    }
+    if (buf_a == NULL || buf_b == NULL || sample_count == 0U) {
+        return RA_DAC_STREAM_STATUS_INVALID_LENGTH;
+    }
+    if (freq == 0U) {
+        return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+    }
+    if (sample_count > DMAC_MAX_NORMAL_TRANSFER_LENGTH) {
+        return RA_DAC_STREAM_STATUS_INVALID_LENGTH;
+    }
+    if (timer_ch >= 0 && !ra_agt_timer_is_valid((uint32_t)timer_ch)) {
+        return RA_DAC_STREAM_STATUS_INVALID_TIMER;
+    }
+
+    ra_dac_stream_cleanup(ch);
+    ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_NONE, FSP_SUCCESS);
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    state->transfer = RA_DAC_TRANSFER_DMAC;
+    state->loop = false;
+    state->double_buffered = true;
+    state->freq = freq;
+    state->buffers[0] = buf_a;
+    state->buffers[1] = buf_b;
+    state->buffer_ready[0] = false;
+    state->buffer_ready[1] = buf_b_ready;
+    state->buffer_sample_count = sample_count;
+    state->active_buffer = 0;
+    state->buffer_fill = fill_cb;
+    state->buffer_stop = stop_cb;
+    state->buffer_context = context;
+
+    if (!ra_dac_timer_reserve(timer_ch, &state->timer_ch)) {
+        return RA_DAC_STREAM_STATUS_TIMER_BUSY;
+    }
+    state->timer_reserved = true;
+
+    ra_agt_timer_init(state->timer_ch, (float)freq);
+    state->timer_initialized = true;
+    if (ra_agt_timer_get_freq(state->timer_ch) <= 0.0f) {
+        ra_dac_stream_cleanup(ch);
+        return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+    }
+
+    if (!ra_dac_stream_start_transfer(ch, buf_a, sample_count, false)) {
+        ra_dac_stream_status_t err = !state->dmac_reserved ? RA_DAC_STREAM_STATUS_TRANSFER_BUSY : RA_DAC_STREAM_STATUS_HW_ERROR;
+        ra_dac_stream_cleanup(ch);
+        return err;
+    }
+
+    if (!ra_dac_is_running(ch)) {
+        ra_dac_start(ch);
+    }
+
+    IRQn_Type agt_irq = ra_dac_agt_irq(state->timer_ch);
+    if (agt_irq >= (IRQn_Type)0) {
+        R_BSP_IrqStatusClear(agt_irq);
+    }
+    state->active = true;
+    ra_agt_timer_start(state->timer_ch);
+
+    return RA_DAC_STREAM_STATUS_OK;
+}
+
 void ra_dac_stream_stop(uint8_t ch) {
     ra_dac_stream_cleanup(ch);
 }
@@ -769,6 +887,10 @@ bool ra_dac_stream_is_active(uint8_t ch) {
             return false;
         }
 
+        if (state->double_buffered) {
+            return true;
+        }
+
         if (done) {
             ra_dac_stream_cleanup(ch);
             return false;
@@ -789,6 +911,19 @@ bool ra_dac_stream_is_active(uint8_t ch) {
 
     ra_dac_stream_cleanup(ch);
     return false;
+}
+
+int8_t ra_dac_stream_timer(uint8_t ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return -1;
+    }
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    if (!state->timer_reserved) {
+        return -1;
+    }
+
+    return (int8_t)state->timer_ch;
 }
 
 ra_dac_hw_stage_t ra_dac_stream_last_stage(uint8_t ch) {

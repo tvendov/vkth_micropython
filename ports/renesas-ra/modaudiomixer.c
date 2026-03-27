@@ -34,7 +34,6 @@
 #include "py/runtime.h"
 #include "pin.h"
 #include "ra/ra_dac.h"
-#include "ra/ra_timer.h"
 
 #if MICROPY_HW_ENABLE_DAC
 
@@ -79,12 +78,13 @@ struct _audiomixer_mixer_obj_t {
     mp_obj_base_t base;
     uint8_t dac_ch;
     uint32_t dac_pin;
-    uint8_t timer_ch;
-    bool timer_reserved;
-    bool timer_initialized;
+    int8_t requested_timer_ch;
+    int8_t timer_ch;
     volatile bool output_active;
     bool deinitialized;
     uint32_t sample_rate;
+    size_t buffer_sample_count;
+    uint16_t *mix_buffers[2];
     size_t voice_count;
     audiomixer_voice_state_t *voices;
     mp_obj_t voice_tuple_obj;
@@ -139,25 +139,6 @@ static mp_hal_pin_obj_t audiomixer_get_pin_for_dac(uint8_t dac_ch) {
     }
 }
 
-static bool audiomixer_reserve_timer(int requested, uint8_t *timer_ch_out) {
-    if (requested >= 0) {
-        if (!ra_agt_timer_is_valid((uint32_t)requested) || !ra_agt_timer_reserve((uint32_t)requested)) {
-            return false;
-        }
-        *timer_ch_out = (uint8_t)requested;
-        return true;
-    }
-
-    for (uint32_t ch = 0; ch <= BSP_FEATURE_AGT_MAX_CHANNEL_NUM; ++ch) {
-        if (ra_agt_timer_reserve(ch)) {
-            *timer_ch_out = (uint8_t)ch;
-            return true;
-        }
-    }
-
-    return false;
-}
-
 static void audiomixer_root_clear(audiomixer_mixer_obj_t *self) {
     if (self->dac_ch < AUDIOMIXER_DAC_MAX && MP_STATE_PORT(audiomixer_active_mixers)[self->dac_ch] == MP_OBJ_FROM_PTR(self)) {
         MP_STATE_PORT(audiomixer_active_mixers)[self->dac_ch] = MP_OBJ_NULL;
@@ -195,89 +176,153 @@ static int32_t audiomixer_read_sample(const audiomixer_voice_state_t *voice) {
     }
 }
 
-static void audiomixer_timer_callback(void *param) {
-    audiomixer_mixer_obj_t *self = (audiomixer_mixer_obj_t *)param;
-    if (self == NULL || self->deinitialized) {
+static void audiomixer_fill_midpoint(uint16_t *buf, size_t start, size_t sample_count) {
+    if (buf == NULL) {
+        return;
+    }
+    for (size_t i = start; i < sample_count; ++i) {
+        buf[i] = AUDIOMIXER_DAC_MIDPOINT;
+    }
+}
+
+static bool audiomixer_render_buffer(audiomixer_mixer_obj_t *self, uint16_t *buf, size_t sample_count) {
+    if (self == NULL || self->deinitialized || buf == NULL) {
+        return false;
+    }
+    bool produced_audio = false;
+    for (size_t out = 0; out < sample_count; ++out) {
+        int32_t mix = 0;
+        bool any_voice_active = false;
+
+        for (size_t i = 0; i < self->voice_count; ++i) {
+            audiomixer_voice_state_t *voice = &self->voices[i];
+            if (!voice->active || voice->data == NULL || voice->sample_count == 0) {
+                continue;
+            }
+
+            any_voice_active = true;
+            int32_t sample = audiomixer_read_sample(voice);
+            sample = (int32_t)(((int64_t)sample * voice->level_q15) / AUDIOMIXER_LEVEL_MAX_Q15);
+            mix += sample;
+
+            size_t next_pos = voice->position + 1;
+            if (next_pos >= voice->sample_count) {
+                if (voice->loop) {
+                    next_pos = 0;
+                } else {
+                    audiomixer_reset_voice_playback(voice);
+                    continue;
+                }
+            }
+
+            voice->position = next_pos;
+        }
+
+        if (!any_voice_active) {
+            audiomixer_fill_midpoint(buf, out, sample_count);
+            return produced_audio;
+        }
+
+        if (mix < -32768) {
+            mix = -32768;
+        } else if (mix > 32767) {
+            mix = 32767;
+        }
+
+        buf[out] = (uint16_t)(((uint32_t)(mix + 32768)) >> 4);
+        produced_audio = true;
+    }
+
+    return produced_audio;
+}
+
+static bool audiomixer_fill_buffer_callback(void *context, uint16_t *buf, size_t sample_count) {
+    return audiomixer_render_buffer((audiomixer_mixer_obj_t *)context, buf, sample_count);
+}
+
+static void audiomixer_stream_stopped(void *context) {
+    audiomixer_mixer_obj_t *self = (audiomixer_mixer_obj_t *)context;
+    if (self == NULL) {
         return;
     }
 
-    int32_t mix = 0;
-    bool any_voice_started = false;
-    bool any_voice_remaining = false;
+    self->output_active = false;
+    self->timer_ch = self->requested_timer_ch;
+    audiomixer_root_clear(self);
 
-    for (size_t i = 0; i < self->voice_count; ++i) {
-        audiomixer_voice_state_t *voice = &self->voices[i];
-        if (!voice->active || voice->data == NULL || voice->sample_count == 0) {
-            continue;
-        }
-
-        any_voice_started = true;
-        int32_t sample = audiomixer_read_sample(voice);
-        sample = (int32_t)(((int64_t)sample * voice->level_q15) / AUDIOMIXER_LEVEL_MAX_Q15);
-        mix += sample;
-
-        size_t next_pos = voice->position + 1;
-        if (next_pos >= voice->sample_count) {
-            if (voice->loop) {
-                next_pos = 0;
-            } else {
-                audiomixer_reset_voice_playback(voice);
-                continue;
-            }
-        }
-
-        voice->position = next_pos;
-        any_voice_remaining = true;
-    }
-
-    if (mix < -32768) {
-        mix = -32768;
-    } else if (mix > 32767) {
-        mix = 32767;
-    }
-
-    uint16_t dac_value = (uint16_t)(((uint32_t)(mix + 32768)) >> 4);
-    ra_dac_write(self->dac_ch, dac_value);
-
-    if (!any_voice_started) {
-        ra_agt_timer_stop(self->timer_ch);
-        self->output_active = false;
-        audiomixer_root_clear(self);
+    if (!self->deinitialized) {
         ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
-    } else if (!any_voice_remaining) {
-        ra_agt_timer_stop(self->timer_ch);
-        self->output_active = false;
-        audiomixer_root_clear(self);
     }
 }
 
 static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
-    if (self->deinitialized) {
+    if (self == NULL || self->deinitialized) {
         return false;
     }
+
     if (self->output_active) {
-        return true;
+        if (ra_dac_stream_is_active(self->dac_ch)) {
+            return true;
+        }
+        self->output_active = false;
+        self->timer_ch = self->requested_timer_ch;
+        audiomixer_root_clear(self);
     }
+
     if (ra_dac_stream_is_active(self->dac_ch)) {
         return false;
     }
 
     mp_obj_t active_obj = MP_STATE_PORT(audiomixer_active_mixers)[self->dac_ch];
     if (active_obj != MP_OBJ_NULL && active_obj != MP_OBJ_FROM_PTR(self)) {
+        MP_STATE_PORT(audiomixer_active_mixers)[self->dac_ch] = MP_OBJ_NULL;
+    }
+
+    bool buf0_ready = audiomixer_render_buffer(self, self->mix_buffers[0], self->buffer_sample_count);
+    if (!buf0_ready) {
+        ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
+        return true;
+    }
+
+    bool buf1_ready = audiomixer_render_buffer(self, self->mix_buffers[1], self->buffer_sample_count);
+
+    MP_STATE_PORT(audiomixer_active_mixers)[self->dac_ch] = MP_OBJ_FROM_PTR(self);
+    ra_dac_stream_status_t status = ra_dac_write_timed_double_buffered(
+        self->dac_ch,
+        self->mix_buffers[0],
+        self->mix_buffers[1],
+        buf1_ready,
+        self->buffer_sample_count,
+        self->sample_rate,
+        audiomixer_fill_buffer_callback,
+        audiomixer_stream_stopped,
+        self,
+        self->requested_timer_ch);
+
+    if (status != RA_DAC_STREAM_STATUS_OK) {
+        audiomixer_root_clear(self);
+        self->output_active = false;
+        self->timer_ch = self->requested_timer_ch;
+        ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
         return false;
     }
 
-    MP_STATE_PORT(audiomixer_active_mixers)[self->dac_ch] = MP_OBJ_FROM_PTR(self);
-    ra_agt_timer_start(self->timer_ch);
+    self->timer_ch = ra_dac_stream_timer(self->dac_ch);
     self->output_active = true;
     return true;
 }
 
 static void audiomixer_stop_output_locked(audiomixer_mixer_obj_t *self, bool center_output) {
-    if (self->output_active) {
-        ra_agt_timer_stop(self->timer_ch);
-        self->output_active = false;
+    if (self == NULL) {
+        return;
     }
+
+    if (self->output_active || ra_dac_stream_is_active(self->dac_ch)) {
+        ra_dac_stream_stop(self->dac_ch);
+    }
+
+    self->output_active = false;
+    self->timer_ch = self->requested_timer_ch;
     audiomixer_root_clear(self);
     if (center_output) {
         ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
@@ -296,18 +341,9 @@ static void audiomixer_mixer_cleanup(audiomixer_mixer_obj_t *self) {
     }
 
     mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
-    audiomixer_stop_output_locked(self, true);
     audiomixer_stop_all_voices_locked(self);
-    if (self->timer_initialized) {
-        ra_agt_timer_set_callback(self->timer_ch, NULL, NULL);
-        ra_agt_timer_deinit(self->timer_ch);
-        self->timer_initialized = false;
-    }
-    if (self->timer_reserved) {
-        ra_agt_timer_release_reservation(self->timer_ch);
-        self->timer_reserved = false;
-    }
     MICROPY_END_ATOMIC_SECTION(atomic_state);
+    audiomixer_stop_output_locked(self, true);
 
     if (!self->deinitialized) {
         ra_dac_deinit(self->dac_pin, self->dac_ch);
@@ -353,9 +389,9 @@ static size_t audiomixer_bytes_per_sample(audiomixer_format_t format) {
 
 static void audiomixer_mixer_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_printf(print, "Mixer(voices=%u, sample_rate=%u, dac=%u, timer=%u, playing=%u)",
+    mp_printf(print, "Mixer(voices=%u, sample_rate=%u, dac=%u, timer=%d, playing=%u)",
         (unsigned)self->voice_count, (unsigned)self->sample_rate, (unsigned)self->dac_ch,
-        (unsigned)self->timer_ch, (unsigned)self->output_active);
+        (int)self->timer_ch, (unsigned)self->output_active);
 }
 
 static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
@@ -400,8 +436,8 @@ static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_ar
     if (parsed_args[ARG_bits_per_sample].u_int != 16) {
         mp_raise_ValueError(MP_ERROR_TEXT("only 16-bit mixer output is supported"));
     }
-    if (parsed_args[ARG_buffer_size].u_int <= 0) {
-        mp_raise_ValueError(MP_ERROR_TEXT("buffer_size should be > 0"));
+    if (parsed_args[ARG_buffer_size].u_int < 4) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buffer_size should be >= 4"));
     }
 
     mp_hal_pin_obj_t dac_pin = audiomixer_default_dac_pin();
@@ -437,15 +473,24 @@ static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_ar
         }
     }
 
+    size_t buffer_sample_count = (size_t)parsed_args[ARG_buffer_size].u_int / (2U * sizeof(uint16_t));
+    if (buffer_sample_count == 0 || buffer_sample_count > UINT16_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid buffer_size"));
+    }
+
     audiomixer_mixer_obj_t *self = mp_obj_malloc(audiomixer_mixer_obj_t, &audiomixer_mixer_type);
     self->dac_ch = dac_ch;
     self->dac_pin = dac_pin->pin;
-    self->timer_ch = 0;
-    self->timer_reserved = false;
-    self->timer_initialized = false;
+    self->requested_timer_ch = (int8_t)timer_ch;
+    self->timer_ch = (int8_t)timer_ch;
     self->output_active = false;
     self->deinitialized = false;
     self->sample_rate = sample_rate;
+    self->buffer_sample_count = buffer_sample_count;
+    self->mix_buffers[0] = m_new(uint16_t, buffer_sample_count);
+    self->mix_buffers[1] = m_new(uint16_t, buffer_sample_count);
+    audiomixer_fill_midpoint(self->mix_buffers[0], 0, buffer_sample_count);
+    audiomixer_fill_midpoint(self->mix_buffers[1], 0, buffer_sample_count);
     self->voice_count = voice_count;
     self->voice_tuple_obj = MP_OBJ_NULL;
     self->voices = m_new(audiomixer_voice_state_t, voice_count);
@@ -465,35 +510,24 @@ static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_ar
     ra_dac_init(self->dac_pin, self->dac_ch);
     ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
 
-    if (!audiomixer_reserve_timer(timer_ch, &self->timer_ch)) {
-        audiomixer_mixer_cleanup(self);
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("no free AGT timer"));
-    }
-    self->timer_reserved = true;
-
-    ra_agt_timer_init(self->timer_ch, (float)sample_rate);
-    self->timer_initialized = true;
-    if (ra_agt_timer_get_freq(self->timer_ch) <= 0.0f) {
-        audiomixer_mixer_cleanup(self);
-        mp_raise_ValueError(MP_ERROR_TEXT("invalid sample_rate"));
-    }
-    ra_agt_timer_set_callback(self->timer_ch, audiomixer_timer_callback, self);
-
     return MP_OBJ_FROM_PTR(self);
 }
 
 static mp_obj_t audiomixer_mixer_stop(mp_obj_t self_in) {
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
-    audiomixer_stop_output_locked(self, true);
     audiomixer_stop_all_voices_locked(self);
     MICROPY_END_ATOMIC_SECTION(atomic_state);
+    audiomixer_stop_output_locked(self, true);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_stop_obj, audiomixer_mixer_stop);
 
 static mp_obj_t audiomixer_mixer_playing(mp_obj_t self_in) {
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (self->output_active) {
+        (void)ra_dac_stream_is_active(self->dac_ch);
+    }
     return mp_obj_new_bool(self->output_active);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_playing_obj, audiomixer_mixer_playing);
@@ -588,11 +622,13 @@ static mp_obj_t audiomixer_voice_play(size_t n_args, const mp_obj_t *pos_args, m
     voice->format = format;
     voice->loop = parsed_args[ARG_repeat].u_bool;
     voice->active = true;
-    bool started = audiomixer_start_output_locked(mixer);
     MICROPY_END_ATOMIC_SECTION(atomic_state);
 
+    bool started = audiomixer_start_output_locked(mixer);
     if (!started) {
+        atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
         audiomixer_reset_voice_playback(voice);
+        MICROPY_END_ATOMIC_SECTION(atomic_state);
         audiomixer_raise_busy();
     }
 
@@ -612,10 +648,10 @@ static mp_obj_t audiomixer_voice_stop(mp_obj_t self_in) {
             break;
         }
     }
+    MICROPY_END_ATOMIC_SECTION(atomic_state);
     if (!any_voice_active) {
         audiomixer_stop_output_locked(mixer, true);
     }
-    MICROPY_END_ATOMIC_SECTION(atomic_state);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_voice_stop_obj, audiomixer_voice_stop);
