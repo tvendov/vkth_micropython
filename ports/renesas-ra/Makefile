@@ -257,6 +257,7 @@ SRC_C += \
 	machine_pin.c \
 	machine_rtc.c \
 	machine_sdcard.c \
+	modaudiomixer.c \
 	modrenesas.c \
 		moddataflash.c \
 	extint.c \
