@@ -407,7 +407,17 @@ static void ra_dac_dmac_complete_callback(dmac_callback_args_t *args) {
     }
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
-    if (state->active && !state->loop && state->transfer == RA_DAC_TRANSFER_DMAC) {
+    if (!state->active || state->transfer != RA_DAC_TRANSFER_DMAC) {
+        return;
+    }
+
+    if (state->loop) {
+        /* Re-arm DMCRB so FSP ISR re-enables the channel (DMCNT=1).
+         * This callback runs inside the DMAC ISR, *before* the FSP
+         * code checks DMCRB, so writing it here keeps the transfer
+         * running seamlessly. */
+        state->dmac_ctrl.p_reg->DMCRB = UINT16_MAX;
+    } else {
         ra_dac_stream_cleanup(ch);
     }
 }
@@ -450,7 +460,12 @@ static bool ra_dac_stream_start_transfer(uint8_t ch, const uint16_t *buf, size_t
     state->info.transfer_settings_word_b.mode = loop ? TRANSFER_MODE_REPEAT : TRANSFER_MODE_NORMAL;
     state->info.p_src = buf;
     state->info.p_dest = (void *)&R_DAC->DADR[ch];
-    state->info.num_blocks = 0;
+    /* For DMAC repeat mode, num_blocks sets the number of repeats.
+     * Use UINT16_MAX (65535) so the hardware runs ~65k cycles before
+     * the completion ISR re-arms it — effectively infinite looping
+     * with zero software gap.  DTC repeat ignores num_blocks. */
+    state->info.num_blocks = (loop && state->transfer == RA_DAC_TRANSFER_DMAC)
+        ? UINT16_MAX : 0;
     state->info.length = (uint16_t)sample_count;
 
     if (agt_irq >= (IRQn_Type)0) {
@@ -472,13 +487,19 @@ static bool ra_dac_stream_start_transfer(uint8_t ch, const uint16_t *buf, size_t
         state->dmac_ext.irq = FSP_INVALID_VECTOR;
         state->dmac_ext.ipl = 0;
         state->dmac_ext.activation_source = ra_dac_agt_event(state->timer_ch);
-        if (!loop) {
+        {
             IRQn_Type dmac_irq = ra_dac_dmac_irq(state->dmac_ch);
             if (dmac_irq >= (IRQn_Type)0) {
                 state->dmac_ext.irq = dmac_irq;
                 state->dmac_ext.ipl = 1;
                 state->dmac_ext.p_callback = ra_dac_dmac_complete_callback;
                 state->dmac_ext.p_context = (void *)(uintptr_t)ch;
+                if (loop) {
+                    /* For DMAC repeat loop we need TRANSFER_IRQ_EACH so the
+                     * ISR fires every num_blocks repeats, giving our callback
+                     * a chance to re-arm DMCRB for infinite playback. */
+                    state->info.transfer_settings_word_b.irq = TRANSFER_IRQ_EACH;
+                }
             }
         }
         if (state->dmac_ext.activation_source == ELC_EVENT_NONE) {
@@ -637,12 +658,21 @@ ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_
     }
 
     if (transfer == RA_DAC_TRANSFER_AUTO) {
-        transfer = loop ? RA_DAC_TRANSFER_DTC : RA_DAC_TRANSFER_DMAC;
+        if (!loop) {
+            transfer = RA_DAC_TRANSFER_DMAC;
+        } else if (sample_count <= DTC_MAX_REPEAT_TRANSFER_LENGTH) {
+            transfer = RA_DAC_TRANSFER_DTC;
+        } else {
+            transfer = RA_DAC_TRANSFER_DMAC;
+        }
     }
 
     if (loop) {
-        if (transfer != RA_DAC_TRANSFER_DTC || sample_count > DTC_MAX_REPEAT_TRANSFER_LENGTH) {
+        if (transfer == RA_DAC_TRANSFER_DTC && sample_count > DTC_MAX_REPEAT_TRANSFER_LENGTH) {
             return RA_DAC_STREAM_STATUS_LOOP_UNSUPPORTED;
+        }
+        if (transfer == RA_DAC_TRANSFER_DMAC && sample_count > DMAC_MAX_REPEAT_TRANSFER_LENGTH) {
+            return RA_DAC_STREAM_STATUS_INVALID_LENGTH;
         }
     } else {
         if (transfer == RA_DAC_TRANSFER_DMAC && sample_count > DMAC_MAX_NORMAL_TRANSFER_LENGTH) {
