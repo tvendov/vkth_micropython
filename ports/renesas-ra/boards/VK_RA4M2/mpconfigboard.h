@@ -28,6 +28,9 @@
 #ifndef MICROPY_HW_ENABLE_TOUCHPAD
 #define MICROPY_HW_ENABLE_TOUCHPAD  (1)
 #endif
+#ifndef MICROPY_HW_ENABLE_DSP
+#define MICROPY_HW_ENABLE_DSP       (1)
+#endif
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_USBDEV    (1)
 #define MICROPY_HW_USB_CDC          (1)

@@ -8,7 +8,7 @@ extern "C" {
 
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (74)
+#define VECTOR_DATA_IRQ_COUNT    (75)
 #endif
 /* ISR prototypes */
 void rtc_alarm_periodic_isr(void);
@@ -35,6 +35,7 @@ void ctsu_read_isr(void);
 void ctsu_end_isr(void);
 void agt_int_isr(void);
 void dmac_int_isr(void);
+void adc_scan_end_isr(void);
 void encoder_compare_a_isr(void);
 void encoder_compare_b_isr(void);
 
@@ -191,6 +192,8 @@ void encoder_compare_b_isr(void);
 #define GPT4_CAPTURE_COMPARE_A_IRQn          ((IRQn_Type)72)  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
 #define VECTOR_NUMBER_GPT4_CAPTURE_COMPARE_B ((IRQn_Type)73)  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
 #define GPT4_CAPTURE_COMPARE_B_IRQn          ((IRQn_Type)73)  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
+#define VECTOR_NUMBER_ADC0_SCAN_END ((IRQn_Type)74)  /* ADC0 SCAN END (A/D scan end interrupt) */
+#define ADC0_SCAN_END_IRQn          ((IRQn_Type)74)  /* ADC0 SCAN END (A/D scan end interrupt) */
 
 #ifdef __cplusplus
 }

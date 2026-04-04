@@ -8,8 +8,8 @@ MEMORY
   /* Keep the internal flash filesystem on a 32K erase boundary.
    * On RA4M2, code flash sectors above 0x00010000 are 32K, so placing
    * FLASH_FS in the middle of such a sector risks erasing firmware. */
-  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00050000  /* 320KB/512KB */
-  FLASH_FS (r)       : ORIGIN = 0x00050000, LENGTH = 0x00030000  /* 192KB/512KB */
+  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00068000  /* 416KB/512KB */
+  FLASH_FS (r)       : ORIGIN = 0x00068000, LENGTH = 0x00018000  /*  96KB/512KB */
   RAM (rwx)          : ORIGIN = 0x20000000, LENGTH = 0x00020000  /* 128KB */
   DATA_FLASH (rx)    : ORIGIN = 0x08000000, LENGTH = 0x00002000  /* 8KB */
   ID_CODE (rx)       : ORIGIN = 0x01010018, LENGTH = 0x00000020  /* 32bytes */

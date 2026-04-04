@@ -109,6 +109,8 @@ static uint32_t ws2812_module_mask[SCI_CH_MAX] = {
 
 static bool ws2812_active[SCI_CH_MAX];
 static uint32_t ws2812_baudrate[SCI_CH_MAX];
+// Set to true by write_async(), cleared by sync() or deinit().
+static volatile bool ws2812_tx_active[SCI_CH_MAX];
 
 typedef struct {
     uint8_t brr;
@@ -409,6 +411,114 @@ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate, uint3
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Async API — write_async / busy / sync
+// ---------------------------------------------------------------------------
+
+// sync() — forward declaration needed because write_async() calls it.
+void ra_sci_ws2812_sync(uint32_t ch, uint32_t data_pin);
+
+// write_async(ch, data_pin, buf, len)
+// Starts DTC-driven SCI2 transmission and returns immediately (~10µs).
+// Auto-syncs any previous unfinished transfer (safe re-entry).
+// Caller must call sync() before the next write_async() OR rely on auto-sync.
+// WP1 (pin HIGH after TEND): suffix bytes embed the latch LOW; the HIGH MARK
+//     state between TEND and sync() does NOT corrupt WS2812 data because:
+//     a) latch already occurred during suffix bytes, and
+//     b) the next write_async() begins with pin→GPIO LOW (WS2812 hard reset).
+bool ra_sci_ws2812_write_async(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len) {
+    if (!ra_sci_ws2812_is_valid_channel(ch) || !ws2812_active[ch] || buf == NULL || len == 0 || len > UINT16_MAX) {
+        return false;
+    }
+
+    uint32_t found_ch = 0xff;
+    uint32_t af = 0;
+    if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
+        return false;
+    }
+
+    // WP2: auto-sync previous transfer — prevents DTC re-arm race.
+    if (ws2812_tx_active[ch]) {
+        ra_sci_ws2812_sync(ch, data_pin);
+    }
+
+    R_SCI0_Type *sci_reg = ws2812_regs[ch];
+
+    // Pre-frame: disable SCI TX, drive pin LOW (WS2812 inter-frame reset).
+    sci_reg->SCR = (uint8_t)(sci_reg->SCR & R_SCI0_SCR_CKE_Msk);
+    ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
+
+    // Arm DTC for this transfer.
+    ra_sci_ws2812_dtc_state_t *dtc = &ws2812_dtc[ch];
+    if (!dtc->open) {
+        return false;
+    }
+    R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+    R_BSP_IrqStatusClear(dtc->txi_irq);
+
+    if (R_DTC_Reset((transfer_ctrl_t *)&dtc->ctrl,
+        (void *)buf, (void *)&sci_reg->TDR, (uint16_t)len) != FSP_SUCCESS) {
+        return false;
+    }
+    if (R_DTC_Enable((transfer_ctrl_t *)&dtc->ctrl) != FSP_SUCCESS) {
+        return false;
+    }
+
+    // Enable SCI TX + TIE → DTC auto-feeds TDR on each TXI event.
+    // No polling loop here — caller returns immediately.
+    sci_reg->SCR = (uint8_t)(sci_reg->SCR & R_SCI0_SCR_CKE_Msk);
+    sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk) | R_SCI0_SCR_TE_Msk | R_SCI0_SCR_TIE_Msk);
+    ra_sci_ws2812_set_data_pin_af(data_pin, af);
+
+    ws2812_tx_active[ch] = true;
+    return true;
+}
+
+// busy(ch) — returns true while DTC transmission is in progress.
+// Use with Timer(-1) ONE_SHOT notification: check busy() in sync() before return.
+bool ra_sci_ws2812_busy(uint32_t ch) {
+    return ra_sci_ws2812_is_valid_channel(ch) && ws2812_tx_active[ch];
+}
+
+// sync(ch, data_pin)
+// Waits for TEND (WP3: polls with 5ms timeout — covers worst-case DTC drain).
+// Disables SCI TX and drives pin LOW (housekeeping).
+// Does NOT add latch delay: suffix bytes in txbuf already provide ~100µs LOW.
+// Safe to call even if no write_async() is in progress (no-op).
+void ra_sci_ws2812_sync(uint32_t ch, uint32_t data_pin) {
+    if (!ra_sci_ws2812_is_valid_channel(ch) || !ws2812_tx_active[ch]) {
+        return;
+    }
+
+    R_SCI0_Type *sci_reg = ws2812_regs[ch];
+    ra_sci_ws2812_dtc_state_t *dtc = &ws2812_dtc[ch];
+
+    // WP3: poll TEND with timeout — normally fires well before 2ms (Timer fires at 2ms).
+    mp_uint_t start = mp_hal_ticks_ms();
+    transfer_properties_t props;
+    for (;;) {
+        R_DTC_InfoGet((transfer_ctrl_t *)&dtc->ctrl, &props);
+        if (props.transfer_length_remaining == 0 &&
+            (sci_reg->SSR & R_SCI0_SSR_TEND_Msk) != 0) {
+            break;
+        }
+        if ((mp_uint_t)(mp_hal_ticks_ms() - start) >= 5U) {
+            break; // Timeout — abnormal; still do cleanup to recover.
+        }
+    }
+
+    // Cleanup: disable DTC, clear pending TXI IRQ, disable SCI TX.
+    R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+    R_BSP_IrqStatusClear(dtc->txi_irq);
+    sci_reg->SCR &= (uint8_t)~R_SCI0_SCR_TIE_Msk;
+    sci_reg->SCR  = (uint8_t)(sci_reg->SCR & R_SCI0_SCR_CKE_Msk);
+
+    // WP4: no extra latch delay — txbuf suffix bytes provide ~100µs LOW already.
+    ra_sci_ws2812_set_data_pin_gpio_low(data_pin);
+
+    ws2812_tx_active[ch] = false;
+}
+
 bool ra_sci_ws2812_write(uint32_t ch, uint32_t data_pin, const uint8_t *buf, uint32_t len, uint32_t latch_us) {
     uint32_t found_ch = 0xff;
     uint32_t af = 0;
@@ -455,6 +565,7 @@ void ra_sci_ws2812_deinit(uint32_t ch, uint32_t data_pin) {
         sci_reg->SCR &= (uint8_t)R_SCI0_SCR_CKE_Msk;
         ra_mstpcrb_stop(ws2812_module_mask[ch]);
         ws2812_active[ch] = false;
+        ws2812_tx_active[ch] = false;
         ws2812_baudrate[ch] = 0;
     }
 

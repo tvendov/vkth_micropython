@@ -254,6 +254,7 @@ SRC_C += \
 	machine_spi.c \
 	machine_ws2812.c \
 	machine_encoder.c \
+	machine_audioadc.c \
 	machine_pin.c \
 	machine_rtc.c \
 	machine_sdcard.c \
@@ -314,6 +315,7 @@ HAL_SRC_C += $(addprefix $(HAL_DIR)/ra/fsp/src/bsp/mcu/all/,\
 HAL_SRC_C += $(addprefix $(HAL_DIR)/ra/fsp/src/,\
 	r_ioport/r_ioport.c \
 	r_sci_uart/r_sci_uart.c \
+	r_adc/r_adc.c \
 	)
 
 CFLAGS_FSP = -Wno-unused-variable -Wno-unused-function
@@ -367,6 +369,8 @@ endif
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M5))
 HAL_SRC_C += $(addprefix ra/,\
 	ra_adc.c \
+	ra_storm_adc.c \
+	ra_storm_detect.c \
 	ra_dac.c \
 	ra_flash.c \
 	ra_gpio.c \
@@ -396,6 +400,35 @@ CFLAGS += -DMICROPY_HW_ENABLE_TOUCHPAD=1
 SRC_C += machine_touchpad.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ctsu/r_ctsu.c
 HAL_SRC_C += $(addprefix ra/,ra_ctsu.c)
+endif
+
+# CMSIS-DSP support (FIR, IIR biquad, RMS) — requires lib/cmsis-dsp submodule
+ifeq ($(MICROPY_HW_ENABLE_DSP),1)
+CMSIS_DSP_DIR = $(TOP)/lib/cmsis-dsp
+CFLAGS += -DMICROPY_HW_ENABLE_DSP=1
+CFLAGS += -DARM_MATH_CM33 -DARM_DSP_ATTRIBUTE= -DDISABLEFLOAT16
+INC += -I$(CMSIS_DSP_DIR)/Include
+INC += -I$(CMSIS_DSP_DIR)/PrivateInclude
+SRC_C += moddsp.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_fir_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_fir_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_biquad_cascade_df1_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_biquad_cascade_df1_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/StatisticsFunctions/arm_rms_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/StatisticsFunctions/arm_power_f32.c
+# FFT (real forward, float32)
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_rfft_fast_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_rfft_fast_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_cfft_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_cfft_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_cfft_radix8_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_bitreversal.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_bitreversal2.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/ComplexMathFunctions/arm_cmplx_mag_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/BasicMathFunctions/arm_mult_f32.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/CommonTables/arm_common_tables.c
+DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/CommonTables/arm_const_structs.c
+SRC_C += $(DSP_SRC_C)
 endif
 
 # BLE (Bluetooth Low Energy) support for RA4W1

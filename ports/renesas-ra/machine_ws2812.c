@@ -310,6 +310,61 @@ static mp_obj_t machine_ws2812_fill(mp_obj_t self_in, mp_obj_t value_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(machine_ws2812_fill_obj, machine_ws2812_fill);
 
+// write_buf(buf) — zero-allocation bulk pixel update.
+// buf must be a bytearray (or any read buffer) of at least n*bpp bytes.
+// Byte order in buf: [R0, G0, B0, R1, G1, B1, ...] (RGB, channel 0=R).
+// The driver applies ws2812_order internally so the wire sees GRB.
+static mp_obj_t machine_ws2812_write_buf(mp_obj_t self_in, mp_obj_t buf_in) {
+    machine_ws2812_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len < self->buf_len) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buffer too small"));
+    }
+    const uint8_t *src = (const uint8_t *)bufinfo.buf;
+    for (size_t i = 0; i < self->n; ++i) {
+        size_t offset = i * self->bpp;
+        for (size_t ch = 0; ch < self->bpp; ++ch) {
+            self->buf[offset + ws2812_order[ch]] = src[offset + ch];
+        }
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_ws2812_write_buf_obj, machine_ws2812_write_buf);
+
+// write_async() — starts DTC transmission and returns immediately (~10µs).
+// Pair with Timer(-1) ONE_SHOT(period=2) + sync() for zero-CPU-block pattern.
+static mp_obj_t machine_ws2812_write_async(mp_obj_t self_in) {
+    machine_ws2812_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) {
+        mp_raise_ValueError(MP_ERROR_TEXT("WS2812 inactive"));
+    }
+    machine_ws2812_prepare_tx(self);
+    if (!ra_sci_ws2812_write_async(self->ch, self->pin->pin, self->txbuf, self->tx_len)) {
+        mp_raise_OSError(MP_EIO);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_ws2812_write_async_obj, machine_ws2812_write_async);
+
+// busy() — True while DTC transmission is in progress.
+static mp_obj_t machine_ws2812_busy(mp_obj_t self_in) {
+    machine_ws2812_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_bool(ra_sci_ws2812_busy(self->ch));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_ws2812_busy_obj, machine_ws2812_busy);
+
+// sync() — waits for TEND if needed, disables SCI TX, drives pin LOW.
+// No-op if write_async() is not in progress. No extra latch delay.
+static mp_obj_t machine_ws2812_sync(mp_obj_t self_in) {
+    machine_ws2812_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (self->active) {
+        ra_sci_ws2812_sync(self->ch, self->pin->pin);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_ws2812_sync_obj, machine_ws2812_sync);
+
 static mp_obj_t machine_ws2812_deinit(mp_obj_t self_in) {
     machine_ws2812_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->active) {
@@ -327,9 +382,13 @@ static mp_obj_t machine_ws2812_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_ws2812_deinit_obj, machine_ws2812_deinit);
 
 static const mp_rom_map_elem_t machine_ws2812_locals_dict_table[] = {
-    { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&machine_ws2812_write_obj) },
-    { MP_ROM_QSTR(MP_QSTR_fill), MP_ROM_PTR(&machine_ws2812_fill_obj) },
-    { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&machine_ws2812_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_write),       MP_ROM_PTR(&machine_ws2812_write_obj) },
+    { MP_ROM_QSTR(MP_QSTR_write_buf),   MP_ROM_PTR(&machine_ws2812_write_buf_obj) },
+    { MP_ROM_QSTR(MP_QSTR_write_async), MP_ROM_PTR(&machine_ws2812_write_async_obj) },
+    { MP_ROM_QSTR(MP_QSTR_busy),        MP_ROM_PTR(&machine_ws2812_busy_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sync),        MP_ROM_PTR(&machine_ws2812_sync_obj) },
+    { MP_ROM_QSTR(MP_QSTR_fill),        MP_ROM_PTR(&machine_ws2812_fill_obj) },
+    { MP_ROM_QSTR(MP_QSTR_deinit),      MP_ROM_PTR(&machine_ws2812_deinit_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(machine_ws2812_locals_dict, machine_ws2812_locals_dict_table);

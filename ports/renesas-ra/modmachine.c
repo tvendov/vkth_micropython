@@ -87,6 +87,9 @@ extern const mp_obj_type_t machine_comparator_type;
 #define MICROPY_PY_MACHINE_WS2812_ENTRY
 #endif
 
+extern const mp_obj_type_t machine_audioadc_type;
+#define MICROPY_PY_MACHINE_AUDIOADC_ENTRY { MP_ROM_QSTR(MP_QSTR_AudioADC), MP_ROM_PTR(&machine_audioadc_type) },
+
 #if defined(MICROPY_HW_ENCODER_A)
 #define MICROPY_PY_MACHINE_ENCODER_ENTRY { MP_ROM_QSTR(MP_QSTR_Encoder), MP_ROM_PTR(&machine_encoder_type) },
 #else
@@ -103,6 +106,7 @@ extern const mp_obj_type_t machine_comparator_type;
 	    MICROPY_PY_MACHINE_TOUCHPAD_ENTRY \
     MICROPY_PY_MACHINE_WS2812_ENTRY \
     MICROPY_PY_MACHINE_ENCODER_ENTRY \
+    MICROPY_PY_MACHINE_AUDIOADC_ENTRY \
     \
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \
     { MP_ROM_QSTR(MP_QSTR_Timer),               MP_ROM_PTR(&machine_timer_type) }, \

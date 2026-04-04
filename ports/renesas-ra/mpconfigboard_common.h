@@ -94,6 +94,11 @@
 #define MICROPY_HW_ENABLE_DAC (1)
 #endif
 
+// Whether to enable CMSIS-DSP support (FIR, IIR, RMS), requires lib/cmsis-dsp
+#ifndef MICROPY_HW_ENABLE_DSP
+#define MICROPY_HW_ENABLE_DSP (0)
+#endif
+
 // Whether to enable the DCMI peripheral
 #ifndef MICROPY_HW_ENABLE_DCMI
 #define MICROPY_HW_ENABLE_DCMI (0)

@@ -87,6 +87,7 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [71] = dmac_int_isr,         /* DMAC7 INT (DMAC transfer end 7) */
     [72] = encoder_compare_a_isr,  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
     [73] = encoder_compare_b_isr,  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
+    [74] = adc_scan_end_isr,       /* ADC0 SCAN END (A/D scan end interrupt) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -164,5 +165,6 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [71] = BSP_PRV_IELS_ENUM(EVENT_DMAC7_INT),         /* DMAC7 INT (DMAC transfer end 7) */
     [72] = BSP_PRV_IELS_ENUM(EVENT_GPT4_CAPTURE_COMPARE_A),  /* GPT4 CAPTURE_COMPARE_A (Compare match A) */
     [73] = BSP_PRV_IELS_ENUM(EVENT_GPT4_CAPTURE_COMPARE_B),  /* GPT4 CAPTURE_COMPARE_B (Compare match B) */
+    [74] = BSP_PRV_IELS_ENUM(EVENT_ADC0_SCAN_END),           /* ADC0 SCAN END (A/D scan end interrupt) */
 };
         #endif
