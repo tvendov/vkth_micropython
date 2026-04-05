@@ -28,6 +28,17 @@
 #include <string.h>
 #include "hal_data.h"
 #include "ra_config.h"
+#include "mpconfigboard.h"  // board-specific: MICROPY_HW_RTC_SOURCE etc. (-I$(BOARD_DIR) in CFLAGS)
+
+// AGTMR2 bit 7 (LPM): selects AGTSCLK source for AGT sub-clock path.
+// 0 = SOSC — external 32.768 kHz sub-clock crystal (not present on VK_RA4M2)
+// 1 = LOCO — internal 32.768 kHz oscillator (VK_RA4M2 has 16 MHz MAIN_OSC only, no SOSC)
+// MICROPY_HW_RTC_SOURCE == 1 means LOCO is used (no SOSC crystal on the board)
+#if defined(MICROPY_HW_RTC_SOURCE) && (MICROPY_HW_RTC_SOURCE == 1)
+#define AGT_AGTMR2_LPM_BIT (0x80U)  // LOCO: internal 32.768 kHz (no SOSC crystal)
+#else
+#define AGT_AGTMR2_LPM_BIT (0x00U)  // SOSC: external 32.768 kHz sub-clock crystal
+#endif
 #include "ra_gpio.h"
 #include "ra_int.h"
 #include "ra_utils.h"
@@ -753,15 +764,27 @@ void ra_agt_timer_set_freq(uint32_t ch, float freq) {
     ra_agt_timer_state[ch].irq_count = 0;
     if (freq > (float)(PCLK / 2)) {
         return;
-    } else if (freq > 1000.0) {
+    } else if (freq >= 1000.0) {
+        /* PCLKB/2: crystal-accurate, for freq >= 1000 Hz. */
         source = AGT_PCLKB2;
         period_counts = (uint32_t)((float)(PCLK / 2) / freq);
+    } else if (freq >= 77.0) {
+        /* PCLKB/8: crystal-accurate, for 77–999 Hz.
+         * PCLKB/8 = PCLK / 8 (40 MHz / 8 = 5 MHz on VK_RA4M2).
+         * Min freq = 5000000/65536 ≈ 76.3 Hz.
+         * Preferred over AGTLCLK (LOCO ±15% RC) for accuracy. */
+        source = AGT_PCLKB8;
+        period_counts = (uint32_t)((float)(PCLK / 8) / freq);
     } else if (freq > 1.0) {
-        source = AGT_AGTSCLK;
+        /* AGTLCLK (TCK=100b) = LOCO 32.768 kHz directly, no LPM needed.
+         * AGTSCLK (TCK=110b) would require LPM=1 to select LOCO on boards
+         * without SOSC crystal, but LPM=1 prohibits access to AGT/AGTCR
+         * registers, breaking counter() and ISR (RA4M2 §22.2.6). */
+        source = AGT_AGTKCLK;
         cks = 2;
         period_counts = (uint32_t)((float)(32768 / 4) / freq);
     } else if (freq > 0.01) {
-        source = AGT_AGTSCLK;
+        source = AGT_AGTKCLK;
         period_counts = (uint32_t)((float)(32768 / 128) / freq);
         cks = 7;
     } else {
@@ -774,8 +797,15 @@ void ra_agt_timer_set_freq(uint32_t ch, float freq) {
         return;
     }
     agt_reg->CTRL.AGTCR_b.TSTART = 0;                // stop counter
-    agt_reg->CTRL.AGTMR2 = cks;
-    agt_reg->CTRL.AGTMR1 = (uint8_t)(source << 4);
+    /* Write order matters (RA4M2 manual §22.2.5 Note 7):
+     * "Do not change TCK[2:0] when CKS[2:0] is not 000b."
+     * So: clear CKS first, then set TCK, then set CKS.
+     * LPM=0 always: we use AGTLCLK (TCK=100b, LOCO direct) instead of
+     * AGTSCLK (TCK=110b) for low-frequency timers.  AGTLCLK does not
+     * require LPM=1, so AGT/AGTCR register access stays permitted. */
+    agt_reg->CTRL.AGTMR2 = 0;                        // CKS=000b first
+    agt_reg->CTRL.AGTMR1 = (uint8_t)(source << 4);   // set TCK
+    agt_reg->CTRL.AGTMR2 = cks;                      // now set CKS
     (void)ra_agt_timer_set_period_internal(ch, period_counts);
     if (ra_agt_timer_state[ch].input_enabled) {
         ra_agt_timer_state[ch].input_saved_agtmr1 = agt_reg->CTRL.AGTMR1;
