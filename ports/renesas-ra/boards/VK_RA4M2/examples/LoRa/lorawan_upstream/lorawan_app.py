@@ -78,6 +78,76 @@ def compute_uplink_mic(nwkskey, devaddr_le, fcnt32, direction, msg):
     return bytes(AES_CMAC().encode(nwkskey, bytes(b0) + msg))[:4]
 
 
+# === MAC command names (LoRaWAN 1.0.x § 5) ===
+MAC_CMD_NAMES = {
+    0x02: "LinkCheckAns", 0x03: "LinkADRReq", 0x04: "DutyCycleReq",
+    0x05: "RXParamSetupReq", 0x06: "DevStatusReq", 0x07: "NewChannelReq",
+    0x08: "RXTimingSetupReq", 0x09: "TxParamSetupReq", 0x0A: "DLChannelReq",
+    0x0D: "DeviceTimeAns",
+}
+
+
+def parse_downlink(devaddr_le, nwkskey, appskey, frame):
+    """Декодира downlink frame. Връща dict с информация или None ако MIC fail."""
+    if len(frame) < 12:
+        return None
+    mhdr = frame[0]
+    mtype = (mhdr >> 5) & 0x07
+    if mtype not in (0x03, 0x05):           # 011 unconf data dn, 101 conf data dn
+        return {"error": "not data downlink", "mtype": mtype}
+
+    rx_devaddr = bytes(frame[1:5])
+    if rx_devaddr != devaddr_le:
+        return {"error": "DevAddr mismatch",
+                "got": bytes(reversed(rx_devaddr)).hex()}
+
+    fctrl = frame[5]
+    fcnt_lo = int.from_bytes(frame[6:8], "little")
+    fopts_len = fctrl & 0x0F
+    fopts = bytes(frame[8:8 + fopts_len])
+
+    # FPort + FRMPayload
+    rest = frame[8 + fopts_len:-4]
+    rx_mic = bytes(frame[-4:])
+
+    fport = rest[0] if len(rest) > 0 else None
+    frm_payload = bytes(rest[1:]) if len(rest) > 1 else b""
+
+    # MIC validation
+    msg = bytes(frame[:-4])
+    expected_mic = compute_uplink_mic(nwkskey, devaddr_le, fcnt_lo, 1, msg)
+    if expected_mic != rx_mic:
+        return {"error": "MIC mismatch",
+                "got": rx_mic.hex(), "expected": expected_mic.hex()}
+
+    # Decrypt FRMPayload (AppSKey за FPort != 0, NwkSKey за FPort == 0)
+    decrypted = b""
+    if frm_payload:
+        key = nwkskey if fport == 0 else appskey
+        decrypted = encrypt_frm_payload(key, devaddr_le, fcnt_lo, 1, frm_payload)
+
+    # MAC commands в FOpts (uplink ack-style) или във FRMPayload (FPort=0)
+    mac_cmds = fopts if fport != 0 else decrypted
+    parsed_cmds = []
+    i = 0
+    while i < len(mac_cmds):
+        cid = mac_cmds[i]
+        name = MAC_CMD_NAMES.get(cid, "0x%02X" % cid)
+        # ad-hoc length lookup за най-честите команди
+        clen = {0x03: 4, 0x05: 4, 0x06: 0, 0x07: 5, 0x08: 1, 0x0A: 4, 0x0D: 5}.get(cid, 0)
+        parsed_cmds.append((name, mac_cmds[i:i + 1 + clen].hex()))
+        i += 1 + clen
+
+    return {
+        "mtype": mtype,
+        "fcnt": fcnt_lo,
+        "fctrl": fctrl,
+        "fport": fport,
+        "frm_payload_decrypted": decrypted,
+        "mac_commands": parsed_cmds,
+    }
+
+
 # === Persistence ===
 
 def load_int(path, default=0):
@@ -159,6 +229,20 @@ def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload):
     sx.send(mic_input + mic)
 
 
+def listen_rx1(sx, devaddr, nwkskey, appskey, timeout_ms=2000):
+    """Слушай за downlink в RX1 window. Връща parsed info или None."""
+    msg, err = sx.recv(0, True, timeout_ms)
+    if not msg or len(msg) == 0:
+        return None
+    info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
+    if info is None:
+        return None
+    info["rssi"] = sx.getRSSI()
+    info["snr"]  = sx.getSNR()
+    info["raw"]  = bytes(msg).hex()
+    return info
+
+
 # === Main ===
 
 def main():
@@ -196,7 +280,7 @@ def main():
         print("Loaded session: DevAddr=%s FCnt=%d" %
               (bytes(reversed(devaddr)).hex(), fcnt))
 
-    # Periodic uplinks
+    # Periodic uplinks + RX1 window listening
     uptime_ref_s = time.ticks_ms() // 1000
     while True:
         now_s = time.ticks_ms() // 1000
@@ -205,8 +289,21 @@ def main():
         print("[FCnt=%d] uplink: %r" % (fcnt, payload))
         try:
             send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x01, payload)
+            # RX1 window: TTN изпраща downlink-и точно тук (5 s след TX, +/-)
+            dl = listen_rx1(sx, devaddr, nwkskey, appskey, timeout_ms=2000)
+            if dl is None:
+                print("  no downlink in RX1")
+            elif "error" in dl:
+                print("  downlink rejected: %s" % dl["error"])
+            else:
+                print("  *** downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
+                      (dl["rssi"], dl["snr"], dl["fcnt"], dl["fport"]))
+                if dl["frm_payload_decrypted"]:
+                    print("    payload:", dl["frm_payload_decrypted"])
+                if dl["mac_commands"]:
+                    print("    MAC cmds:", dl["mac_commands"])
         except Exception as e:
-            print("  send error:", e)
+            print("  send/recv error:", e)
         fcnt += 1
         save_int(FCNTUP_FILE, fcnt)
         gc.collect()
