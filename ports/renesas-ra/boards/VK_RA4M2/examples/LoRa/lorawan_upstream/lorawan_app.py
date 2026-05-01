@@ -229,9 +229,16 @@ def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload):
     sx.send(mic_input + mic)
 
 
-def listen_rx1(sx, devaddr, nwkskey, appskey, timeout_ms=2000):
-    """Слушай за downlink в RX1 window. Връща parsed info или None."""
-    msg, err = sx.recv(0, True, timeout_ms)
+def listen_rx1(sx, devaddr, nwkskey, appskey,
+               rx1_delay_ms=4500, recv_timeout_ms=2500):
+    """Слушай за downlink в RX1 window.
+
+    LoRaWAN: RX1 опва 5 s след края на TX (RX_DELAY1 за join е 5 s,
+    за data е 1 s default но TTN използва 5 s). Чакаме малко по-малко
+    (4.5 s) и слушаме 2.5 s — покрива целия prozorец.
+    """
+    time.sleep_ms(rx1_delay_ms)
+    msg, err = sx.recv(0, True, recv_timeout_ms)
     if not msg or len(msg) == 0:
         return None
     info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
@@ -289,8 +296,8 @@ def main():
         print("[FCnt=%d] uplink: %r" % (fcnt, payload))
         try:
             send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x01, payload)
-            # RX1 window: TTN изпраща downlink-и точно тук (5 s след TX, +/-)
-            dl = listen_rx1(sx, devaddr, nwkskey, appskey, timeout_ms=2000)
+            # RX1 window: TTN изпраща downlink-и +5s след края на TX.
+            dl = listen_rx1(sx, devaddr, nwkskey, appskey)
             if dl is None:
                 print("  no downlink in RX1")
             elif "error" in dl:
