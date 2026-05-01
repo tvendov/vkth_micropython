@@ -281,6 +281,15 @@ ifeq ($(MICROPY_SSL_MBEDTLS),1)
 LIB_SRC_C += mbedtls/mbedtls_port.c
 endif
 
+# axTLS AES backend за cryptolib (за LoRaWAN на VK_RA4M2).
+# ra/os_port.h е минимален shim — препокрива стандартния axtls os_port.h
+# чрез -Ira (търси се преди lib/axtls/ssl). Така избягваме зависимостите
+# на пълния axtls_os_port.h (lwIP / arpa/inet.h / SSL stack).
+LIB_SRC_C += lib/axtls/crypto/aes.c
+CFLAGS += -DMICROPY_SSL_AXTLS=1
+CFLAGS += -Ira -I$(TOP)/lib/axtls/crypto
+CFLAGS += -Wno-all -Wno-unused-parameter -Wno-uninitialized -Wno-sign-compare -Wno-old-style-definition
+
 ifeq ($(MICROPY_PY_BLUETOOTH),1)
 SRC_C += mpbthciport.c
 endif

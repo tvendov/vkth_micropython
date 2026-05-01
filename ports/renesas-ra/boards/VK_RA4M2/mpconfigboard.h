@@ -11,6 +11,10 @@
 #define MICROPY_EMIT_THUMB          (1)
 #define MICROPY_EMIT_INLINE_THUMB   (1)
 #define MICROPY_PY_BUILTINS_COMPLEX (1)
+// AES за LoRaWAN MIC (CMAC) и payload encryption (CTR).
+// MICROPY_SSL_AXTLS се дефинира в Makefile (-D) за да избегнем redefine warning.
+#define MICROPY_PY_CRYPTOLIB        (1)
+#define MICROPY_PY_CRYPTOLIB_CTR    (1)
 #define MICROPY_PY_GENERATOR_PEND_THROW (1)
 #define MICROPY_PY_MATH             (1)
 #define MICROPY_PY_HEAPQ            (1)
@@ -54,9 +58,10 @@
 // #define MICROPY_HW_UART3_TX       (pin_P310) // Disable
 // #define MICROPY_HW_UART3_RX       (pin_P309) // Disable
 // #define MICROPY_HW_UART3_CTS      (pin_P312) // Disable
-// #define MICROPY_HW_UART4_TX       (pin_P512) // Disable (Conflict with I2C2)
-// #define MICROPY_HW_UART4_RX       (pin_P511) // Disable (Conflict with I2C2)
-// #define MICROPY_HW_UART4_CTS      (pin_P401) // Disable (Conflict with PMOD B)
+#define MICROPY_HW_UART4_TX         (pin_P205) // BLE DA14531 (board-wired, not user-available)
+#define MICROPY_HW_UART4_RX         (pin_P206) // BLE DA14531 (board-wired, not user-available)
+#define MICROPY_HW_UART4_RTS        (pin_P401) // BLE DA14531 RTS / shares pin with I2C0 SDA and UART7 TX
+#define MICROPY_HW_UART4_CTS        (pin_P402) // BLE DA14531 CTS / shares pin with UART7 RX
 // #define MICROPY_HW_UART5_TX       (pin_P501) // Disable
 // #define MICROPY_HW_UART5_RX       (pin_P502) // Disable
 // #define MICROPY_HW_UART5_CTS      (pin_P504) // Disable
@@ -78,17 +83,18 @@
 #define MICROPY_HW_I2C0_SCL         (pin_P400)
 #define MICROPY_HW_I2C0_SDA         (pin_P401)
 
-// I2CTarget: support both IIC0 and IIC1 as slave channels
+// I2C1 — shares P205/P206 with UART4 and BLE DA14531 (cannot use both at once)
+// RA4M2 datasheet Table 19.23: P205=SCL1_B, P206=SDA1_B, PSEL=00111b
+#define MICROPY_HW_I2C1_SCL         (pin_P205)
+#define MICROPY_HW_I2C1_SDA         (pin_P206)
+
+// I2CTarget: IIC0 and IIC1 interrupt vectors are registered (IRQ 32-39).
 #define MICROPY_PY_MACHINE_I2C_TARGET_MAX   (2)
 
-// I2C1
-// Notes:
-// - RA4M2 has IIC ch1 pins on either (P100,P101) or (P205,P206).
-// - Default here is (P100,P101) to avoid conflicting with the CTSU wiring on VK_RA4M2:
-//   P205/P206 are TS01/TS02 touch inputs and P207 is TSCAP.
-// - You can override pins at runtime using: I2C(1, scl=Pin("..."), sda=Pin("..."))
-#define MICROPY_HW_I2C1_SCL         (pin_P100)
-#define MICROPY_HW_I2C1_SDA         (pin_P101)
+// I2C0 alternate pins: P100/P101 = SCL0_A/SDA0_A per RA4M2 datasheet Table 19.24.
+// Default I2C0 is P400/P401. User can select P100/P101 at runtime:
+//   I2C(0, scl=Pin("P100"), sda=Pin("P101"))
+// Note: P100/P101 are IIC0 (NOT IIC1)!
 
 // SPI
 #define MICROPY_HW_SPI0_SSL         (pin_P103)
@@ -115,6 +121,20 @@
 #define MICROPY_HW_SPI2_SCK         (pin_P111)
 #define MICROPY_HW_SPI2_MOSI        (pin_P112)
 #define MICROPY_HW_SPI2_MISO        (pin_P113)
+#define MICROPY_HW_SPI2_SCI_CH      (2)
+#define MICROPY_HW_SPI2_SCI_AF      AF_SCI1   // SCI2 PSEL=00100b on these pins
+
+// SPI3 via SCI9 simple SPI (RA4M2 datasheet Table 19.18, PSEL=00101b).
+// Notes:
+// - Master-only, 8-bit, blocking — same backend as SPI2.
+// - Shares the SCI9 hardware block with UART9 (mutual exclusion via SCI owner).
+// - Pins overlap with SPI1 (RSPI1) on P109/P110/P111. Cannot use SPI1 and SPI3
+//   simultaneously; deinit one before constructing the other.
+#define MICROPY_HW_SPI3_SCK         (pin_P111)  // SCK9
+#define MICROPY_HW_SPI3_MOSI        (pin_P109)  // TXD9/MOSI9
+#define MICROPY_HW_SPI3_MISO        (pin_P110)  // RXD9/MISO9
+#define MICROPY_HW_SPI3_SCI_CH      (9)
+#define MICROPY_HW_SPI3_SCI_AF      AF_SCI2    // SCI9 PSEL=00101b
 
 // WS2812 over SCI TX-only.
 // Notes:
