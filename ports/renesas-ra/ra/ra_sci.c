@@ -1033,6 +1033,72 @@ static uint8_t sci_txi_cb_owner[] = {
     RA_SCI_OWNER_NONE,
     #endif
 };
+// --- RXI callback (owner-based dispatch, mirrors TXI/TEI pattern) ---
+// Used by SCI simple-SPI to consume each received byte without polling.
+static void (*sci_rxi_cb[])(uint32_t ch) = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    (void (*)(uint32_t))0,
+    #endif
+};
+static uint8_t sci_rxi_cb_owner[] = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI1_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI2_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI3_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI4_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI5_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI6_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI7_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI8_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+    #if defined(VECTOR_NUMBER_SCI9_RXI)
+    RA_SCI_OWNER_NONE,
+    #endif
+};
 static uint8_t ch_9bit[] = {
     #if defined(VECTOR_NUMBER_SCI0_RXI)
     0,
@@ -1226,6 +1292,18 @@ void ra_sci_clear_txi_callback(uint32_t ch) {
     sci_txi_cb_owner[idx] = RA_SCI_OWNER_NONE;
 }
 
+void ra_sci_set_rxi_callback(uint32_t ch, uint32_t owner, void (*cb)(uint32_t)) {
+    uint32_t idx = ch_to_idx[ch];
+    sci_rxi_cb[idx] = cb;
+    sci_rxi_cb_owner[idx] = (uint8_t)owner;
+}
+
+void ra_sci_clear_rxi_callback(uint32_t ch) {
+    uint32_t idx = ch_to_idx[ch];
+    sci_rxi_cb[idx] = (void (*)(uint32_t))0;
+    sci_rxi_cb_owner[idx] = RA_SCI_OWNER_NONE;
+}
+
 static void ra_sci_irq_disable(uint32_t ch) {
     uint32_t idx = ch_to_idx[ch];
     R_BSP_IrqDisable(idx_to_rxirq[idx]);
@@ -1293,6 +1371,14 @@ static void ra_sci_irq_priority(uint32_t ch, uint32_t ipl) {
 static void ra_sci_isr_rx(uint32_t ch) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint32_t idx = ch_to_idx[ch];
+    // Owner-matched RXI callback dispatch (e.g. SCI simple-SPI byte handler).
+    // The callback owns RDR read and any TDR re-arm; we just clear the IRQ.
+    if (sci_rxi_cb[idx] != (void (*)(uint32_t))0 &&
+        ra_sci_owner[idx] == sci_rxi_cb_owner[idx]) {
+        R_BSP_IrqStatusClear(irq);
+        sci_rxi_cb[idx](ch);
+        return;
+    }
     uint16_t d;
     if (ch_9bit[idx]) {
         d = (uint16_t)sci_regs[idx]->RDRHL;
@@ -1665,6 +1751,8 @@ void ra_sci_deinit(uint32_t ch) {
             sci_txi_cb_owner[idx] = RA_SCI_OWNER_NONE;
             sci_tei_cb[idx] = (void (*)(uint32_t))0;
             sci_tei_cb_owner[idx] = RA_SCI_OWNER_NONE;
+            sci_rxi_cb[idx] = (void (*)(uint32_t))0;
+            sci_rxi_cb_owner[idx] = RA_SCI_OWNER_NONE;
         }
     }
 }

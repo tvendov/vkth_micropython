@@ -36,6 +36,7 @@ enum {
     RA_SCI_OWNER_UART = 1,
     RA_SCI_OWNER_SPI = 2,
     RA_SCI_OWNER_WS2812 = 3,
+    RA_SCI_OWNER_I2C = 4,
 };
 
 // static bool find_irq_to_ch(IRQn_Type *irq_tbl, IRQn_Type irq, uint32_t *ch);
@@ -52,6 +53,8 @@ void ra_sci_set_tei_callback(uint32_t ch, uint32_t owner, void (*cb)(uint32_t));
 void ra_sci_clear_tei_callback(uint32_t ch);
 void ra_sci_set_txi_callback(uint32_t ch, uint32_t owner, void (*cb)(uint32_t));
 void ra_sci_clear_txi_callback(uint32_t ch);
+void ra_sci_set_rxi_callback(uint32_t ch, uint32_t owner, void (*cb)(uint32_t));
+void ra_sci_clear_rxi_callback(uint32_t ch);
 // static void ra_sci_irq_disable(uint32_t ch);
 // static void ra_sci_irq_enable(uint32_t ch);
 void ra_sci_rxirq_disable(uint32_t ch);

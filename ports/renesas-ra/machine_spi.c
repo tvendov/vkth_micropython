@@ -110,6 +110,15 @@ static machine_hard_spi_obj_t machine_hard_spi_obj[] = {
         NULL,
     },
     #endif
+    #if defined(MICROPY_HW_SPI3_SCK) && defined(MICROPY_HW_SPI3_MOSI) && defined(MICROPY_HW_SPI3_MISO)
+    {
+        {&machine_spi_type}, 3, MACHINE_SPI_BACKEND_SCI,
+        DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS,
+        DEFAULT_SPI_FIRSTBIT, DEFAULT_SPI_BAUDRATE,
+        MICROPY_HW_SPI3_SCK, MICROPY_HW_SPI3_MOSI, MICROPY_HW_SPI3_MISO,
+        NULL,
+    },
+    #endif
 };
 
 static void spi_validate_pins(machine_hard_spi_obj_t *self, const machine_pin_obj_t *sck, const machine_pin_obj_t *mosi, const machine_pin_obj_t *miso) {
@@ -374,6 +383,10 @@ void spi_deinit(uint32_t ch) {
     #endif
     #if defined(MICROPY_HW_SPI2_SCK)
     } else if (ch == 2) {
+        ra_sci_spi_deinit(ch);
+    #endif
+    #if defined(MICROPY_HW_SPI3_SCK)
+    } else if (ch == 3) {
         ra_sci_spi_deinit(ch);
     #endif
     }
