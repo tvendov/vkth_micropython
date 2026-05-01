@@ -87,6 +87,54 @@ MAC_CMD_NAMES = {
 }
 
 
+# === MAC command response builders (LoRaWAN 1.0.x § 5) ===
+
+def mac_devstatus_ans(battery, margin_db):
+    """DevStatusAns: battery (0=ext, 1-254=charge, 255=unknown) + margin dB."""
+    m = max(-32, min(31, int(margin_db))) & 0x3F
+    return bytes([0x06, battery & 0xFF, m])
+
+
+def mac_linkadr_ans(power_ack=1, dr_ack=1, channel_ack=1):
+    """LinkADRAns: 3 bits acknowledging power/DR/channel-mask requested settings."""
+    status = (power_ack << 2) | (dr_ack << 1) | channel_ack
+    return bytes([0x03, status])
+
+
+def mac_rxtiming_ans():
+    """RXTimingSetupAns: empty (no payload)."""
+    return bytes([0x08])
+
+
+def mac_devtime_req():
+    """DeviceTimeReq: устройство пита TTN за GPS време (uplink-initiated)."""
+    return bytes([0x0D])
+
+
+def process_mac_commands(parsed_cmds, last_snr):
+    """Връща FOpts bytes за следващия uplink — отговор на server commands.
+
+    Single-channel SF7-only gateway:
+      - DevStatusReq -> DevStatusAns(battery=255 unknown, margin=last RX SNR)
+      - LinkADRReq   -> LinkADRAns(0,0,0) — ОТХВЪРЛЯМЕ ADR промените, защото
+        gateway-ът е статичен (SF7 single-channel). TTN ще запази текущи DR/Pwr.
+      - RXTimingSetupReq -> RXTimingSetupAns (empty payload)
+    """
+    response = b""
+    for name, hex_data in parsed_cmds:
+        cmd = bytes.fromhex(hex_data)
+        cid = cmd[0]
+        if cid == 0x06:                          # DevStatusReq
+            response += mac_devstatus_ans(255, last_snr)
+        elif cid == 0x03:                        # LinkADRReq
+            # ОТХВЪРЛЯМЕ — gateway-ът не позволява смяна на DR/channel
+            response += mac_linkadr_ans(power_ack=0, dr_ack=0, channel_ack=0)
+        elif cid == 0x08:                        # RXTimingSetupReq
+            response += mac_rxtiming_ans()
+        # Други команди не отговаряме (DutyCycleReq, NewChannelReq, etc.)
+    return response
+
+
 def parse_downlink(devaddr_le, nwkskey, appskey, frame):
     """Декодира downlink frame. Връща dict с информация или None ако MIC fail."""
     if len(frame) < 12:
@@ -220,10 +268,15 @@ def otaa_join(sx, dev_nonce):
     return devaddr, nwkskey, appskey
 
 
-def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload):
+def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload, fopts=b""):
+    """Изпраща Unconfirmed Data Up. fopts = piggyback MAC commands (max 15 байта)."""
+    if len(fopts) > 15:
+        raise ValueError("FOpts > 15 bytes — use FPort=0 frame instead")
     enc = encrypt_frm_payload(appskey, devaddr, fcnt, 0, payload)
-    mac_payload = (devaddr + bytes([0x00]) +
-                   fcnt.to_bytes(2, "little") + bytes([port]) + enc)
+    fctrl = len(fopts) & 0x0F                # FOptsLen в bit 0-3
+    mac_payload = (devaddr + bytes([fctrl]) +
+                   fcnt.to_bytes(2, "little") + fopts +
+                   bytes([port]) + enc)
     mic_input = bytes([0x40]) + mac_payload
     mic = compute_uplink_mic(nwkskey, devaddr, fcnt, 0, mic_input)
     sx.send(mic_input + mic)
@@ -287,16 +340,22 @@ def main():
         print("Loaded session: DevAddr=%s FCnt=%d" %
               (bytes(reversed(devaddr)).hex(), fcnt))
 
-    # Periodic uplinks + RX1 window listening
+    # Periodic uplinks + RX1 window listening + MAC command responses
     uptime_ref_s = time.ticks_ms() // 1000
+    pending_mac = b""                            # MAC отговори за следващ uplink
+    last_snr = 0
     while True:
         now_s = time.ticks_ms() // 1000
         uptime = now_s - uptime_ref_s
         payload = ("uptime=%ds" % uptime).encode()
-        print("[FCnt=%d] uplink: %r" % (fcnt, payload))
+        if pending_mac:
+            print("[FCnt=%d] uplink: %r + FOpts=%s" % (fcnt, payload, pending_mac.hex()))
+        else:
+            print("[FCnt=%d] uplink: %r" % (fcnt, payload))
         try:
-            send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x01, payload)
-            # RX1 window: TTN изпраща downlink-и +5s след края на TX.
+            send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x01, payload,
+                        fopts=pending_mac)
+            pending_mac = b""                    # consumed; ще се преинит-ва от downlink
             dl = listen_rx1(sx, devaddr, nwkskey, appskey)
             if dl is None:
                 print("  no downlink in RX1")
@@ -306,9 +365,13 @@ def main():
                 print("  *** downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
                       (dl["rssi"], dl["snr"], dl["fcnt"], dl["fport"]))
                 if dl["frm_payload_decrypted"]:
-                    print("    payload:", dl["frm_payload_decrypted"])
+                    print("    app payload:", dl["frm_payload_decrypted"])
                 if dl["mac_commands"]:
                     print("    MAC cmds:", dl["mac_commands"])
+                    last_snr = dl["snr"]
+                    pending_mac = process_mac_commands(dl["mac_commands"], last_snr)
+                    if pending_mac:
+                        print("    queued MAC ans for next uplink:", pending_mac.hex())
         except Exception as e:
             print("  send/recv error:", e)
         fcnt += 1
