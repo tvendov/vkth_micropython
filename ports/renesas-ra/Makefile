@@ -260,6 +260,7 @@ SRC_C += \
 	machine_sdcard.c \
 	modaudiomixer.c \
 	modrenesas.c \
+	modaes_cmac.c \
 		moddataflash.c \
 	extint.c \
 	usrsw.c \

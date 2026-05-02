@@ -8,7 +8,12 @@ MICROPY_VFS_FAT = 1
 USE_FSP_LPM = 0
 MICROPY_HW_ENABLE_TOUCHPAD = 1
 MICROPY_HW_ENABLE_DSP = 1
-MICROPY_SSL_AXTLS = 1                    # AES за cryptolib (LoRaWAN MIC/CTR)
+# Hardware AES via SCE9 instead of software axTLS.
+# MICROPY_HW_ENABLE_RNG=1 pulls in the r_sce_*.c FSP files (Makefile guard)
+# and the SCE9 AES wrapper (ra/ra_sce_aes.c) replaces lib/axtls/crypto/aes.c
+# at the AES_set_key/AES_encrypt/AES_decrypt API boundary.
+MICROPY_HW_ENABLE_RNG = 1
+MICROPY_SSL_AXTLS = 1                    # AES за cryptolib (LoRaWAN MIC/CTR) — backed by SCE9
 
 CFLAGS+=-DDEFAULT_DBG_CH=0 \
           -DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED \

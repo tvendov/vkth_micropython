@@ -1,5 +1,8 @@
 /* generated common source file - do not edit */
 #include "common_data.h"
+sce_instance_ctrl_t sce_ctrl;
+const sce_cfg_t sce_cfg =
+{ .lifecycle = SCE_SSD };
 icu_instance_ctrl_t g_external_irq0_ctrl;
 const external_irq_cfg_t g_external_irq0_cfg =
 {

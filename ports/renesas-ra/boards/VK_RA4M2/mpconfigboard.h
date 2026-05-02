@@ -23,6 +23,7 @@
 #define MICROPY_HW_MACHINE_TIMER_HARDWARE (1)
 
 // peripheral config
+#define MICROPY_HW_ENABLE_RNG       (1)     // SCE9 hardware RNG + AES (LoRaWAN)
 #define MICROPY_HW_ENABLE_RTC       (1)
 #define MICROPY_HW_RTC_SOURCE       (1)     // 0: subclock, 1:LOCO (32.768khz)
 #define MICROPY_HW_ENABLE_ADC       (1)
