@@ -10,10 +10,25 @@
 
 import time
 import gc
-from machine import Pin
+from machine import Pin, WS2812
 from sx1262 import SX1262
 from LoRaWAN.AES_CMAC import AES_CMAC
 import cryptolib
+
+# === Relay output (WS2812 — 1 LED, green=off / red=on) ===
+WS2812_POWER  = "P500"
+WS2812_DATA   = "P112"
+RELAY_COLOR_OFF = (0, 80, 0)                          # зелено
+RELAY_COLOR_ON  = (80, 0, 0)                          # червено
+
+def make_relay_strip():
+    Pin(WS2812_POWER, Pin.OUT, value=1)
+    time.sleep_ms(100)
+    return WS2812(pixel_count=1, pin=Pin(WS2812_DATA), channels=3)
+
+def set_relay(strip, on):
+    strip[0] = RELAY_COLOR_ON if on else RELAY_COLOR_OFF
+    strip.write()
 
 # === Credentials ===
 from LoRaConfig_TTN import LoRaConfig
@@ -27,12 +42,22 @@ SESSION_FILE  = "/flash/lw_session.dat"
 FCNTUP_FILE   = "/flash/lw_fcntup.dat"
 
 # === Radio config (T3-proven) ===
-RX1_DELAY_MS = 5000
-RX1_TIMEOUT_MS = 1500
-UPLINK_INTERVAL_S = 60
+# ВНИМАНИЕ: TTN Fair Use Policy = 30 s airtime / device / day. 10 s interval
+# при SF7 (~46 ms airtime) дава ~8640 uplinks дневно — само за тест!
+UPLINK_INTERVAL_S = 10
 FREQ_MHZ = 868.1
 SF = 7
 BW = 125.0
+# RX2 параметри (EU868 default — TTN ползва същите)
+RX2_FREQ_MHZ = 869.525
+RX2_SF = 12
+
+# Confirmed uplinks: всеки N-ти пакет ще е Confirmed (за тест на ACK).
+# 0 = никога confirmed, 1 = всеки uplink, 5 = всеки 5-ти, etc.
+CONFIRMED_EVERY = 5
+
+# DeviceTimeReq: пратя в FOpts на първия uplink (или при липса на pending MAC).
+ASK_DEVICE_TIME_AT_START = True
 
 
 # === Crypto helpers ===
@@ -174,25 +199,42 @@ def parse_downlink(devaddr_le, nwkskey, appskey, frame):
         key = nwkskey if fport == 0 else appskey
         decrypted = encrypt_frm_payload(key, devaddr_le, fcnt_lo, 1, frm_payload)
 
-    # MAC commands в FOpts (uplink ack-style) или във FRMPayload (FPort=0)
+    # MAC commands в FOpts (downlink piggyback) или във FRMPayload (FPort=0)
     mac_cmds = fopts if fport != 0 else decrypted
     parsed_cmds = []
+    device_time = None                          # ще бъде set при DeviceTimeAns
     i = 0
     while i < len(mac_cmds):
         cid = mac_cmds[i]
         name = MAC_CMD_NAMES.get(cid, "0x%02X" % cid)
-        # ad-hoc length lookup за най-честите команди
-        clen = {0x03: 4, 0x05: 4, 0x06: 0, 0x07: 5, 0x08: 1, 0x0A: 4, 0x0D: 5}.get(cid, 0)
-        parsed_cmds.append((name, mac_cmds[i:i + 1 + clen].hex()))
+        # ad-hoc length lookup (downlink direction)
+        clen = {0x02: 2,  # LinkCheckAns: margin(1) + GwCnt(1)
+                0x03: 4,  # LinkADRReq: DR/Pwr(1) + ChMask(2) + Redund(1)
+                0x05: 4,  # RXParamSetupReq: DLSettings(1) + Frequency(3)
+                0x06: 0,  # DevStatusReq
+                0x07: 5,  # NewChannelReq
+                0x08: 1,  # RXTimingSetupReq
+                0x0A: 4,  # DLChannelReq
+                0x0D: 5}.get(cid, 0)  # DeviceTimeAns: epoch(4) + frac(1)
+        cmd_bytes = mac_cmds[i:i + 1 + clen]
+        parsed_cmds.append((name, cmd_bytes.hex()))
+        if cid == 0x0D and len(cmd_bytes) == 6:
+            # DeviceTimeAns: 4 bytes GPS epoch (LE) + 1 byte fractional second.
+            # GPS epoch = seconds since 1980-01-06 00:00:00 UTC.
+            gps_epoch = int.from_bytes(cmd_bytes[1:5], "little")
+            frac256 = cmd_bytes[5]
+            device_time = (gps_epoch, frac256)
         i += 1 + clen
 
     return {
         "mtype": mtype,
         "fcnt": fcnt_lo,
         "fctrl": fctrl,
+        "ack": bool(fctrl & 0x20),               # downlink ACK bit (LoRaWAN § 4.3.1)
         "fport": fport,
         "frm_payload_decrypted": decrypted,
         "mac_commands": parsed_cmds,
+        "device_time": device_time,
     }
 
 
@@ -268,8 +310,9 @@ def otaa_join(sx, dev_nonce):
     return devaddr, nwkskey, appskey
 
 
-def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload, fopts=b""):
-    """Изпраща Unconfirmed Data Up. fopts = piggyback MAC commands (max 15 байта)."""
+def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload,
+                fopts=b"", confirmed=False):
+    """Изпраща Data Up frame. confirmed=True задава MType=Confirmed → TTN ще ACK-ва."""
     if len(fopts) > 15:
         raise ValueError("FOpts > 15 bytes — use FPort=0 frame instead")
     enc = encrypt_frm_payload(appskey, devaddr, fcnt, 0, payload)
@@ -277,19 +320,15 @@ def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload, fopts=b""):
     mac_payload = (devaddr + bytes([fctrl]) +
                    fcnt.to_bytes(2, "little") + fopts +
                    bytes([port]) + enc)
-    mic_input = bytes([0x40]) + mac_payload
+    mhdr = 0x80 if confirmed else 0x40       # 100 = Confirmed, 010 = Unconfirmed
+    mic_input = bytes([mhdr]) + mac_payload
     mic = compute_uplink_mic(nwkskey, devaddr, fcnt, 0, mic_input)
     sx.send(mic_input + mic)
 
 
 def listen_rx1(sx, devaddr, nwkskey, appskey,
                rx1_delay_ms=4500, recv_timeout_ms=2500):
-    """Слушай за downlink в RX1 window.
-
-    LoRaWAN: RX1 опва 5 s след края на TX (RX_DELAY1 за join е 5 s,
-    за data е 1 s default но TTN използва 5 s). Чакаме малко по-малко
-    (4.5 s) и слушаме 2.5 s — покрива целия prozorец.
-    """
+    """RX1: 5 s след TX, на TX freq + TX SF (TTN изисква DR equal/lower)."""
     time.sleep_ms(rx1_delay_ms)
     msg, err = sx.recv(0, True, recv_timeout_ms)
     if not msg or len(msg) == 0:
@@ -297,6 +336,31 @@ def listen_rx1(sx, devaddr, nwkskey, appskey,
     info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
     if info is None:
         return None
+    info["window"] = "RX1"
+    info["rssi"] = sx.getRSSI()
+    info["snr"]  = sx.getSNR()
+    info["raw"]  = bytes(msg).hex()
+    return info
+
+
+def listen_rx2(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
+    """RX2 fallback: 6 s след TX, на 869.525 MHz SF12 (EU868 default).
+
+    Ако RX1 пропусне, TTN reпеat-ва на RX2 1 s по-късно. Чипа трябва да се
+    превключи на тази конфигурация ad-hoc, после да се върне за следващ uplink.
+    """
+    sx.setFrequency(RX2_FREQ_MHZ)
+    sx.setSpreadingFactor(RX2_SF)
+    msg, err = sx.recv(0, True, recv_timeout_ms)
+    # Възстанови за следващ uplink
+    sx.setFrequency(FREQ_MHZ)
+    sx.setSpreadingFactor(SF)
+    if not msg or len(msg) == 0:
+        return None
+    info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
+    if info is None:
+        return None
+    info["window"] = "RX2"
     info["rssi"] = sx.getRSSI()
     info["snr"]  = sx.getSNR()
     info["raw"]  = bytes(msg).hex()
@@ -340,32 +404,93 @@ def main():
         print("Loaded session: DevAddr=%s FCnt=%d" %
               (bytes(reversed(devaddr)).hex(), fcnt))
 
-    # Periodic uplinks + RX1 window listening + MAC command responses
-    uptime_ref_s = time.ticks_ms() // 1000
-    pending_mac = b""                            # MAC отговори за следващ uplink
+    # Periodic uplinks (FPort=2, 3-byte payload):
+    #   bytes 0-1 temp   int16 BE × 100  (0.01 °C resolution, sim sweep 20..25 °C)
+    #   byte 2    button uint8 (simulated: toggle на всеки uplink → 10s on/10s off)
+    #
+    # Downlink на FPort=2 (1 byte): relay (0=off→зелено, 1=on→червено).
+    relay_strip = make_relay_strip()
+    relay_state = 0
+    set_relay(relay_strip, relay_state)               # старт: off / зелено
+    pending_mac = mac_devtime_req() if ASK_DEVICE_TIME_AT_START else b""
     last_snr = 0
+    sim_button = 0
+    temp_c100 = 2000                                  # 20.00 °C старт
+    temp_step = 25                                    # +0.25 °C / uplink
     while True:
-        now_s = time.ticks_ms() // 1000
-        uptime = now_s - uptime_ref_s
-        payload = ("uptime=%ds" % uptime).encode()
+        # Симулирам сензори
+        sim_button ^= 1                               # 10s on, 10s off
+        temp_c100 += temp_step
+        if temp_c100 >= 2500: temp_step = -25         # 25.00 → започни надолу
+        if temp_c100 <= 2000: temp_step = +25         # 20.00 → започни нагоре
+        # encode int16 BE (two's complement за отрицателни)
+        t = temp_c100 if temp_c100 >= 0 else (temp_c100 + 0x10000)
+        payload = bytes([(t >> 8) & 0xFF, t & 0xFF, sim_button])
+
+        confirmed = (CONFIRMED_EVERY > 0) and (fcnt % CONFIRMED_EVERY == 0) and (fcnt > 0)
+        kind = "Confirmed" if confirmed else "Unconfirmed"
+        info = "temp=%.2f°C button=%d relay=%d" % (
+            temp_c100 / 100.0, sim_button, relay_state)
         if pending_mac:
-            print("[FCnt=%d] uplink: %r + FOpts=%s" % (fcnt, payload, pending_mac.hex()))
+            print("[FCnt=%d %s] %s + FOpts=%s" %
+                  (fcnt, kind, info, pending_mac.hex()))
         else:
-            print("[FCnt=%d] uplink: %r" % (fcnt, payload))
+            print("[FCnt=%d %s] %s" % (fcnt, kind, info))
         try:
-            send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x01, payload,
-                        fopts=pending_mac)
+            send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x02, payload,
+                        fopts=pending_mac, confirmed=confirmed)
             pending_mac = b""                    # consumed; ще се преинит-ва от downlink
             dl = listen_rx1(sx, devaddr, nwkskey, appskey)
             if dl is None:
-                print("  no downlink in RX1")
+                print("  RX1: nothing — listening RX2 (869.525MHz SF12)...")
+                dl = listen_rx2(sx, devaddr, nwkskey, appskey)
+                if dl is None:
+                    print("  RX2: nothing")
+            if dl is None:
+                pass                             # вече логнато
             elif "error" in dl:
                 print("  downlink rejected: %s" % dl["error"])
             else:
-                print("  *** downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
-                      (dl["rssi"], dl["snr"], dl["fcnt"], dl["fport"]))
+                print("  *** %s downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
+                      (dl["window"], dl["rssi"], dl["snr"],
+                       dl["fcnt"], dl["fport"]))
+                if confirmed:
+                    print("    ACK bit:", "YES (uplink confirmed)" if dl["ack"]
+                                          else "NO (server didn't ACK)")
+                if dl["device_time"] is not None:
+                    gps_epoch, frac256 = dl["device_time"]
+                    # GPS epoch 1980-01-06 = Unix 315964800; LoRaWAN добавя
+                    # текущия leap-second offset (18 към 2024+).
+                    # MicroPython time.gmtime() използва epoch 2000-01-01
+                    # (Unix 946684800), а НЕ Unix 1970 — затова трябва да
+                    # извадим тази разлика преди gmtime.
+                    unix_s = 315964800 + gps_epoch - 18
+                    mpy_s = unix_s - 946684800
+                    yy, mm, dd, hh, mi, ss, _, _ = time.gmtime(mpy_s)
+                    print("    *** UTC time from TTN: %04d-%02d-%02d %02d:%02d:%02d.%03d" %
+                          (yy, mm, dd, hh, mi, ss, (frac256 * 1000) // 256))
                 if dl["frm_payload_decrypted"]:
-                    print("    app payload:", dl["frm_payload_decrypted"])
+                    raw = dl["frm_payload_decrypted"]
+                    if dl["fport"] is not None and dl["fport"] > 0:
+                        # Application downlink
+                        if dl["fport"] == 2 and len(raw) >= 1:
+                            # Relay command: byte 0 = 0/1
+                            new_state = raw[0] & 0x01
+                            relay_state = new_state
+                            set_relay(relay_strip, relay_state)
+                            print("    relay → %s (%s)" %
+                                  ("ON" if relay_state else "OFF",
+                                   "червено" if relay_state else "зелено"))
+                        else:
+                            try:
+                                txt = raw.decode("utf-8")
+                                print("    app payload (FPort=%d): %r" %
+                                      (dl["fport"], txt))
+                            except Exception:
+                                print("    app payload (FPort=%d, hex): %s" %
+                                      (dl["fport"], raw.hex()))
+                    else:
+                        print("    FPort=0 MAC payload (hex):", raw.hex())
                 if dl["mac_commands"]:
                     print("    MAC cmds:", dl["mac_commands"])
                     last_snr = dl["snr"]
