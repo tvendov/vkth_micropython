@@ -274,7 +274,8 @@ def save_session(devaddr, nwkskey, appskey):
 
 def init_radio():
     Pin("P100", Pin.OUT, value=1)            # RF_SW1 enable (Wio-SX1262)
-    sx = SX1262(spi_bus=1, clk="P111", mosi="P109", miso="P110",
+    # SPI(3) = SCI9 simple-SPI + FIFO + dual DTC: P109/P110/P111, no polling.
+    sx = SX1262(spi_bus=3, clk="P111", mosi="P109", miso="P110",
                 cs="P206", irq="P015", rst="P001", gpio="P002")
     sx.begin(
         freq=FREQ_MHZ, bw=BW, sf=SF, cr=5,

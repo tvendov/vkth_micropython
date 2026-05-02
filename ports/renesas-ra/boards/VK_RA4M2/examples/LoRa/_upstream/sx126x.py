@@ -40,11 +40,19 @@ class SX126X:
     def __init__(self, spi_bus, clk, mosi, miso, cs, irq, rst, gpio):
         self._irq = irq
         if implementation.name == 'micropython':
-          # VK_RA4M2: hardware SPI(1) firmware bug → SoftSPI на същите пинове.
-          self.spi = SoftSPI(baudrate=2000000, polarity=0, phase=0,
-                             sck=Pin(clk, mode=Pin.OUT),
-                             mosi=Pin(mosi, mode=Pin.OUT),
-                             miso=Pin(miso, mode=Pin.IN))
+          # VK_RA4M2:
+          #   spi_bus=1 → HW SPI(1) RSPI на P108/P111/P110/P109 — има firmware bug;
+          #   spi_bus=3 → HW SPI(3) SCI9 simple-SPI на P109/P110/P111
+          #              с 16-stage FIFO + dual DTC, ~21 Mbps, CPU idle (WFI).
+          # Същите физически пинове като SoftSPI варианта — само backend се сменя.
+          if spi_bus is None:
+              self.spi = SoftSPI(baudrate=2000000, polarity=0, phase=0,
+                                 sck=Pin(clk, mode=Pin.OUT),
+                                 mosi=Pin(mosi, mode=Pin.OUT),
+                                 miso=Pin(miso, mode=Pin.IN))
+          else:
+              self.spi = SPI(spi_bus, baudrate=8000000, polarity=0, phase=0,
+                             bits=8, firstbit=SPI.MSB)
           self.cs = Pin(cs, mode=Pin.OUT)
           self.irq = Pin(irq, mode=Pin.IN)
           self.rst = Pin(rst, mode=Pin.OUT)
