@@ -10,6 +10,7 @@
 
 import time
 import gc
+import asyncio
 from machine import Pin, WS2812
 from sx1262 import SX1262
 from LoRaWAN.AES_CMAC import AES_CMAC
@@ -327,11 +328,40 @@ def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload,
     sx.send(mic_input + mic)
 
 
-def listen_rx1(sx, devaddr, nwkskey, appskey,
-               rx1_delay_ms=4500, recv_timeout_ms=2500):
-    """RX1: 5 s след TX, на TX freq + TX SF (TTN изисква DR equal/lower)."""
-    time.sleep_ms(rx1_delay_ms)
-    msg, err = sx.recv(0, True, recv_timeout_ms)
+async def _recv_yielding(sx, total_timeout_ms, slice_ms=100):
+    """Sliced recv: множество кратки recv() с yield между тях.
+
+    Чипа стои в RX mode за `slice_ms` (с timeout), recv връща ако има
+    пакет или slice timeout-ва. След всеки slice yield-ваме на scheduler-а.
+    Heartbeat и други корутини продължават да работят на всеки ~slice_ms.
+
+    За TTN single-channel SF7 gateway, downlink-ът идва с predictable
+    timing (+5s от TX), така че първите slice-ове го улавят. За multi-
+    gateway/multi-channel use cases може да се пропуснат пакети в gap-а
+    между slice-ове — за това нужно е true non-blocking IRQ-driven RX.
+    """
+    elapsed = 0
+    while elapsed < total_timeout_ms:
+        slice_t = slice_ms if (total_timeout_ms - elapsed) >= slice_ms \
+                           else (total_timeout_ms - elapsed)
+        msg, err = sx.recv(0, True, slice_t)
+        if msg and len(msg) > 0:
+            return msg, err
+        elapsed += slice_t
+        await asyncio.sleep_ms(0)               # yield to scheduler
+    return b"", err
+
+
+async def listen_rx1(sx, devaddr, nwkskey, appskey,
+                     rx1_delay_ms=4500, recv_timeout_ms=2500):
+    """RX1: 5 s след TX, на TX freq + TX SF (TTN изисква DR equal/lower).
+
+    Async: 4.5 s sleep + 25 slice × 100 ms recv (yield между всеки slice)
+    = ~25 yieldable точки през RX waiting. Heartbeat фир-ва ~25 пъти
+    вместо 0 (преди slice).
+    """
+    await asyncio.sleep_ms(rx1_delay_ms)
+    msg, err = await _recv_yielding(sx, recv_timeout_ms)
     if not msg or len(msg) == 0:
         return None
     info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
@@ -344,7 +374,7 @@ def listen_rx1(sx, devaddr, nwkskey, appskey,
     return info
 
 
-def listen_rx2(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
+async def listen_rx2(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
     """RX2 fallback: 6 s след TX, на 869.525 MHz SF12 (EU868 default).
 
     Ако RX1 пропусне, TTN reпеat-ва на RX2 1 s по-късно. Чипа трябва да се
@@ -352,7 +382,7 @@ def listen_rx2(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
     """
     sx.setFrequency(RX2_FREQ_MHZ)
     sx.setSpreadingFactor(RX2_SF)
-    msg, err = sx.recv(0, True, recv_timeout_ms)
+    msg, err = await _recv_yielding(sx, recv_timeout_ms)
     # Възстанови за следващ uplink
     sx.setFrequency(FREQ_MHZ)
     sx.setSpreadingFactor(SF)
@@ -368,9 +398,27 @@ def listen_rx2(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
     return info
 
 
+# === Concurrent demo task ===
+
+async def heartbeat_task():
+    """Демо на async паралелизъм — печата heartbeat всеки 2 s.
+
+    Ще го виждаш да тиктака през ~4.5s sleep преди RX1 и през 10s idle
+    sleep между uplinks (~5 пъти на 10s cycle). Замразява се само по
+    време на blocking sx.send() и sx.recv() (виж B-стъпка от плана).
+    """
+    n = 0
+    t0_ms = time.ticks_ms()
+    while True:
+        uptime_s = time.ticks_diff(time.ticks_ms(), t0_ms) // 1000
+        print("    [hb #%d uptime=%ds]" % (n, uptime_s))
+        n += 1
+        await asyncio.sleep(2)
+
+
 # === Main ===
 
-def main():
+async def main():
     print("=" * 50)
     print("VK_RA4M2 LoRaWAN end-node (TTN, EU868 SF7)")
     print("=" * 50)
@@ -391,7 +439,7 @@ def main():
             if joined is not None:
                 break
             dev_nonce += 1                   # retry с по-голям nonce
-            time.sleep(3)
+            await asyncio.sleep(3)
         if joined is None:
             print("Cannot join after 5 retries. Check credentials/gateway/antenna.")
             return
@@ -441,10 +489,10 @@ def main():
             send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x02, payload,
                         fopts=pending_mac, confirmed=confirmed)
             pending_mac = b""                    # consumed; ще се преинит-ва от downlink
-            dl = listen_rx1(sx, devaddr, nwkskey, appskey)
+            dl = await listen_rx1(sx, devaddr, nwkskey, appskey)
             if dl is None:
                 print("  RX1: nothing — listening RX2 (869.525MHz SF12)...")
-                dl = listen_rx2(sx, devaddr, nwkskey, appskey)
+                dl = await listen_rx2(sx, devaddr, nwkskey, appskey)
                 if dl is None:
                     print("  RX2: nothing")
             if dl is None:
@@ -503,8 +551,16 @@ def main():
         fcnt += 1
         save_int(FCNTUP_FILE, fcnt)
         gc.collect()
-        time.sleep(UPLINK_INTERVAL_S)
+        await asyncio.sleep(UPLINK_INTERVAL_S)
+
+
+async def app():
+    """Entry point — стартира LoRaWAN main + heartbeat демо паралелно."""
+    await asyncio.gather(
+        main(),
+        heartbeat_task(),
+    )
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(app())
