@@ -12,6 +12,7 @@ import time
 import gc
 import asyncio
 import framebuf
+import random                                    # B4: ACK_TIMEOUT random 1..3 s
 from machine import Pin, WS2812, SoftI2C
 from sx1262 import SX1262
 from LoRaWAN.AES_CMAC import AES_CMAC
@@ -199,6 +200,7 @@ CHANNELS_FILE       = "/flash/lw_channels.dat"       # extra Hz channels (CFList
 CHMASK_FILE         = "/flash/lw_chmask.dat"         # LinkADRReq ChMask runtime
 RX1_DELAY_FILE      = "/flash/lw_rx1delay.dat"       # RX1 delay (ms)
 NBTRANS_FILE        = "/flash/lw_nbtrans.dat"        # LinkADRReq NbTrans
+DUTY_CYCLE_FILE     = "/flash/lw_dcycle.dat"         # B3: DutyCycleReq MaxDCycle (0..15)
 # A1: FCntDown replay protection
 FCNTDN_FILE         = "/flash/lw_fcntdn.dat"         # last received FCntDown (replay guard)
 # A2: RXParamSetupReq runtime (override-ва default RX2 + RX1 DR offset)
@@ -678,6 +680,35 @@ def record_tx(subband, airtime_ms):
     DUTY_CYCLE.setdefault(subband, []).append((now, airtime_ms))
 
 
+def apply_dutycycle_req(cmd):
+    """B3: DutyCycleReq → агрегиран TX duty cycle override (LoRaWAN 1.0.3 § 5.3).
+
+    cmd[1] bits 0..3 = MaxDCycle. Резултативен duty cycle = 1 / 2^MaxDCycle.
+    MaxDCycle = 0 → no override (върни към ETSI default per sub-band).
+
+    Spec казва това е "aggregated" — обща квота across всички sub-bands.
+    Ние го прилагаме като per-sub-band CAP (по-конservативно от spec но винаги
+    valid; ako server-ът каже max 1%, всеки sub-band е макс 1%).
+
+    Връща ack bytes (CID only — empty payload).
+    """
+    max_dcycle = cmd[1] & 0x0F
+    if max_dcycle == 0:
+        ADR["duty_cycle_override"] = None
+    else:
+        ADR["duty_cycle_override"] = 1.0 / (1 << max_dcycle)
+    try:
+        save_int(DUTY_CYCLE_FILE, max_dcycle)
+    except Exception as e:
+        print("    apply_dutycycle persist err:", e)
+    if max_dcycle == 0:
+        print("    DutyCycle: cleared (back to ETSI defaults)")
+    else:
+        print("    DutyCycle: MaxDCycle=%d → max %.4f%% per sub-band" %
+              (max_dcycle, ADR["duty_cycle_override"] * 100))
+    return bytes([0x04])
+
+
 def apply_dlchannel_req(cmd):
     """A3: DLChannelReq → per-channel RX1 freq override (LoRaWAN 1.0.3 § 5.7).
 
@@ -736,6 +767,8 @@ def process_mac_commands(sx, parsed_cmds, last_snr):
             response += apply_rxparamsetup_req(cmd)
         elif cid == 0x0A and len(cmd) >= 5:      # DLChannelReq [A3]
             response += apply_dlchannel_req(cmd)
+        elif cid == 0x04 and len(cmd) >= 2:      # DutyCycleReq [B3]
+            response += apply_dutycycle_req(cmd)
         elif cid == 0x07 and len(cmd) >= 6:      # NewChannelReq
             ch_idx = cmd[1]
             freq_hz = (cmd[2] | (cmd[3] << 8) | (cmd[4] << 16)) * 100
@@ -1247,6 +1280,9 @@ async def main():
     ADR["rx1_dr_offset"] = load_int(RX1_DR_OFFSET_FILE, 0)
     # A3: DLChannelReq per-channel RX1 freq override
     ADR["rx1_freq_override"] = load_rx1_overrides()
+    # B3: DutyCycleReq override (ако сървърът ни е забавил преди reboot)
+    saved_max_dc = load_int(DUTY_CYCLE_FILE, 0)
+    ADR["duty_cycle_override"] = (1.0 / (1 << saved_max_dc)) if saved_max_dc > 0 else None
 
     for f in load_channels():
         if f not in ADR["active_channels"] and len(ADR["active_channels"]) < 8:
@@ -1296,6 +1332,8 @@ async def main():
         ADR["rx1_dr_offset"]     = 0
         # A3: clear DLChannel overrides
         ADR["rx1_freq_override"] = {}
+        # B3: clear DutyCycle override (нова сесия = ETSI defaults)
+        ADR["duty_cycle_override"] = None
         try:
             save_int(DR_FILE,           DEFAULT_DR)
             save_int(PWR_IDX_FILE,      DEFAULT_PWR_IDX)
@@ -1305,6 +1343,7 @@ async def main():
             save_int(RX2_FREQ_FILE,     ADR["rx2_freq_hz"])
             save_int(RX2_SF_FILE,       ADR["rx2_sf"])
             save_int(RX1_DR_OFFSET_FILE, 0)
+            save_int(DUTY_CYCLE_FILE,   0)
             save_channels([])
             save_rx1_overrides({})
         except Exception as e:
@@ -1439,133 +1478,164 @@ async def main():
         t = temp_c100 if temp_c100 >= 0 else (temp_c100 + 0x10000)
         payload = bytes([(t >> 8) & 0xFF, t & 0xFF, relay_state])
 
-        # === Pick TX channel + apply SF (round-robin през enabled канали) ===
-        # Връща (channel_idx, freq_hz). idx нужен за A3 RX1 freq override lookup.
-        tx_ch_idx, tx_freq_hz = pick_tx_channel(fcnt)
-        cur_sf     = DR_TO_SF[ADR["dr"]]
-        ADR["last_tx_channel_idx"] = tx_ch_idx
-        ADR["last_tx_freq_hz"]     = tx_freq_hz
-        ADR["last_tx_sf"]          = cur_sf
-        try:
-            sx.setFrequency(tx_freq_hz / 1e6)
-            sx.setSpreadingFactor(cur_sf)
-        except Exception as e:
-            print("  set freq/sf err:", e)
-        DISP["sf"] = cur_sf
-
-        # === B1+B2: airtime + ETSI duty cycle check ===
-        # PHY frame size = MHDR(1) + DevAddr(4) + FCtrl(1) + FCnt(2) + FOpts(N)
-        #                + FPort(1) + FRMPayload(M) + MIC(4) = 13 + N + M
-        phy_size = 13 + len(pending_mac) + len(payload)
-        airtime_ms = lora_time_on_air_ms(phy_size, sf=cur_sf, bw_hz=int(BW * 1000))
-        subband, default_dc = freq_to_subband(tx_freq_hz)
-        effective_dc = ADR["duty_cycle_override"] if ADR["duty_cycle_override"] else default_dc
-        # Loop: чакаме капацитет да освободи. Каждое изтичане на стар entry
-        # отваря квота с airtime от тoгава; може да трябва няколко итерации.
-        while True:
-            wait_ms = compute_dc_wait_ms(subband, airtime_ms, effective_dc)
-            if wait_ms <= 0:
-                break
-            print("  [%s] duty cycle full → defer %d ms (airtime=%.1f ms)" %
-                  (subband, wait_ms, airtime_ms))
-            await asyncio.sleep_ms(wait_ms)
-
         confirmed = (CONFIRMED_EVERY > 0) and (fcnt % CONFIRMED_EVERY == 0) and (fcnt > 0)
         kind = "Confirmed" if confirmed else "Unconfirmed"
         info = "temp=%.2f°C relay=%d" % (temp_c100 / 100.0, relay_state)
-        ch_info = "ch=%.3f MHz DR%d %s air=%.1fms" % (
-            tx_freq_hz / 1e6, ADR["dr"], subband, airtime_ms)
-        if pending_mac:
-            print("[FCnt=%d %s %s] %s + FOpts=%s" %
-                  (fcnt, kind, ch_info, info, pending_mac.hex()))
-        else:
-            print("[FCnt=%d %s %s] %s" % (fcnt, kind, ch_info, info))
-        try:
-            send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x02, payload,
-                        fopts=pending_mac, confirmed=confirmed)
-            # B2: запиши airtime ВЕДНАГА след send_uplink — преди RX1/RX2,
-            # защото те не са TX (само RX). Failure path → не записваме.
-            record_tx(subband, airtime_ms)
-            pending_mac = b""                    # consumed; ще се преинит-ва от downlink
-            dl = await listen_rx1(sx, devaddr, nwkskey, appskey)
-            if dl is None:
-                print("  RX1: nothing — listening RX2 (869.525MHz SF12)...")
-                dl = await listen_rx2(sx, devaddr, nwkskey, appskey)
-                if dl is None:
-                    print("  RX2: nothing")
-            if dl is None:
-                pass                             # вече логнато
-            elif "error" in dl:
-                print("  downlink rejected: %s" % dl["error"])
-                # RSSI/SNR са физическа стойност, валидни и при parse error
-                if "rssi" in dl:
-                    DISP["last_rssi"]   = dl["rssi"]
-                    DISP["last_snr"]    = dl["snr"]
-                    DISP["last_window"] = dl["window"]
+
+        # === B4: NbTrans retry loop (LoRaWAN 1.0.3 § 4.3.1.4 + § 5.2) ===
+        # Confirmed: повтаряме до ACK или до изчерпване на nb_trans опити.
+        # Unconfirmed: spec казва изпращаме nb_trans копия (за link reliability),
+        #   но в типичен EU868 deployment nb_trans = 1. Ние spazваме spec-а.
+        # Между retries: random ACK_TIMEOUT 1..3 s. Различен канал per attempt.
+        # Същият FCnt + FOpts + payload — спec require-ва identical копия.
+        nb_trans = max(1, ADR["nb_trans"])
+        got_ack = False
+        last_dl = None
+
+        for attempt in range(nb_trans):
+            # Pick TX channel — different per attempt (spec § 4.3.1.4)
+            tx_ch_idx, tx_freq_hz = pick_tx_channel(fcnt + attempt)
+            cur_sf = DR_TO_SF[ADR["dr"]]
+            ADR["last_tx_channel_idx"] = tx_ch_idx
+            ADR["last_tx_freq_hz"]     = tx_freq_hz
+            ADR["last_tx_sf"]          = cur_sf
+            try:
+                sx.setFrequency(tx_freq_hz / 1e6)
+                sx.setSpreadingFactor(cur_sf)
+            except Exception as e:
+                print("  set freq/sf err:", e)
+            DISP["sf"] = cur_sf
+
+            # B1+B2: airtime + ETSI duty cycle check
+            # PHY frame size = MHDR(1) + DevAddr(4) + FCtrl(1) + FCnt(2) + FOpts(N)
+            #                + FPort(1) + FRMPayload(M) + MIC(4) = 13 + N + M
+            phy_size = 13 + len(pending_mac) + len(payload)
+            airtime_ms = lora_time_on_air_ms(phy_size, sf=cur_sf, bw_hz=int(BW * 1000))
+            subband, default_dc = freq_to_subband(tx_freq_hz)
+            effective_dc = ADR["duty_cycle_override"] if ADR["duty_cycle_override"] else default_dc
+            while True:
+                wait_ms = compute_dc_wait_ms(subband, airtime_ms, effective_dc)
+                if wait_ms <= 0:
+                    break
+                print("  [%s] duty cycle full → defer %d ms (airtime=%.1f ms)" %
+                      (subband, wait_ms, airtime_ms))
+                await asyncio.sleep_ms(wait_ms)
+
+            attempt_tag = (" try %d/%d" % (attempt + 1, nb_trans)) if nb_trans > 1 else ""
+            ch_info = "ch=%.3f MHz DR%d %s air=%.1fms" % (
+                tx_freq_hz / 1e6, ADR["dr"], subband, airtime_ms)
+            if pending_mac:
+                print("[FCnt=%d %s%s %s] %s + FOpts=%s" %
+                      (fcnt, kind, attempt_tag, ch_info, info, pending_mac.hex()))
             else:
-                print("  *** %s downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
-                      (dl["window"], dl["rssi"], dl["snr"],
-                       dl["fcnt"], dl["fport"]))
+                print("[FCnt=%d %s%s %s] %s" % (fcnt, kind, attempt_tag, ch_info, info))
+
+            try:
+                send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x02, payload,
+                            fopts=pending_mac, confirmed=confirmed)
+                # B2: запиши airtime ВЕДНАГА след send_uplink — RX1/RX2 не са TX.
+                record_tx(subband, airtime_ms)
+
+                dl = await listen_rx1(sx, devaddr, nwkskey, appskey)
+                if dl is None:
+                    print("  RX1: nothing — listening RX2 (%.3f MHz SF%d)..." %
+                          (ADR["rx2_freq_hz"] / 1e6, ADR["rx2_sf"]))
+                    dl = await listen_rx2(sx, devaddr, nwkskey, appskey)
+                    if dl is None:
+                        print("  RX2: nothing")
+                # Запазваме само успешен downlink (или first error/None ако нищо good)
+                if last_dl is None or (dl is not None and "error" not in dl):
+                    last_dl = dl
+                if dl is not None and "error" not in dl and confirmed and dl.get("ack"):
+                    got_ack = True
+            except Exception as e:
+                print("  send/recv error:", e)
+
+            if got_ack:
+                print("    ACK on try %d/%d → no more retries" %
+                      (attempt + 1, nb_trans))
+                break
+
+            if attempt + 1 < nb_trans:
+                # ACK_TIMEOUT random 1..3 s (spec § 4.3.1.4)
+                ack_to_s = 1.0 + random.random() * 2.0
+                print("    ACK_TIMEOUT %.1f s before retry %d/%d" %
+                      (ack_to_s, attempt + 2, nb_trans))
+                await asyncio.sleep(ack_to_s)
+
+        # FOpts consumed (изпратени във всички attempts; нови от тоя downlink)
+        pending_mac = b""
+
+        # === Process last_dl (best from all attempts) ===
+        dl = last_dl
+        if dl is None:
+            pass                                  # вече логнато inside attempt loop
+        elif "error" in dl:
+            print("  downlink rejected: %s" % dl["error"])
+            if "rssi" in dl:
                 DISP["last_rssi"]   = dl["rssi"]
                 DISP["last_snr"]    = dl["snr"]
                 DISP["last_window"] = dl["window"]
-                # A1: persist FCntDown срещу replay (само на успешен parse,
-                # не на MIC fail / replay-rejected — иначе атакуващ може да
-                # натиска counter-а ни напред с произволни стойности)
-                ADR["fcnt_dn"] = dl["fcnt"]
-                try:
-                    save_int(FCNTDN_FILE, dl["fcnt"])
-                except Exception as e:
-                    print("    fcnt_dn persist err:", e)
-                if confirmed:
-                    print("    ACK bit:", "YES (uplink confirmed)" if dl["ack"]
-                                          else "NO (server didn't ACK)")
-                if dl["device_time"] is not None:
-                    gps_epoch, frac256 = dl["device_time"]
-                    # GPS epoch 1980-01-06 = Unix 315964800; LoRaWAN добавя
-                    # текущия leap-second offset (18 към 2024+).
-                    # MicroPython time.gmtime() използва epoch 2000-01-01
-                    # (Unix 946684800), а НЕ Unix 1970 — затова трябва да
-                    # извадим тази разлика преди gmtime.
-                    unix_s = 315964800 + gps_epoch - 18
-                    mpy_s = unix_s - 946684800
-                    yy, mm, dd, hh, mi, ss, _, _ = time.gmtime(mpy_s)
-                    print("    *** UTC time from TTN: %04d-%02d-%02d %02d:%02d:%02d.%03d" %
-                          (yy, mm, dd, hh, mi, ss, (frac256 * 1000) // 256))
-                if dl["frm_payload_decrypted"]:
-                    raw = dl["frm_payload_decrypted"]
-                    if dl["fport"] is not None and dl["fport"] > 0:
-                        # Application downlink
-                        if dl["fport"] == 2 and len(raw) >= 1:
-                            # Relay command: byte 0 = 0/1
-                            new_state = raw[0] & 0x01
-                            relay_state = new_state
-                            set_relay(relay_strip, relay_state)
-                            print("    relay → %s (%s)" %
-                                  ("ON" if relay_state else "OFF",
-                                   "червено" if relay_state else "зелено"))
-                        else:
-                            try:
-                                txt = raw.decode("utf-8")
-                                print("    app payload (FPort=%d): %r" %
-                                      (dl["fport"], txt))
-                            except Exception:
-                                print("    app payload (FPort=%d, hex): %s" %
-                                      (dl["fport"], raw.hex()))
+        else:
+            print("  *** %s downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
+                  (dl["window"], dl["rssi"], dl["snr"],
+                   dl["fcnt"], dl["fport"]))
+            DISP["last_rssi"]   = dl["rssi"]
+            DISP["last_snr"]    = dl["snr"]
+            DISP["last_window"] = dl["window"]
+            # A1: persist FCntDown срещу replay (само на успешен parse,
+            # не на MIC fail / replay-rejected — иначе атакуващ може да
+            # натиска counter-а ни напред с произволни стойности)
+            ADR["fcnt_dn"] = dl["fcnt"]
+            try:
+                save_int(FCNTDN_FILE, dl["fcnt"])
+            except Exception as e:
+                print("    fcnt_dn persist err:", e)
+            if confirmed:
+                print("    ACK bit:", "YES (uplink confirmed)" if dl["ack"]
+                                      else "NO (server didn't ACK)")
+            if dl["device_time"] is not None:
+                gps_epoch, frac256 = dl["device_time"]
+                # GPS epoch 1980-01-06 = Unix 315964800; LoRaWAN добавя
+                # текущия leap-second offset (18 към 2024+).
+                # MicroPython time.gmtime() използва epoch 2000-01-01
+                # (Unix 946684800), а НЕ Unix 1970.
+                unix_s = 315964800 + gps_epoch - 18
+                mpy_s = unix_s - 946684800
+                yy, mm, dd, hh, mi, ss, _, _ = time.gmtime(mpy_s)
+                print("    *** UTC time: %04d-%02d-%02d %02d:%02d:%02d.%03d" %
+                      (yy, mm, dd, hh, mi, ss, (frac256 * 1000) // 256))
+            if dl["frm_payload_decrypted"]:
+                raw = dl["frm_payload_decrypted"]
+                if dl["fport"] is not None and dl["fport"] > 0:
+                    if dl["fport"] == 2 and len(raw) >= 1:
+                        new_state = raw[0] & 0x01
+                        relay_state = new_state
+                        set_relay(relay_strip, relay_state)
+                        print("    relay → %s (%s)" %
+                              ("ON" if relay_state else "OFF",
+                               "червено" if relay_state else "зелено"))
                     else:
-                        print("    FPort=0 MAC payload (hex):", raw.hex())
-                if dl["mac_commands"]:
-                    print("    MAC cmds:", dl["mac_commands"])
-                    last_snr = dl["snr"]
-                    pending_mac = process_mac_commands(sx, dl["mac_commands"], last_snr)
-                    if pending_mac:
-                        print("    queued MAC ans for next uplink:", pending_mac.hex())
-                    # ADR/MAC може да е сменил DR/Pwr → sync DISP за OLED
-                    DISP["sf"]       = DR_TO_SF[ADR["dr"]]
-                    DISP["tx_power"] = ADR["tx_power_dbm"]
-                    current_tx_power = ADR["tx_power_dbm"]
-        except Exception as e:
-            print("  send/recv error:", e)
+                        try:
+                            txt = raw.decode("utf-8")
+                            print("    app payload (FPort=%d): %r" %
+                                  (dl["fport"], txt))
+                        except Exception:
+                            print("    app payload (FPort=%d, hex): %s" %
+                                  (dl["fport"], raw.hex()))
+                else:
+                    print("    FPort=0 MAC payload (hex):", raw.hex())
+            if dl["mac_commands"]:
+                print("    MAC cmds:", dl["mac_commands"])
+                last_snr = dl["snr"]
+                pending_mac = process_mac_commands(sx, dl["mac_commands"], last_snr)
+                if pending_mac:
+                    print("    queued MAC ans for next uplink:", pending_mac.hex())
+                # ADR/MAC може да е сменил DR/Pwr → sync DISP за OLED
+                DISP["sf"]       = DR_TO_SF[ADR["dr"]]
+                DISP["tx_power"] = ADR["tx_power_dbm"]
+                current_tx_power = ADR["tx_power_dbm"]
+
         fcnt += 1
         save_int(FCNTUP_FILE, fcnt)
         DISP["fcnt"] = fcnt
