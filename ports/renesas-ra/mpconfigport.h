@@ -252,7 +252,15 @@
 #define MICROPY_BOARD_NETWORK_INTERFACES
 #endif
 
+#if defined(MICROPY_HW_ETH_MDC)
+extern const struct _mp_obj_type_t network_lan_type;
+#define MICROPY_HW_NIC_ETH                  { MP_ROM_QSTR(MP_QSTR_LAN), MP_ROM_PTR(&network_lan_type) },
+#else
+#define MICROPY_HW_NIC_ETH
+#endif
+
 #define MICROPY_PORT_NETWORK_INTERFACES \
+    MICROPY_HW_NIC_ETH \
     MICROPY_BOARD_NETWORK_INTERFACES \
 
 // Miscellaneous settings

@@ -232,6 +232,8 @@ SRC_C += \
 	rng.c \
 	mphalport.c \
 	mpnetworkport.c \
+	eth.c \
+	network_lan.c \
 	mpthreadport.c \
 	irq.c \
 	pendsv.c \
@@ -383,6 +385,7 @@ ifeq ($(USE_FSP_ETH), 1)
 CFLAGS += -DUSE_FSP_ETH
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether/r_ether.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether_phy/r_ether_phy.c
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether_phy/targets/ICS1894/r_ether_phy_target_ics1894.c
 endif
 
 # SCE (Secure Crypto Engine) — hardware AES / GCM / CMAC / SHA / TRNG / RSA / ECC.

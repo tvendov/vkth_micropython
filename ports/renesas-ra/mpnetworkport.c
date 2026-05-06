@@ -32,6 +32,11 @@
 
 #include "lwip/timeouts.h"
 
+#if defined(MICROPY_HW_ETH_MDC)
+#include "hal_data.h"
+#include "r_ether_api.h"
+#endif
+
 static mp_sched_node_t network_poll_node;
 static soft_timer_entry_t network_timer;
 
@@ -42,6 +47,19 @@ u32_t sys_now(void) {
 static void network_poll(mp_sched_node_t *node) {
     // Run the lwIP internal updates
     sys_check_timeouts();
+
+    #if defined(MICROPY_HW_ETH_MDC)
+    // Drive Auto-Negotiation and MAC link reconfiguration.  R_ETHER_LinkProcess
+    // is required to be called regularly; without it FSP r_ether's internal
+    // state stays "link not ready" and R_ETHER_Write returns FSP_ERR_ETHER_ERROR_LINK
+    // even though the PHY itself is linked.  Only call once the driver has been
+    // opened (network.LAN().active(True)).
+    extern ether_instance_ctrl_t g_ether0_ctrl;
+    extern bool eth_is_open(void);
+    if (eth_is_open()) {
+        R_ETHER_LinkProcess(&g_ether0_ctrl);
+    }
+    #endif
 
     #if MICROPY_PY_NETWORK_ESP_HOSTED
     extern int esp_hosted_wifi_poll(void);
