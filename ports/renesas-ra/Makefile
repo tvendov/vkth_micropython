@@ -336,6 +336,17 @@ CFLAGS += -DUSE_FSP_QSPI
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_qspi/r_qspi.c
 endif
 
+ifeq ($(USE_FSP_OSPI), 1)
+CFLAGS += -DUSE_FSP_OSPI
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ospi/r_ospi.c
+endif
+
+ifeq ($(USE_FSP_ETH), 1)
+CFLAGS += -DUSE_FSP_ETH
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether/r_ether.c
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether_phy/r_ether_phy.c
+endif
+
 ifeq ($(USE_FSP_SDHI), 1)
 CFLAGS += -DUSE_FSP_SDHI
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_sdhi/r_sdhi.c \
