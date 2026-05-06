@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (44)
+#define VECTOR_DATA_IRQ_COUNT    (45)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -36,6 +36,7 @@ void usbfs_d1fifo_handler(void);
 void usbhs_interrupt_handler(void);
 void usbhs_d0fifo_handler(void);
 void usbhs_d1fifo_handler(void);
+void adc_scan_end_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI6_RXI ((IRQn_Type)0)  /* SCI6 RXI (Received data full) */
@@ -127,6 +128,8 @@ void usbhs_d1fifo_handler(void);
 #define USBHS_FIFO_0_IRQn          ((IRQn_Type)42)  /* USBHS FIFO 0 (DMA transfer request 0) */
 #define VECTOR_NUMBER_USBHS_FIFO_1 ((IRQn_Type)43)  /* USBHS FIFO 1 (DMA transfer request 1) */
 #define USBHS_FIFO_1_IRQn          ((IRQn_Type)43)  /* USBHS FIFO 1 (DMA transfer request 1) */
+#define VECTOR_NUMBER_ADC0_SCAN_END ((IRQn_Type)44)  /* ADC0 SCAN END (A/D scan end interrupt) */
+#define ADC0_SCAN_END_IRQn          ((IRQn_Type)44)  /* ADC0 SCAN END (A/D scan end interrupt) */
 #ifdef __cplusplus
 }
 #endif
