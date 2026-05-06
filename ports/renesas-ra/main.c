@@ -306,12 +306,18 @@ soft_reset:
     // Note: stack control relies on main thread being initialised above
     mp_cstack_init_with_top(&_estack, (char *)&_estack - (char *)&_sstack);
 
-    // GC init
+    // GC init.
+    //
+    // Internal SRAM is the primary GC area: it is fast and serves all the
+    // small, short-lived allocations from the parser, compiler, qstr pools,
+    // network stacks, etc.  OSPI RAM (when present) is registered as a
+    // secondary area and is reached only when an allocation does not fit in
+    // SRAM, which keeps the OSPI pool defragmented and lets a single object
+    // grow to almost the full 8 MB.  board_init() (called from
+    // MICROPY_BOARD_EARLY_INIT) must have placed the OSPI controller into
+    // memory-mapped DOPI mode before this point.
     gc_init(MICROPY_HEAP_START, MICROPY_HEAP_END);
     #if MICROPY_GC_SPLIT_HEAP && MICROPY_HW_HAS_OSPI_RAM
-    // Register the OSPI RAM region as a second GC area. board_init() (called
-    // from MICROPY_BOARD_EARLY_INIT) must have placed the controller into
-    // memory-mapped mode before this point.
     {
         extern uint32_t _ospi_ram_start;
         extern uint32_t _ospi_ram_end;
