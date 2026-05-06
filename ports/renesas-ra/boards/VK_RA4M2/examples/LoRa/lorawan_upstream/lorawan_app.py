@@ -314,6 +314,9 @@ ADR = {
     "rx1_dr_offset":       0,                                # 0 = RX1 DR == TX DR
     # A3: DLChannelReq per-channel RX1 freq override (ch_idx → freq_hz)
     "rx1_freq_override":   {},
+    # B3: DutyCycleReq override (None = ползвай ETSI default per sub-band).
+    # Float fraction (e.g. 0.01 за 1%); сървърът праща MaxDCycle 0..15 → 1/2^N.
+    "duty_cycle_override": None,
 }
 
 
@@ -550,6 +553,129 @@ def apply_rxparamsetup_req(cmd):
 
     status = (rx1_off_ok << 2) | (rx2_dr_ok << 1) | ch_ok
     return bytes([0x05, status])
+
+
+# === B1: LoRa time-on-air calculator (Semtech AN1200.13) ===
+#
+# Връща airtime в ms за даден PHY payload size. Използва се от B2 duty
+# cycle tracker-а, за да знае колко "квота" ще консумира next TX.
+
+def lora_time_on_air_ms(phy_payload_bytes, sf=7, bw_hz=125_000, cr=5,
+                       preamble=8, header=True, crc=True):
+    """LoRa airtime в ms.
+
+    phy_payload_bytes: целия PHY frame (MHDR + MAC payload + MIC).
+      За LoRaWAN uplink = 13 + len(FOpts) + len(FRMPayload).
+    sf: spreading factor (7..12 за SX1262 LoRaWAN)
+    bw_hz: 125_000 за стандартен EU868
+    cr: coding rate denominator 5..8 (4/5..4/8); SX1262 lib ползва cr=5 default
+    preamble: 8 = LoRaWAN default
+    header: True = explicit header (LoRaWAN uplink винаги)
+    crc: True = LoRaWAN default
+
+    Формулата е:
+      T_sym  = 2^SF / BW                    (period of one symbol)
+      T_pre  = (preamble + 4.25) × T_sym    (preamble time)
+      DE     = 1 ако T_sym > 16 ms (low-data-rate optimization), else 0
+      n_pay  = 8 + max(ceil((8×PL - 4×SF + 28 + 16×CRC - 20×H) / (4×(SF - 2×DE))) × CR, 0)
+      T_pay  = n_pay × T_sym
+      T_air  = T_pre + T_pay
+    """
+    t_sym_us = (1 << sf) * 1_000_000 // bw_hz
+    t_pre_us = (preamble * 1000 + 4250) * t_sym_us // 1000     # ×1000 за 0.25 fractional precision
+    de = 1 if t_sym_us > 16_000 else 0
+    cr_val = cr - 4                                            # 5→1 (4/5), 6→2, ...
+    h = 0 if header else 1
+    crc_val = 1 if crc else 0
+    num = 8 * phy_payload_bytes - 4 * sf + 28 + 16 * crc_val - 20 * h
+    den = 4 * (sf - 2 * de)
+    if num <= 0 or den <= 0:
+        n_payload_sym = 8
+    else:
+        ceil_val = (num + den - 1) // den
+        n_payload_sym = 8 + max(ceil_val * (cr_val + 4), 0)
+    t_pay_us = n_payload_sym * t_sym_us
+    t_air_us = t_pre_us + t_pay_us
+    return t_air_us / 1000.0
+
+
+# === B2: ETSI EN 300 220-2 duty cycle tracker per sub-band ===
+#
+# Per-sub-band rolling 1-hour window. Преди всеки TX питаме "колко ms трябва
+# да чакам, за да TX-на `airtime_ms` в тоя sub-band" — 0 = веднага. След TX
+# записваме (timestamp, airtime) в bucket-а на sub-band-а.
+#
+# Не персистира между boots (rolling window се ресетва при reboot — accept-вам
+# small ETSI compliance gap при честа reboot). За production ще трябва NVM-back.
+
+DUTY_CYCLE_WINDOW_MS = 3_600_000                           # 1 hour
+DUTY_CYCLE_WARN_THRESHOLD = 0.8                            # 80% — soft warning
+# Module-level bucket dict: subband_id → list of (ticks_ms, airtime_ms)
+DUTY_CYCLE = {}
+
+
+def freq_to_subband(freq_hz):
+    """ETSI EN 300 220-2 sub-band за EU868 freq.
+
+    Връща (subband_id, default_duty_cycle_fraction).
+    Sub-band-овете релевантни за LoRaWAN EU868 uplink:
+      h1.5 (865-868 MHz) → 1% — typical CFList канали (867.1..867.9)
+      h1.6 (868-868.6)   → 1% — mandatory 868.1/3/5
+      h1.7 (868.7-869.2) → 0.1% — рядко, custom канали
+      h1.8 (869.4-869.65)→ 10% — RX2 (downlink only за нас)
+      h1.9 (869.7-870.0) → 1% — рядко
+    """
+    f = freq_hz
+    if 865_000_000 <= f < 868_000_000:
+        return ("h1.5", 0.01)
+    elif 868_000_000 <= f < 868_600_000:
+        return ("h1.6", 0.01)
+    elif 868_700_000 <= f < 869_200_000:
+        return ("h1.7", 0.001)
+    elif 869_400_000 <= f < 869_650_000:
+        return ("h1.8", 0.10)
+    elif 869_700_000 <= f < 870_000_000:
+        return ("h1.9", 0.01)
+    else:
+        return ("unknown", 0.001)                          # conservative fallback
+
+
+def compute_dc_wait_ms(subband, airtime_ms, duty_pct):
+    """Колко ms да чакаме преди да TX-нем `airtime_ms` в subband.
+
+    Връща 0 ако може веднага. Caller трябва да повтори check след `await
+    sleep_ms(wait_ms)`, защото освобождаването на капацитет идва на стъпки.
+    """
+    now = time.ticks_ms()
+    quota_ms = int(duty_pct * DUTY_CYCLE_WINDOW_MS)
+
+    # Cleanup expired entries (>1h ago)
+    entries = DUTY_CYCLE.get(subband, [])
+    fresh = [(t, a) for t, a in entries
+             if time.ticks_diff(now, t) <= DUTY_CYCLE_WINDOW_MS]
+    DUTY_CYCLE[subband] = fresh
+
+    used = sum(a for _, a in fresh)
+    if used + airtime_ms <= quota_ms:
+        if used >= DUTY_CYCLE_WARN_THRESHOLD * quota_ms:
+            print("  duty cycle [%s] warn: %d/%d ms used (%.0f%%)" %
+                  (subband, used, quota_ms, 100 * used / quota_ms))
+        return 0
+
+    # Не пасва — намери oldest entry, чакаме да изтече от window-а.
+    if not fresh:
+        return 0                                           # edge: quota по-малък от единичен airtime
+    fresh.sort(key=lambda e: time.ticks_diff(now, e[0]), reverse=True)  # oldest first
+    oldest_t = fresh[0][0]
+    elapsed = time.ticks_diff(now, oldest_t)
+    wait_ms = DUTY_CYCLE_WINDOW_MS - elapsed + 100         # +100 ms tiny buffer
+    return max(100, wait_ms)
+
+
+def record_tx(subband, airtime_ms):
+    """Записва TX event в duty cycle bucket-а."""
+    now = time.ticks_ms()
+    DUTY_CYCLE.setdefault(subband, []).append((now, airtime_ms))
 
 
 def apply_dlchannel_req(cmd):
@@ -1327,10 +1453,28 @@ async def main():
             print("  set freq/sf err:", e)
         DISP["sf"] = cur_sf
 
+        # === B1+B2: airtime + ETSI duty cycle check ===
+        # PHY frame size = MHDR(1) + DevAddr(4) + FCtrl(1) + FCnt(2) + FOpts(N)
+        #                + FPort(1) + FRMPayload(M) + MIC(4) = 13 + N + M
+        phy_size = 13 + len(pending_mac) + len(payload)
+        airtime_ms = lora_time_on_air_ms(phy_size, sf=cur_sf, bw_hz=int(BW * 1000))
+        subband, default_dc = freq_to_subband(tx_freq_hz)
+        effective_dc = ADR["duty_cycle_override"] if ADR["duty_cycle_override"] else default_dc
+        # Loop: чакаме капацитет да освободи. Каждое изтичане на стар entry
+        # отваря квота с airtime от тoгава; може да трябва няколко итерации.
+        while True:
+            wait_ms = compute_dc_wait_ms(subband, airtime_ms, effective_dc)
+            if wait_ms <= 0:
+                break
+            print("  [%s] duty cycle full → defer %d ms (airtime=%.1f ms)" %
+                  (subband, wait_ms, airtime_ms))
+            await asyncio.sleep_ms(wait_ms)
+
         confirmed = (CONFIRMED_EVERY > 0) and (fcnt % CONFIRMED_EVERY == 0) and (fcnt > 0)
         kind = "Confirmed" if confirmed else "Unconfirmed"
         info = "temp=%.2f°C relay=%d" % (temp_c100 / 100.0, relay_state)
-        ch_info = "ch=%.3f MHz DR%d" % (tx_freq_hz / 1e6, ADR["dr"])
+        ch_info = "ch=%.3f MHz DR%d %s air=%.1fms" % (
+            tx_freq_hz / 1e6, ADR["dr"], subband, airtime_ms)
         if pending_mac:
             print("[FCnt=%d %s %s] %s + FOpts=%s" %
                   (fcnt, kind, ch_info, info, pending_mac.hex()))
@@ -1339,6 +1483,9 @@ async def main():
         try:
             send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x02, payload,
                         fopts=pending_mac, confirmed=confirmed)
+            # B2: запиши airtime ВЕДНАГА след send_uplink — преди RX1/RX2,
+            # защото те не са TX (само RX). Failure path → не записваме.
+            record_tx(subband, airtime_ms)
             pending_mac = b""                    # consumed; ще се преинит-ва от downlink
             dl = await listen_rx1(sx, devaddr, nwkskey, appskey)
             if dl is None:
