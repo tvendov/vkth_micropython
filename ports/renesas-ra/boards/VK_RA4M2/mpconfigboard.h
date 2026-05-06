@@ -12,9 +12,8 @@
 #define MICROPY_EMIT_INLINE_THUMB   (1)
 #define MICROPY_PY_BUILTINS_COMPLEX (1)
 // AES за LoRaWAN MIC (CMAC) и payload encryption (CTR).
-// MICROPY_SSL_AXTLS се дефинира в Makefile (-D) за да избегнем redefine warning.
-#define MICROPY_PY_CRYPTOLIB        (1)
-#define MICROPY_PY_CRYPTOLIB_CTR    (1)
+// MICROPY_PY_CRYPTOLIB / _CTR / MICROPY_SSL_AXTLS се подават от Makefile (-D)
+// под единния превключвател MICROPY_HW_ENABLE_LORA в mpconfigboard.mk.
 #define MICROPY_PY_GENERATOR_PEND_THROW (1)
 #define MICROPY_PY_MATH             (1)
 #define MICROPY_PY_HEAPQ            (1)
@@ -25,7 +24,7 @@
 // peripheral config
 #define MICROPY_HW_ENABLE_RNG       (1)     // SCE9 hardware RNG + AES (LoRaWAN)
 #define MICROPY_HW_ENABLE_RTC       (1)
-#define MICROPY_HW_RTC_SOURCE       (1)     // 0: subclock, 1:LOCO (32.768khz)
+#define MICROPY_HW_RTC_SOURCE       (0)     // 0: subclock (SOSC 32.768 kHz crystal), 1: LOCO (RC ~32 kHz)
 #define MICROPY_HW_ENABLE_ADC       (1)
 #ifndef MICROPY_HW_ENABLE_DAC
 #define MICROPY_HW_ENABLE_DAC       (1)
@@ -33,9 +32,8 @@
 #ifndef MICROPY_HW_ENABLE_TOUCHPAD
 #define MICROPY_HW_ENABLE_TOUCHPAD  (1)
 #endif
-#ifndef MICROPY_HW_ENABLE_DSP
-#define MICROPY_HW_ENABLE_DSP       (1)
-#endif
+// MICROPY_HW_ENABLE_DSP се дефинира от Makefile (-D) на база
+// MICROPY_HW_ENABLE_DSP в mpconfigboard.mk. Mпре-дефинирай тук — единен превключвател.
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_USBDEV    (1)
 #define MICROPY_HW_USB_CDC          (1)

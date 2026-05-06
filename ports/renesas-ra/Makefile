@@ -260,7 +260,6 @@ SRC_C += \
 	machine_sdcard.c \
 	modaudiomixer.c \
 	modrenesas.c \
-	modaes_cmac.c \
 		moddataflash.c \
 	extint.c \
 	usrsw.c \
@@ -282,14 +281,53 @@ ifeq ($(MICROPY_SSL_MBEDTLS),1)
 LIB_SRC_C += mbedtls/mbedtls_port.c
 endif
 
+# LoRa/LoRaWAN — single selector switch.
+# Source of truth: MICROPY_HW_LORA_STACK in boards/<BOARD>/mpconfigboard.mk.
+# Allowed values: python | renesas | none.
+#   python  : freeze micropySX126X + GereZoltan/LoRaWAN modules,
+#             modaes_cmac.c, axTLS AES backend (current default).
+#   renesas : build the Renesas C LoRaMac-node stack from ports/renesas-ra/lorawan/
+#             (skeleton in Phase 0). Mutually exclusive with python.
+#   none    : no LoRa support at all.
+#
+# Backward compat: legacy MICROPY_HW_ENABLE_LORA=1 (no STACK set) maps to
+#                  MICROPY_HW_LORA_STACK=python. Existing builds are
+#                  unaffected when neither variable is changed.
+MICROPY_HW_ENABLE_LORA ?= 0
+ifeq ($(MICROPY_HW_LORA_STACK),)
+ifeq ($(MICROPY_HW_ENABLE_LORA),1)
+MICROPY_HW_LORA_STACK := python
+else
+MICROPY_HW_LORA_STACK := none
+endif
+endif
+ifeq ($(filter $(MICROPY_HW_LORA_STACK),python renesas none),)
+$(error Unknown MICROPY_HW_LORA_STACK '$(MICROPY_HW_LORA_STACK)' — must be python|renesas|none)
+endif
+export MICROPY_HW_ENABLE_LORA
+export MICROPY_HW_LORA_STACK
+CFLAGS += -DMICROPY_HW_ENABLE_LORA=$(MICROPY_HW_ENABLE_LORA)
+
+# --- python stack (legacy frozen modules + AES-CMAC + axTLS) ---------------
+ifeq ($(MICROPY_HW_LORA_STACK),python)
+SRC_C += modaes_cmac.c
 # axTLS AES backend за cryptolib (за LoRaWAN на VK_RA4M2).
 # ra/os_port.h е минимален shim — препокрива стандартния axtls os_port.h
 # чрез -Ira (търси се преди lib/axtls/ssl). Така избягваме зависимостите
 # на пълния axtls_os_port.h (lwIP / arpa/inet.h / SSL stack).
 LIB_SRC_C += lib/axtls/crypto/aes.c
 CFLAGS += -DMICROPY_SSL_AXTLS=1
+CFLAGS += -DMICROPY_PY_CRYPTOLIB=1 -DMICROPY_PY_CRYPTOLIB_CTR=1
 CFLAGS += -Ira -I$(TOP)/lib/axtls/crypto
 CFLAGS += -Wno-all -Wno-unused-parameter -Wno-uninitialized -Wno-sign-compare -Wno-old-style-definition
+endif
+
+# --- renesas stack (C LoRaMac-node fork, FSP 4.4 glue) --------------------
+# All sources live under ports/renesas-ra/lorawan/. The fragment is fully
+# additive — does not touch the python-stack block above.
+ifeq ($(MICROPY_HW_LORA_STACK),renesas)
+include lorawan/lorawan.mk
+endif
 
 ifeq ($(MICROPY_PY_BLUETOOTH),1)
 SRC_C += mpbthciport.c
@@ -345,6 +383,30 @@ ifeq ($(USE_FSP_ETH), 1)
 CFLAGS += -DUSE_FSP_ETH
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether/r_ether.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether_phy/r_ether_phy.c
+endif
+
+# SCE (Secure Crypto Engine) — hardware AES / GCM / CMAC / SHA / TRNG / RSA / ECC.
+# Disabled by default.  To enable, set USE_FSP_SCE=1 in the board's
+# mpconfigboard.mk and supply ra_cfg/fsp_cfg/r_sce_cfg.h plus a board-level
+# call to R_SCE_Open() (see book chapter on hardware AES integration).
+# Selects the per-MCU plain-key driver tree under r_sce/crypto_procedures/.
+USE_FSP_SCE ?= 0
+ifeq ($(USE_FSP_SCE), 1)
+CFLAGS += -DUSE_FSP_SCE
+SCE_DIR_BASE = $(HAL_DIR)/ra/fsp/src/r_sce
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M2))
+SCE_PLAINKEY_DIR = $(SCE_DIR_BASE)/crypto_procedures/src/sce5/plainkey
+endif
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA6M5))
+SCE_PLAINKEY_DIR = $(SCE_DIR_BASE)/crypto_procedures/src/sce9/plainkey
+endif
+HAL_SRC_C += $(wildcard $(SCE_PLAINKEY_DIR)/adaptors/*.c)
+HAL_SRC_C += $(wildcard $(SCE_PLAINKEY_DIR)/primitive/*.c)
+HAL_SRC_C += $(wildcard $(SCE_PLAINKEY_DIR)/private/*.c)
+HAL_SRC_C += $(wildcard $(SCE_PLAINKEY_DIR)/public/*.c)
+INC += -I$(TOP)/$(SCE_PLAINKEY_DIR)/private/inc
+INC += -I$(TOP)/$(SCE_PLAINKEY_DIR)/public/inc
+INC += -I$(TOP)/$(SCE_DIR_BASE)
 endif
 
 ifeq ($(USE_FSP_SDHI), 1)
@@ -423,10 +485,13 @@ HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ctsu/r_ctsu.c
 HAL_SRC_C += $(addprefix ra/,ra_ctsu.c)
 endif
 
-# CMSIS-DSP support (FIR, IIR biquad, RMS) — requires lib/cmsis-dsp submodule
+# CMSIS-DSP support (FIR, IIR biquad, RMS) — requires lib/cmsis-dsp submodule.
+# Single source of truth: MICROPY_HW_ENABLE_DSP in boards/<BOARD>/mpconfigboard.mk
+# (default 0). The -D is always passed so .c sources see a defined macro.
+MICROPY_HW_ENABLE_DSP ?= 0
+CFLAGS += -DMICROPY_HW_ENABLE_DSP=$(MICROPY_HW_ENABLE_DSP)
 ifeq ($(MICROPY_HW_ENABLE_DSP),1)
 CMSIS_DSP_DIR = $(TOP)/lib/cmsis-dsp
-CFLAGS += -DMICROPY_HW_ENABLE_DSP=1
 CFLAGS += -DARM_MATH_CM33 -DARM_DSP_ATTRIBUTE= -DDISABLEFLOAT16
 INC += -I$(CMSIS_DSP_DIR)/Include
 INC += -I$(CMSIS_DSP_DIR)/PrivateInclude
