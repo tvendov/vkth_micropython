@@ -1,8 +1,14 @@
-# LoRaWAN end-node за VK_RA4M2 + Wio-SX1262 + TTN
+# LoRaWAN end-node за VK_RA4M2 + Wio-SX1262 (TTN / ChirpStack EU868)
 
-Class-A OTAA LoRaWAN устройство върху MicroPython, регистрирано в **The
-Things Network** (EU868). End-to-end: OTAA join → AES-CTR encrypted uplinks
-→ RX1/RX2 downlink с MAC dialogue + app commands → WS2812 индикация.
+Class-A OTAA LoRaWAN устройство върху MicroPython. End-to-end: OTAA join
++ CFList → multi-channel (3..8 ch) round-robin TX → AES-CTR encrypted
+uplinks → RX1/RX2 downlink с MAC dialogue + ADR (LinkADRReq реално
+сменя SF/Pwr/ChMask) + app commands → WS2812 индикация.
+
+Тестван и с **TTN single-channel gateway** (slot 868.1 SF7, EU_863_870_TTN
+plan), и с **реален multi-channel gateway** (SenseCAP M2 + ChirpStack).
+SCG fallback се активира с `EU868_DEFAULT_CHANNELS_HZ = [868_100_000]` +
+`DEFAULT_RX1_DELAY_MS = 5000`.
 
 ## Какво има тук
 
@@ -134,26 +140,37 @@ mpremote connect COM18 run lorawan_app.py
 
 ```
 ==================================================
-VK_RA4M2 LoRaWAN end-node (TTN, EU868 SF7)
+VK_RA4M2 LoRaWAN end-node (EU868 multi-channel)
 ==================================================
+ADR: DR5 (SF7) Pwr=idx0 (+14dBm) ChMask=0x07 (3 ch) RX1=1000ms NbTrans=1
+Channels: 868.100, 868.300, 868.500
 Radio OK
-OTAA join (DevNonce=100)...
-  joined: DevAddr=260b8d37
-[FCnt=0 Unconfirmed] temp=20.25°C button=1 relay=0 + FOpts=0d
+OTAA join (DevNonce=100, freq=868.100 MHz SF7)...
+  CFList +867.100 MHz
+  CFList +867.300 MHz
+  CFList +867.500 MHz
+  CFList +867.700 MHz
+  CFList +867.900 MHz
+  joined: DevAddr=260b8d37 RX1delay=1s channels=8
+[FCnt=0 Unconfirmed ch=868.100 MHz DR5] temp=20.25°C relay=0 + FOpts=0d
   *** RX1 downlink RSSI=-49 SNR=12.5 FCnt=0 FPort=2
     *** UTC time from TTN: 2026-05-02 00:20:24.664
     relay → OFF (зелено)
     MAC cmds: [('DeviceTimeAns', '...'), ('LinkADRReq', '...')]
-    queued MAC ans for next uplink: 0300
-[FCnt=1 Unconfirmed] temp=20.50°C button=0 relay=0 + FOpts=0300
+    LinkADR applied: DR=5 (SF7) Pwr=1 (+12dBm) ChMask=0xFF NbTrans=1
+[FCnt=1 Unconfirmed ch=868.300 MHz DR5] temp=20.50°C relay=0 + FOpts=03070
+[FCnt=2 Unconfirmed ch=868.500 MHz DR5] temp=20.75°C relay=0
+[FCnt=3 Unconfirmed ch=867.100 MHz DR5] temp=21.00°C relay=0
 ...
 ```
 
-### Всеки следващ boot (с запазена session в `/flash/lw_session.dat`)
+### Всеки следващ boot (с запазена session)
 
 ```
+ADR: DR5 (SF7) Pwr=idx1 (+12dBm) ChMask=0xFF (8 ch) RX1=1000ms NbTrans=1
+Channels: 868.100, 868.300, 868.500, 867.100, 867.300, 867.500, 867.700, 867.900
 Loaded session: DevAddr=260b8d37 FCnt=58
-[FCnt=58 Unconfirmed] temp=20.25°C button=1 relay=0
+[FCnt=58 Unconfirmed ch=867.500 MHz DR5] temp=20.25°C relay=0
 ...
 ```
 
@@ -177,14 +194,17 @@ byte 2      button   uint8 (sim toggle: 10s on, 10s off)
 | 2 | App command: `byte[0]` = 0/1 → `set_relay(off/on)` → WS2812 зелен/червен |
 | други | Печата decoded text/hex |
 
-### MAC dialogue (auto-handled)
+### MAC dialogue (auto-handled, EU868 multi-channel + ADR full path)
 
 | Server cmd | Нашият отговор |
 |-----------|---------------|
 | `DevStatusReq` | `DevStatusAns(battery=255, margin=last_snr)` |
-| `LinkADRReq` | `LinkADRAns(0, 0, 0)` — отхвърляме (single-channel SF7 gateway) |
-| `RXTimingSetupReq` | `RXTimingSetupAns` (empty) |
+| `LinkADRReq` | `LinkADRAns(pwr_ack, dr_ack, chmask_ack)` — реално превключваме SF/Pwr/ChMask и persist-ваме (`/flash/lw_dr.dat`, `/flash/lw_pwridx.dat`, `/flash/lw_chmask.dat`, `/flash/lw_nbtrans.dat`) |
+| `RXTimingSetupReq` | `RXTimingSetupAns` + сменяме RX1 delay → `/flash/lw_rx1delay.dat` |
+| `NewChannelReq` | `NewChannelAns(both ack)` + добавяме freq в `active_channels` → `/flash/lw_channels.dat` |
 | `DeviceTimeAns` | Decode → UTC print |
+| `JoinAccept` CFList | До 5 extra канала се append-ват към `active_channels` (типично 867.1/3/5/7/9 за EU868) |
+| `JoinAccept` RXDelay | Override-ва `rx1_delay_ms` при join |
 
 ### DeviceTimeReq (наша инициатива)
 
@@ -200,9 +220,17 @@ byte 2      button   uint8 (sim toggle: 10s on, 10s off)
 
 | File | Съдържание |
 |------|-----------|
-| `/flash/lw_devnonce.dat` | Last DevNonce (анти-replay) |
-| `/flash/lw_session.dat` | DevAddr (4) + NwkSKey (16) + AppSKey (16) |
-| `/flash/lw_fcntup.dat` | Last FCntUp |
+| `/flash/lw_devnonce.dat`  | Last DevNonce (анти-replay) |
+| `/flash/lw_session.dat`   | DevAddr (4) + NwkSKey (16) + AppSKey (16) |
+| `/flash/lw_fcntup.dat`    | Last FCntUp |
+| `/flash/lw_dr.dat`        | Current DR (LinkADRReq → SF map) |
+| `/flash/lw_pwridx.dat`    | Current LoRaWAN power index (0..7) |
+| `/flash/lw_chmask.dat`    | LinkADRReq ChMask (per-bit channel enable) |
+| `/flash/lw_channels.dat`  | Extra channels от CFList/NewChannelReq (CSV Hz) |
+| `/flash/lw_rx1delay.dat`  | RX1 delay (ms) — RXTimingSetupReq override |
+| `/flash/lw_nbtrans.dat`   | NbTrans от LinkADRReq (за future confirmed retry) |
+| `/flash/lw_txpower.dat`   | Manual TX power index (button cycle) |
+| `/flash/lw_interval.dat`  | Manual uplink interval index (button cycle) |
 
 ## Тестване от TTN Console
 
@@ -231,28 +259,90 @@ relay → ON (червено)
 ## Конфигурация (top-of-file константи в `lorawan_app.py`)
 
 ```python
-UPLINK_INTERVAL_S = 60     # за production, 10 е test-only (TTN FUP!)
-FREQ_MHZ          = 868.1
-SF                = 7
-RX2_FREQ_MHZ      = 869.525  # EU868 default RX2
+EU868_DEFAULT_CHANNELS_HZ = [868_100_000, 868_300_000, 868_500_000]
+RX2_FREQ_MHZ      = 869.525    # EU868 default RX2
 RX2_SF            = 12
-CONFIRMED_EVERY   = 5        # 0=никога; 5=всеки 5-ти; 1=винаги
+DEFAULT_DR        = 5          # SF7 (DR0=SF12, ..., DR5=SF7)
+DEFAULT_PWR_IDX   = 0          # +14 dBm (idx 0..7 → 14..0 dBm)
+DEFAULT_RX1_DELAY_MS = 1000    # ChirpStack default; TTN ползва 5000
+CONFIRMED_EVERY   = 5          # 0=никога; 5=всеки 5-ти; 1=винаги
 ASK_DEVICE_TIME_AT_START = True
 ```
 
-⚠ **TTN Fair Use Policy** = 30 s airtime/device/day. При SF7 + 6-byte
-payload и `UPLINK_INTERVAL_S = 10`, дневен airtime ≈ 484 s → **16× над
-FUP**. За дългосрочна работа: 5+ минути interval.
+### SCG fallback (TTN single-channel gateway)
+
+За работа с TTN single-channel gateway (1 канал, SF7 only) →
+
+```python
+EU868_DEFAULT_CHANNELS_HZ = [868_100_000]   # само ch 0
+DEFAULT_RX1_DELAY_MS      = 5000             # TTN
+```
+
+В този режим LinkADRReq за DR≠5 ще rejectne (SF mismatch с gateway-а),
+а CFList добавените канали ще се изпускат на TX (gateway не слуша).
+
+### Multi-channel (ChirpStack + SenseCAP M2 / реални gateway-и)
+
+Default config — 3 mandatory ch с round-robin hop, CFList add-ва още до
+5 канала ако сървърът ги изпрати. ADR работи end-to-end: server-ът
+optimizira SF/Pwr спрямо link budget; device-ът се адаптира.
+
+⚠ **EU868 1% duty cycle на g1 sub-band** — при default 10s интервал и
+3 канала: ~0.15% / канал, well below limit. При 2s интервал — 0.77% /
+канал, still below limit но близо до. SCG режим (1 канал) → 2s = 2.3%
+violation; ползвай ≥10s в SCG mode.
+
+## Setup за ChirpStack + SenseCAP M2
+
+ChirpStack (https://www.chirpstack.io/) — open-source LoRaWAN Network
+Server. SenseCAP M2 — реален 8-канален EU868 gateway (Semtech SX1302).
+
+### 1. Регистрирай device в ChirpStack
+
+Application → Add device:
+
+| Поле | Стойност |
+|------|---------|
+| **Device profile** | Class A, **MAC version 1.0.3**, Region EU868 |
+| **OTAA / ABP** | OTAA |
+| **DevEUI** | същото като в Data Flash credentials |
+| **JoinEUI / AppKey** | същите като в Data Flash credentials |
+| **RX1 delay** | 1 s (ChirpStack default; ако смениш → device чрез RXTimingSetupReq |
+| **ADR** | enabled |
+
+### 2. Конфигурирай SenseCAP M2
+
+M2 config-а (ChirpStack-Gateway-Bridge или Semtech UDP packet forwarder)
+трябва да сочи към ChirpStack сървъра ти. Frequency plan = `EU868`
+(8 channel sub-band 1 + downlink канал на 869.525 SF12).
+
+### 3. Стартирай device-а — ще видиш в ChirpStack live frame log:
+
+```
+JoinRequest  on  868.1 MHz SF7   (ch 0 mandatory)
+JoinAccept   с  CFList → +5 канала добавени
+[FCnt=0 ch=868.500 MHz DR5] DeviceTime + LinkADR conversation
+[FCnt=1 ch=868.300 MHz DR5] ...                  # round-robin hop
+[FCnt=2 ch=868.100 MHz DR5] ...
+[FCnt=3 ch=867.100 MHz DR5] ...                  # CFList added
+...
+```
+
+ADR ще конвергира до оптимален DR/Pwr за 10-20 uplink-а.
 
 ## Troubleshooting
 
 | Симптом | Причина | Поправка |
 |---------|---------|----------|
 | `OTAA join: no JoinAccept` | DevEUI/JoinEUI/AppKey грешни, или DevNonce ≤ предишен | Провери credentials, ресет `/flash/lw_devnonce.dat` |
-| `DevNonce was used before` (TTN log) | TTN не е виждал по-малки nonce-ове | DevNonce минимум = 100, инкремент при retry |
-| Никакъв downlink | Single-channel SF7 gateway? Антена? | Виж RSSI/SNR в TTN; провери gateway live data |
+| `DevNonce was used before` (TTN/ChirpStack log) | сървърът не е виждал по-малки nonce-ове | DevNonce минимум = 100, инкремент при retry |
+| Никакъв downlink | Single-channel SF7 gateway? Антена? | Виж RSSI/SNR в console-а; провери gateway live data |
+| `LinkADR rejected: dr_ack=0` | сървърът пита DR извън 0..5 (DR6=SF7BW250, DR7=FSK не поддържаме) | Disable DR6/DR7 в device profile-а |
+| `LinkADR rejected: chmask_ack=0` | ChMaskCntl 1..5 или 7 — не поддържаме | За EU868 simple ChMaskCntl=0 трябва да е достатъчно (≤8 канала) |
+| Round-robin hop иска канал, който gateway не слуша | partial coverage (например M2 само sub-band 1) | Disable канала в device profile-а → LinkADRReq ChMask ще го mask-не |
 | WS2812 не светва | P500 power off, грешен pin | Виж `examples/ws2812_sci_test.py` |
 | `MIC mismatch` в downlink parse | Session keys невалидни (rejoin) | `os.remove("/flash/lw_session.dat")` → ще rejoin-не |
+| ADR не конвергира | Малко uplink-ове, или RSSI margin тесен | По-чест uplink (10s ≤ interval), или disable ADR в device profile |
 
 ## Лицензи
 
