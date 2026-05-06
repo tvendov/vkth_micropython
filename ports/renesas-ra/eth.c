@@ -226,8 +226,35 @@ void ETH_IRQHandler(ether_callback_args_t *p_args) {
 
 // ------------------------------------------------------------------------------
 
+// Derive a stable, locally-administered MAC from the MCU's 16-byte unique ID.
+// Bit 1 of the first byte = 1 (LAA), bit 0 = 0 (unicast).  The remaining 5
+// octets are folded down from all 16 UID bytes by XOR so any change in the
+// UID produces a different MAC.  The same chip always yields the same MAC.
+static void eth_set_mac_from_uid(uint8_t mac[6]) {
+    extern void get_unique_id(uint8_t *id);
+    uint8_t uid[16];
+    get_unique_id(uid);
+    mac[0] = 0x02;                      // locally-administered, unicast
+    for (int i = 1; i < 6; ++i) {
+        mac[i] = 0;
+    }
+    for (int i = 0; i < 16; ++i) {
+        mac[1 + (i % 5)] ^= uid[i];
+    }
+    // Avoid the all-zero case (UID never zero on real silicon, but keep guard).
+    if ((mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) == 0) {
+        mac[5] = 0x01;
+    }
+}
+
 void eth_init(eth_t *self, int mac_idx) {
     fsp_err_t err;
+
+    // Populate the EDMAC MAC address from the chip's unique ID before opening
+    // the driver, so that R_ETHER_Open programs the right value into the MAC
+    // filter registers.  g_ether0_cfg.p_mac_address is a const uint8_t * to
+    // the writable g_ether0_mac_address[] buffer in hal_data.c.
+    eth_set_mac_from_uid((uint8_t *)g_ether0_cfg.p_mac_address);
 
     mp_hal_pin_output(phy_RST);
 
@@ -237,8 +264,7 @@ void eth_init(eth_t *self, int mac_idx) {
     mp_hal_delay_us(200);
 
     if ((err = R_ETHER_Open(&g_ether0_ctrl, &g_ether0_cfg)) == FSP_SUCCESS) {
-        self->netif.hwaddr_len = 6;         // self->netif.
-        // mp_hal_get_mac(mac_idx, &self->netif.hwaddr[0]);
+        self->netif.hwaddr_len = 6;
         memcpy(self->netif.hwaddr, g_ether0_cfg.p_mac_address, self->netif.hwaddr_len);
         eth_open = true;
     }
