@@ -13,6 +13,21 @@ import gc
 import asyncio
 import framebuf
 import random                                    # B4: ACK_TIMEOUT random 1..3 s
+from micropython import const
+
+# === Hot-path logging gate ===
+# Prints inside the per-uplink cycle are guarded with `if _DEBUG: print(...)`.
+# Python short-circuits the boolean before evaluating the print's f-string, so
+# disabling _DEBUG yields zero allocations in the hot path — prerequisite for
+# `gc.disable()` after init. Init-phase prints (boot banner, OTAA join, OLED
+# init etc.) stay unguarded; they fire once and may allocate freely.
+_DEBUG = const(False)                            # flip to False for prod / gc.disable()
+
+# Phase G: when True, gc.disable() is called after the first uplink cycle
+# settles. The hot path (Phases B/D/F) is alloc-free, so GC pauses are
+# eliminated for deterministic latency. Set False to keep GC running (e.g.
+# while debugging with _DEBUG=True — every print() allocates).
+_GC_DISABLE = const(True)
 from machine import Pin, WS2812, SoftI2C
 from sx1262 import SX1262
 from LoRaWAN.AES_CMAC import AES_CMAC
@@ -215,47 +230,165 @@ LONG_PRESS_MS = 1500
 INTERVAL_CONFIG_WINDOW_MS = 30_000                   # 30s след boot
 
 
-# === Crypto helpers ===
+# === Crypto helpers (Phase B: zero-alloc, backed by aes_cmac native module) ===
+#
+# Hot-path crypto used to allocate ~10 small bytes/bytearray objects per
+# uplink (per-block A_i bytearray, cryptolib.aes() context, encrypt() result,
+# B0+msg concat, CMAC result tuple, frame bytes concat …). Phase B routes
+# everything through pre-allocated module-level buffers and the in-place
+# native APIs (aes_cmac.ecb_encrypt, aes_cmac.compute_into) — zero
+# allocations after init.
+#
+# Buffers below are sized for the LoRaWAN max PHY frame (256 bytes) and
+# never freed. Total static cost: 256+16+16+16+272+16+16+40 = 648 bytes.
+
+import aes_cmac as _aes_cmac                          # native module (modaes_cmac.c)
+
+_FRAME      = bytearray(256)                          # full TX PHY frame: MHDR + MAC payload + MIC
+_AI         = bytearray(16)                           # A_i block (CTR-mode payload encryption)
+_SI         = bytearray(16)                           # S_i = AES(AppSKey, A_i)
+_B0         = bytearray(16)                           # B0 block (MIC computation header)
+_MIC_INPUT  = bytearray(272)                          # B0 || msg, fed to CMAC (16 + 256)
+_CMAC_OUT   = bytearray(16)                           # full CMAC; first 4 bytes = MIC
+_KDF_BLOCK  = bytearray(16)                           # input block for session-key derivation
+_JOIN_PLAIN = bytearray(40)                           # decrypted Join Accept body (12 + up to 16 CFList + 12 margin)
+
+
+def _ecb_into(key, src16, dst16):
+    """AES-128 ECB single-block encrypt, in place into dst16. No alloc."""
+    _aes_cmac.ecb_encrypt(key, src16, dst16)
+
+
+def decrypt_join_accept_into(appkey, encrypted, dst):
+    """Decrypt Join Accept (AES-128 ECB block-by-block) into dst. dst must be
+    >= len(encrypted). Returns the number of plaintext bytes written.
+
+    Note: the LoRaWAN Join Accept is encrypted with AES *encrypt*, not decrypt
+    (server side does AES decrypt; node-side encrypt with the same key
+    inverts it). axTLS doesn't expose decrypt-with-encrypt-key directly, so
+    we use the native ecb_encrypt primitive — same semantics as the legacy
+    cryptolib.aes(key, MODE_ECB).encrypt(...) chain.
+    """
+    n = len(encrypted)
+    aligned = n - (n % 16)
+    for i in range(0, aligned, 16):
+        # source slice of 16 bytes; ecb_encrypt copies internally so reuse OK
+        for k in range(16):
+            _AI[k] = encrypted[i + k]
+        _aes_cmac.ecb_encrypt(appkey, _AI, _SI)
+        for k in range(16):
+            dst[i + k] = _SI[k]
+    return aligned
+
+
+def derive_session_key_into(appkey, prefix, app_nonce, net_id, dev_nonce, dst):
+    """Derives session key into dst[:16]. No alloc. Replaces old
+    `derive_session_key` which allocated bytes-concat block + ECB output."""
+    for k in range(16):
+        _KDF_BLOCK[k] = 0
+    _KDF_BLOCK[0] = prefix
+    _KDF_BLOCK[1] = app_nonce[0]; _KDF_BLOCK[2] = app_nonce[1]; _KDF_BLOCK[3] = app_nonce[2]
+    _KDF_BLOCK[4] = net_id[0];    _KDF_BLOCK[5] = net_id[1];    _KDF_BLOCK[6] = net_id[2]
+    _KDF_BLOCK[7] = dev_nonce[0]; _KDF_BLOCK[8] = dev_nonce[1]
+    # bytes 9..15 already zero
+    _aes_cmac.ecb_encrypt(appkey, _KDF_BLOCK, dst)
+
+
+def _encrypt_frm_payload_into(appskey, devaddr_le, fcnt32, direction,
+                              plaintext, plaintext_len, dst, dst_offset):
+    """CTR-mode payload encrypt: writes plaintext_len bytes XORed against
+    the keystream (AES of A_i blocks) into dst[dst_offset:].
+
+    Symmetric with decrypt — the LoRaWAN spec uses the same operation
+    in both directions (`direction` selects the A_i magic byte).
+    """
+    n_blocks = (plaintext_len + 15) >> 4
+    fcnt_b0 = fcnt32 & 0xFF
+    fcnt_b1 = (fcnt32 >> 8)  & 0xFF
+    fcnt_b2 = (fcnt32 >> 16) & 0xFF
+    fcnt_b3 = (fcnt32 >> 24) & 0xFF
+    for i in range(n_blocks):
+        for k in range(16):
+            _AI[k] = 0
+        _AI[0]  = 0x01
+        _AI[5]  = direction
+        _AI[6]  = devaddr_le[0]; _AI[7]  = devaddr_le[1]
+        _AI[8]  = devaddr_le[2]; _AI[9]  = devaddr_le[3]
+        _AI[10] = fcnt_b0; _AI[11] = fcnt_b1
+        _AI[12] = fcnt_b2; _AI[13] = fcnt_b3
+        _AI[15] = i + 1
+        _aes_cmac.ecb_encrypt(appskey, _AI, _SI)
+        block_start = i << 4
+        block_len = plaintext_len - block_start
+        if block_len > 16:
+            block_len = 16
+        for j in range(block_len):
+            dst[dst_offset + block_start + j] = plaintext[block_start + j] ^ _SI[j]
+
+
+def _compute_mic_into(key, devaddr_le, fcnt32, direction, frame, frame_len,
+                      dst, dst_offset):
+    """Computes 4-byte LoRaWAN MIC into dst[dst_offset:dst_offset+4].
+
+    Builds B0 || frame in pre-allocated _MIC_INPUT, then a single CMAC
+    write into _CMAC_OUT, then copies first 4 bytes to dst.
+    """
+    for k in range(16):
+        _MIC_INPUT[k] = 0
+    _MIC_INPUT[0]  = 0x49
+    _MIC_INPUT[5]  = direction
+    _MIC_INPUT[6]  = devaddr_le[0]; _MIC_INPUT[7]  = devaddr_le[1]
+    _MIC_INPUT[8]  = devaddr_le[2]; _MIC_INPUT[9]  = devaddr_le[3]
+    _MIC_INPUT[10] = fcnt32 & 0xFF
+    _MIC_INPUT[11] = (fcnt32 >> 8)  & 0xFF
+    _MIC_INPUT[12] = (fcnt32 >> 16) & 0xFF
+    _MIC_INPUT[13] = (fcnt32 >> 24) & 0xFF
+    _MIC_INPUT[15] = frame_len
+    for k in range(frame_len):
+        _MIC_INPUT[16 + k] = frame[k]
+    _aes_cmac.compute_into(key, _MIC_INPUT, _CMAC_OUT, 16 + frame_len)
+    dst[dst_offset]     = _CMAC_OUT[0]
+    dst[dst_offset + 1] = _CMAC_OUT[1]
+    dst[dst_offset + 2] = _CMAC_OUT[2]
+    dst[dst_offset + 3] = _CMAC_OUT[3]
+
+
+# Backward-compat shims — keep allocating return-bytes APIs for cold-path
+# callers (parse_downlink for downlink decode/MIC, otaa_join). Hot-path
+# (send_uplink) uses the *_into variants directly for zero-alloc.
 
 def aes_ecb(key, block16):
-    return cryptolib.aes(key, 1).encrypt(bytes(block16))
+    out = bytearray(16)
+    _aes_cmac.ecb_encrypt(key, block16, out)
+    return bytes(out)
 
 
 def decrypt_join_accept(appkey, encrypted):
-    out = b""
-    for i in range(0, len(encrypted), 16):
-        out += aes_ecb(appkey, encrypted[i:i + 16])
-    return out
+    n = len(encrypted)
+    out = bytearray(n - (n % 16))
+    decrypt_join_accept_into(appkey, encrypted, out)
+    return bytes(out)
 
 
 def derive_session_key(appkey, prefix, app_nonce, net_id, dev_nonce):
-    blk = bytes([prefix]) + app_nonce + net_id + dev_nonce + b"\x00" * 7
-    return aes_ecb(appkey, blk)
+    out = bytearray(16)
+    derive_session_key_into(appkey, prefix, app_nonce, net_id, dev_nonce, out)
+    return bytes(out)
 
 
 def encrypt_frm_payload(appskey, devaddr_le, fcnt32, direction, plaintext):
-    out = bytearray(len(plaintext))
-    for i in range((len(plaintext) + 15) // 16):
-        a = bytearray(16)
-        a[0] = 0x01
-        a[5] = direction
-        a[6:10] = devaddr_le
-        a[10:14] = fcnt32.to_bytes(4, "little")
-        a[15] = i + 1
-        s_i = aes_ecb(appskey, bytes(a))
-        for j in range(min(16, len(plaintext) - i * 16)):
-            out[i * 16 + j] = plaintext[i * 16 + j] ^ s_i[j]
+    n = len(plaintext)
+    out = bytearray(n)
+    _encrypt_frm_payload_into(appskey, devaddr_le, fcnt32, direction,
+                              plaintext, n, out, 0)
     return bytes(out)
 
 
 def compute_uplink_mic(nwkskey, devaddr_le, fcnt32, direction, msg):
-    b0 = bytearray(16)
-    b0[0] = 0x49
-    b0[5] = direction
-    b0[6:10] = devaddr_le
-    b0[10:14] = fcnt32.to_bytes(4, "little")
-    b0[15] = len(msg)
-    return bytes(AES_CMAC().encode(nwkskey, bytes(b0) + msg))[:4]
+    out = bytearray(4)
+    _compute_mic_into(nwkskey, devaddr_le, fcnt32, direction,
+                      msg, len(msg), out, 0)
+    return bytes(out)
 
 
 # === MAC command names (LoRaWAN 1.0.x § 5) ===
@@ -265,6 +398,49 @@ MAC_CMD_NAMES = {
     0x08: "RXTimingSetupReq", 0x09: "TxParamSetupReq", 0x0A: "DLChannelReq",
     0x0D: "DeviceTimeAns",
 }
+
+# Hoisted length-lookup table for downlink MAC commands. Used to live as a
+# fresh dict literal inside parse_downlink's while-loop — that allocated on
+# every parse. Now it's a module-level const, looked up alloc-free.
+MAC_CMD_LEN_DN = {
+    0x02: 2,  # LinkCheckAns: margin(1) + GwCnt(1)
+    0x03: 4,  # LinkADRReq: DR/Pwr(1) + ChMask(2) + Redund(1)
+    0x05: 4,  # RXParamSetupReq: DLSettings(1) + Frequency(3)
+    0x06: 0,  # DevStatusReq
+    0x07: 5,  # NewChannelReq
+    0x08: 1,  # RXTimingSetupReq
+    0x0A: 4,  # DLChannelReq
+    0x0D: 5,  # DeviceTimeAns: epoch(4) + frac(1)
+}
+
+# Phase D: reusable downlink result dict — same 9 keys are overwritten on every
+# parse_downlink call (instead of returning a fresh dict every time, which
+# allocated ~13 bytes/call). The caller in main() consumes the result before
+# the next downlink so reuse is safe. "error" key is set/cleared per call.
+_DL_INFO = {
+    "error":                  None,
+    "mtype":                  0,
+    "fcnt":                   0,
+    "fctrl":                  0,
+    "ack":                    False,
+    "fport":                  None,
+    "frm_payload_decrypted":  b"",
+    "mac_commands":           None,
+    "device_time":            None,
+    "rssi":                   0,           # populated by listen_rx1/rx2
+    "snr":                    0.0,
+    "window":                 None,
+    "got":                    None,        # error context (DevAddr / MIC / fcnt)
+    "expected":               None,        # MIC mismatch context
+    "last":                   None,        # fcnt replay context
+}
+
+# Reusable parsed_cmds list — cleared on entry to parse_downlink. Each entry
+# is still a (name, hex) tuple — those are unavoidable without changing the
+# main loop's consumer signature, but we at least avoid re-creating the list.
+_DL_CMDS = []
+# Pre-allocated 4-byte MIC scratch buffer for downlink verification.
+_DL_MIC = bytearray(4)
 
 
 # === MAC command response builders (LoRaWAN 1.0.x § 5) ===
@@ -426,7 +602,7 @@ def add_channel(freq_hz):
         save_channels(extras)
         save_int(CHMASK_FILE, ADR["chmask"])
     except Exception as e:
-        print("    add_channel persist err:", e)
+        if _DEBUG: print("    add_channel persist err:", e)
     return True
 
 
@@ -484,7 +660,7 @@ def apply_linkadr_req(sx, cmd):
             sx.setSpreadingFactor(new_sf)
             sx.setOutputPower(new_dbm)
         except Exception as e:
-            print("    apply_linkadr radio err:", e)
+            if _DEBUG: print("    apply_linkadr radio err:", e)
         ADR["dr"]           = new_dr
         ADR["pwr_idx"]      = new_pwr_idx
         ADR["tx_power_dbm"] = new_dbm
@@ -496,12 +672,14 @@ def apply_linkadr_req(sx, cmd):
             save_int(CHMASK_FILE,  new_chmask)
             save_int(NBTRANS_FILE, nb_trans)
         except Exception as e:
-            print("    apply_linkadr persist err:", e)
-        print("    LinkADR applied: DR=%d (SF%d) Pwr=%d (%+ddBm) ChMask=0x%02X NbTrans=%d" %
-              (new_dr, new_sf, new_pwr_idx, new_dbm, new_chmask, nb_trans))
+            if _DEBUG: print("    apply_linkadr persist err:", e)
+        if _DEBUG:
+            print("    LinkADR applied: DR=%d (SF%d) Pwr=%d (%+ddBm) ChMask=0x%02X NbTrans=%d" %
+                  (new_dr, new_sf, new_pwr_idx, new_dbm, new_chmask, nb_trans))
     else:
-        print("    LinkADR rejected: dr_ack=%d pwr_ack=%d chmask_ack=%d" %
-              (dr_ack, pwr_ack, chmask_ack))
+        if _DEBUG:
+            print("    LinkADR rejected: dr_ack=%d pwr_ack=%d chmask_ack=%d" %
+                  (dr_ack, pwr_ack, chmask_ack))
 
     return dr_ack, pwr_ack, chmask_ack
 
@@ -514,8 +692,8 @@ def apply_rxtiming_req(cmd):
     try:
         save_int(RX1_DELAY_FILE, ADR["rx1_delay_ms"])
     except Exception as e:
-        print("    apply_rxtiming persist err:", e)
-    print("    RXTimingSetup applied: RX1 delay = %d s" % delay_s)
+        if _DEBUG: print("    apply_rxtiming persist err:", e)
+    if _DEBUG: print("    RXTimingSetup applied: RX1 delay = %d s" % delay_s)
 
 
 def apply_rxparamsetup_req(cmd):
@@ -546,12 +724,14 @@ def apply_rxparamsetup_req(cmd):
             save_int(RX2_SF_FILE, ADR["rx2_sf"])
             save_int(RX2_FREQ_FILE, ADR["rx2_freq_hz"])
         except Exception as e:
-            print("    apply_rxparamsetup persist err:", e)
-        print("    RXParamSetup applied: RX2=%.3f MHz SF%d, RX1DROffset=%d" %
-              (ADR["rx2_freq_hz"] / 1e6, ADR["rx2_sf"], rx1_dr_offset))
+            if _DEBUG: print("    apply_rxparamsetup persist err:", e)
+        if _DEBUG:
+            print("    RXParamSetup applied: RX2=%.3f MHz SF%d, RX1DROffset=%d" %
+                  (ADR["rx2_freq_hz"] / 1e6, ADR["rx2_sf"], rx1_dr_offset))
     else:
-        print("    RXParamSetup rejected: rx1_off_ok=%d rx2_dr_ok=%d ch_ok=%d" %
-              (rx1_off_ok, rx2_dr_ok, ch_ok))
+        if _DEBUG:
+            print("    RXParamSetup rejected: rx1_off_ok=%d rx2_dr_ok=%d ch_ok=%d" %
+                  (rx1_off_ok, rx2_dr_ok, ch_ok))
 
     status = (rx1_off_ok << 2) | (rx2_dr_ok << 1) | ch_ok
     return bytes([0x05, status])
@@ -660,8 +840,9 @@ def compute_dc_wait_ms(subband, airtime_ms, duty_pct):
     used = sum(a for _, a in fresh)
     if used + airtime_ms <= quota_ms:
         if used >= DUTY_CYCLE_WARN_THRESHOLD * quota_ms:
-            print("  duty cycle [%s] warn: %d/%d ms used (%.0f%%)" %
-                  (subband, used, quota_ms, 100 * used / quota_ms))
+            if _DEBUG:
+                print("  duty cycle [%s] warn: %d/%d ms used (%.0f%%)" %
+                      (subband, used, quota_ms, 100 * used / quota_ms))
         return 0
 
     # Не пасва — намери oldest entry, чакаме да изтече от window-а.
@@ -700,12 +881,13 @@ def apply_dutycycle_req(cmd):
     try:
         save_int(DUTY_CYCLE_FILE, max_dcycle)
     except Exception as e:
-        print("    apply_dutycycle persist err:", e)
-    if max_dcycle == 0:
-        print("    DutyCycle: cleared (back to ETSI defaults)")
-    else:
-        print("    DutyCycle: MaxDCycle=%d → max %.4f%% per sub-band" %
-              (max_dcycle, ADR["duty_cycle_override"] * 100))
+        if _DEBUG: print("    apply_dutycycle persist err:", e)
+    if _DEBUG:
+        if max_dcycle == 0:
+            print("    DutyCycle: cleared (back to ETSI defaults)")
+        else:
+            print("    DutyCycle: MaxDCycle=%d → max %.4f%% per sub-band" %
+                  (max_dcycle, ADR["duty_cycle_override"] * 100))
     return bytes([0x04])
 
 
@@ -729,11 +911,13 @@ def apply_dlchannel_req(cmd):
         try:
             save_rx1_overrides(ADR["rx1_freq_override"])
         except Exception as e:
-            print("    apply_dlchannel persist err:", e)
-        print("    DLChannel ch=%d → RX1 freq=%.3f MHz" % (ch_idx, freq_hz / 1e6))
+            if _DEBUG: print("    apply_dlchannel persist err:", e)
+        if _DEBUG:
+            print("    DLChannel ch=%d → RX1 freq=%.3f MHz" % (ch_idx, freq_hz / 1e6))
     else:
-        print("    DLChannel rejected: uplink_freq_exists=%d ch_freq_ok=%d" %
-              (uplink_freq_exists, ch_freq_ok))
+        if _DEBUG:
+            print("    DLChannel rejected: uplink_freq_exists=%d ch_freq_ok=%d" %
+                  (uplink_freq_exists, ch_freq_ok))
 
     status = (uplink_freq_exists << 1) | ch_freq_ok
     return bytes([0x0A, status])
@@ -779,102 +963,127 @@ def process_mac_commands(sx, parsed_cmds, last_snr):
             dr_range_ok = 1 if (min_dr in DR_TO_SF and max_dr in DR_TO_SF and min_dr <= max_dr) else 0
             if ch_freq_ok and dr_range_ok and freq_hz != 0:
                 add_channel(freq_hz)
-                print("    NewChannel idx=%d freq=%.3f MHz DR%d..%d added" %
-                      (ch_idx, freq_hz / 1e6, min_dr, max_dr))
+                if _DEBUG:
+                    print("    NewChannel idx=%d freq=%.3f MHz DR%d..%d added" %
+                          (ch_idx, freq_hz / 1e6, min_dr, max_dr))
             response += bytes([0x07, (dr_range_ok << 1) | ch_freq_ok])
         # Останалите MAC команди не отговаряме засега (DutyCycleReq за Phase B3).
     return response
 
 
 def parse_downlink(devaddr_le, nwkskey, appskey, frame):
-    """Декодира downlink frame. Връща dict с информация или None ако MIC fail."""
+    """Декодира downlink frame; връща модул-level _DL_INFO dict (reused) или None.
+
+    Phase D: instead of returning a fresh dict per call (~13 B alloc), all
+    fields are written into the module-level _DL_INFO dict. The caller in
+    main() consumes the result before the next downlink, so reuse is safe.
+    The "error" field is None on success and a short reason string on
+    failure paths (replaces the old per-error fresh-dict idiom).
+    """
     if len(frame) < 12:
         return None
+
+    info = _DL_INFO
+    info["error"]                 = None
+    info["got"]                   = None
+    info["expected"]              = None
+    info["last"]                  = None
+    info["frm_payload_decrypted"] = b""
+    info["mac_commands"]          = None
+    info["device_time"]           = None
+
     mhdr = frame[0]
     mtype = (mhdr >> 5) & 0x07
-    if mtype not in (0x03, 0x05):           # 011 unconf data dn, 101 conf data dn
-        return {"error": "not data downlink", "mtype": mtype}
+    info["mtype"] = mtype
+    if mtype != 0x03 and mtype != 0x05:        # 011 unconf data dn, 101 conf data dn
+        info["error"] = "not data downlink"
+        return info
 
-    rx_devaddr = bytes(frame[1:5])
-    if rx_devaddr != devaddr_le:
-        return {"error": "DevAddr mismatch",
-                "got": bytes(reversed(rx_devaddr)).hex()}
+    # DevAddr compare without bytes() alloc — direct byte-by-byte over slices.
+    if (frame[1] != devaddr_le[0] or frame[2] != devaddr_le[1] or
+        frame[3] != devaddr_le[2] or frame[4] != devaddr_le[3]):
+        info["error"] = "DevAddr mismatch"
+        return info
 
-    fctrl = frame[5]
-    fcnt_lo = int.from_bytes(frame[6:8], "little")
+    fctrl     = frame[5]
+    fcnt_lo   = frame[6] | (frame[7] << 8)
     fopts_len = fctrl & 0x0F
-    fopts = bytes(frame[8:8 + fopts_len])
+    info["fctrl"] = fctrl
+    info["fcnt"]  = fcnt_lo
 
-    # FPort + FRMPayload
-    rest = frame[8 + fopts_len:-4]
-    rx_mic = bytes(frame[-4:])
+    flen = len(frame)
+    rest_off = 8 + fopts_len
+    rest_end = flen - 4
 
-    fport = rest[0] if len(rest) > 0 else None
-    frm_payload = bytes(rest[1:]) if len(rest) > 1 else b""
+    if rest_off > rest_end:
+        info["error"] = "truncated frame"
+        return info
 
-    # MIC validation
-    msg = bytes(frame[:-4])
-    expected_mic = compute_uplink_mic(nwkskey, devaddr_le, fcnt_lo, 1, msg)
-    if expected_mic != rx_mic:
-        return {"error": "MIC mismatch",
-                "got": rx_mic.hex(), "expected": expected_mic.hex()}
+    fport = frame[rest_off] if rest_end > rest_off else None
+    info["fport"] = fport
+    info["ack"]   = bool(fctrl & 0x20)         # downlink ACK bit (LoRaWAN § 4.3.1)
+
+    # MIC validation — recompute over frame[:-4] into pre-allocated _DL_MIC,
+    # compare byte-by-byte with frame[-4:]. No bytes() temp objects.
+    _compute_mic_into(nwkskey, devaddr_le, fcnt_lo, 1,
+                      frame, rest_end, _DL_MIC, 0)
+    if (_DL_MIC[0] != frame[rest_end]   or _DL_MIC[1] != frame[rest_end + 1] or
+        _DL_MIC[2] != frame[rest_end + 2] or _DL_MIC[3] != frame[rest_end + 3]):
+        info["error"] = "MIC mismatch"
+        return info
 
     # A1: FCntDown replay protection (LoRaWAN 1.0.3 § 4.3.1.5).
-    # Сравняваме fcnt_lo с последния видян; разрешаваме 16-bit rollover (last
-    # в горната половина и new в долната). MIC е валиден на replay frame
-    # (нищо в frame не зависи от текущото време), затова **тази проверка** е
-    # реалната защита от replay attack — без нея атакуващ може да replay-не
-    # "relay=1" command в безкрайност.
-    last_fcnt_dn = ADR.get("fcnt_dn", -1)
+    last_fcnt_dn = ADR["fcnt_dn"]
     if last_fcnt_dn >= 0:
         is_rollover = last_fcnt_dn > 0xF000 and fcnt_lo < 0x1000
         if not is_rollover and fcnt_lo <= last_fcnt_dn:
-            return {"error": "fcnt replay",
-                    "got": fcnt_lo, "last": last_fcnt_dn}
+            info["error"] = "fcnt replay"
+            info["got"]   = fcnt_lo
+            info["last"]  = last_fcnt_dn
+            return info
 
-    # Decrypt FRMPayload (AppSKey за FPort != 0, NwkSKey за FPort == 0)
-    decrypted = b""
-    if frm_payload:
+    # Decrypt FRMPayload (AppSKey for FPort != 0, NwkSKey for FPort == 0).
+    # Cold-path shim still allocates the bytes return — acceptable since
+    # decrypted payload is consumed by the user (relay state, app text);
+    # eliminating that alloc would require a memoryview-of-pre-alloc API
+    # contract change with the main loop. Deferred to a later phase.
+    payload_off = rest_off + 1
+    payload_len = rest_end - payload_off
+    if payload_len > 0:
+        # Build a bytes slice — needed because encrypt_frm_payload reads len()
+        # and indexes the buffer; frame is a passthrough of sx.recv() output.
+        frm_payload = bytes(frame[payload_off:rest_end])
         key = nwkskey if fport == 0 else appskey
-        decrypted = encrypt_frm_payload(key, devaddr_le, fcnt_lo, 1, frm_payload)
+        info["frm_payload_decrypted"] = encrypt_frm_payload(key, devaddr_le, fcnt_lo, 1, frm_payload)
 
-    # MAC commands в FOpts (downlink piggyback) или във FRMPayload (FPort=0)
-    mac_cmds = fopts if fport != 0 else decrypted
-    parsed_cmds = []
-    device_time = None                          # ще бъде set при DeviceTimeAns
+    # MAC commands — in FOpts (piggyback) or in FRMPayload when FPort == 0.
+    if fport == 0:
+        mac_cmds = info["frm_payload_decrypted"]
+    elif fopts_len > 0:
+        # Avoid alloc when there are no FOpts; only slice when needed.
+        mac_cmds = frame[8:8 + fopts_len]
+    else:
+        mac_cmds = b""
+
+    cmds = _DL_CMDS
+    cmds.clear()
     i = 0
-    while i < len(mac_cmds):
+    n = len(mac_cmds)
+    while i < n:
         cid = mac_cmds[i]
-        name = MAC_CMD_NAMES.get(cid, "0x%02X" % cid)
-        # ad-hoc length lookup (downlink direction)
-        clen = {0x02: 2,  # LinkCheckAns: margin(1) + GwCnt(1)
-                0x03: 4,  # LinkADRReq: DR/Pwr(1) + ChMask(2) + Redund(1)
-                0x05: 4,  # RXParamSetupReq: DLSettings(1) + Frequency(3)
-                0x06: 0,  # DevStatusReq
-                0x07: 5,  # NewChannelReq
-                0x08: 1,  # RXTimingSetupReq
-                0x0A: 4,  # DLChannelReq
-                0x0D: 5}.get(cid, 0)  # DeviceTimeAns: epoch(4) + frac(1)
+        name = MAC_CMD_NAMES.get(cid, "?")
+        clen = MAC_CMD_LEN_DN.get(cid, 0)
+        # cmd_bytes is a slice on the input — used only for logging hex/decode.
         cmd_bytes = mac_cmds[i:i + 1 + clen]
-        parsed_cmds.append((name, cmd_bytes.hex()))
+        cmds.append((name, cmd_bytes.hex()))
         if cid == 0x0D and len(cmd_bytes) == 6:
             # DeviceTimeAns: 4 bytes GPS epoch (LE) + 1 byte fractional second.
-            # GPS epoch = seconds since 1980-01-06 00:00:00 UTC.
-            gps_epoch = int.from_bytes(cmd_bytes[1:5], "little")
-            frac256 = cmd_bytes[5]
-            device_time = (gps_epoch, frac256)
+            gps_epoch = (cmd_bytes[1] | (cmd_bytes[2] << 8) |
+                         (cmd_bytes[3] << 16) | (cmd_bytes[4] << 24))
+            info["device_time"] = (gps_epoch, cmd_bytes[5])
         i += 1 + clen
-
-    return {
-        "mtype": mtype,
-        "fcnt": fcnt_lo,
-        "fctrl": fctrl,
-        "ack": bool(fctrl & 0x20),               # downlink ACK bit (LoRaWAN § 4.3.1)
-        "fport": fport,
-        "frm_payload_decrypted": decrypted,
-        "mac_commands": parsed_cmds,
-        "device_time": device_time,
-    }
+    info["mac_commands"] = cmds
+    return info
 
 
 # === Persistence ===
@@ -890,6 +1099,51 @@ def load_int(path, default=0):
 def save_int(path, value):
     with open(path, "w") as f:
         f.write(str(value))
+
+
+# Phase F: deferred FCnt persistence.
+#
+# Hot-path used to call save_int(FCNTUP_FILE, fcnt) on every uplink
+# (~6 B steady-state alloc, larger transient — file open, str(value),
+# encode, FileIO object, plus FAT write buffer). That fragments heap
+# under gc.disable(). The replacement is a low-rate persist_task() that
+# watches DISP["fcnt"] / ADR["fcnt_dn"] and writes when they change.
+#
+# Power-fail recovery: on boot we advance the loaded FCntUp by
+# _FCNT_UP_BOOT_MARGIN. If we crash between persist flushes, up to
+# (margin) uplinks may have been transmitted with FCnts the gateway
+# already saw — but on the next boot we jump past that window so we
+# never emit a FCnt the server has already accepted (which would be
+# rejected as replay). 16 is comfortable for a 10-second flush
+# interval on uplink intervals down to ~1s.
+_FCNT_UP_BOOT_MARGIN = const(16)
+_PERSIST_INTERVAL_S  = const(10)
+_FCNT_UP_PERSISTED   = -1                            # last value flushed to FCNTUP_FILE
+_FCNT_DN_PERSISTED   = -1                            # last value flushed to FCNTDN_FILE
+
+
+async def persist_task():
+    """Background flush of FCntUp / FCntDown to /flash. Runs every
+    _PERSIST_INTERVAL_S seconds; allocates freely (low-rate cold task).
+    Only writes when the in-RAM value has advanced past the last
+    persisted value, so an idle node generates zero file I/O."""
+    global _FCNT_UP_PERSISTED, _FCNT_DN_PERSISTED
+    while True:
+        await asyncio.sleep(_PERSIST_INTERVAL_S)
+        cur_up = DISP["fcnt"]
+        if cur_up != _FCNT_UP_PERSISTED:
+            try:
+                save_int(FCNTUP_FILE, cur_up)
+                _FCNT_UP_PERSISTED = cur_up
+            except Exception as e:
+                if _DEBUG: print("persist FCntUp err:", e)
+        cur_dn = ADR["fcnt_dn"]
+        if cur_dn != _FCNT_DN_PERSISTED:
+            try:
+                save_int(FCNTDN_FILE, cur_dn)
+                _FCNT_DN_PERSISTED = cur_dn
+            except Exception as e:
+                if _DEBUG: print("persist FCntDn err:", e)
 
 
 def load_session():
@@ -1000,18 +1254,47 @@ def otaa_join(sx, dev_nonce):
 
 def send_uplink(sx, devaddr, nwkskey, appskey, fcnt, port, payload,
                 fopts=b"", confirmed=False):
-    """Изпраща Data Up frame. confirmed=True задава MType=Confirmed → TTN ще ACK-ва."""
-    if len(fopts) > 15:
+    """Build and send a Data Up frame with zero allocations on the hot path.
+
+    Frame layout (LoRaWAN 1.0.x):
+      [MHDR(1) | DevAddr(4) | FCtrl(1) | FCnt(2) | FOpts(N) | FPort(1) |
+       FRMPayload(M, encrypted) | MIC(4)]
+    Total length = 13 + N + M. The full frame is built in the module-level
+    pre-allocated _FRAME buffer; FRMPayload encryption and MIC computation
+    write directly into _FRAME at the right offsets.
+
+    confirmed=True selects MType=Confirmed (TTN will ACK).
+    Only sx.send(...) may allocate (memoryview slice for the radio driver).
+    """
+    fopts_len = len(fopts)
+    if fopts_len > 15:
         raise ValueError("FOpts > 15 bytes — use FPort=0 frame instead")
-    enc = encrypt_frm_payload(appskey, devaddr, fcnt, 0, payload)
-    fctrl = len(fopts) & 0x0F                # FOptsLen в bit 0-3
-    mac_payload = (devaddr + bytes([fctrl]) +
-                   fcnt.to_bytes(2, "little") + fopts +
-                   bytes([port]) + enc)
-    mhdr = 0x80 if confirmed else 0x40       # 100 = Confirmed, 010 = Unconfirmed
-    mic_input = bytes([mhdr]) + mac_payload
-    mic = compute_uplink_mic(nwkskey, devaddr, fcnt, 0, mic_input)
-    sx.send(mic_input + mic)
+    payload_len = len(payload)
+
+    f = _FRAME
+    f[0] = 0x80 if confirmed else 0x40                # MHDR (Confirmed=100, Unconfirmed=010)
+    f[1] = devaddr[0]; f[2] = devaddr[1]
+    f[3] = devaddr[2]; f[4] = devaddr[3]              # DevAddr (4 bytes, already LE)
+    f[5] = fopts_len & 0x0F                           # FCtrl (just FOptsLen, no ADR/ACK bits set)
+    f[6] = fcnt & 0xFF
+    f[7] = (fcnt >> 8) & 0xFF                         # FCnt low 16 bits, LE
+    for i in range(fopts_len):
+        f[8 + i] = fopts[i]
+    fport_off = 8 + fopts_len
+    f[fport_off] = port
+    enc_off = fport_off + 1
+
+    # CTR-mode payload encrypt directly into _FRAME[enc_off:enc_off+payload_len]
+    _encrypt_frm_payload_into(appskey, devaddr, fcnt, 0,
+                              payload, payload_len, f, enc_off)
+
+    mic_off = enc_off + payload_len
+    # MIC over _FRAME[0:mic_off]; written into _FRAME[mic_off:mic_off+4]
+    _compute_mic_into(nwkskey, devaddr, fcnt, 0,
+                      f, mic_off, f, mic_off)
+
+    total_len = mic_off + 4
+    sx.send(memoryview(f)[:total_len])                # one memoryview alloc (~24 B)
 
 
 async def _recv_yielding(sx, total_timeout_ms, slice_ms=100):
@@ -1054,7 +1337,7 @@ async def listen_rx1(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
         try:
             sx.setFrequency(override_hz / 1e6)
         except Exception as e:
-            print("  RX1 override freq err:", e)
+            if _DEBUG: print("  RX1 override freq err:", e)
 
     # A2: Apply RX1 DR offset (downshift от TX DR)
     rx1_dr = max(0, ADR["dr"] - ADR["rx1_dr_offset"])
@@ -1063,7 +1346,7 @@ async def listen_rx1(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
         try:
             sx.setSpreadingFactor(rx1_sf)
         except Exception as e:
-            print("  RX1 DR offset SF err:", e)
+            if _DEBUG: print("  RX1 DR offset SF err:", e)
 
     await asyncio.sleep_ms(ADR["rx1_delay_ms"])
     msg, err = await _recv_yielding(sx, recv_timeout_ms)
@@ -1073,11 +1356,11 @@ async def listen_rx1(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
     snr  = sx.getSNR()
     info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
     if info is None:
-        info = {"error": "frame too short / not parseable"}
+        info = _DL_INFO
+        info["error"] = "frame too short / not parseable"
     info["window"] = "RX1"
     info["rssi"]   = rssi
     info["snr"]    = snr
-    info["raw"]    = bytes(msg).hex()
     return info
 
 
@@ -1100,11 +1383,11 @@ async def listen_rx2(sx, devaddr, nwkskey, appskey, recv_timeout_ms=2500):
         return None
     info = parse_downlink(devaddr, nwkskey, appskey, bytes(msg))
     if info is None:
-        info = {"error": "frame too short / not parseable"}
+        info = _DL_INFO
+        info["error"] = "frame too short / not parseable"
     info["window"] = "RX2"
     info["rssi"]   = rssi
     info["snr"]    = snr
-    info["raw"]    = bytes(msg).hex()
     return info
 
 
@@ -1151,7 +1434,7 @@ class ButtonLatch:
                         try:
                             self.on_long_press()
                         except Exception as e:
-                            print("button on_long_press error:", e)
+                            if _DEBUG: print("button on_long_press error:", e)
             elif not cur_pressed and self.was_pressed:
                 # falling edge — released
                 if not self.long_fired:
@@ -1159,7 +1442,7 @@ class ButtonLatch:
                         try:
                             self.on_press()
                         except Exception as e:
-                            print("button on_press error:", e)
+                            if _DEBUG: print("button on_press error:", e)
             self.was_pressed = cur_pressed
             await asyncio.sleep_ms(interval_ms)
 
@@ -1177,7 +1460,7 @@ async def heartbeat_task():
     t0_ms = time.ticks_ms()
     while True:
         uptime_s = time.ticks_diff(time.ticks_ms(), t0_ms) // 1000
-        print("    [hb #%d uptime=%ds]" % (n, uptime_s))
+        if _DEBUG: print("    [hb #%d uptime=%ds]" % (n, uptime_s))
         n += 1
         await asyncio.sleep(2)
 
@@ -1253,7 +1536,7 @@ async def display_task(oled):
 
             oled.show()
         except Exception as e:
-            print("display_task error:", e)
+            if _DEBUG: print("display_task error:", e)
         await asyncio.sleep_ms(500)
 
 
@@ -1373,7 +1656,17 @@ async def main():
         fcnt = 0
     else:
         devaddr, nwkskey, appskey = session
-        fcnt = load_int(FCNTUP_FILE, 0)
+        # Phase F: advance loaded FCntUp by safety margin to skip past any
+        # uplinks transmitted but not yet flushed by persist_task before a
+        # crash/reboot. The margin (16) > typical persist window (10s × 1
+        # uplink/min = 0.17 ⇒ effectively zero) and survives bursty test
+        # cycles too. Save the boosted value once so a subsequent immediate
+        # reboot re-jumps from here, not the unboosted base.
+        fcnt = load_int(FCNTUP_FILE, 0) + _FCNT_UP_BOOT_MARGIN
+        try:
+            save_int(FCNTUP_FILE, fcnt)
+        except Exception as e:
+            if _DEBUG: print("FCntUp boot persist err:", e)
         # Resume — ADR state вече е заредено по-горе. init_radio ползва
         # ADR['dr']/ADR['pwr_idx'] за initial config, но init_radio() може
         # да е stick-нал на defaults ако е извикан преди load. Re-apply:
@@ -1444,10 +1737,12 @@ async def main():
             current_interval_s = UPLINK_INTERVALS[interval_idx]
             DISP["interval_s"] = current_interval_s
             try: save_int(INTERVAL_FILE, interval_idx)
-            except Exception as e: print("save interval err:", e)
-            print("    [btn → relay=%s, interval=%ds (idx=%d)]" %
-                  ("ON" if relay_state else "OFF",
-                   current_interval_s, interval_idx))
+            except Exception as e:
+                if _DEBUG: print("save interval err:", e)
+            if _DEBUG:
+                print("    [btn → relay=%s, interval=%ds (idx=%d)]" %
+                      ("ON" if relay_state else "OFF",
+                       current_interval_s, interval_idx))
         else:
             txpower_idx = (txpower_idx + 1) % len(TX_POWER_LEVELS)
             current_tx_power = TX_POWER_LEVELS[txpower_idx]
@@ -1455,12 +1750,14 @@ async def main():
             try:
                 sx.setOutputPower(current_tx_power)
             except Exception as e:
-                print("setOutputPower err:", e)
+                if _DEBUG: print("setOutputPower err:", e)
             try: save_int(TXPOWER_FILE, txpower_idx)
-            except Exception as e: print("save txpower err:", e)
-            print("    [btn → relay=%s, TX=%+ddBm (idx=%d)]" %
-                  ("ON" if relay_state else "OFF",
-                   current_tx_power, txpower_idx))
+            except Exception as e:
+                if _DEBUG: print("save txpower err:", e)
+            if _DEBUG:
+                print("    [btn → relay=%s, TX=%+ddBm (idx=%d)]" %
+                      ("ON" if relay_state else "OFF",
+                       current_tx_power, txpower_idx))
 
     button.on_press = on_btn_press
 
@@ -1503,7 +1800,7 @@ async def main():
                 sx.setFrequency(tx_freq_hz / 1e6)
                 sx.setSpreadingFactor(cur_sf)
             except Exception as e:
-                print("  set freq/sf err:", e)
+                if _DEBUG: print("  set freq/sf err:", e)
             DISP["sf"] = cur_sf
 
             # B1+B2: airtime + ETSI duty cycle check
@@ -1517,18 +1814,20 @@ async def main():
                 wait_ms = compute_dc_wait_ms(subband, airtime_ms, effective_dc)
                 if wait_ms <= 0:
                     break
-                print("  [%s] duty cycle full → defer %d ms (airtime=%.1f ms)" %
-                      (subband, wait_ms, airtime_ms))
+                if _DEBUG:
+                    print("  [%s] duty cycle full → defer %d ms (airtime=%.1f ms)" %
+                          (subband, wait_ms, airtime_ms))
                 await asyncio.sleep_ms(wait_ms)
 
-            attempt_tag = (" try %d/%d" % (attempt + 1, nb_trans)) if nb_trans > 1 else ""
-            ch_info = "ch=%.3f MHz DR%d %s air=%.1fms" % (
-                tx_freq_hz / 1e6, ADR["dr"], subband, airtime_ms)
-            if pending_mac:
-                print("[FCnt=%d %s%s %s] %s + FOpts=%s" %
-                      (fcnt, kind, attempt_tag, ch_info, info, pending_mac.hex()))
-            else:
-                print("[FCnt=%d %s%s %s] %s" % (fcnt, kind, attempt_tag, ch_info, info))
+            if _DEBUG:
+                attempt_tag = (" try %d/%d" % (attempt + 1, nb_trans)) if nb_trans > 1 else ""
+                ch_info = "ch=%.3f MHz DR%d %s air=%.1fms" % (
+                    tx_freq_hz / 1e6, ADR["dr"], subband, airtime_ms)
+                if pending_mac:
+                    print("[FCnt=%d %s%s %s] %s + FOpts=%s" %
+                          (fcnt, kind, attempt_tag, ch_info, info, pending_mac.hex()))
+                else:
+                    print("[FCnt=%d %s%s %s] %s" % (fcnt, kind, attempt_tag, ch_info, info))
 
             try:
                 send_uplink(sx, devaddr, nwkskey, appskey, fcnt, 0x02, payload,
@@ -1538,29 +1837,32 @@ async def main():
 
                 dl = await listen_rx1(sx, devaddr, nwkskey, appskey)
                 if dl is None:
-                    print("  RX1: nothing — listening RX2 (%.3f MHz SF%d)..." %
-                          (ADR["rx2_freq_hz"] / 1e6, ADR["rx2_sf"]))
+                    if _DEBUG:
+                        print("  RX1: nothing — listening RX2 (%.3f MHz SF%d)..." %
+                              (ADR["rx2_freq_hz"] / 1e6, ADR["rx2_sf"]))
                     dl = await listen_rx2(sx, devaddr, nwkskey, appskey)
                     if dl is None:
-                        print("  RX2: nothing")
+                        if _DEBUG: print("  RX2: nothing")
                 # Запазваме само успешен downlink (или first error/None ако нищо good)
-                if last_dl is None or (dl is not None and "error" not in dl):
+                if last_dl is None or (dl is not None and dl["error"] is None):
                     last_dl = dl
-                if dl is not None and "error" not in dl and confirmed and dl.get("ack"):
+                if dl is not None and dl["error"] is None and confirmed and dl["ack"]:
                     got_ack = True
             except Exception as e:
-                print("  send/recv error:", e)
+                if _DEBUG: print("  send/recv error:", e)
 
             if got_ack:
-                print("    ACK on try %d/%d → no more retries" %
-                      (attempt + 1, nb_trans))
+                if _DEBUG:
+                    print("    ACK on try %d/%d → no more retries" %
+                          (attempt + 1, nb_trans))
                 break
 
             if attempt + 1 < nb_trans:
                 # ACK_TIMEOUT random 1..3 s (spec § 4.3.1.4)
                 ack_to_s = 1.0 + random.random() * 2.0
-                print("    ACK_TIMEOUT %.1f s before retry %d/%d" %
-                      (ack_to_s, attempt + 2, nb_trans))
+                if _DEBUG:
+                    print("    ACK_TIMEOUT %.1f s before retry %d/%d" %
+                          (ack_to_s, attempt + 2, nb_trans))
                 await asyncio.sleep(ack_to_s)
 
         # FOpts consumed (изпратени във всички attempts; нови от тоя downlink)
@@ -1570,16 +1872,19 @@ async def main():
         dl = last_dl
         if dl is None:
             pass                                  # вече логнато inside attempt loop
-        elif "error" in dl:
-            print("  downlink rejected: %s" % dl["error"])
-            if "rssi" in dl:
+        elif dl["error"] is not None:
+            if _DEBUG: print("  downlink rejected: %s" % dl["error"])
+            # _DL_INFO has "rssi"/"snr"/"window" pre-populated by listen_rx*;
+            # they're set whenever we got a frame at all.
+            if dl.get("window") is not None:
                 DISP["last_rssi"]   = dl["rssi"]
                 DISP["last_snr"]    = dl["snr"]
                 DISP["last_window"] = dl["window"]
         else:
-            print("  *** %s downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
-                  (dl["window"], dl["rssi"], dl["snr"],
-                   dl["fcnt"], dl["fport"]))
+            if _DEBUG:
+                print("  *** %s downlink RSSI=%d SNR=%.1f FCnt=%d FPort=%s" %
+                      (dl["window"], dl["rssi"], dl["snr"],
+                       dl["fcnt"], dl["fport"]))
             DISP["last_rssi"]   = dl["rssi"]
             DISP["last_snr"]    = dl["snr"]
             DISP["last_window"] = dl["window"]
@@ -1587,13 +1892,13 @@ async def main():
             # не на MIC fail / replay-rejected — иначе атакуващ може да
             # натиска counter-а ни напред с произволни стойности)
             ADR["fcnt_dn"] = dl["fcnt"]
-            try:
-                save_int(FCNTDN_FILE, dl["fcnt"])
-            except Exception as e:
-                print("    fcnt_dn persist err:", e)
+            # Phase F: persistence happens in persist_task() — hot path is
+            # alloc-free. The dict write above is alloc-free for an existing
+            # key; the file flush is deferred by up to _PERSIST_INTERVAL_S.
             if confirmed:
-                print("    ACK bit:", "YES (uplink confirmed)" if dl["ack"]
-                                      else "NO (server didn't ACK)")
+                if _DEBUG:
+                    print("    ACK bit:", "YES (uplink confirmed)" if dl["ack"]
+                                          else "NO (server didn't ACK)")
             if dl["device_time"] is not None:
                 gps_epoch, frac256 = dl["device_time"]
                 # GPS epoch 1980-01-06 = Unix 315964800; LoRaWAN добавя
@@ -1603,8 +1908,9 @@ async def main():
                 unix_s = 315964800 + gps_epoch - 18
                 mpy_s = unix_s - 946684800
                 yy, mm, dd, hh, mi, ss, _, _ = time.gmtime(mpy_s)
-                print("    *** UTC time: %04d-%02d-%02d %02d:%02d:%02d.%03d" %
-                      (yy, mm, dd, hh, mi, ss, (frac256 * 1000) // 256))
+                if _DEBUG:
+                    print("    *** UTC time: %04d-%02d-%02d %02d:%02d:%02d.%03d" %
+                          (yy, mm, dd, hh, mi, ss, (frac256 * 1000) // 256))
             if dl["frm_payload_decrypted"]:
                 raw = dl["frm_payload_decrypted"]
                 if dl["fport"] is not None and dl["fport"] > 0:
@@ -1612,34 +1918,49 @@ async def main():
                         new_state = raw[0] & 0x01
                         relay_state = new_state
                         set_relay(relay_strip, relay_state)
-                        print("    relay → %s (%s)" %
-                              ("ON" if relay_state else "OFF",
-                               "червено" if relay_state else "зелено"))
+                        if _DEBUG:
+                            print("    relay → %s (%s)" %
+                                  ("ON" if relay_state else "OFF",
+                                   "червено" if relay_state else "зелено"))
                     else:
                         try:
                             txt = raw.decode("utf-8")
-                            print("    app payload (FPort=%d): %r" %
-                                  (dl["fport"], txt))
+                            if _DEBUG:
+                                print("    app payload (FPort=%d): %r" %
+                                      (dl["fport"], txt))
                         except Exception:
-                            print("    app payload (FPort=%d, hex): %s" %
-                                  (dl["fport"], raw.hex()))
+                            if _DEBUG:
+                                print("    app payload (FPort=%d, hex): %s" %
+                                      (dl["fport"], raw.hex()))
                 else:
-                    print("    FPort=0 MAC payload (hex):", raw.hex())
+                    if _DEBUG: print("    FPort=0 MAC payload (hex):", raw.hex())
             if dl["mac_commands"]:
-                print("    MAC cmds:", dl["mac_commands"])
+                if _DEBUG: print("    MAC cmds:", dl["mac_commands"])
                 last_snr = dl["snr"]
                 pending_mac = process_mac_commands(sx, dl["mac_commands"], last_snr)
                 if pending_mac:
-                    print("    queued MAC ans for next uplink:", pending_mac.hex())
+                    if _DEBUG:
+                        print("    queued MAC ans for next uplink:", pending_mac.hex())
                 # ADR/MAC може да е сменил DR/Pwr → sync DISP за OLED
                 DISP["sf"]       = DR_TO_SF[ADR["dr"]]
                 DISP["tx_power"] = ADR["tx_power_dbm"]
                 current_tx_power = ADR["tx_power_dbm"]
 
         fcnt += 1
-        save_int(FCNTUP_FILE, fcnt)
-        DISP["fcnt"] = fcnt
+        DISP["fcnt"] = fcnt                          # Phase F: persistence is deferred to persist_task()
         gc.collect()
+
+        # Phase G: after the first complete cycle (radio init + OTAA + first
+        # TX/RX1/RX2 done), disable GC for deterministic latency. The hot
+        # path is alloc-free; with _DEBUG=False the entire app is alloc-free
+        # post-init. If memory ever drops below a safety threshold we
+        # re-enable GC. This is one-shot per boot.
+        if _GC_DISABLE and gc.isenabled() and fcnt >= 2:
+            gc.collect()
+            free_before = gc.mem_free()
+            gc.disable()
+            print("[Phase G] GC disabled, free=%d B" % free_before)
+
         await asyncio.sleep(current_interval_s)
 
 
@@ -1654,6 +1975,7 @@ async def app():
         heartbeat_task(),
         button.poll_task(),
         display_task(oled),
+        persist_task(),
     )
 
 

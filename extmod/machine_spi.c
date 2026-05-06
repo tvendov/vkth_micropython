@@ -86,18 +86,42 @@ static mp_obj_t mp_machine_spi_write(mp_obj_t self, mp_obj_t wr_buf) {
 }
 MP_DEFINE_CONST_FUN_OBJ_2(mp_machine_spi_write_obj, mp_machine_spi_write);
 
-static mp_obj_t mp_machine_spi_write_readinto(mp_obj_t self, mp_obj_t wr_buf, mp_obj_t rd_buf) {
+// write_readinto(wr_buf, rd_buf [, n])
+//
+// If `n` is omitted, the two buffers must be the same length and the entire
+// content is transferred (legacy behaviour). If `n` is supplied it specifies
+// the number of bytes to transfer; both buffers must be at least `n` bytes
+// long but may be larger. This avoids per-call memoryview slice allocations
+// in alloc-sensitive hot paths (e.g. SX126x SPI driver under hard IRQ).
+static mp_obj_t mp_machine_spi_write_readinto(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t src;
-    mp_get_buffer_raise(wr_buf, &src, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[1], &src, MP_BUFFER_READ);
     mp_buffer_info_t dest;
-    mp_get_buffer_raise(rd_buf, &dest, MP_BUFFER_WRITE);
-    if (src.len != dest.len) {
-        mp_raise_ValueError(MP_ERROR_TEXT("buffers must be the same length"));
+    mp_get_buffer_raise(args[2], &dest, MP_BUFFER_WRITE);
+
+    size_t len;
+    if (n_args == 4) {
+        mp_int_t n = mp_obj_get_int(args[3]);
+        if (n < 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("length must be non-negative"));
+        }
+        len = (size_t)n;
+        if (len > src.len || len > dest.len) {
+            mp_raise_ValueError(MP_ERROR_TEXT("length exceeds buffer size"));
+        }
+    } else {
+        if (src.len != dest.len) {
+            mp_raise_ValueError(MP_ERROR_TEXT("buffers must be the same length"));
+        }
+        len = src.len;
     }
-    mp_machine_spi_transfer(self, src.len, src.buf, dest.buf);
+
+    if (len > 0) {
+        mp_machine_spi_transfer(args[0], len, src.buf, dest.buf);
+    }
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_write_readinto_obj, mp_machine_spi_write_readinto);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_write_readinto_obj, 3, 4, mp_machine_spi_write_readinto);
 
 static const mp_rom_map_elem_t machine_spi_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&machine_spi_init_obj) },

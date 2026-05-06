@@ -272,7 +272,7 @@ mp_obj_t mp_machine_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
 MP_DECLARE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_read_obj);
 MP_DECLARE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_readinto_obj);
 MP_DECLARE_CONST_FUN_OBJ_2(mp_machine_spi_write_obj);
-MP_DECLARE_CONST_FUN_OBJ_3(mp_machine_spi_write_readinto_obj);
+MP_DECLARE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_write_readinto_obj);
 #endif
 
 #endif // MICROPY_INCLUDED_EXTMOD_MODMACHINE_H

@@ -180,9 +180,80 @@ static mp_obj_t mod_aes_cmac_compute(mp_obj_t key_obj, mp_obj_t msg_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mod_aes_cmac_compute_obj, mod_aes_cmac_compute);
 
+// aes_cmac.compute_into(key, msg, dst [, msg_len]) -> None
+//   Writes 16-byte CMAC into dst[:16]; no allocation.
+//   If msg_len is given, only the first msg_len bytes of msg are hashed.
+//   This is the alloc-free variant for hot paths (LoRaWAN MIC compute).
+static mp_obj_t mod_aes_cmac_compute_into(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t key_buf;
+    mp_get_buffer_raise(args[0], &key_buf, MP_BUFFER_READ);
+    if (key_buf.len != BLOCK_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("key must be 16 bytes"));
+    }
+    mp_buffer_info_t msg_buf;
+    mp_get_buffer_raise(args[1], &msg_buf, MP_BUFFER_READ);
+    mp_buffer_info_t dst_buf;
+    mp_get_buffer_raise(args[2], &dst_buf, MP_BUFFER_WRITE);
+    if (dst_buf.len < BLOCK_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("dst must be >= 16 bytes"));
+    }
+
+    size_t msg_len = msg_buf.len;
+    if (n_args == 4) {
+        mp_int_t n = mp_obj_get_int(args[3]);
+        if (n < 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("msg_len must be non-negative"));
+        }
+        if ((size_t)n > msg_buf.len) {
+            mp_raise_ValueError(MP_ERROR_TEXT("msg_len exceeds msg size"));
+        }
+        msg_len = (size_t)n;
+    }
+
+    aes_cmac_compute((const uint8_t *)key_buf.buf,
+        (const uint8_t *)msg_buf.buf, msg_len,
+        (uint8_t *)dst_buf.buf);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_aes_cmac_compute_into_obj,
+    3, 4, mod_aes_cmac_compute_into);
+
+// aes_cmac.ecb_encrypt(key, src, dst) -> None
+//   Single-block AES-128 ECB encrypt: dst[:16] = AES(key, src[:16]).
+//   src and dst may be the same buffer or overlap.
+//   Replaces cryptolib.aes(key, MODE_ECB).encrypt(...) which always allocates
+//   a fresh bytes object. Used by LoRaWAN payload encryption (CTR-mode A_i
+//   block stream) and Join Accept / session-key derivation.
+static mp_obj_t mod_aes_cmac_ecb_encrypt(mp_obj_t key_obj, mp_obj_t src_obj, mp_obj_t dst_obj) {
+    mp_buffer_info_t key_buf;
+    mp_get_buffer_raise(key_obj, &key_buf, MP_BUFFER_READ);
+    if (key_buf.len != BLOCK_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("key must be 16 bytes"));
+    }
+    mp_buffer_info_t src_buf;
+    mp_get_buffer_raise(src_obj, &src_buf, MP_BUFFER_READ);
+    if (src_buf.len < BLOCK_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("src must be >= 16 bytes"));
+    }
+    mp_buffer_info_t dst_buf;
+    mp_get_buffer_raise(dst_obj, &dst_buf, MP_BUFFER_WRITE);
+    if (dst_buf.len < BLOCK_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("dst must be >= 16 bytes"));
+    }
+
+    AES_CTX ctx;
+    AES_set_key(&ctx, (const uint8_t *)key_buf.buf,
+        (const uint8_t *)"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", AES_MODE_128);
+    aes_encrypt_block(&ctx, (const uint8_t *)src_buf.buf, (uint8_t *)dst_buf.buf);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(mod_aes_cmac_ecb_encrypt_obj, mod_aes_cmac_ecb_encrypt);
+
 static const mp_rom_map_elem_t aes_cmac_module_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_aes_cmac) },
-    { MP_ROM_QSTR(MP_QSTR_compute),  MP_ROM_PTR(&mod_aes_cmac_compute_obj) },
+    { MP_ROM_QSTR(MP_QSTR___name__),     MP_ROM_QSTR(MP_QSTR_aes_cmac) },
+    { MP_ROM_QSTR(MP_QSTR_compute),      MP_ROM_PTR(&mod_aes_cmac_compute_obj) },
+    { MP_ROM_QSTR(MP_QSTR_compute_into), MP_ROM_PTR(&mod_aes_cmac_compute_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ecb_encrypt),  MP_ROM_PTR(&mod_aes_cmac_ecb_encrypt_obj) },
 };
 static MP_DEFINE_CONST_DICT(aes_cmac_module_globals, aes_cmac_module_globals_table);
 

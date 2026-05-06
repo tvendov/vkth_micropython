@@ -103,6 +103,19 @@ class SX126X:
         self._packetLength = 0
         self._preambleDetectorLength = 0
 
+        # Pre-allocated SPI scratch buffers — keep SPItransfer alloc-free in
+        # the hot path. The transfer is split into two phases: opcode phase
+        # (1-2 bytes) and data phase. The split is required because at 8 MHz
+        # SCI9 SPI clock SX126x can't deliver its status byte without inter-
+        # byte delay; a single write_readinto sends the bytes back-to-back
+        # at 1 µs/byte and the chip's MISO output bit-shifts. Two separate
+        # write_readinto calls give the chip ~10-50 µs of Python dispatch
+        # overhead between phases — enough for status to settle.
+        self._spi_op_tx = bytearray(2)            # opcode (max 2 bytes)
+        self._spi_op_rx = bytearray(2)
+        self._spi_tx    = bytearray(258)          # data phase (256 max + 1 status + 1 margin)
+        self._spi_rx    = bytearray(258)
+
     def begin(self, bw, sf, cr, syncWord, currentLimit, preambleLength, tcxoVoltage, useRegulatorLDO=False, txIq=False, rxIq=False):
         self._bwKhz = bw
         self._sf = sf
@@ -1309,93 +1322,128 @@ class SX126X:
         return self.SPItransfer(cmd, cmdLen, False, [], data, numBytes, waitForBusy)
 
     def SPItransfer(self, cmd, cmdLen, write, dataOut, dataIn, numBytes, waitForBusy, timeout=5000):
+        # Alloc-free, byte-at-a-time DTC-driven SPI exchange.
+        #
+        # Why byte-at-a-time (and not a single write_readinto burst):
+        #   At 8 MHz SCI9 SPI clock SX126x cannot prepare its status byte
+        #   in time when bytes flow back-to-back (1 µs/byte). The MISO line
+        #   bit-shifts and we sample garbage. After multi-byte commands
+        #   such as Calibrate or SetPacketType, a subsequent multi-byte
+        #   read burst can sample stale status before the chip is ready.
+        #   The legacy code worked because each spi.write/spi.read call had
+        #   Python interpreter overhead in between (~5 µs/call for arg
+        #   parsing + DTC setup), naturally giving the chip enough settle
+        #   time. We replicate that by issuing one write_readinto per byte;
+        #   the buffers are pre-allocated so no per-call alloc happens.
+        #
+        # SX126x SPI framing:
+        #   write:  cmd[0..cmdLen-1]  +  dataOut[0..numBytes-1]
+        #           status arrives in MISO during the first dataOut byte
+        #           (and any subsequent data byte's MISO is irrelevant).
+        #   read:   cmd[0..cmdLen-1]  +  NOP (status)  +  numBytes×NOP (data)
         if implementation.name == 'micropython':
-          self.cs.value(0)
+            op_tx = self._spi_op_tx
+            op_rx = self._spi_op_rx
+            tx    = self._spi_tx
+            rx    = self._spi_rx
 
-          start = ticks_ms()
-          while self.gpio.value():
-              yield_()
-              if abs(ticks_diff(start, ticks_ms())) >= timeout:
-                  self.cs.value(1)
-                  return ERR_SPI_CMD_TIMEOUT
+            self.cs.value(0)
 
-          for i in range(cmdLen):
-              self.spi.write(bytes([cmd[i]]))
+            start = ticks_ms()
+            while self.gpio.value():
+                yield_()
+                if abs(ticks_diff(start, ticks_ms())) >= timeout:
+                    self.cs.value(1)
+                    return ERR_SPI_CMD_TIMEOUT
+
+            # Phase 1 — opcode bytes, one write_readinto per byte.
+            for i in range(cmdLen):
+                op_tx[0] = cmd[i]
+                self.spi.write_readinto(op_tx, op_rx, 1)
+
+            # Phase 2 — data bytes.
+            status = 0
+            if write:
+                for i in range(numBytes):
+                    tx[0] = dataOut[i]
+                    self.spi.write_readinto(tx, rx, 1)
+                    if i == 0:
+                        st_byte = rx[0]
+                        sb = st_byte & 0b00001110
+                        if sb == SX126X_STATUS_CMD_TIMEOUT or \
+                           sb == SX126X_STATUS_CMD_INVALID or \
+                           sb == SX126X_STATUS_CMD_FAILED:
+                            status = sb
+                            break
+                        elif st_byte == 0x00 or st_byte == 0xFF:
+                            status = SX126X_STATUS_SPI_FAILED
+                            break
+            elif numBytes > 0:
+                # First NOP fetches the status byte.
+                tx[0] = SX126X_CMD_NOP
+                self.spi.write_readinto(tx, rx, 1)
+                st_byte = rx[0]
+                sb = st_byte & 0b00001110
+                if sb == SX126X_STATUS_CMD_TIMEOUT or \
+                   sb == SX126X_STATUS_CMD_INVALID or \
+                   sb == SX126X_STATUS_CMD_FAILED:
+                    status = sb
+                elif st_byte == 0x00 or st_byte == 0xFF:
+                    status = SX126X_STATUS_SPI_FAILED
+                else:
+                    # Subsequent NOPs fetch the payload, byte at a time.
+                    for i in range(numBytes):
+                        tx[0] = SX126X_CMD_NOP
+                        self.spi.write_readinto(tx, rx, 1)
+                        dataIn[i] = rx[0]
+
+            self.cs.value(1)
 
         if implementation.name == 'circuitpython':
-          while not self.spi.try_lock():
-              pass
-          self.cs.value = False
+            while not self.spi.try_lock():
+                pass
+            self.cs.value = False
 
-          start = ticks_ms()
-          while self.gpio.value:
-              yield_()
-              if abs(ticks_diff(start, ticks_ms())) >= timeout:
-                  self.cs.value = True
-                  self.spi.unlock()
-                  return ERR_SPI_CMD_TIMEOUT
+            start = ticks_ms()
+            while self.gpio.value:
+                yield_()
+                if abs(ticks_diff(start, ticks_ms())) >= timeout:
+                    self.cs.value = True
+                    self.spi.unlock()
+                    return ERR_SPI_CMD_TIMEOUT
 
-          for i in range(cmdLen):
-              self.spi.write(bytes([cmd[i]]))
+            for i in range(cmdLen):
+                self.spi.write(bytes([cmd[i]]))
 
-          in_ = bytearray(1)
+            in_ = bytearray(1)
+            status = 0
 
-        status = 0
-
-        if write:
-            for i in range(numBytes):
-                if implementation.name == 'micropython':
-                    try:
-                        in_ = self.spi.read(1, dataOut[i])
-                    except:
-                        in_ = self.spi.read(1, write=dataOut[i])
-
-                if implementation.name == 'circuitpython':
-                  self.spi.write_readinto(bytes([dataOut[i]]), in_)
-
+            if write:
+                for i in range(numBytes):
+                    self.spi.write_readinto(bytes([dataOut[i]]), in_)
+                    if (in_[0] & 0b00001110) == SX126X_STATUS_CMD_TIMEOUT or\
+                       (in_[0] & 0b00001110) == SX126X_STATUS_CMD_INVALID or\
+                       (in_[0] & 0b00001110) == SX126X_STATUS_CMD_FAILED:
+                        status = in_[0] & 0b00001110
+                        break
+                    elif (in_[0] == 0x00) or (in_[0] == 0xFF):
+                        status = SX126X_STATUS_SPI_FAILED
+                        break
+            else:
+                self.spi.readinto(in_)
                 if (in_[0] & 0b00001110) == SX126X_STATUS_CMD_TIMEOUT or\
                    (in_[0] & 0b00001110) == SX126X_STATUS_CMD_INVALID or\
                    (in_[0] & 0b00001110) == SX126X_STATUS_CMD_FAILED:
                     status = in_[0] & 0b00001110
-                    break
                 elif (in_[0] == 0x00) or (in_[0] == 0xFF):
                     status = SX126X_STATUS_SPI_FAILED
-                    break
-        else:
-            if implementation.name == 'micropython':
-                try:
-                    in_ = self.spi.read(1, SX126X_CMD_NOP)
-                except:
-                    in_ = self.spi.read(1, write=SX126X_CMD_NOP)
-
-            if implementation.name == 'circuitpython':
-              self.spi.readinto(in_)
-
-            if (in_[0] & 0b00001110) == SX126X_STATUS_CMD_TIMEOUT or\
-               (in_[0] & 0b00001110) == SX126X_STATUS_CMD_INVALID or\
-               (in_[0] & 0b00001110) == SX126X_STATUS_CMD_FAILED:
-                status = in_[0] & 0b00001110
-            elif (in_[0] == 0x00) or (in_[0] == 0xFF):
-                status = SX126X_STATUS_SPI_FAILED
-            else:
-                if implementation.name == 'micropython':
+                else:
                     for i in range(numBytes):
-                        try:
-                            dataIn[i] = self.spi.read(1, SX126X_CMD_NOP)[0]
-                        except:
-                            dataIn[i] = self.spi.read(1, write=SX126X_CMD_NOP)[0]
+                        self.spi.readinto(in_)
+                        dataIn[i] = in_[0]
 
-                if implementation.name == 'circuitpython':
-                  for i in range(numBytes):
-                      self.spi.readinto(in_)
-                      dataIn[i] = in_[0]
-
-        if implementation.name == 'micropython':
-          self.cs.value(1)
-
-        if implementation.name == 'circuitpython':
-          self.cs.value = True
-          self.spi.unlock()
+            self.cs.value = True
+            self.spi.unlock()
 
         if waitForBusy:
             sleep_us(1)
