@@ -308,6 +308,16 @@ soft_reset:
 
     // GC init
     gc_init(MICROPY_HEAP_START, MICROPY_HEAP_END);
+    #if MICROPY_GC_SPLIT_HEAP && MICROPY_HW_HAS_OSPI_RAM
+    // Register the OSPI RAM region as a second GC area. board_init() (called
+    // from MICROPY_BOARD_EARLY_INIT) must have placed the controller into
+    // memory-mapped mode before this point.
+    {
+        extern uint32_t _ospi_ram_start;
+        extern uint32_t _ospi_ram_end;
+        gc_add(&_ospi_ram_start, &_ospi_ram_end);
+    }
+    #endif
 
     #if MICROPY_ENABLE_PYSTACK
     static mp_obj_t pystack[384];

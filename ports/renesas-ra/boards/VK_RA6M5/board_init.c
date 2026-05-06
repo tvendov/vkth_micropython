@@ -37,19 +37,18 @@ void board_init(void) {
         #endif
         return;
     }
-    extern void gc_ospi_init(void);
-    gc_ospi_init();          /* сега контролерът е готов -> ще успее */
 
     #if MICROPY_HW_BOARD_INIT_DEBUG
     mp_printf(&mp_plat_print, "[BOARD] OSPI RAM hardware initialized successfully\n");
     mp_printf(&mp_plat_print, "[BOARD] Entering memory-mapped mode...\n");
     #endif
-    
+
     // Prepare for memory-mapped mode (DOPI)
     spi_flash_direct_transfer_t direct_transfer = {0};
-    
+
     direct_transfer.command        = (uint16_t)OSPI_DOPI_READ_CMD;
-    direct_transfer.address_length = SPI_FLASH_ADDRESS_BYTES_4;    direct_transfer.dummy_cycles   = 5;
+    direct_transfer.address_length = SPI_FLASH_ADDRESS_BYTES_4;
+    direct_transfer.dummy_cycles   = 5;
     
     #if MICROPY_HW_BOARD_INIT_DEBUG
     mp_printf(&mp_plat_print, "[BOARD] Using DOPI read command: 0x%04X\n", direct_transfer.command);
@@ -73,7 +72,6 @@ void board_init(void) {
         #endif
         return;
     }
-    gc_ospi_init();
 
     #if MICROPY_HW_BOARD_INIT_DEBUG
     mp_printf(&mp_plat_print, "[BOARD] OSPI RAM ready for memory-mapped access\n");

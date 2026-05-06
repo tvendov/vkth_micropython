@@ -98,6 +98,10 @@
 #define MICROPY_TRACKED_ALLOC       (MICROPY_SSL_MBEDTLS || MICROPY_BLUETOOTH_BTSTACK)
 #define MICROPY_READER_VFS          (1)
 #define MICROPY_ENABLE_GC           (1)
+// Enable split GC heap on RA6M5 boards that expose OSPI RAM as a second area.
+#if defined(RA6M5) && MICROPY_HW_HAS_OSPI_RAM
+#define MICROPY_GC_SPLIT_HEAP       (1)
+#endif
 #define MICROPY_STACK_CHECK_MARGIN  (1024)
 #define MICROPY_ENABLE_EMERGENCY_EXCEPTION_BUF (1)
 #define MICROPY_EMERGENCY_EXCEPTION_BUF_SIZE (0)

@@ -29,6 +29,11 @@
 #define MICROPY_HW_HAS_SDHI_CARD    (1)
 #define MICROPY_HW_HAS_OSPI_RAM     (1)
 
+// Hook board_init() into MicroPython startup so OSPI RAM is brought up
+// (memory-mapped DOPI) before gc_init / gc_add run in main.c.
+void board_init(void);
+#define MICROPY_BOARD_EARLY_INIT()  board_init()
+
 // board config
 
 // UART
