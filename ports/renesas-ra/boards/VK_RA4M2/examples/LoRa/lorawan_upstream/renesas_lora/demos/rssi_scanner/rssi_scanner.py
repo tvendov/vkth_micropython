@@ -30,7 +30,7 @@ class SSD1306:
                                         OLED_W, OLED_H, framebuf.MONO_VLSB)
         cmd = bytearray(2); cmd[0] = 0x00
         for c in (0xAE, 0xD5, 0x80, 0xA8, 0x1F, 0xD3, 0x00, 0x40,
-                  0x8D, 0x14, 0x20, 0x00, 0xA1, 0xC8, 0xDA, 0x02,
+                  0x8D, 0x14, 0x20, 0x00, 0xA0, 0xC0, 0xDA, 0x02,
                   0x81, 0x7F, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6, 0xAF):
             cmd[1] = c; self.i2c.writeto(self.addr, cmd)
         self._show = bytearray(b"\x00\x21\x00\x7F\x22\x00"
@@ -122,6 +122,14 @@ mode       = 0           # 0=BAR 1=NUM 2=WF
 paused     = False
 rx_boosted = False       # toggled by short-press; re-applied via apply_rx_gain()
 
+app_mode         = 'SCAN'  # 'SCAN' | 'PKT'
+pkt_counter_last = None    # int or None
+pkt_miss_count   = 0
+pkt_last_delta   = 1
+pkt_last_rx_ms   = 0
+pkt_last_rssi    = -120
+pkt_last_snr     = 0
+
 LONG_MS = 1000
 
 async def sweep_once():
@@ -187,18 +195,133 @@ def render_wf():
     for x in range(128):
         oled.fb.pixel(x, wf_buf[x], 1)
 
+def render_pkt():
+    if pkt_counter_last is None:
+        oled.fb.text("PKT 868.1 MHz", 0,  0, 1)
+        oled.fb.text("awaiting...",   0, 11, 1)
+    else:
+        now_ms  = time.ticks_ms()
+        age_ms  = time.ticks_diff(now_ms, pkt_last_rx_ms)
+        hdr     = "PKT #%d %ddBm" % (pkt_counter_last, pkt_last_rssi)
+        seq_ln  = "seq%d miss%d" % (pkt_last_delta, pkt_miss_count)
+        age_ln  = "last%dms SNR%d" % (age_ms, pkt_last_snr)
+        oled.fb.text(hdr[:16],    0,  0, 1)
+        oled.fb.text(seq_ln[:16], 0, 11, 1)
+        oled.fb.text(age_ln[:16], 0, 22, 1)
+
 async def render():
     oled.fb.fill(0)
-    if   mode == 0: render_bar()
+    if app_mode == 'PKT':
+        render_pkt()
+    elif mode == 0: render_bar()
     elif mode == 1: render_num()
     else:           render_wf()
     oled.show()
     await asyncio.sleep_ms(0)
 
+# ---- PKT-mode helpers ----
+async def enter_pkt_mode():
+    global app_mode, pkt_counter_last, pkt_miss_count, pkt_last_delta
+    await cmd(0x80, b'\x00')                         # SetStandby(STDBY_RC)
+    await cmd(0x86, b'\x36\x41\x99\x9A')             # SetRfFrequency 868.1 MHz
+    await cmd(0x8B, b'\x07\x04\x01\x00')             # SetModulationParams SF7/BW125/CR4_5/LDRO=0
+    await cmd(0x8C, b'\x00\x08\x00\xFF\x01\x00')     # SetPacketParams preamble=8, explicit, any len, CRC, std IQ
+    await cmd(0x0D, b'\x07\x40\x34')                 # WriteRegister(0x0740, 0x34) sync word MSB
+    await cmd(0x0D, b'\x07\x41\x44')                 # WriteRegister(0x0741, 0x44) sync word LSB
+    await cmd(0x02, b'\xFF\xFF')                      # ClearIrqStatus
+    # IRQ bits per SX1262 DS Table 13-29: bit1=RxDone, bit6=CrcErr → 0x0042
+    await cmd(0x08, b'\x00\x42\x00\x42\x00\x00\xFF\xFF')  # SetDioIrqParams RxDone|CrcErr on DIO1
+    await cmd(0x82, b'\xFF\xFF\xFF')                  # SetRx continuous
+    await apply_rx_gain()
+    pkt_counter_last = None
+    pkt_miss_count   = 0
+    pkt_last_delta   = 1
+    app_mode = 'PKT'   # flip after all SPI ops — sweep_task gates on this
+    await render()
+
+async def enter_scan_mode():
+    global app_mode
+    await cmd(0x80, b'\x00')   # SetStandby — stops continuous RX
+    app_mode = 'SCAN'
+    await render()
+
+async def pkt_rx_once():
+    global pkt_counter_last, pkt_miss_count, pkt_last_delta
+    global pkt_last_rx_ms, pkt_last_rssi, pkt_last_snr
+
+    # GetIrqStatus: opcode + NOP, response: [status, irq_H, irq_L]
+    buf = bytearray(4)
+    nss(0); spi.write_readinto(b'\x12\x00\x00\x00', buf); nss(1)
+    await wait_busy("GetIrqStatus")
+    irq = (buf[2] << 8) | buf[3]
+
+    # Clear IRQ before ReadBuffer so a back-to-back packet re-asserts DIO1 correctly
+    await cmd(0x02, b'\xFF\xFF')
+
+    rx_done = bool(irq & 0x0002)  # bit1 = RxDone per SX1262 DS Table 13-29
+    crc_err = bool(irq & 0x0040)  # bit6 = CrcErr
+
+    # GetRxBufferStatus: [status, payloadLen, rxStartAddr]
+    buf3 = bytearray(4)
+    nss(0); spi.write_readinto(b'\x13\x00\x00\x00', buf3); nss(1)
+    await wait_busy("GetRxBufferStatus")
+    payload_len   = buf3[2]
+    rx_start_addr = buf3[3]
+
+    # GetPacketStatus: [status, rssiPkt, snrPkt, signalRssiPkt]
+    buf4 = bytearray(5)
+    nss(0); spi.write_readinto(b'\x14\x00\x00\x00\x00', buf4); nss(1)
+    await wait_busy("GetPacketStatus")
+    pkt_last_rssi = -(buf4[2] >> 1)
+    snr_raw       = buf4[3] if buf4[3] < 128 else buf4[3] - 256  # signed int8, units 0.25 dB
+    pkt_last_snr  = snr_raw >> 2
+
+    if not rx_done or crc_err or payload_len < 4:
+        print("PKT: irq=0x%04X rx_done=%s crc_err=%s len=%d rssi=%d — skip" % (
+              irq, rx_done, crc_err, payload_len, pkt_last_rssi))
+        return
+
+    # ReadBuffer: write [0x1E, offset], read 1 status byte + N data bytes
+    rbuf = bytearray(1 + payload_len)
+    nss(0)
+    spi.write(bytes([0x1E, rx_start_addr]))
+    spi.readinto(rbuf)
+    nss(1)
+    await wait_busy("ReadBuffer")
+    # rbuf[0] = status NOP; payload begins at rbuf[1]
+    payload = rbuf[1:1 + payload_len]
+    counter = int.from_bytes(payload[:4], 'big')
+
+    if pkt_counter_last is None:
+        delta = 1
+    else:
+        delta = int((counter - pkt_counter_last) & 0xFFFFFFFF)
+        if delta == 0:
+            delta = 1
+        pkt_miss_count += max(0, delta - 1)
+
+    pkt_last_delta   = delta
+    pkt_counter_last = counter
+    pkt_last_rx_ms   = time.ticks_ms()
+    print("PKT #%d rssi=%d snr=%d delta=%d miss=%d" % (
+          counter, pkt_last_rssi, pkt_last_snr, delta, pkt_miss_count))
+
+async def pkt_task():
+    while True:
+        if app_mode != 'PKT':
+            await asyncio.sleep_ms(50)
+            continue
+        if dio1.value():
+            await pkt_rx_once()
+            await render()
+        else:
+            await asyncio.sleep_ms(5)
+
 # ---- Button task ----
-# Short press = toggle Boosted/Standard RX gain; long press = pause/resume sweep.
+# Short press: SCAN=toggle BST/STD gain; PKT=reset counters.
+# Long press: toggle SCAN<->PKT mode.
 async def button_task():
-    global paused, rx_boosted
+    global paused, rx_boosted, pkt_counter_last, pkt_miss_count, pkt_last_delta
     btn_prev = 1
     press_t  = 0
     while True:
@@ -209,21 +332,31 @@ async def button_task():
         elif btn_prev == 0 and bc == 1:
             held = time.ticks_diff(now, press_t)
             await asyncio.sleep_ms(80)
-            if held < LONG_MS:
-                rx_boosted = not rx_boosted
-                await apply_rx_gain()              # take effect on next sweep
-                print("rx_boosted =", rx_boosted)
+            if held >= LONG_MS:
+                if app_mode == 'SCAN':
+                    await enter_pkt_mode()
+                else:
+                    await enter_scan_mode()
             else:
-                paused = not paused
-                if paused:
-                    await cmd(0x80, b'\x00')        # SetStandby while paused
-            await render()
+                if app_mode == 'SCAN':
+                    rx_boosted = not rx_boosted
+                    await apply_rx_gain()
+                    print("rx_boosted =", rx_boosted)
+                else:
+                    pkt_counter_last = None
+                    pkt_miss_count   = 0
+                    pkt_last_delta   = 1
+                    print("PKT: counters reset")
+                await render()
         btn_prev = bc
         await asyncio.sleep_ms(20)
 
 # ---- Sweep task ----
 async def sweep_task():
     while True:
+        if app_mode == 'PKT':
+            await asyncio.sleep_ms(100)   # idle — pkt_task owns the chip
+            continue
         if not paused:
             await sweep_once()
             print("RSSI:", " ".join("%s=%d" % (CHANNELS[i][0], rssi[i])
@@ -244,6 +377,7 @@ async def main():
     await radio_init()
     print("rssi_scanner: running")
     asyncio.create_task(button_task())
+    asyncio.create_task(pkt_task())
     await sweep_task()
 
 
