@@ -56,12 +56,16 @@ uint8_t rx_TMPbuf[1536] __attribute__((aligned(4))); /* g_ether0_cfg.ether_buffe
 
 eth_t eth_instance;
 uint8_t phy_link_status = 0;
-static bool eth_open = false;
 const machine_pin_obj_t *phy_RST = pin_P400;
 
-bool eth_is_open(void) {
-    return eth_open;
-}
+// Diagnostic counters — bumped from ETH_IRQHandler.
+volatile uint32_t eth_irq_events = 0;
+volatile uint32_t eth_irq_link_on = 0;
+volatile uint32_t eth_irq_link_off = 0;
+volatile uint32_t eth_irq_interrupt = 0;
+volatile uint32_t eth_irq_rx_frames = 0;
+volatile uint32_t eth_irq_rx_failed = 0;
+volatile uint32_t eth_last_eesr = 0;
 
 // ETH-LwIP bindings
 
@@ -112,15 +116,11 @@ static err_t eth_netif_output(struct netif *netif, struct pbuf *p) {
     eth_trace(netif->state, (size_t)-1, p, NETUTILS_TRACE_IS_TX | NETUTILS_TRACE_NEWLINE);
 
     pbuf_copy_partial(p, tx_TMPbuf, p->tot_len, 0);
-    fsp_err_t err = R_ETHER_Write(&g_ether0_ctrl, tx_TMPbuf, p->tot_len);
-    if (err == FSP_SUCCESS) {
+    if (FSP_SUCCESS == R_ETHER_Write(&g_ether0_ctrl, tx_TMPbuf, p->tot_len)) {
         return ERR_OK;
+    } else {
+        return ERR_BUF;
     }
-    // Debug: trace why the write didn't go out — uncomment via eth_set_trace
-    if (((eth_t *)netif->state)->trace_flags & TRACE_ASYNC_EV) {
-        mp_printf(MP_PYTHON_PRINTER, "R_ETHER_Write err=%d len=%u\n", (int)err, (unsigned)p->tot_len);
-    }
-    return ERR_BUF;
 }
 
 static err_t eth_netif_init(struct netif *netif) {
@@ -142,13 +142,13 @@ static err_t eth_netif_init(struct netif *netif) {
 static void eth_lwip_init(eth_t *self) {
     // err_t e;
 
-    // Start with all-zero IP/mask/gw so DHCP can populate them.
-    // Caller can also override with lan.ifconfig((ip, mask, gw, dns)) if there
-    // is no DHCP server on the network.
     ip_addr_t ipconfig[4];
-    IP4_ADDR(&ipconfig[0], 0, 0, 0, 0);
-    IP4_ADDR(&ipconfig[1], 0, 0, 0, 0);
-    IP4_ADDR(&ipconfig[2], 0, 0, 0, 0);
+    // IP4_ADDR(&ipconfig[0], 0, 0, 0, 0);
+    // IP4_ADDR(&ipconfig[0], 192, 168, 0, 100);
+    // IP4_ADDR(&ipconfig[2], 192, 168, 0, 1);
+    IP4_ADDR(&ipconfig[0], 192, 168, 2, 188);
+    IP4_ADDR(&ipconfig[2], 192, 168, 2, 254);
+    IP4_ADDR(&ipconfig[1], 255, 255, 255, 0);
     IP4_ADDR(&ipconfig[3], 8, 8, 8, 8);
 
     MICROPY_PY_LWIP_ENTER
@@ -167,10 +167,12 @@ static void eth_lwip_init(eth_t *self) {
 
     netif_set_link_up(n);
 
-    // Wait briefly for DHCP, but do not raise if it never responds — the
-    // caller can always set the address manually via lan.ifconfig((ip, ...)).
+    // Wait for DHCP to get IP address
     uint32_t start = mp_hal_ticks_ms();
-    while (!dhcp_supplied_address(n) && mp_hal_ticks_ms() - start < 10000) {
+    while (!dhcp_supplied_address(n)) {
+        if (mp_hal_ticks_ms() - start > 20000) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DHCP failed to get IP address in 10 sec."));
+        }
         mp_hal_delay_ms(200);
     }
 
@@ -190,6 +192,7 @@ static void eth_lwip_deinit(eth_t *self) {
 }
 
 void ETH_IRQHandler(ether_callback_args_t *p_args) {
+    eth_irq_events++;
 
     switch (p_args->event)
     {
@@ -197,17 +200,24 @@ void ETH_IRQHandler(ether_callback_args_t *p_args) {
             break;
         case ETHER_EVENT_LINK_ON:
             phy_link_status = 1;
+            eth_irq_link_on++;
             break;
         case ETHER_EVENT_LINK_OFF:
             phy_link_status = 0;
+            eth_irq_link_off++;
             break;
 
         case ETHER_EVENT_INTERRUPT: {
+            eth_irq_interrupt++;
+            eth_last_eesr = p_args->status_eesr;
             if (ETHER_EXAMPLE_ETHER_ISR_EE_FR_MASK == (p_args->status_eesr & ETHER_EXAMPLE_ETHER_ISR_EE_FR_MASK)) {
                 uint32_t len = 0;
 
                 if (FSP_SUCCESS == R_ETHER_Read(&g_ether0_ctrl, rx_TMPbuf, &len)) {
+                    eth_irq_rx_frames++;
                     eth_process_frame(&eth_instance, len, rx_TMPbuf);
+                } else {
+                    eth_irq_rx_failed++;
                 }
             }
 
@@ -226,35 +236,8 @@ void ETH_IRQHandler(ether_callback_args_t *p_args) {
 
 // ------------------------------------------------------------------------------
 
-// Derive a stable, locally-administered MAC from the MCU's 16-byte unique ID.
-// Bit 1 of the first byte = 1 (LAA), bit 0 = 0 (unicast).  The remaining 5
-// octets are folded down from all 16 UID bytes by XOR so any change in the
-// UID produces a different MAC.  The same chip always yields the same MAC.
-static void eth_set_mac_from_uid(uint8_t mac[6]) {
-    extern void get_unique_id(uint8_t *id);
-    uint8_t uid[16];
-    get_unique_id(uid);
-    mac[0] = 0x02;                      // locally-administered, unicast
-    for (int i = 1; i < 6; ++i) {
-        mac[i] = 0;
-    }
-    for (int i = 0; i < 16; ++i) {
-        mac[1 + (i % 5)] ^= uid[i];
-    }
-    // Avoid the all-zero case (UID never zero on real silicon, but keep guard).
-    if ((mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) == 0) {
-        mac[5] = 0x01;
-    }
-}
-
 void eth_init(eth_t *self, int mac_idx) {
     fsp_err_t err;
-
-    // Populate the EDMAC MAC address from the chip's unique ID before opening
-    // the driver, so that R_ETHER_Open programs the right value into the MAC
-    // filter registers.  g_ether0_cfg.p_mac_address is a const uint8_t * to
-    // the writable g_ether0_mac_address[] buffer in hal_data.c.
-    eth_set_mac_from_uid((uint8_t *)g_ether0_cfg.p_mac_address);
 
     mp_hal_pin_output(phy_RST);
 
@@ -264,9 +247,9 @@ void eth_init(eth_t *self, int mac_idx) {
     mp_hal_delay_us(200);
 
     if ((err = R_ETHER_Open(&g_ether0_ctrl, &g_ether0_cfg)) == FSP_SUCCESS) {
-        self->netif.hwaddr_len = 6;
+        self->netif.hwaddr_len = 6;         // self->netif.
+        // mp_hal_get_mac(mac_idx, &self->netif.hwaddr[0]);
         memcpy(self->netif.hwaddr, g_ether0_cfg.p_mac_address, self->netif.hwaddr_len);
-        eth_open = true;
     }
 }
 

@@ -32,6 +32,7 @@
 #if defined(MICROPY_HW_ETH_MDC)
 
 #include "lwip/netif.h"
+#include "hal_data.h"
 
 typedef struct _network_lan_obj_t {
     mp_obj_base_t base;
@@ -116,6 +117,36 @@ static mp_obj_t network_lan_config(size_t n_args, const mp_obj_t *args, mp_map_t
         switch (mp_obj_str_get_qstr(args[1])) {
             case MP_QSTR_mac: {
                 return mp_obj_new_bytes(&eth_netif(self->eth)->hwaddr[0], 6);
+            }
+            case MP_QSTR_relink: {
+                fsp_err_t err = R_ETHER_LinkProcess(&g_ether0_ctrl);
+                return MP_OBJ_NEW_SMALL_INT((int)err);
+            }
+            case MP_QSTR_rxpoll: {
+                static uint8_t poll_rx_buf[1536];
+                uint32_t len = 0;
+                fsp_err_t err = R_ETHER_Read(&g_ether0_ctrl, poll_rx_buf, &len);
+                mp_obj_t r[2] = {
+                    MP_OBJ_NEW_SMALL_INT((int)err),
+                    MP_OBJ_NEW_SMALL_INT((int)len),
+                };
+                return mp_obj_new_tuple(2, r);
+            }
+            case MP_QSTR_irq_stats: {
+                extern volatile uint32_t eth_irq_events, eth_irq_link_on,
+                                          eth_irq_link_off, eth_irq_interrupt,
+                                          eth_irq_rx_frames, eth_irq_rx_failed,
+                                          eth_last_eesr;
+                mp_obj_t list[7] = {
+                    mp_obj_new_int(eth_irq_events),
+                    mp_obj_new_int(eth_irq_link_on),
+                    mp_obj_new_int(eth_irq_link_off),
+                    mp_obj_new_int(eth_irq_interrupt),
+                    mp_obj_new_int(eth_irq_rx_frames),
+                    mp_obj_new_int(eth_irq_rx_failed),
+                    mp_obj_new_int(eth_last_eesr),
+                };
+                return mp_obj_new_tuple(7, list);
             }
             default:
                 mp_raise_ValueError(MP_ERROR_TEXT("unknown config param"));
