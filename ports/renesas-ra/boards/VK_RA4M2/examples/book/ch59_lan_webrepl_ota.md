@@ -74,6 +74,31 @@ webrepl.start(password='vk6m5')  # max 9 знака!
 #   3. Пиши ws://192.168.2.144:8266/   парола: vk6m5
 ```
 
+##### F. WebREPL — file upload от командния ред
+
+```bash
+# webrepl_cli.py от https://github.com/micropython/webrepl
+python webrepl_cli.py -p vk6m5 firmware.bin 192.168.2.144:/flash/firmware.bin
+```
+
+> **⚠️ Внимание:** Дестинацията **трябва** да е под `/flash/...`.  Кореновият
+> `/` е VFS root (read-only); писане там пада с `ENODEV`.
+
+**Тест с 1 MB файл (потвърждение, че оригиналният 300 KB лимит е премахнат):**
+```
+$ python webrepl_cli.py -p vk6m5 test1mb.bin 192.168.2.144:/flash/test1mb.bin
+Remote WebREPL version: (1, 28, 0)
+Sent 1048576 of 1048576 bytes        # ~65 s, ~17 KB/s
+
+# На устройството:
+>>> import os; os.stat('/flash/test1mb.bin')
+(32768, 0, 0, 0, 0, 0, 1048576, ...)   # 1 048 576 bytes ✓
+
+# RX FIFO статистики след transfer:
+>>> network.LAN().config('rx_fifo')
+(7, 2)                                 # high_water=7/8, dropped=2/4370 = 0.05%
+```
+
 ---
 
 #### 59.3. Какво НЕ се ползва за LAN data path

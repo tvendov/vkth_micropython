@@ -65,7 +65,10 @@ def _start_webrepl(password="vk6m5", port=8266, lan=lan):
 
     t = machine.Timer(-1)
     t.init(period=200, mode=machine.Timer.PERIODIC, callback=_poll)
-    print("WebREPL: ws://%s:%d/   password=%s" % (lan.ifconfig()[0], port, password))
+    ip = lan.ifconfig()[0]
+    print("WebREPL: ws://%s:%d/   password=%s" % (ip, port, password))
+    print("Upload via webrepl_cli.py with /flash/ prefix:")
+    print("  python webrepl_cli.py -p %s local.bin %s:/flash/local.bin" % (password, ip))
 
 
 if lan.ifconfig()[0] != "0.0.0.0":
