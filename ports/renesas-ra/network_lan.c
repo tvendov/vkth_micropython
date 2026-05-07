@@ -132,6 +132,19 @@ static mp_obj_t network_lan_config(size_t n_args, const mp_obj_t *args, mp_map_t
                 };
                 return mp_obj_new_tuple(2, r);
             }
+            case MP_QSTR_rx_fifo: {
+                // (high_water, dropped) — peak FIFO occupancy and total
+                // frames dropped because the FIFO was full when the ISR
+                // tried to enqueue.  high_water > 1 means PendSV got
+                // delayed; dropped > 0 means PendSV was delayed > 4 frames.
+                extern volatile uint32_t eth_rx_dropped;
+                extern volatile uint32_t eth_rx_high_water;
+                mp_obj_t r[2] = {
+                    mp_obj_new_int(eth_rx_high_water),
+                    mp_obj_new_int(eth_rx_dropped),
+                };
+                return mp_obj_new_tuple(2, r);
+            }
             case MP_QSTR_irq_stats: {
                 extern volatile uint32_t eth_irq_events, eth_irq_link_on,
                                           eth_irq_link_off, eth_irq_interrupt,

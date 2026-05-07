@@ -57,16 +57,27 @@ u32_t sys_now(void) {
     return mp_hal_ticks_ms();
 }
 
-static void pyb_lwip_poll(void) {
-    // Run the lwIP internal updates (DHCP retries, ARP timeouts, TCP retransmit, ...).
+// Non-static: ETH_IRQHandler in eth.c calls pendsv_schedule_dispatch() with
+// this as the dispatch target, so the symbol must be linkable.
+void pyb_lwip_poll(void) {
+    #if defined(MICROPY_HW_ETH_MDC)
+    extern bool eth_is_open(void);
+    extern void eth_drain_rx(void);
+    if (eth_is_open()) {
+        // Drain any RX frames queued by EDMAC.  Runs at PendSV level — much
+        // lower priority than the ETH ISR, so audio / DSP / GPIO interrupts
+        // continue to run without being delayed by network frame processing.
+        eth_drain_rx();
+    }
+    #endif
+
+    // Run lwIP internal updates (DHCP retries, ARP timeouts, TCP retransmit).
     sys_check_timeouts();
 
     #if defined(MICROPY_HW_ETH_MDC)
     // Drive R_ETHER_LinkProcess only when the driver has been opened.  Calling
     // it before R_ETHER_Open dereferences a NULL p_ether_cfg pointer in some
-    // FSP code paths.  eth_is_open() is set by eth_init() after a successful
-    // R_ETHER_Open.
-    extern bool eth_is_open(void);
+    // FSP code paths.
     if (eth_is_open()) {
         (void)R_ETHER_LinkProcess(&g_ether0_ctrl);
     }
