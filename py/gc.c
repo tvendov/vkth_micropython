@@ -801,6 +801,19 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
         area = &MP_STATE_MEM(area);
         #endif
 
+        #if MICROPY_GC_SPLIT_HEAP && MICROPY_GC_LARGE_THRESHOLD
+        // Size-based segregation: when this is a "large" allocation, skip
+        // the primary area (typically a small fast SRAM heap) so that the
+        // primary stays defragmented for short-lived small objects.  If
+        // there is no secondary area (or only one area is registered),
+        // fall through to the normal scan starting from the primary.
+        if (n_bytes > MICROPY_GC_LARGE_THRESHOLD
+            && area == &MP_STATE_MEM(area)
+            && area->next != NULL) {
+            area = area->next;
+        }
+        #endif
+
         // look for a run of n_blocks available blocks
         for (; area != NULL; area = NEXT_AREA(area), i = 0) {
             n_free = 0;

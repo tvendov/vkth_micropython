@@ -763,6 +763,19 @@ typedef uint64_t mp_uint_t;
 #define MICROPY_GC_SPLIT_HEAP_AUTO (0)
 #endif
 
+// Size-based segregation in split heap.  When non-zero and split heap is
+// enabled, allocations larger than this threshold (in bytes) skip the
+// primary area and go to the secondary area first.  Smaller allocations
+// still try the primary area first.  This keeps the primary area
+// defragmented for short-lived small objects (parser/qstr/frame/...) when
+// the secondary area is large and slow (e.g. external PSRAM).
+//
+// Setting to 0 disables segregation — every allocation searches areas
+// in registration order, regardless of size.
+#ifndef MICROPY_GC_LARGE_THRESHOLD
+#define MICROPY_GC_LARGE_THRESHOLD (0)
+#endif
+
 // Hook to run code during time consuming garbage collector operations
 // *i* is the loop index variable (e.g. can be used to run every x loops)
 #ifndef MICROPY_GC_HOOK_LOOP

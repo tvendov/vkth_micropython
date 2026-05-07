@@ -99,8 +99,12 @@
 #define MICROPY_READER_VFS          (1)
 #define MICROPY_ENABLE_GC           (1)
 // Enable split GC heap on RA6M5 boards that expose OSPI RAM as a second area.
+// MICROPY_GC_LARGE_THRESHOLD = 100 KB: allocations strictly larger than this
+// skip the small fast internal SRAM heap and land directly in the slow-but-
+// large OSPI RAM, keeping the SRAM defragmented for parser/qstr/frame/etc.
 #if defined(RA6M5) && MICROPY_HW_HAS_OSPI_RAM
 #define MICROPY_GC_SPLIT_HEAP       (1)
+#define MICROPY_GC_LARGE_THRESHOLD  (100 * 1024)
 #endif
 #define MICROPY_STACK_CHECK_MARGIN  (1024)
 #define MICROPY_ENABLE_EMERGENCY_EXCEPTION_BUF (1)
