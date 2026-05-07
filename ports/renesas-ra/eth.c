@@ -56,7 +56,12 @@ uint8_t rx_TMPbuf[1536] __attribute__((aligned(4))); /* g_ether0_cfg.ether_buffe
 
 eth_t eth_instance;
 uint8_t phy_link_status = 0;
+static bool eth_open_flag = false;
 const machine_pin_obj_t *phy_RST = pin_P400;
+
+bool eth_is_open(void) {
+    return eth_open_flag;
+}
 
 // Diagnostic counters — bumped from ETH_IRQHandler.
 volatile uint32_t eth_irq_events = 0;
@@ -142,13 +147,13 @@ static err_t eth_netif_init(struct netif *netif) {
 static void eth_lwip_init(eth_t *self) {
     // err_t e;
 
+    // Start with all-zero so DHCP populates the address.  Caller can also
+    // override with lan.ifconfig((ip, mask, gw, dns)) if there is no DHCP
+    // server on this network.
     ip_addr_t ipconfig[4];
-    // IP4_ADDR(&ipconfig[0], 0, 0, 0, 0);
-    // IP4_ADDR(&ipconfig[0], 192, 168, 0, 100);
-    // IP4_ADDR(&ipconfig[2], 192, 168, 0, 1);
-    IP4_ADDR(&ipconfig[0], 192, 168, 2, 188);
-    IP4_ADDR(&ipconfig[2], 192, 168, 2, 254);
-    IP4_ADDR(&ipconfig[1], 255, 255, 255, 0);
+    IP4_ADDR(&ipconfig[0], 0, 0, 0, 0);
+    IP4_ADDR(&ipconfig[1], 0, 0, 0, 0);
+    IP4_ADDR(&ipconfig[2], 0, 0, 0, 0);
     IP4_ADDR(&ipconfig[3], 8, 8, 8, 8);
 
     MICROPY_PY_LWIP_ENTER
@@ -167,14 +172,14 @@ static void eth_lwip_init(eth_t *self) {
 
     netif_set_link_up(n);
 
-    // Wait for DHCP to get IP address
-    uint32_t start = mp_hal_ticks_ms();
-    while (!dhcp_supplied_address(n)) {
-        if (mp_hal_ticks_ms() - start > 20000) {
-            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DHCP failed to get IP address in 10 sec."));
-        }
-        mp_hal_delay_ms(200);
-    }
+    // Do NOT block here waiting for DHCP.  PendSV-driven sys_check_timeouts()
+    // will run DHCP retries in the background; the caller can poll
+    // lan.ifconfig() / lan.isconnected() to see when the address arrives:
+    //
+    //   lan.active(True)                         # returns within ~1 ms
+    //   while lan.ifconfig()[0] == '0.0.0.0':
+    //       time.sleep_ms(100)
+    //   ...
 
     MICROPY_PY_LWIP_EXIT
 }
@@ -247,9 +252,9 @@ void eth_init(eth_t *self, int mac_idx) {
     mp_hal_delay_us(200);
 
     if ((err = R_ETHER_Open(&g_ether0_ctrl, &g_ether0_cfg)) == FSP_SUCCESS) {
-        self->netif.hwaddr_len = 6;         // self->netif.
-        // mp_hal_get_mac(mac_idx, &self->netif.hwaddr[0]);
+        self->netif.hwaddr_len = 6;
         memcpy(self->netif.hwaddr, g_ether0_cfg.p_mac_address, self->netif.hwaddr_len);
+        eth_open_flag = true;
     }
 }
 
@@ -277,18 +282,14 @@ int eth_link_status(eth_t *self) {
 }
 
 int eth_start(eth_t *self) {
-    fsp_err_t err;
-
     eth_lwip_deinit(self);
 
-    do
-    {
-        /* When the Ethernet link status read from the PHY-LSI Basic Status register is link-up,
-         * Initializes the module and make auto negotiation. */
-        err = R_ETHER_LinkProcess(&g_ether0_ctrl);
-    } while (FSP_SUCCESS != err);
-
-    // while(!phy_link_status);
+    // Fire-and-forget: do not busy-loop on R_ETHER_LinkProcess until success.
+    // The PendSV-driven lwIP poll calls R_ETHER_LinkProcess regularly and the
+    // PHY auto-negotiation will complete in the background.  This keeps
+    // lan.active(True) non-blocking — control returns to Python within a few
+    // hundred microseconds instead of seconds.
+    (void)R_ETHER_LinkProcess(&g_ether0_ctrl);
 
     eth_lwip_init(self);
 

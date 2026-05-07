@@ -46,6 +46,10 @@
 #include "lwip/dhcp.h"
 #include "lwip/apps/mdns.h"
 
+#if defined(MICROPY_HW_ETH_MDC)
+#include "hal_data.h"
+#endif
+
 // Poll lwIP every 128 ms.  Bit-mask trick: if (tick & 0x7f) == 0 -> divisor 128.
 #define LWIP_TICK(tick) (((tick) & ~(SYSTICK_DISPATCH_NUM_SLOTS - 1) & 0x7f) == 0)
 
@@ -56,6 +60,17 @@ u32_t sys_now(void) {
 static void pyb_lwip_poll(void) {
     // Run the lwIP internal updates (DHCP retries, ARP timeouts, TCP retransmit, ...).
     sys_check_timeouts();
+
+    #if defined(MICROPY_HW_ETH_MDC)
+    // Drive R_ETHER_LinkProcess only when the driver has been opened.  Calling
+    // it before R_ETHER_Open dereferences a NULL p_ether_cfg pointer in some
+    // FSP code paths.  eth_is_open() is set by eth_init() after a successful
+    // R_ETHER_Open.
+    extern bool eth_is_open(void);
+    if (eth_is_open()) {
+        (void)R_ETHER_LinkProcess(&g_ether0_ctrl);
+    }
+    #endif
 }
 
 void mod_network_lwip_poll_wrapper(uint32_t ticks_ms) {
