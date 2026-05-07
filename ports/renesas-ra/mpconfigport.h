@@ -228,10 +228,13 @@
 #define MICROPY_PY_USSL                 (0)
 #endif
 #ifndef MICROPY_PY_UWEBSOCKET
-#define MICROPY_PY_UWEBSOCKET           (0)
+#define MICROPY_PY_UWEBSOCKET           (1)
+#endif
+#ifndef MICROPY_PY_WEBSOCKET
+#define MICROPY_PY_WEBSOCKET            (1)
 #endif
 #ifndef MICROPY_PY_WEBREPL
-#define MICROPY_PY_WEBREPL              (0)
+#define MICROPY_PY_WEBREPL              (1)
 #endif
 #endif
 

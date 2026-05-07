@@ -2,6 +2,10 @@ CMSIS_MCU = RA6M5
 MCU_SERIES = m33
 LD_FILES = boards/VK_RA6M5/vk_ra6m5.ld
 
+# Use board-specific frozen manifest (adds webrepl + bundle-networking on top
+# of the common port manifest).
+FROZEN_MANIFEST ?= $(BOARD_DIR)/manifest.py
+
 CFLAGS += -DCFG_TUH_MAX_SPEED=OPT_MODE_HIGH_SPEED \
           -DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED \
           -DCFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE \
