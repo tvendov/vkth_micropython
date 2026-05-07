@@ -90,6 +90,15 @@ async def chip_reset():
     rst(1)
     await wait_busy("after reset")
 
+async def write_register(addr, value):
+    # WriteRegister opcode 0x0D, 16-bit addr MSB-first + 1 data byte
+    await cmd(0x0D, bytes([(addr >> 8) & 0xFF, addr & 0xFF, value]))
+
+async def apply_rx_gain():
+    # SX1262 Reg_RxGain @ 0x08AC: 0x96 = Boosted (+3dB sens), 0x94 = Standard.
+    # Persists across STDBY but resets on Sleep — re-apply after wake.
+    await write_register(0x08AC, 0x96 if rx_boosted else 0x94)
+
 async def radio_init():
     await cmd(0x80, b'\x00')                # SetStandby(STDBY_RC)
     await cmd(0x96, b'\x00')                # SetRegulatorMode(LDO)
@@ -104,12 +113,14 @@ async def radio_init():
     await cmd(0x8B, b'\x07\x04\x01\x00')    # SetModulationParams SF7/BW125/CR4_5
     await cmd(0x8C, b'\x00\x08\x00\xFF\x01\x00')  # SetPacketParams
     await cmd(0x8F, b'\x80\x00')            # SetBufferBaseAddress
+    await apply_rx_gain()
 
 # ---- State ----
-rssi    = [-120] * 8
-wf_buf  = [31] * 128
-mode    = 0          # 0=BAR 1=NUM 2=WF
-paused  = False
+rssi       = [-120] * 8
+wf_buf     = [31] * 128
+mode       = 0           # 0=BAR 1=NUM 2=WF
+paused     = False
+rx_boosted = False       # toggled by short-press; re-applied via apply_rx_gain()
 
 LONG_MS = 1000
 
@@ -130,13 +141,20 @@ async def sweep_once():
 
 # ---- Render ----
 _RSSI_FLOOR = -120   # bottom of bar scale
-_RSSI_CEIL  = -40    # top of bar scale (real strong signal)
+_RSSI_CEIL  = -20    # top of bar scale — covers RX saturation plateau
 _RSSI_SPAN  = _RSSI_CEIL - _RSSI_FLOOR
 
 def render_bar():
-    prefix = "PAU" if paused else "BAR"
     rmax = max(rssi)
-    hdr = "%s peak%4ddBm" % (prefix, rmax)
+    peak_idx = rssi.index(rmax)
+    label = CHANNELS[peak_idx][0]      # e.g. "8.1"
+    if paused:
+        prefix = "PAU"
+    elif rx_boosted:
+        prefix = "BST"                 # LNA boosted (+3 dB sens)
+    else:
+        prefix = "STD"                 # standard gain
+    hdr = "%s %s %ddBm" % (prefix, label, rmax)
     oled.fb.text(hdr[:16], 0, 0, 1)
     for idx in range(8):
         h = int((rssi[idx] - _RSSI_FLOOR) * 23 // _RSSI_SPAN)
@@ -178,9 +196,9 @@ async def render():
     await asyncio.sleep_ms(0)
 
 # ---- Button task ----
-# Short press = cycle BAR/NUM/WF; long press = pause/resume sweep.
+# Short press = toggle Boosted/Standard RX gain; long press = pause/resume sweep.
 async def button_task():
-    global mode, paused
+    global paused, rx_boosted
     btn_prev = 1
     press_t  = 0
     while True:
@@ -192,11 +210,13 @@ async def button_task():
             held = time.ticks_diff(now, press_t)
             await asyncio.sleep_ms(80)
             if held < LONG_MS:
-                mode = (mode + 1) % 3
+                rx_boosted = not rx_boosted
+                await apply_rx_gain()              # take effect on next sweep
+                print("rx_boosted =", rx_boosted)
             else:
                 paused = not paused
                 if paused:
-                    await cmd(0x80, b'\x00')   # SetStandby while paused
+                    await cmd(0x80, b'\x00')        # SetStandby while paused
             await render()
         btn_prev = bc
         await asyncio.sleep_ms(20)
