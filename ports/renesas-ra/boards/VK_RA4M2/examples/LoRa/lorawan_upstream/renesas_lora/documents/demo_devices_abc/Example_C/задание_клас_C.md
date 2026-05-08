@@ -3,7 +3,160 @@
 **Проект:** LoRaWAN Live Demo
 **Хардуер:** Vekatech VK_RA4M2 + SX1262
 **Клас:** LoRaWAN Class C (LoRaWAN 1.0.4, EU868)
-**Роля:** Instant-response controller — демонстрира < 1 s downlink латентност, async RX
+**Роля:** Instant-response controller — демонстрира < 1 s downlink латентност
+
+---
+
+## 🔴 ЗАДЪЛЖИТЕЛНО: Базов код
+
+Class C демото се пише като **разширение на проверените Class A тестове**, не от
+нула. Базата е директорията:
+
+`renesas_lora/LORAWAN_TESTS/` — 18 верифицирани теста върху Renesas LoRaMac-node
+v4.90 C-stack (модул `lorawan` в `ports/renesas-ra/lorawan/`).
+
+### Конкретни референции
+
+| Файл | За какво се ползва |
+|------|-------------------|
+| `LORAWAN_TESTS/testH_classc.py` | **Главната референция** — Class C continuous RX + event callback + downlink decode |
+| `LORAWAN_TESTS/test1_confirmed.py` | Confirmed uplink + queued downlink reception pattern |
+| `LORAWAN_TESTS/join_test.py` | OTAA join pattern (load_credentials, set_keys, mac.join, polling loop) |
+| `LORAWAN_TESTS/testFG.py` | Periodic uplink + ADR pattern |
+
+### Архитектурни правила
+
+- **`import lorawan`** директно (sync C-stack) — НЕ `import lorawan_async`
+- **`mac = lorawan.Mac(region=lorawan.EU868)`** — sync API
+- **Polling loop с `mac.process()`** на всеки 20-50 ms — НЕ asyncio
+- **Event callback** чрез `mac.set_event_callback(cb)` за входящи събития
+- **Downlink:** `mac.recv()` връща `(port, payload)` или `None`
+- **Class C активация:** `mac.set_class('C')` ПРЕДИ или СЛЕД join
+- **RX2 DR5:** `mac.set_rx2(freq=869525000, dr=5)` (binding е добавен в mod_lorawan.c)
+
+### Verbatim съдържание на testH_classc.py (certified-working Class C baseline)
+
+```python
+"""Test H — Class C continuous RX2 listening.
+
+Steps:
+  1. Init + switch to Class C
+  2. Send 1 uplink so server recognizes the activation
+  3. Loop 60s polling — chip stays in continuous RX2 between processes
+  4. User queues a downlink via REST while we're idle
+  5. We catch it via mcps_indication and mac.recv()"""
+import lorawan, time
+from machine import Pin, SPI
+
+spi = SPI(3, baudrate=8000000, polarity=0, phase=0,
+          sck=Pin('P111'), mosi=Pin('P109'), miso=Pin('P110'))
+
+mac = lorawan.Mac(region=lorawan.EU868)
+mac.lorawan_init()
+mac.set_min_rx_symbols(24)
+
+print("class before:", mac.get_class())
+st = mac.set_class('C')
+print("set_class('C') st:", st)
+print("class after :", mac.get_class())
+
+events = []
+def ev_cb(ev):
+    events.append((time.ticks_ms(), ev))
+mac.set_event_callback(ev_cb)
+
+print("uplink to advertise activation...")
+mac.send(1, b"classc", False)
+end = time.ticks_add(time.ticks_ms(), 8000)
+while time.ticks_diff(end, time.ticks_ms()) > 0:
+    mac.process(); time.sleep_ms(20)
+print("post-uplink events:", events[-3:])
+
+print()
+print(">>> queue a downlink in ChirpStack NOW (next 60s) <<<")
+T0 = time.ticks_ms()
+last_count = len(events)
+while time.ticks_diff(time.ticks_ms(), T0) < 60000:
+    mac.process(); time.sleep_ms(50)
+    if len(events) > last_count:
+        print("  +%dms" % time.ticks_diff(time.ticks_ms(), T0), events[last_count:])
+        last_count = len(events)
+        rx = mac.recv()
+        if rx is not None:
+            port, payload = rx
+            print("  *** GOT DOWNLINK port=%d payload=%s ***" % (port, payload))
+
+print("DONE. mac.recv() last:", mac.recv())
+mac.set_class('A')   # restore Class A for normal save
+mac.nvm_store()
+```
+
+**Демото `class_c_demo.py` трябва да е директно надграждане на този pattern**:
+- Същите MAC API (sync `lorawan` модул, `mac.process()` polling)
+- Същият event callback model
+- Добави: WS2812 status LED, OLED display, AHT20 sensor, periodic uplinks с
+  9-байтов payload, downlink command dispatch (rgb_set, blink, status_now,
+  set_interval, set_rx2_dr, force_rejoin)
+
+### Pattern за main loop (от testH_classc.py)
+
+```python
+import lorawan, time
+from machine import Pin, SoftI2C, WS2812
+
+mac = lorawan.Mac(region=lorawan.EU868)
+mac.lorawan_init()
+mac.set_min_rx_symbols(24)
+
+deveui, joineui, appkey = mac.load_credentials()
+mac.set_keys(deveui, joineui, appkey)
+
+events = []
+def ev_cb(ev):
+    events.append((time.ticks_ms(), ev))
+mac.set_event_callback(ev_cb)
+
+# JOIN — polling
+mac.join()
+deadline = time.ticks_add(time.ticks_ms(), 12000)
+while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+    mac.process()
+    if mac.is_joined(): break
+    time.sleep_ms(20)
+
+# Class C activation
+mac.set_class('C')
+mac.set_rx2(869525000, 5)
+
+# Periodic uplink + continuous RX
+last_uplink = time.ticks_ms()
+while True:
+    mac.process()
+    # Process incoming events
+    while events:
+        t_ev, ev = events.pop(0)
+        rx = mac.recv()
+        if rx is not None:
+            port, payload = rx
+            handle_downlink(port, payload, t_ev)
+    # Periodic uplink every 60s
+    if time.ticks_diff(time.ticks_ms(), last_uplink) > 60_000:
+        mac.send(12, build_payload(), False)
+        last_uplink = time.ticks_ms()
+    time.sleep_ms(50)
+```
+
+### Защо НЕ asyncio + lorawan_async
+
+Първоначалната имплементация ползваше `lorawan_async` wrapper + asyncio. Това
+доведе до HardFault-ове защото:
+- Async sleep блокира MAC scheduler tick неравномерно
+- I/O операции (SoftI2C, WS2812) между MAC operations конфликтват с timer ISR
+- Не е verifиран pattern — за разлика от sync polling който е certified в 18 теста
+
+**Sync C-stack pattern е mandatory.** Не отклонявай.
+
+---
 
 ## OTAA Credentials (server-side ALREADY configured ✓)
 
