@@ -113,6 +113,15 @@ class AsyncMac:
         self._m.set_keys(deveui, joineui, appkey)
         return creds
 
+    def set_rx2(self, freq, dr):
+        return self._m.set_rx2(freq, dr)
+
+    def set_class(self, cls):
+        return self._m.set_class(cls)
+
+    def get_class(self):
+        return self._m.get_class()
+
     def set_adr(self, enable):
         self._m.set_adr(enable)
 
