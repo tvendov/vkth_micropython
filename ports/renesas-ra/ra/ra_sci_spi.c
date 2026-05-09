@@ -331,35 +331,49 @@ typedef struct {
 } ra_sci_spi_div_setting_t;
 
 static void ra_sci_spi_calc_baud(uint32_t baud, ra_sci_spi_div_setting_t *div) {
-    int32_t divisor = 0;
+    /* SCI in clock-synchronous (SPI master) mode.  Scope measurements on
+     * VK_RA4M2 show that the SPI clock is generated from:
+     *
+     *   B = PCLK / (2 × 4^N × (BRR + 1))
+     *
+     * where N = CKS (0..3), BRR = 0..255.
+     *
+     * BRME/MDDR are not used here; on this SCI clock-synchronous path they
+     * did not affect the measured SCK period, and enabling BRME caused the
+     * register dump to look precise while the real SCK stayed BRR-based.
+     *
+     * Strategy: pick the smallest CKS that fits and round the divider to the
+     * nearest integer.  This gives exact 1 MHz for PCLK=40 MHz (BRR=19) and
+     * PCLK=50 MHz (BRR=24).
+     */
+    int32_t cks = 0;
     int32_t brr = 0;
-    int32_t cks = -1;
 
-    for (uint32_t i = 0; i <= 3; ++i) {
-        cks++;
-        divisor = (1 << (2 * (i + 1))) * (int32_t)baud;
-        brr = ((int32_t)PCLK + divisor - 1) / divisor - 1;
-        if (brr <= UINT8_MAX) {
+    for (int32_t i = 0; i <= 3; ++i) {
+        int32_t factor = 2 * (1 << (2 * i));  /* 2, 8, 32, 128 */
+        int64_t denom = (int64_t)factor * baud;
+        if (denom == 0) {
+            continue;
+        }
+        /* Divider = round(PCLK / denom), then BRR = divider - 1. */
+        int32_t divider = (int32_t)(((int64_t)PCLK + (denom / 2)) / denom);
+        int32_t computed = divider - 1;
+        if (computed < 0) {
+            computed = 0;
+        }
+        if (computed <= UINT8_MAX) {
+            brr = computed;
+            cks = i;
             break;
         }
     }
-
-    // Match the Renesas FSP SCI SPI bitrate calculation when MDDR is used.
-    brr = (int32_t)PCLK / divisor - 1;
-    if (brr < 0) {
-        brr = 0;
-    } else if (brr > UINT8_MAX) {
+    if (brr > UINT8_MAX) {
         brr = UINT8_MAX;
-    }
-
-    int64_t mddr = (int64_t)divisor * (brr + 1) * (UINT8_MAX + 1) / PCLK;
-    if (mddr > UINT8_MAX) {
-        mddr = 0;
     }
 
     div->brr = (uint8_t)brr;
     div->cks = (uint8_t)(cks & 3);
-    div->mddr = (uint8_t)mddr;
+    div->mddr = 0;
 }
 
 // --- ISR callbacks (owner-matched dispatch from ra_sci.c) ---
@@ -478,9 +492,9 @@ bool ra_sci_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, ui
     ra_sci_spi_div_setting_t div;
 
     ra_mstpcrb_start(sci_spi_module_mask[sci_ch]);
-    ra_gpio_config(sck,  GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, match.af);
-    ra_gpio_config(mosi, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, match.af);
-    ra_gpio_config(miso, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_LOW_POWER, match.af);
+    ra_gpio_config(sck,  GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, match.af);
+    ra_gpio_config(mosi, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, match.af);
+    ra_gpio_config(miso, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_HIGH_POWER, match.af);
 
     sci_reg->SCR = 0;
     while (sci_reg->SCR != 0) {

@@ -361,6 +361,129 @@ static mp_obj_t lorawan_mac_dbg_xchg(mp_obj_t self_in, mp_obj_t b_in) {
 static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_dbg_xchg_obj,
     lorawan_mac_dbg_xchg);
 
+#if LORAWAN_PHASE5_AVAILABLE
+
+#include "radio/radio.h"
+#include "radio/sx126x.h"
+
+/* === Scan helpers — raw chip access through Renesas Radio API ===========
+ *
+ * Thin Python bindings that directly call the Renesas radio driver
+ * functions from radio/radio.c. They go through:
+ *
+ *   Python  →  Radio.SetChannel/Rx/Rssi/...  →  sx126x.c  →  sx126x_board.c
+ *                                                              (our adapter)
+ *                                                              ra_sci_spi
+ *                                                              SCI3 + DTC
+ *
+ * Used to validate the adapter independently of the LoRaMac state machine.
+ * If a Python-driven scan via these helpers produces sensible RSSI, the
+ * adapter is correct and any LoRaMac-level failure is in higher-level
+ * timing/IRQ handling. If the scan fails, the bug is in the adapter
+ * itself. */
+
+static mp_obj_t lorawan_mac_scan_standby(mp_obj_t self_in) {
+    (void)self_in;
+    Radio.Standby();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_standby_obj,
+    lorawan_mac_scan_standby);
+
+static mp_obj_t lorawan_mac_scan_set_freq(mp_obj_t self_in, mp_obj_t freq_in) {
+    (void)self_in;
+    uint32_t freq = (uint32_t)mp_obj_get_int(freq_in);
+    Radio.SetChannel(freq);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_scan_set_freq_obj,
+    lorawan_mac_scan_set_freq);
+
+/* scan_set_lora_rx(sf, bw_idx)
+ *   sf      LoRa spreading factor [5..12]
+ *   bw_idx  LoRa bandwidth index per radio.h §SetRxConfig:
+ *           0=125 kHz, 1=250 kHz, 2=500 kHz
+ * Continuous-RX mode, fixed CR=4/5, preamble=8, no CRC, no IQ-invert. */
+static mp_obj_t lorawan_mac_scan_set_lora_rx(size_t n_args, const mp_obj_t *args) {
+    if (n_args != 3) {
+        mp_raise_TypeError(MP_ERROR_TEXT("scan_set_lora_rx(sf, bw_idx)"));
+    }
+    uint32_t sf = (uint32_t)mp_obj_get_int(args[1]);
+    uint32_t bw_idx = (uint32_t)mp_obj_get_int(args[2]);
+    RadioResult_t res = Radio.SetRxConfig(
+        MODEM_LORA,
+        bw_idx,
+        sf,
+        1,       /* coderate 4/5 */
+        0,       /* bandwidthAfc — n/a for LoRa */
+        8,       /* preambleLen */
+        0,       /* symbTimeout — continuous mode */
+        false,   /* fixLen */
+        0,       /* payloadLen */
+        false,   /* crcOn */
+        false,   /* freqHopOn */
+        0,       /* hopPeriod */
+        false,   /* iqInverted */
+        true);   /* rxContinuous */
+    return MP_OBJ_NEW_SMALL_INT((int)res);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_scan_set_lora_rx_obj, 3,
+    lorawan_mac_scan_set_lora_rx);
+
+static mp_obj_t lorawan_mac_scan_rx_continuous(mp_obj_t self_in) {
+    (void)self_in;
+    RadioResult_t res = Radio.Rx(0);
+    return MP_OBJ_NEW_SMALL_INT((int)res);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_rx_continuous_obj,
+    lorawan_mac_scan_rx_continuous);
+
+/* Direct SetRx(timeout) — bypasses Radio.Rx() which forces SetRx(0)
+   when rxContinuous=true. SX126x interprets timeout=0 as Rx-single
+   mode. To get true continuous RX (rssi_scanner.py reference),
+   pass 0xFFFFFF explicitly. */
+static mp_obj_t lorawan_mac_scan_set_rx_raw(mp_obj_t self_in, mp_obj_t timeout_in) {
+    (void)self_in;
+    uint32_t timeout = (uint32_t)mp_obj_get_int(timeout_in);
+    SX126xSetRx(timeout);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_scan_set_rx_raw_obj,
+    lorawan_mac_scan_set_rx_raw);
+
+/* SX126xGetDeviceErrors — reports chip-side error flags. Useful when
+   a state-changing command (SetRx/SetTx) returns cmd_status=5. */
+static mp_obj_t lorawan_mac_scan_get_errors(mp_obj_t self_in) {
+    (void)self_in;
+    RadioError_t errs = SX126xGetDeviceErrors();
+    return mp_obj_new_int_from_uint(errs.Value);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_get_errors_obj,
+    lorawan_mac_scan_get_errors);
+
+/* Disable DIO1 ICU IRQ at runtime — diagnostic for re-entrancy hypothesis.
+   Once disabled, RadioOnDioIrq won't run and LoRaMac won't process TxDone/
+   RxDone events, but our adapter's SPI calls will be free of nested-
+   dispatch interference from the scheduler. Use only for diagnostic
+   testing — disabling permanently breaks join/send. */
+static mp_obj_t lorawan_mac_disable_dio1_irq(mp_obj_t self_in) {
+    (void)self_in;
+    SX126xIoIrqDeinit();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_disable_dio1_irq_obj,
+    lorawan_mac_disable_dio1_irq);
+
+static mp_obj_t lorawan_mac_scan_rssi(mp_obj_t self_in) {
+    (void)self_in;
+    int16_t rssi = Radio.Rssi(MODEM_LORA);
+    return MP_OBJ_NEW_SMALL_INT((int)rssi);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_rssi_obj,
+    lorawan_mac_scan_rssi);
+
+#endif /* LORAWAN_PHASE5_AVAILABLE */
+
 // AGT4 monotonic ms (item 2 — timer service test surface).
 static mp_obj_t lorawan_mac_now_ms(mp_obj_t self_in) {
     (void)self_in;
@@ -525,24 +648,24 @@ static void mac_nvm_context_change(uint32_t notifyMibFlags) {
     (void)NvmDataMgmtStore();
 }
 
-/* Scheduler-context dispatch that calls LoRaMacProcess(). */
-static mp_sched_node_t s_mac_process_node;
-static void mac_process_dispatch(mp_sched_node_t *node) {
-    (void)node;
-    LoRaMacProcess();
-}
+/* Removed: s_mac_process_node + mac_process_dispatch — auto-scheduled
+   LoRaMacProcess via mp_sched introduced re-entrancy hazard during
+   adapter SPI transfers. mac_process_notify() is now a no-op; Python's
+   mac.process() drives the state machine. */
 
 static void mac_process_notify(void) {
-    /* CRITICAL for RX-window timing: AGT4/AGT5 timer ISR sets the
-       RxWin1Timer/RxWin2Timer flag in LoRaMacRadioEvents and then
-       calls this hook. Without an immediate dispatch, the flag is
-       only consumed at the next mac.process() poll (~50 ms with the
-       async wrapper's default tick), and the chip enters RX mode up
-       to 50 ms LATE — past the SF7 preamble of an OTAA JoinAccept.
-       Posting to mp_sched_schedule_node here drains the LoRaMac flag
-       within ~1 ms (between bytecodes), keeping the RX window aligned
-       to the gateway's downlink. */
-    (void)mp_sched_schedule_node(&s_mac_process_node, mac_process_dispatch);
+    /* No-op. Previously scheduled mac_process_dispatch via mp_sched here,
+       but that introduced a re-entrancy hazard: any deferred dispatch
+       could fire from inside our adapter's BUSY-poll yield (when
+       sx126x_spi_xfer was mid-transfer), causing nested LoRaMacProcess
+       → RadioIrqProcess → SX126x* SPI commands that clobbered the outer
+       call's static s_tx_buf/s_rx_buf and the chip's command FIFO state.
+       Python's mac.process() (called from the application loop) is now
+       the sole driver of LoRaMacProcess — single, serialized trigger.
+       Trade-off: timer flags consumed at the polling cadence rather than
+       between bytecodes. Acceptable given Python loops typically poll
+       at 1-20 ms intervals. */
+    (void)0;
 }
 
 static void mac_error_notify(LoRaMacErrorNotificationStatus_t status) {
@@ -884,42 +1007,6 @@ static mp_obj_t lorawan_mac_get_class(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_class_obj,
     lorawan_mac_get_class);
 
-/* Set RX2 channel parameters (frequency Hz + datarate 0-5).
-   Per EU868 spec §2.3, default RX2 = 869.525 MHz DR0 (SF12BW125).
-   For Class C demos set DR5 (SF7BW125, ~46 ms airtime) to achieve
-   sub-300 ms end-to-end downlink latency. Must be called after join. */
-static mp_obj_t lorawan_mac_set_rx2(size_t n_args, const mp_obj_t *args) {
-    /* args: self, freq_hz, datarate */
-    (void)args[0];
-    if (n_args != 3) {
-        mp_raise_TypeError(MP_ERROR_TEXT("set_rx2(freq, dr)"));
-    }
-    uint32_t freq = (uint32_t)mp_obj_get_int(args[1]);
-    int dr = mp_obj_get_int(args[2]);
-    if (dr < 0 || dr > 5) {
-        mp_raise_ValueError(MP_ERROR_TEXT("dr must be 0-5"));
-    }
-    MibRequestConfirm_t mib;
-    /* Update the active RX2 channel */
-    memset(&mib, 0, sizeof(mib));
-    mib.Type = MIB_RX2_CHANNEL;
-    mib.Param.Rx2Channel.Frequency = freq;
-    mib.Param.Rx2Channel.Datarate  = (uint8_t)dr;
-    LoRaMacStatus_t st = LoRaMacMibSetRequestConfirm(&mib);
-    if (st != LORAMAC_STATUS_OK) {
-        return MP_OBJ_NEW_SMALL_INT((int)st);
-    }
-    /* Also update the default so rejoins keep DR5 */
-    memset(&mib, 0, sizeof(mib));
-    mib.Type = MIB_RX2_DEFAULT_CHANNEL;
-    mib.Param.Rx2DefaultChannel.Frequency = freq;
-    mib.Param.Rx2DefaultChannel.Datarate  = (uint8_t)dr;
-    st = LoRaMacMibSetRequestConfirm(&mib);
-    return MP_OBJ_NEW_SMALL_INT((int)st);
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(lorawan_mac_set_rx2_obj, 3, 3,
-    lorawan_mac_set_rx2);
-
 /* Class B — start beacon acquisition (~3-5 min until first beacon
    lock at default ±30 ppm clock tolerance). Returns LoRaMacStatus_t. */
 static mp_obj_t lorawan_mac_beacon_acquisition(mp_obj_t self_in) {
@@ -961,148 +1048,6 @@ static mp_obj_t lorawan_mac_set_ping_slot_periodicity(mp_obj_t self_in,
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_set_ping_slot_periodicity_obj,
     lorawan_mac_set_ping_slot_periodicity);
-
-/* MLME_TXCW — continuous-wave transmit for RF lab validation. Args:
-   freq_hz (uint32), power_dBm (int8, EU868 range -1..14), timeout_s
-   (uint16, max 65535). Spectrum analyzer can confirm carrier
-   frequency accuracy and TX power. Stops automatically after
-   timeout_s. Returns LoRaMacStatus_t. */
-static mp_obj_t lorawan_mac_tx_cw(size_t n_args, const mp_obj_t *args) {
-    enum { ARG_self, ARG_freq, ARG_power, ARG_timeout };
-    if (n_args != 4) {
-        mp_raise_TypeError(MP_ERROR_TEXT(
-            "tx_cw(freq_hz, power_dBm, timeout_s)"));
-    }
-    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(args[ARG_self]);
-    if (!self->stack_initialized) {
-        mp_raise_msg(&mp_type_RuntimeError,
-            MP_ERROR_TEXT("call lorawan_init first"));
-    }
-    MlmeReq_t req;
-    memset(&req, 0, sizeof(req));
-    req.Type = MLME_TXCW;
-    req.Req.TxCw.Frequency = (uint32_t)mp_obj_get_int(args[ARG_freq]);
-    req.Req.TxCw.Power     = (int8_t)mp_obj_get_int(args[ARG_power]);
-    req.Req.TxCw.Timeout   = (uint16_t)mp_obj_get_int(args[ARG_timeout]);
-    LoRaMacStatus_t st = LoRaMacMlmeRequest(&req);
-    return MP_OBJ_NEW_SMALL_INT((int)st);
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_tx_cw_obj, 4,
-    lorawan_mac_tx_cw);
-
-/* Raw SX126x scanner-mode helpers (bypass LoRaMac).
- * Used by RSSI noise-floor / channel-activity tools. The chip is
- * driven directly via SX126xWriteCommand_e — LoRaMac is unaware. */
-
-extern int SX126xWriteCommand_e(uint8_t opcode, const uint8_t *buffer,
-    uint16_t size);
-extern int SX126xReadCommand_e(uint8_t opcode, uint8_t *buffer,
-    uint16_t size);
-extern void SX126xIoTcxoInit(void);
-
-/* Wio-SX1262 has TCXO only (no XTAL). Without correct init the chip
-   silently refuses to enter RX/TX. Sequence mirrors upstream
-   SX126xInit() in the Renesas LoRaSample, just standalone (no LoRaMac
-   ownership). */
-static mp_obj_t lorawan_mac_scan_chip_init(mp_obj_t self_in) {
-    (void)self_in;
-
-    /* SET_STANDBY (STDBY_RC=0) — clean state */
-    uint8_t sb = 0;
-    SX126xWriteCommand_e(0x80, &sb, 1);
-
-    /* SET_REGULATOR_MODE = DCDC (1) — must precede TCXO config */
-    uint8_t reg_mode = 1;
-    SX126xWriteCommand_e(0x96, &reg_mode, 1);
-
-    /* SET_DIO3_AS_TCXO_CTRL: 1.8V (=2), timeout=320*15.625us=5ms.
-       7 bytes payload: voltage(1) + timeout24(3 BE) — but datasheet
-       says 4-byte payload: voltage(1) + timeout(3). */
-    uint8_t tcxo[4] = { 0x02, 0x00, 0x01, 0x40 };  /* 320 = 0x000140 */
-    SX126xWriteCommand_e(0x97, tcxo, 4);
-
-    /* CALIBRATE = 0x7F (all calibrations) */
-    uint8_t cal = 0x7F;
-    SX126xWriteCommand_e(0x89, &cal, 1);
-
-    /* SET_DIO2_AS_RF_SWITCH_CTRL = enable (1) */
-    uint8_t dio2_sw = 1;
-    SX126xWriteCommand_e(0x9D, &dio2_sw, 1);
-
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_chip_init_obj,
-    lorawan_mac_scan_chip_init);
-
-static mp_obj_t lorawan_mac_scan_setup(size_t n_args, const mp_obj_t *args) {
-    enum { ARG_self, ARG_freq, ARG_sf, ARG_bw };
-    if (n_args < 2 || n_args > 4) {
-        mp_raise_TypeError(MP_ERROR_TEXT(
-            "scan_setup(freq_hz[, sf=7[, bw=4]])  bw 4=125k 5=250k 6=500k"));
-    }
-    uint32_t freq = (uint32_t)mp_obj_get_int(args[ARG_freq]);
-    uint8_t sf = 7, bw = 4;
-    if (n_args >= 3) sf = (uint8_t)mp_obj_get_int(args[ARG_sf]);
-    if (n_args >= 4) bw = (uint8_t)mp_obj_get_int(args[ARG_bw]);
-
-    /* SET_STANDBY (STDBY_RC=0) — clean state before reconfigure */
-    uint8_t sb = 0;
-    SX126xWriteCommand_e(0x80, &sb, 1);
-
-    /* SET_PACKET_TYPE = LORA */
-    uint8_t pkt_type = 0x01;
-    SX126xWriteCommand_e(0x8A, &pkt_type, 1);
-
-    /* SET_RF_FREQUENCY: 32-bit value, freq * 2^25 / 32e6 */
-    uint32_t reg = (uint32_t)((((uint64_t)freq) << 25) / 32000000u);
-    uint8_t freq_buf[4] = { (uint8_t)(reg >> 24), (uint8_t)(reg >> 16),
-                             (uint8_t)(reg >> 8),  (uint8_t)reg };
-    SX126xWriteCommand_e(0x86, freq_buf, 4);
-
-    /* SET_MODULATION_PARAMS for LoRa: SF, BW, CR=4/5(=1), LDRO=0 */
-    uint8_t mod[4] = { sf, bw, 1, 0 };
-    SX126xWriteCommand_e(0x8B, mod, 4);
-
-    /* SET_PACKET_PARAMS for LoRa: PreambleLen=8, header=variable,
-       PayloadLen=255, CRC=on, IQ=standard.
-       (Even for RSSI scanning the chip wants valid packet config.) */
-    uint8_t pp[6] = { 0x00, 0x08, 0x00, 0xFF, 0x01, 0x00 };
-    SX126xWriteCommand_e(0x8C, pp, 6);
-
-    /* SET_BUFFER_BASE_ADDRESS — RX=0, TX=128 */
-    uint8_t bba[2] = { 128, 0 };
-    SX126xWriteCommand_e(0x8F, bba, 2);
-
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_scan_setup_obj, 2,
-    lorawan_mac_scan_setup);
-
-static mp_obj_t lorawan_mac_scan_rx_start(mp_obj_t self_in) {
-    (void)self_in;
-    /* SET_RX with 0xFFFFFF = continuous RX (no timeout) */
-    uint8_t to[3] = { 0xFF, 0xFF, 0xFF };
-    SX126xWriteCommand_e(0x82, to, 3);
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_rx_start_obj,
-    lorawan_mac_scan_rx_start);
-
-static mp_obj_t lorawan_mac_rssi_inst(mp_obj_t self_in) {
-    (void)self_in;
-    /* GET_RSSI_INST opcode 0x15 — returns 1 byte; RSSI[dBm] = -byte/2 */
-    uint8_t rb = 0;
-    SX126xReadCommand_e(0x15, &rb, 1);
-    /* Convert raw to integer dBm. Range typically 0..255 → 0..-127.5 dBm. */
-    int dbm = -((int)rb) / 2;
-    return MP_OBJ_NEW_SMALL_INT(dbm);
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_rssi_inst_obj,
-    lorawan_mac_rssi_inst);
-
-/* tx_cw_raw — reverted (use the upstream Python sx1262.py driver
-   for raw RF experiments; mac.tx_cw via MLME stays as the canonical
-   LoRaMac path). */
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_is_joined_obj,
     lorawan_mac_is_joined);
 
@@ -1491,6 +1436,17 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_spi_interbyte_us), MP_ROM_PTR(&lorawan_mac_get_spi_interbyte_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_dbg_spi_id),         MP_ROM_PTR(&lorawan_mac_dbg_spi_id_obj) },
     { MP_ROM_QSTR(MP_QSTR_dbg_xchg),           MP_ROM_PTR(&lorawan_mac_dbg_xchg_obj) },
+    #if LORAWAN_PHASE5_AVAILABLE
+    /* Scan helpers — raw chip access through Renesas Radio API. */
+    { MP_ROM_QSTR(MP_QSTR_scan_standby),       MP_ROM_PTR(&lorawan_mac_scan_standby_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scan_set_freq),      MP_ROM_PTR(&lorawan_mac_scan_set_freq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scan_set_lora_rx),   MP_ROM_PTR(&lorawan_mac_scan_set_lora_rx_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scan_rx_continuous), MP_ROM_PTR(&lorawan_mac_scan_rx_continuous_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scan_set_rx_raw),    MP_ROM_PTR(&lorawan_mac_scan_set_rx_raw_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scan_rssi),          MP_ROM_PTR(&lorawan_mac_scan_rssi_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scan_get_errors),    MP_ROM_PTR(&lorawan_mac_scan_get_errors_obj) },
+    { MP_ROM_QSTR(MP_QSTR_disable_dio1_irq),   MP_ROM_PTR(&lorawan_mac_disable_dio1_irq_obj) },
+    #endif
     { MP_ROM_QSTR(MP_QSTR_now_ms),             MP_ROM_PTR(&lorawan_mac_now_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_arm_oneshot),        MP_ROM_PTR(&lorawan_mac_arm_oneshot_obj) },
     { MP_ROM_QSTR(MP_QSTR_arm_oneshot_us),     MP_ROM_PTR(&lorawan_mac_arm_oneshot_us_obj) },
@@ -1510,15 +1466,9 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_sys_time),       MP_ROM_PTR(&lorawan_mac_get_sys_time_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_class),          MP_ROM_PTR(&lorawan_mac_set_class_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_class),          MP_ROM_PTR(&lorawan_mac_get_class_obj) },
-    { MP_ROM_QSTR(MP_QSTR_set_rx2),            MP_ROM_PTR(&lorawan_mac_set_rx2_obj) },
     { MP_ROM_QSTR(MP_QSTR_beacon_acquisition), MP_ROM_PTR(&lorawan_mac_beacon_acquisition_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_ping_slot_periodicity),
                                                MP_ROM_PTR(&lorawan_mac_set_ping_slot_periodicity_obj) },
-    { MP_ROM_QSTR(MP_QSTR_tx_cw),              MP_ROM_PTR(&lorawan_mac_tx_cw_obj) },
-    { MP_ROM_QSTR(MP_QSTR_scan_chip_init),     MP_ROM_PTR(&lorawan_mac_scan_chip_init_obj) },
-    { MP_ROM_QSTR(MP_QSTR_scan_setup),         MP_ROM_PTR(&lorawan_mac_scan_setup_obj) },
-    { MP_ROM_QSTR(MP_QSTR_scan_rx_start),      MP_ROM_PTR(&lorawan_mac_scan_rx_start_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rssi_inst),          MP_ROM_PTR(&lorawan_mac_rssi_inst_obj) },
     // Phase 6b — Adaptive Data Rate.
     { MP_ROM_QSTR(MP_QSTR_set_adr),            MP_ROM_PTR(&lorawan_mac_set_adr_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_adr),            MP_ROM_PTR(&lorawan_mac_get_adr_obj) },

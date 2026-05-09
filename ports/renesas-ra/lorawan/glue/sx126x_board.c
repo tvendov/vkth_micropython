@@ -255,7 +255,6 @@ void SX126xWaitOnBusy(void) {
         if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
             return;  // timeout — caller may decide to raise
         }
-        // Yield to the MicroPython scheduler so REPL/asyncio stays alive.
         mp_handle_pending(true);
     }
     // Clear any stale flag now that BUSY is observed low.
@@ -276,7 +275,7 @@ void SX126xWakeup(void) {
     SX126xWaitOnBusy();
 }
 
-// ---- SPI exchange core (sx126x.py:1324-1463 byte-at-a-time pattern) ------
+// ---- SPI exchange core — S-2 block-streamed (atomic single transfer) ----
 //
 // Returns 0 on success, negative on timeout / SPI failure.
 // `cmd`     : opcode + (optional) address bytes; cmd_len = 1..3 typically.
@@ -284,6 +283,21 @@ void SX126xWakeup(void) {
 // `data_in` : payload to read into (may be NULL when writing).
 // `data_len`: payload length.
 // `wait_for_busy`: poll BUSY=low after NSS-high.
+//
+// Per PORT_REQUIREMENTS AD-3 / S-2: one SPI transfer = one DTC burst.
+// SX126x command body (opcode + payload OR opcode + status-NOP + read NOPs)
+// assembled into a single TX buffer; ra_sci_spi_transfer streams the whole
+// thing through DTC autonomously (TX/RX pair, full-duplex, 1 IRQ at end).
+// CPU sleeps via WFI inside ra_sci_spi until DTC RX completion.
+
+#define SX126X_SPI_MAX_XFER  (260u)  /* 256 FIFO + opcode + 3 address bytes */
+
+/* Re-entrancy guard. Set true while sx126x_spi_xfer is mid-transfer.
+   Prevents nested SPI calls from a deferred dio1_sched_dispatch (which
+   runs from mp_handle_pending(true) inside our outer call's BUSY-poll)
+   from clobbering chip state and our static buffers. The DIO1 dispatch
+   re-schedules itself if guarded — work runs after outer SPI done. */
+static volatile bool s_spi_xfer_busy = false;
 
 static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
     const uint8_t *data_out, uint8_t *data_in, uint16_t data_len,
@@ -293,121 +307,105 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
         return -MP_EIO;
     }
 
-    cs_low();
+    /* Re-entrancy refused. Caller (deferred DIO1 dispatch) should bail and
+       leave its work for the next scheduler tick — by then outer SPI is done. */
+    if (s_spi_xfer_busy) {
+        return -MP_EBUSY;
+    }
+    s_spi_xfer_busy = true;
 
-    // Pre-transaction BUSY poll (matches sx126x.py:1352-1357).
+    /* Standard read layout — chip emits status during the byte
+       immediately after the address, payload follows.
+       Layout:  TX = [cmd..., NOP_status, NOP_data...]
+                RX = [_,      STATUS,     DATA...]
+       Per SX126x datasheet ch.13.4 (ReadRegister) and Python rssi_scanner
+       reference. Chip MUST be ready (BUSY=low) BEFORE CS is asserted —
+       see pre-CS busy poll below. */
+    bool is_read = (data_in != NULL && data_len > 0);
+    uint16_t status_offset = cmd_len;
+    uint16_t payload_offset = is_read ? cmd_len + 1 : cmd_len;
+    uint16_t total_len = is_read ? cmd_len + 1 + data_len : cmd_len + data_len;
+    if (total_len > SX126X_SPI_MAX_XFER) {
+        s_spi_xfer_busy = false;
+        return -MP_EIO;
+    }
+
+    /* Static workspace — sx126x_spi_xfer is not re-entrant (one chip,
+       serialized commands). DTC sees a stable BSS address. */
+    static uint8_t s_tx_buf[SX126X_SPI_MAX_XFER];
+    static uint8_t s_rx_buf[SX126X_SPI_MAX_XFER];
+
+    /* Assemble TX buffer in one shot. */
+    memcpy(s_tx_buf, cmd, cmd_len);
+    if (data_out != NULL) {
+        memcpy(s_tx_buf + cmd_len, data_out, data_len);
+    } else if (is_read) {
+        memset(s_tx_buf + cmd_len, SX126X_CMD_NOP, 1 + data_len);
+    }
+
+    /* Pre-CS BUSY poll. Includes mp_handle_pending so the BUSY-pin IRQ
+       that signals chip-ready can actually run (it's scheduler-deferred,
+       not a tight HW interrupt). Without yield the BUSY bit can stay
+       high indefinitely from this CPU's perspective even though the
+       chip is actually ready. */
     {
         uint32_t start = mp_hal_ticks_ms();
         while (busy_high()) {
             if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
-                cs_high();
+                s_spi_xfer_busy = false;
                 return -MP_ETIMEDOUT;
             }
             mp_handle_pending(true);
         }
     }
 
-    /* Use static byte slots so DTC sees a stable address that is not
-       caught up in compiler register allocation across the per-byte
-       loop iterations. The Python driver uses heap-allocated bytearrays
-       for the same reason — single-byte stack temporaries can race
-       with DTC if the compiler keeps `tx` in a register and the address
-       points to a transient stack slot. */
-    static volatile uint8_t s_xfer_tx;
-    static volatile uint8_t s_xfer_rx;
-    int rc = 0;
-    int status_code = 0;
-    uint8_t rx = 0;
+    cs_low();
 
-    // Phase 1 — opcode bytes, byte-at-a-time.
-    for (uint16_t i = 0; i < cmd_len; ++i) {
-        s_xfer_tx = cmd[i];
-        ra_sci_spi_transfer(s_state.spi_id,
-            (const uint8_t *)&s_xfer_tx, (uint8_t *)&s_xfer_rx, 1);
-        rx = s_xfer_rx;
-        if (s_state.interbyte_us > 0) {
-            mp_hal_delay_us(s_state.interbyte_us);
-        }
-    }
-
-    // Phase 2 — data bytes.
-    if (data_out != NULL) {
-        // Write path.
-        for (uint16_t i = 0; i < data_len; ++i) {
-            s_xfer_tx = data_out[i];
-            ra_sci_spi_transfer(s_state.spi_id,
-                (const uint8_t *)&s_xfer_tx, (uint8_t *)&s_xfer_rx, 1);
-            rx = s_xfer_rx;
-            if (s_state.interbyte_us > 0) {
-                mp_hal_delay_us(s_state.interbyte_us);
-            }
-            // Status byte arrives during the FIRST data byte for SX126x
-            // commands. Validate per sx126x.py:1370-1380 — a 0x00 / 0xFF
-            // means SPI failure (chip absent or stuck).
-            if (i == 0) {
-                uint8_t sb = rx & 0x0E;
-                if (sb == SX126X_STATUS_CMD_TIMEOUT ||
-                    sb == SX126X_STATUS_CMD_INVALID ||
-                    sb == SX126X_STATUS_CMD_FAILED) {
-                    status_code = sb;
-                    break;
-                }
-                if (rx == 0x00 || rx == 0xFF) {
-                    status_code = SX126X_STATUS_SPI_FAILED;
-                    break;
-                }
-            }
-        }
-    } else if (data_in != NULL && data_len > 0) {
-        // Read path. First NOP clocks out the chip's status (mode +
-        // cmd-status fields); subsequent NOPs pump the actual payload
-        // (sx126x.py:1383-1398).
-        //
-        // We do NOT validate the status byte's mask here. The bit
-        // pattern of a valid chip mode (e.g. 0x2A = STBY mode + an
-        // upper cmd-status nibble) collides with the SX126X_STATUS_*
-        // sentinel values: 0x2A & 0x0E == 0x0A == CMD_FAILED. The
-        // working Python driver's sanity check fires false-positives
-        // and would discard valid data. We keep only the clearly-bad
-        // sentinels (0x00 / 0xFF == SPI line stuck) to detect a
-        // physically absent or non-driving chip.
-        s_xfer_tx = SX126X_CMD_NOP;
-        ra_sci_spi_transfer(s_state.spi_id,
-            (const uint8_t *)&s_xfer_tx, (uint8_t *)&s_xfer_rx, 1);
-        rx = s_xfer_rx;
-        if (s_state.interbyte_us > 0) {
-            mp_hal_delay_us(s_state.interbyte_us);
-        }
-        if (rx == 0x00 || rx == 0xFF) {
-            status_code = SX126X_STATUS_SPI_FAILED;
-        } else {
-            for (uint16_t i = 0; i < data_len; ++i) {
-                s_xfer_tx = SX126X_CMD_NOP;
-                ra_sci_spi_transfer(s_state.spi_id,
-                    (const uint8_t *)&s_xfer_tx, (uint8_t *)&s_xfer_rx, 1);
-                rx = s_xfer_rx;
-                if (s_state.interbyte_us > 0) {
-                    mp_hal_delay_us(s_state.interbyte_us);
-                }
-                data_in[i] = rx;
-            }
-        }
-    }
+    /* Single DTC-driven block transfer — full-duplex, NSS held low. */
+    ra_sci_spi_transfer(s_state.spi_id, s_tx_buf, s_rx_buf, total_len);
 
     cs_high();
+
+    /* Read RX buffer + validate status BEFORE WaitOnBusy. SX126xWaitOnBusy
+       polls with mp_handle_pending(true) which yields to the MicroPython
+       scheduler — any deferred LoRaMac timer callback then runs and may
+       call sx126x_spi_xfer recursively, corrupting static s_rx_buf /
+       s_tx_buf before we extract our values. Locking the read-out window
+       to the pre-yield phase makes the buffers safe across nested calls. */
+    int status_code = 0;
+    if (data_len > 0 || is_read) {
+        uint8_t sb = s_rx_buf[status_offset];
+        if (data_out != NULL) {
+            /* Write path: validate against documented status mask
+               (sx126x.py:1370-1380). */
+            uint8_t mask = sb & 0x0E;
+            if (mask == SX126X_STATUS_CMD_TIMEOUT ||
+                mask == SX126X_STATUS_CMD_INVALID ||
+                mask == SX126X_STATUS_CMD_FAILED ||
+                sb == 0x00 || sb == 0xFF) {
+                status_code = (sb == 0x00 || sb == 0xFF)
+                    ? SX126X_STATUS_SPI_FAILED : (int)mask;
+            }
+        } else if (is_read) {
+            /* Read path: only the clearly-stuck-line sentinels — see
+               original byte-loop comment block re: false positives on
+               valid mode bits like 0x2A. */
+            if (sb == 0x00 || sb == 0xFF) {
+                status_code = SX126X_STATUS_SPI_FAILED;
+            } else {
+                /* Copy received payload (after the status-drain byte). */
+                memcpy(data_in, s_rx_buf + payload_offset, data_len);
+            }
+        }
+    }
 
     if (wait_for_busy) {
         mp_hal_delay_us(1);
         SX126xWaitOnBusy();
     }
 
-    if (status_code != 0) {
-        // Map SX126X_STATUS_* to a negative errno; LoRaMac surface ignores
-        // the value (it is a void function), but Phase 1 testing helpers
-        // can return it.
-        rc = -MP_EIO;
-    }
-    return rc;
+    s_spi_xfer_busy = false;
+    return (status_code != 0) ? -MP_EIO : 0;
 }
 
 // ---- Public glue API: error-returning variants --------------------------
@@ -600,19 +598,31 @@ void SX126xIoDeInit(void) { /* NOP */ }
    returns non-zero, which makes RadioInit() report RADIO_FAIL.
    Wio-SX1262 datasheet: TCXO is 1.8 V, ~5 ms startup. */
 void SX126xIoTcxoInit(void) {
+    /* SetRegulatorMode(LDO) MUST come before SetDio3AsTcxoCtrl.
+       Python rssi_scanner reference (which works on this hardware)
+       sets regulator mode first, then TCXO. Renesas's RadioInit calls
+       SetRegulatorMode AFTER SX126xInit (which contains this TCXO
+       setup) — but on Wio-SX1262, doing it after means the chip
+       sees TCXO config during a regulator transition which can leave
+       the XOSC startup logic misconfigured. Setting LDO explicitly
+       BEFORE TCXO config matches the proven Python flow. */
+    SX126xSetRegulatorMode(USE_LDO);
     /* RP_TCXO_STAB_TIME (320) is in 15.625 µs units → 5 ms. */
     SX126xSetDio3AsTcxoCtrl(TCXO_CTRL_1_8V, RP_TCXO_STAB_TIME);
+    /* TCXO needs ~5ms to stabilize after enable; rssi_scanner.py reference
+       sleeps 10ms here. Use mp_hal_delay_ms — safe in scheduler context. */
+    mp_hal_delay_ms(10);
     /* After enabling TCXO, the chip retriggers its calibrations. Pass
        a CalibrationParams_t with all blocks selected (0x7F = 7 lower
        bits set) and wait for BUSY to drop. */
     CalibrationParams_t calib;
     calib.Value = 0x7F;
     SX126xCalibrate(calib);
+    mp_hal_delay_ms(5);
     SX126xWaitOnBusy();
-    /* The XOSC_START_ERR (0x20) latched in the error register at
-       power-on (before TCXO was active) does NOT auto-clear after a
-       successful calibration. Explicitly clear so RadioInit's
-       SX126xGetDeviceErrors() check returns 0. */
+    /* Clear any TCXO/calibration error flags AFTER Calibrate completes —
+       matches the Python rssi_scanner reference flow which is empirically
+       known to work on this hardware. */
     SX126xClearDeviceErrors();
 }
 void SX126xIoRfSwitchInit(void) { /* RF switch held HIGH at init — NOP */ }

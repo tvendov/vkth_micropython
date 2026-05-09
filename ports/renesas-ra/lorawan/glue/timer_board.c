@@ -34,6 +34,7 @@
 
 #include "ra/ra_timer.h"
 #include "glue/timer_board.h"
+#include "mac/LoRaMac.h"
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
@@ -112,6 +113,13 @@ static timer_ext_slot_t *ext_lookup(TimerEvent_t *evt) {
 }
 
 // ---- Deferred dispatch (scheduler context) ------------------------------
+//
+// S-1 (direct ISR-context callback) reverted: OnAckTimeoutTimerEvent calls
+// TimerStop() which mutates s_timer_list — UNSAFE from inside agt_tick_isr's
+// list walk. The ISR-safety assumption (callbacks are flag-only) doesn't
+// hold for the full timer set. Falling back to deferred-dispatch model: ISR
+// schedules an mp_sched_node which runs the callback in scheduler context
+// (TimerStop reentrancy is then safe — protected by critical sections).
 
 #define LORAWAN_TIMER_POOL_SIZE  (8)
 

@@ -34,6 +34,12 @@ extern "C" {
    datasheet startup characteristic. */
 #define RP_TCXO_STAB_TIME       (320u)
 
+/* Clock-error budget used by LoRaMacClassB / RX-window math. SX1262 with
+   external TCXO is tight (~10 ppm steady-state); _MAX is the post-PoR
+   transient before sync (LoRaMac-node default 100 ppm). */
+#define BOARD_CLOCK_ERROR_PPM       (10)
+#define BOARD_CLOCK_ERROR_PPM_MAX   (100)
+
 /* SX1262 XTAL trim caps. 0x12 is the chip reset default — the
    datasheet recommended value for typical 32 MHz crystal layouts. */
 #define RP_XTAL_XTA_TRIM        (0x12u)
