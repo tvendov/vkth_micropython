@@ -37,21 +37,28 @@
 
 #if defined(MICROPY_HW_WS2812_DATA) && defined(MICROPY_HW_WS2812_SCI_CH)
 
-// 2.857143 MHz gives a 350 ns SPI cell, which lets a 5-bit symbol match the
-// LED timing family we measured on the board: 0 ~= 350/1400 ns, 1 ~= 700/1050 ns.
-#define MACHINE_WS2812_DEFAULT_BAUDRATE (2857143)
+// symbol_bits selects the encoded SCI cells per WS2812 bit:
+// - 5 bits: 0 -> 11000, 1 -> 11100, target 4.166667 MHz, cell ~= 240 ns.
+// - 6 bits: 0 -> 110000, 1 -> 111000, target 5 MHz, cell ~= 200 ns.
+// baudrate=0 means auto-select the target from symbol_bits.
+#define MACHINE_WS2812_DEFAULT_BAUDRATE (0)
+#define MACHINE_WS2812_DEFAULT_SYMBOL_BITS (6)
+#define MACHINE_WS2812_5BIT_BAUDRATE (4166667)
+#define MACHINE_WS2812_6BIT_BAUDRATE (5000000)
 #define MACHINE_WS2812_DEFAULT_LATCH_US (100)
 #define MACHINE_WS2812_MAX_BPP (4)
 // Keep the first visible payload byte away from the SCI start transition.
 #define MACHINE_WS2812_TX_PREFIX_BYTES (2)
-// 8 WS2812 bits * 5 SPI bits = 40 SPI bits = 5 bytes, so payload bytes stay aligned.
-#define MACHINE_WS2812_ENCODED_BYTES_PER_DATA (5)
+// Supported encodings keep payload bytes aligned:
+// 8 WS2812 bits * 5 SCI bits = 40 SCI bits = 5 bytes.
+// 8 WS2812 bits * 6 SCI bits = 48 SCI bits = 6 bytes.
 
 typedef struct _machine_ws2812_obj_t {
     mp_obj_base_t base;
     bool active;
     uint8_t ch;
     uint8_t bpp;
+    uint8_t symbol_bits;
     size_t n;
     size_t buf_len;
     size_t tx_len;
@@ -73,6 +80,7 @@ static machine_ws2812_obj_t machine_ws2812_obj = {
     false,
     MICROPY_HW_WS2812_SCI_CH,
     3,
+    MACHINE_WS2812_DEFAULT_SYMBOL_BITS,
     0,
     0,
     0,
@@ -121,21 +129,33 @@ static mp_obj_t machine_ws2812_get_pixel(machine_ws2812_obj_t *self, size_t inde
     return mp_obj_new_tuple(self->bpp, items);
 }
 
-static void machine_ws2812_encode_byte(uint8_t value, uint8_t *dst) {
+static uint32_t machine_ws2812_auto_baudrate(uint8_t symbol_bits) {
+    return symbol_bits == 5 ? MACHINE_WS2812_5BIT_BAUDRATE : MACHINE_WS2812_6BIT_BAUDRATE;
+}
+
+static void machine_ws2812_encode_byte(machine_ws2812_obj_t *self, uint8_t value, uint8_t *dst) {
+    uint8_t symbol_zero;
+    uint8_t symbol_one;
+    if (self->symbol_bits == 5) {
+        // 5-bit: 0 -> 11000, 1 -> 11100.
+        symbol_zero = 0x18;
+        symbol_one = 0x1c;
+    } else {
+        // 6-bit: 0 -> 110000, 1 -> 111000.
+        symbol_zero = 0x30;
+        symbol_one = 0x38;
+    }
+
     uint64_t encoded = 0;
     for (size_t i = 0; i < 8; ++i) {
-        encoded <<= 5;
+        encoded <<= self->symbol_bits;
         // SCI runs MSB-first, so each WS2812 bit must start high on the wire.
-        // 0 -> 10000 : T0H ~= 0.35 us, T0L ~= 1.40 us at 2.857143 MHz
-        // 1 -> 11000 : T1H ~= 0.70 us, T1L ~= 1.05 us at 2.857143 MHz
-        encoded |= (value & 0x80) ? 0x18 : 0x10;
+        encoded |= (value & 0x80) ? symbol_one : symbol_zero;
         value <<= 1;
     }
-    dst[0] = (uint8_t)(encoded >> 32);
-    dst[1] = (uint8_t)(encoded >> 24);
-    dst[2] = (uint8_t)(encoded >> 16);
-    dst[3] = (uint8_t)(encoded >> 8);
-    dst[4] = (uint8_t)encoded;
+    for (size_t i = 0; i < self->symbol_bits; ++i) {
+        dst[i] = (uint8_t)(encoded >> (8 * (self->symbol_bits - 1U - i)));
+    }
 }
 
 static size_t machine_ws2812_calc_suffix_bytes(machine_ws2812_obj_t *self) {
@@ -153,7 +173,7 @@ static void machine_ws2812_prepare_tx(machine_ws2812_obj_t *self) {
     // txbuf layout: raw-zero prefix | encoded payload | raw-zero latch suffix.
     memset(self->txbuf, 0, self->tx_len);
     for (size_t i = 0; i < self->buf_len; ++i) {
-        machine_ws2812_encode_byte(self->buf[i], &self->txbuf[self->tx_prefix_len + (i * MACHINE_WS2812_ENCODED_BYTES_PER_DATA)]);
+        machine_ws2812_encode_byte(self, self->buf[i], &self->txbuf[self->tx_prefix_len + (i * self->symbol_bits)]);
     }
 }
 
@@ -161,7 +181,10 @@ static void machine_ws2812_resize_buffers(machine_ws2812_obj_t *self, size_t buf
     // Prefix absorbs the SCI visible-start artifact; suffix guarantees latch low.
     self->tx_prefix_len = MACHINE_WS2812_TX_PREFIX_BYTES;
     self->tx_suffix_len = machine_ws2812_calc_suffix_bytes(self);
-    size_t tx_len = self->tx_prefix_len + (buf_len * MACHINE_WS2812_ENCODED_BYTES_PER_DATA) + self->tx_suffix_len;
+    if (buf_len > (SIZE_MAX - self->tx_prefix_len - self->tx_suffix_len) / self->symbol_bits) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buffer too large"));
+    }
+    size_t tx_len = self->tx_prefix_len + (buf_len * self->symbol_bits) + self->tx_suffix_len;
 
     if (self->buf == NULL) {
         self->buf = m_new(uint8_t, buf_len);
@@ -184,19 +207,21 @@ static void machine_ws2812_resize_buffers(machine_ws2812_obj_t *self, size_t buf
 static void machine_ws2812_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     (void)kind;
     machine_ws2812_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_printf(print, "WS2812(n=%u, bpp=%u, baudrate=%u, polarity=%u, phase=%u, pin=%q, active=%u)",
-        (unsigned int)self->n, self->bpp, (unsigned int)self->baudrate,
-        self->polarity, self->phase, self->pin->name, self->active);
+    mp_printf(print, "WS2812(n=%u, bpp=%u, symbol_bits=%u, baudrate=%u, polarity=%u, phase=%u, pin=%q, active=%u)",
+        (unsigned int)self->n, self->bpp, self->symbol_bits,
+        (unsigned int)self->baudrate, self->polarity, self->phase,
+        self->pin->name, self->active);
 }
 
 static mp_obj_t machine_ws2812_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     (void)type;
 
-    enum { ARG_pixel_count, ARG_pin, ARG_channels, ARG_baudrate, ARG_latch_us, ARG_polarity, ARG_phase };
+    enum { ARG_pixel_count, ARG_pin, ARG_channels, ARG_symbol_bits, ARG_baudrate, ARG_latch_us, ARG_polarity, ARG_phase };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_pixel_count, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
         { MP_QSTR_pin,         MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_channels,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 3} },
+        { MP_QSTR_symbol_bits, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MACHINE_WS2812_DEFAULT_SYMBOL_BITS} },
         { MP_QSTR_baudrate,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MACHINE_WS2812_DEFAULT_BAUDRATE} },
         { MP_QSTR_latch_us,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MACHINE_WS2812_DEFAULT_LATCH_US} },
         { MP_QSTR_polarity,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
@@ -211,7 +236,10 @@ static mp_obj_t machine_ws2812_make_new(const mp_obj_type_t *type, size_t n_args
     if (args[ARG_channels].u_int != 3 && args[ARG_channels].u_int != 4) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad bpp"));
     }
-    if (args[ARG_baudrate].u_int <= 0) {
+    if (args[ARG_symbol_bits].u_int != 5 && args[ARG_symbol_bits].u_int != 6) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad symbol_bits"));
+    }
+    if (args[ARG_baudrate].u_int < 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad baudrate"));
     }
     if (args[ARG_latch_us].u_int < 50) {
@@ -237,6 +265,11 @@ static mp_obj_t machine_ws2812_make_new(const mp_obj_type_t *type, size_t n_args
 
     size_t n = (size_t)args[ARG_pixel_count].u_int;
     size_t bpp = (size_t)args[ARG_channels].u_int;
+    uint8_t symbol_bits = (uint8_t)args[ARG_symbol_bits].u_int;
+    uint32_t baudrate = (uint32_t)args[ARG_baudrate].u_int;
+    if (baudrate == 0) {
+        baudrate = machine_ws2812_auto_baudrate(symbol_bits);
+    }
     if (n > SIZE_MAX / bpp) {
         mp_raise_ValueError(MP_ERROR_TEXT("buffer too large"));
     }
@@ -250,7 +283,8 @@ static mp_obj_t machine_ws2812_make_new(const mp_obj_type_t *type, size_t n_args
     self->ch = ch;
     self->n = n;
     self->bpp = (uint8_t)bpp;
-    self->baudrate = (uint32_t)args[ARG_baudrate].u_int;
+    self->symbol_bits = symbol_bits;
+    self->baudrate = baudrate;
     self->latch_us = (uint32_t)args[ARG_latch_us].u_int;
     self->polarity = (uint8_t)args[ARG_polarity].u_int;
     self->phase = (uint8_t)args[ARG_phase].u_int;

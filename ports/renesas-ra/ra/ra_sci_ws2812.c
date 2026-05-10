@@ -310,27 +310,27 @@ static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin) {
 static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
     int32_t brr = 0;
     int32_t cks = 0;
-    int32_t mddr = 0;
 
     for (int32_t i = 0; i <= 3; ++i) {
-        int32_t factor = 1 << (2 * (i + 1));  /* 4, 16, 64, 256 */
+        /* SCI clock-synchronous mode uses the same divider family as SCI SPI:
+         * B = PCLK / (2 * 4^CKS * (BRR + 1)).  Scope measurements on VK_RA4M2
+         * with BRR=3 showed 160 ns SCI cells, i.e. 50 MHz / (2 * 4).
+         * BRME/MDDR are not used here because they do not affect the measured
+         * bit cell in this mode.
+         */
+        int32_t factor = 2 * (1 << (2 * i));  /* 2, 8, 32, 128 */
         int64_t denom = (int64_t)factor * baud;
         if (denom == 0) {
             continue;
         }
-        /* Pick a base rate >= target, then scale it down with MDDR. */
-        int32_t computed = (int32_t)((int64_t)PCLK / denom) - 1;
+        int32_t divider = (int32_t)(((int64_t)PCLK + (denom / 2)) / denom);
+        int32_t computed = divider - 1;
         if (computed < 0) {
             computed = 0;
         }
         if (computed <= UINT8_MAX) {
             brr = computed;
             cks = i;
-            int64_t mddr_calc = ((int64_t)baud * factor *
-                                 (int64_t)(brr + 1) * 256 + (PCLK / 2)) / PCLK;
-            if (mddr_calc >= 128 && mddr_calc < 256) {
-                mddr = (int32_t)mddr_calc;
-            }
             break;
         }
     }
@@ -343,7 +343,7 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
 
     div->brr = (uint8_t)brr;
     div->cks = (uint8_t)(cks & 3);
-    div->mddr = (uint8_t)mddr;
+    div->mddr = 0;
 }
 
 bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
