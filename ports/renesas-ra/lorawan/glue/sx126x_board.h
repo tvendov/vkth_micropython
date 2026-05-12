@@ -106,12 +106,20 @@ uint8_t sx126x_board_get_interbyte_us(void);
 // Debug accessors — surface internal C state to mod_lorawan testing
 // methods so we can diagnose ra_sci_spi_transfer behaviour directly.
 uint8_t sx126x_board_get_spi_id(void);
+
+/*
+ * Byte-by-byte SPI debug helpers. Real implementation is gated behind
+ * LORAWAN_DEBUG_SPI_UNSAFE. In production builds (default), these
+ * return 0xFF sentinels without touching SPI. Production binary must
+ * have spi_one_byte_count == 0 — Step 15 grep gate enforces this.
+ */
 uint8_t sx126x_board_debug_xchg(uint8_t tx_byte);
+uint8_t sx126x_phase1_get_status(void);
 
 // ---- Phase 1 testing surface — direct exposure to mod_lorawan ------------
 // These let us validate the radio HAL from Python before LoRaMac lands.
 
-uint8_t sx126x_phase1_get_status(void);
+
 uint8_t sx126x_phase1_read_register(uint16_t addr);
 void    sx126x_phase1_write_register(uint16_t addr, uint8_t value);
 bool    sx126x_phase1_busy_high(void);

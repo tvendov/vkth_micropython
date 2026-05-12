@@ -25,7 +25,7 @@ MICROPY_HW_ENABLE_RNG = 1
 # Legacy MICROPY_HW_ENABLE_LORA=1 with MICROPY_HW_LORA_STACK unset keeps the
 # old "python" behaviour. The two are wired in ports/renesas-ra/Makefile.
 MICROPY_HW_ENABLE_LORA = 1
-MICROPY_HW_LORA_STACK ?= python
+MICROPY_HW_LORA_STACK ?= renesas
 
 CFLAGS+=-DDEFAULT_DBG_CH=0 \
           -DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED \

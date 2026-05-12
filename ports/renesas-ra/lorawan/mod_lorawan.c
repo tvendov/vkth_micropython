@@ -40,6 +40,7 @@
 #include "glue/timer_board.h"
 #include "glue/nvm_board.h"
 #include "glue/dflash.h"
+#include "glue/lorawan_stats.h"
 
 /* LoRaMac stack — only available when LORAWAN_BUILD_PHASE >= 4 (the
    imported Renesas C tree is part of the build). Phase 5+ wires this
@@ -104,6 +105,86 @@ typedef struct _lorawan_mac_obj_t {
 } lorawan_mac_obj_t;
 
 static lorawan_mac_obj_t lorawan_mac_singleton;
+
+/* Phase 1 Observation — single owner of the counter storage. Includes
+ * sentinel init for BUSY opcode fields per Step 3 §5; 0xFF means "no
+ * opcode observed yet" and is also re-applied after lorawan_stats_reset(). */
+volatile lorawan_stats_t g_lorawan_stats = {
+    .busy_last_opcode = 0xFFu,
+    .busy_timeout_opcode = 0xFFu,
+};
+
+void lorawan_stats_reset(void) {
+    uint32_t state = MICROPY_BEGIN_ATOMIC_SECTION();
+    memset((void *)&g_lorawan_stats, 0, sizeof(g_lorawan_stats));
+    g_lorawan_stats.busy_last_opcode = 0xFFu;
+    g_lorawan_stats.busy_timeout_opcode = 0xFFu;
+    MICROPY_END_ATOMIC_SECTION(state);
+}
+
+/* Idempotent DWT CYCCNT enable for the ISR cycle-max metrics. DWT may
+ * already be enabled by mphalport.c:141 (mp_hal_ticks_cpu_enable) on
+ * other code paths — the guarded write makes this safe to call from any
+ * LoRa init entry. If the bit cannot be set (locked / DebugMon owned),
+ * CYCCNT stays 0 and hard_isr_*_cycles_max reads as 0 — acceptable per
+ * phase1_step3_atomicity.md §6 (zero-bin vs inflated). DWT/CoreDebug
+ * macros come via py/mphal.h → mphalport.h → RA_HAL_H CMSIS chain.
+ *
+ * After enabling we run a short probe (a few __NOP() + __DSB()) and
+ * compare CYCCNT before/after. s_dwt_available reflects whether CYCCNT
+ * actually advanced — false means cycle-max readings are useless and
+ * Step 12's mac.stats() will surface that to Python. Step 0 §10 / Step 3
+ * §6 required runtime confirmation, not just a successful bit-set. */
+volatile bool s_dwt_available = false;
+
+/* Phase 1 Step 10/10.5 — RX-window-active flag. Set in sx126x_spi_xfer
+ * when staging SetRx (0x82); cleared in mac_mcps_indication,
+ * mac_mlme_confirm, and mac_mcps_confirm; read in NvmDataMgmtStore.
+ * All sites run in scheduler/Python context. Aligned byte stores on Armv8-M
+ * are atomic at the bus level, so a plain volatile uint8_t is correct
+ * without atomics. See lorawan_stats.h for the full clear-edge contract. */
+volatile uint8_t s_rx_window_active = 0;
+
+#ifndef LORAWAN_OBSERVATION_DISABLE
+void lorawan_stats_dwt_init(void) {
+    #if __CORTEX_M >= 4 && __CORTEX_M != 23
+    /* P3.0 / Bug-2 — robust enable + read-back-verify with retries.
+       Prior versions raced when CYCCNT was sampled before TRCENA fully
+       latched (observed ~50% True/False across cold boots). Sequence:
+         1. force TRCENA + reset CYCCNT + set CYCCNTENA, each with DSB.
+         2. retry the NOP-probe up to 8 times; accept the first observed
+            CYCCNT advance. Single retry already covered first-boot race;
+            8 is generous belt-and-braces for cold flash + JLink reset. */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    __DSB();
+    __ISB();
+    DWT->CYCCNT = 0;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+    __DSB();
+    __ISB();
+    bool ok = false;
+    for (int attempt = 0; attempt < 8 && !ok; attempt++) {
+        /* Per-iteration barrier (architect review): if TRCENA latch
+           propagation lags, tight-looping reads the same dead value;
+           need a fresh DSB/ISB + a few NOPs of wall-time between tries. */
+        __DSB();
+        __ISB();
+        __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP();
+        uint32_t t0 = DWT->CYCCNT;
+        __NOP(); __NOP(); __NOP(); __NOP();
+        __DSB();
+        uint32_t t1 = DWT->CYCCNT;
+        ok = (t1 != t0);
+    }
+    s_dwt_available = ok;
+    #else
+    s_dwt_available = false;
+    #endif
+}
+#else
+void lorawan_stats_dwt_init(void) {}
+#endif
 
 // C-side trampoline for DIO1 IRQ. Runs in scheduler context (via direct
 // ICU registration in glue/sx126x_board.c). Closes over the singleton
@@ -214,6 +295,10 @@ static mp_obj_t lorawan_mac_make_new(const mp_obj_type_t *type,
         .dio1_pin    = (void *)dio1_pin,
         .rf_sw_pin   = (void *)rf_sw_pin,
     };
+    /* DWT CYCCNT — required before any ISR can sample cycle deltas for
+       hard_isr_*_cycles_max. Idempotent; safe to call repeatedly. */
+    lorawan_stats_dwt_init();
+
     sx126x_board_init(&cfg);
     self->radio_initialized = true;
 
@@ -583,10 +668,22 @@ static void mac_post_event(qstr tag, int status) {
 }
 
 static void mac_mcps_confirm(McpsConfirm_t *cnf) {
+    /* Step 10.5: see lorawan_stats.h for the full clear-edge contract.
+       Class A uplink with NO downlink completes via the LoRaMac RX-timeout
+       path: ProcessRadioRxTimeout -> HandleRadioRxErrorTimeout -> MacDone=1
+       -> MacMcpsConfirm, with no MacMcpsIndication. Without this clear edge,
+       s_rx_window_active stays latched after the RX window closes and the
+       next NvmDataMgmtStore() is falsely counted as in-window. */
+    s_rx_window_active = 0u;
     mac_post_event(MP_QSTR_mcps_confirm, (int)cnf->Status);
 }
 
 static void mac_mcps_indication(McpsIndication_t *ind) {
+    /* Phase 1 Step 10 — a real MCPS downlink indication closes the active
+       RX window. The no-downlink timeout path is covered separately by
+       mac_mcps_confirm (Step 10.5); MLME exchanges are covered by
+       mac_mlme_confirm. */
+    s_rx_window_active = 0;
     /* Mirror the upstream Renesas LoRaSample handler
        (samples/.../LoRaSample/main.c:240-258): copy payload only when
        Status is OK and BufferSize > 0. RxData and (BufferSize != 0)
@@ -610,6 +707,11 @@ static void mac_mcps_indication(McpsIndication_t *ind) {
 }
 
 static void mac_mlme_confirm(MlmeConfirm_t *cnf) {
+    /* Phase 1 Step 10 — MLME-level confirm (JOIN, LINK_CHECK, ...) closes
+       any outstanding RX window the MAC opened to receive the response.
+       Clear here as a second-source so an MCPS-less MLME exchange (Join,
+       LinkCheck) does not leave the flag latched. */
+    s_rx_window_active = 0;
     /* On OTAA join completion (MLME_JOIN), update the cached join state
        so Python `mac.is_joined()` becomes true without an extra MIB
        round-trip. Other MLME types (LINK_CHECK, TXCW, etc.) just pass
@@ -791,12 +893,32 @@ static mp_obj_t lorawan_mac_set_keys(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_set_keys_obj, 4,
     lorawan_mac_set_keys);
 
+/* Phase 1 Observation — wraps the single LoRaMacProcess() call site so
+ * mac.stats() can report process count, latest duration, and historical
+ * peak. mac_process_last_us is single-writer (only this Python pump
+ * touches it) so STATS_STORE (a plain volatile store) is sufficient; the
+ * count and max use the atomic / CAS macros. Under
+ * LORAWAN_OBSERVATION_DISABLE the t0/dt timing collapses entirely so
+ * LoRaMacProcess() is the only thing that runs. */
+static void instrument_mac_process_call(void) {
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    uint32_t t0 = mp_hal_ticks_us();
+    #endif
+    LoRaMacProcess();
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    uint32_t dt = mp_hal_ticks_us() - t0;
+    STATS_INC(mac_process_count);
+    STATS_STORE(mac_process_last_us, dt);
+    STATS_UPDATE_MAX(mac_process_max_us, dt);
+    #endif
+}
+
 static mp_obj_t lorawan_mac_process(mp_obj_t self_in) {
     lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->stack_initialized) {
         return mp_const_none;
     }
-    LoRaMacProcess();
+    instrument_mac_process_call();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_process_obj, lorawan_mac_process);
@@ -1227,6 +1349,82 @@ static mp_obj_t lorawan_mac_set_min_rx_symbols(mp_obj_t self_in,
 static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_set_min_rx_symbols_obj,
     lorawan_mac_set_min_rx_symbols);
 
+/* P3.0 — MIB_PUBLIC_NETWORK setter. ChirpStack and TTN gateways use the
+   public LoRaWAN sync word (0x34); private networks use 0x12. Without
+   PublicNetwork=true the chip transmits with the wrong sync word and the
+   gateway never demodulates the join-request. LoRaMacInitialization()
+   defaults to PublicNetwork=true (LoRaMac.c:4239), so this setter is for
+   completeness / override; calling with True is a safe no-op. */
+static mp_obj_t lorawan_mac_set_public_network(mp_obj_t self_in,
+    mp_obj_t enable_in) {
+    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->stack_initialized) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("call lorawan_init first"));
+    }
+    MibRequestConfirm_t mib;
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_PUBLIC_NETWORK;
+    mib.Param.EnablePublicNetwork = mp_obj_is_true(enable_in);
+    LoRaMacStatus_t st = LoRaMacMibSetRequestConfirm(&mib);
+    if (st != LORAMAC_STATUS_OK) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("MIB_PUBLIC_NETWORK set failed: %d"), (int)st);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_set_public_network_obj,
+    lorawan_mac_set_public_network);
+
+/* P3.2 — apply the 6 MIB defaults that the Renesas reference sample
+   (renesas_lora/.../LoRaSample/lorawan_proc.c:116-156) writes right after
+   LoRaMacInitialization. Optional helper: each setting is also exposed
+   as an individual setter so Python tests can override per-test.
+
+   Defaults mirror Renesas + EU868 + ChirpStack public network:
+     MIB_PUBLIC_NETWORK     = true       (LoRaWAN sync word 0x34)
+     MIB_ADR                = true       (let server adjust DR)
+     MIB_DEVICE_CLASS       = CLASS_A    (lowest power; uplink + RX1/RX2)
+     MIB_SYSTEM_MAX_RX_ERROR = 10        (ms, per APP_SYSTEM_MAX_RX_ERROR)
+     MIB_CHANNELS_DATARATE  = DR_0       (SF12BW125 — slowest, most robust)
+     MIB_DUTY_CYCLE         = 1          (ETSI EU868 compliance)
+
+   Returns None on success; raises OSError with the first failing MIB
+   type/status code so the user sees exactly which write fell over. */
+static mp_obj_t lorawan_mac_init_defaults(mp_obj_t self_in) {
+    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->stack_initialized) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("call lorawan_init first"));
+    }
+    MibRequestConfirm_t mib;
+    LoRaMacStatus_t st;
+
+    #define _SET_MIB_OR_RAISE(_type, _field, _value) do { \
+        memset(&mib, 0, sizeof(mib)); \
+        mib.Type = (_type); \
+        mib.Param._field = (_value); \
+        st = LoRaMacMibSetRequestConfirm(&mib); \
+        if (st != LORAMAC_STATUS_OK) { \
+            mp_raise_msg_varg(&mp_type_OSError, \
+                MP_ERROR_TEXT("MIB %d set failed: %d"), \
+                (int)(_type), (int)st); \
+        } \
+    } while (0)
+
+    _SET_MIB_OR_RAISE(MIB_PUBLIC_NETWORK,      EnablePublicNetwork, true);
+    _SET_MIB_OR_RAISE(MIB_ADR,                 AdrEnable,           true);
+    _SET_MIB_OR_RAISE(MIB_DEVICE_CLASS,        Class,               CLASS_A);
+    _SET_MIB_OR_RAISE(MIB_SYSTEM_MAX_RX_ERROR, SystemMaxRxError,    10);
+    _SET_MIB_OR_RAISE(MIB_CHANNELS_DATARATE,   ChannelsDatarate,    DR_0);
+    _SET_MIB_OR_RAISE(MIB_DUTY_CYCLE,          DCycleEnabled,       1);
+
+    #undef _SET_MIB_OR_RAISE
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_init_defaults_obj,
+    lorawan_mac_init_defaults);
+
 /* Phase 6a debug — explicit save/restore + size queries so Python
    tests can observe whether contexts are being persisted. */
 static mp_obj_t lorawan_mac_nvm_store(mp_obj_t self_in) {
@@ -1419,6 +1617,137 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_recv_obj, 1,
 
 #endif  /* LORAWAN_PHASE5_AVAILABLE */
 
+/* Phase 1 Step 12 — Python-facing observation surface.
+ *
+ * mac.stats() snapshots g_lorawan_stats into a freshly allocated
+ * dict-of-dicts (5 groups, 32 leaves). Called from Python/scheduler
+ * context only — heap allocation is safe here. No state mutation.
+ *
+ * spi_bytes_total uses the 64-bit seqlock reader from lorawan_stats.h
+ * (see phase1_step3_atomicity.md §3) so the high half cannot tear vs.
+ * a concurrent SPI write incrementing the low half through overflow.
+ *
+ * Counters are uint32_t — use mp_obj_new_int_from_uint to avoid
+ * truncating values >2^30 that MP_OBJ_NEW_SMALL_INT cannot hold.
+ * Opcodes (uint8_t 0..255) fit in a small int.
+ */
+static mp_obj_t lorawan_mac_stats(mp_obj_t self_in) {
+    (void)self_in;
+
+    mp_obj_t mac_group = mp_obj_new_dict(3);
+    mp_obj_dict_store(mac_group, MP_ROM_QSTR(MP_QSTR_mac_process_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.mac_process_count));
+    mp_obj_dict_store(mac_group, MP_ROM_QSTR(MP_QSTR_mac_process_last_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.mac_process_last_us));
+    mp_obj_dict_store(mac_group, MP_ROM_QSTR(MP_QSTR_mac_process_max_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.mac_process_max_us));
+
+    mp_obj_t spi_group = mp_obj_new_dict(9);
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_xfer_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_xfer_count));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_bytes_total),
+                      mp_obj_new_int_from_ull(stats_spi_bytes_read()));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_max_len),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_max_len));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_one_byte_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_one_byte_count));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_sx126x_spi_busy_reject_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.sx126x_spi_busy_reject_count));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_pre_busy_max_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_stage_pre_busy_max_us));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_dtc_max_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_stage_dtc_max_us));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_post_busy_max_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_stage_post_busy_max_us));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_sx126x_wake_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.sx126x_wake_count));
+
+    mp_obj_t busy_group = mp_obj_new_dict(6);
+    mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_wait_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_wait_count));
+    mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_wait_last_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_wait_last_us));
+    mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_wait_max_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_wait_max_us));
+    mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_timeout_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_timeout_count));
+    mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_timeout_opcode),
+                      MP_OBJ_NEW_SMALL_INT(g_lorawan_stats.busy_timeout_opcode));
+    mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_last_opcode),
+                      MP_OBJ_NEW_SMALL_INT(g_lorawan_stats.busy_last_opcode));
+
+    /* AD5.2: isr group expanded from 12 → 16 leaves (4 new hard_isr_* counters
+       for the DTC done-callback + BUSY-falling ICU augmentation). All 4 read 0
+       in AD5.2 — the callback is defined but not yet hooked into the LoRa SPI
+       path (that ships in AD5.3 / AD5.4). */
+    mp_obj_t isr_group = mp_obj_new_dict(16);
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dio1_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dio1_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt4_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt4_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt5_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt5_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_queue_push_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_queue_push_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_queue_overflow_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_queue_overflow_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dtc_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dtc_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dtc_cycles_max),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dtc_cycles_max));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_busy_low_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_busy_low_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_busy_low_cycles_max),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_busy_low_cycles_max));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dio1_cycles_max),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dio1_cycles_max));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt4_cycles_max),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt4_cycles_max));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt5_cycles_max),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt5_cycles_max));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dio1_reentry_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dio1_reentry_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt4_reentry_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt4_reentry_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt5_reentry_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt5_reentry_count));
+    mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_dwt_available),
+                      mp_obj_new_bool(s_dwt_available));
+
+    mp_obj_t nvm_group = mp_obj_new_dict(7);
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_count));
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_last_ms),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_last_ms));
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_max_ms),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_max_ms));
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_error_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_error_count));
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_call_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_call_us));
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_done_us),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_done_us));
+    mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_in_rx_window_count),
+                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_in_rx_window_count));
+
+    mp_obj_t top = mp_obj_new_dict(5);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_mac),  mac_group);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_spi),  spi_group);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_busy), busy_group);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_isr),  isr_group);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_nvm),  nvm_group);
+    return top;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_stats_obj, lorawan_mac_stats);
+
+static mp_obj_t lorawan_mac_stats_reset(mp_obj_t self_in) {
+    (void)self_in;
+    lorawan_stats_reset();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_stats_reset_obj,
+    lorawan_mac_stats_reset);
+
 // ---- Class table ---------------------------------------------------------
 
 static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
@@ -1475,6 +1804,8 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     // Phase 7 — RX window timing tunables.
     { MP_ROM_QSTR(MP_QSTR_set_max_rx_error),   MP_ROM_PTR(&lorawan_mac_set_max_rx_error_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_min_rx_symbols), MP_ROM_PTR(&lorawan_mac_set_min_rx_symbols_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_public_network), MP_ROM_PTR(&lorawan_mac_set_public_network_obj) },
+    { MP_ROM_QSTR(MP_QSTR_init_defaults),      MP_ROM_PTR(&lorawan_mac_init_defaults_obj) },
     { MP_ROM_QSTR(MP_QSTR_rx_diag),            MP_ROM_PTR(&lorawan_mac_rx_diag_obj) },
     // Phase 6a — NVM debug surface.
     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
@@ -1485,6 +1816,9 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     // Phase 5c — uplink + downlink.
     { MP_ROM_QSTR(MP_QSTR_send),               MP_ROM_PTR(&lorawan_mac_send_obj) },
     { MP_ROM_QSTR(MP_QSTR_recv),               MP_ROM_PTR(&lorawan_mac_recv_obj) },
+    // Phase 1 Observation — Python-facing counter snapshot + reset.
+    { MP_ROM_QSTR(MP_QSTR_stats),              MP_ROM_PTR(&lorawan_mac_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stats_reset),        MP_ROM_PTR(&lorawan_mac_stats_reset_obj) },
 };
 static MP_DEFINE_CONST_DICT(lorawan_mac_locals_dict,
     lorawan_mac_locals_dict_table);

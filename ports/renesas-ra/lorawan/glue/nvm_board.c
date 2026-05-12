@@ -27,8 +27,10 @@
 #include <string.h>
 
 #include "py/runtime.h"
+#include "py/mphal.h"
 #include "glue/nvm_board.h"
 #include "glue/dflash.h"
+#include "glue/lorawan_stats.h"
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
@@ -156,36 +158,60 @@ size_t nvm_board_last_total_size(void) {
 }
 
 uint16_t NvmDataMgmtStore(void) {
+    /* Phase 1 Step 10 — observation only. Entry stamp + RX-window collision
+       check happen before any save work; done stamp + last/max happen after
+       dflash_save_blob() at the bottom of the success path. Counters never
+       alter return value or save semantics. _nvm_call_us is also consumed
+       by the exit-delta block ~80 lines below, so it lives across the save
+       — `#ifndef`-wrapped here and at the consumer to avoid an unused-
+       variable warning under -Werror in the disable build. */
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    uint32_t _nvm_call_us = mp_hal_ticks_us();
+    STATS_STORE(nvm_save_call_us, _nvm_call_us);
+    #endif
+    STATS_INC(nvm_save_count);
+    if (s_rx_window_active) {
+        STATS_INC(nvm_save_in_rx_window_count);
+    }
+
     /* Pull current contexts from LoRaMac and snapshot into our RAM
-       blob. Returns total bytes stored. */
+       blob. Returns total bytes stored.
+
+       Step 10.5: all early-return paths funnel through `early_return:` so
+       nvm_save_done_us / nvm_save_last_ms get a consistent attempt-vs-
+       success-shaped record: zero-ms entry == early-return path,
+       non-zero ms == real flash work. nvm_save_max_ms is intentionally
+       untouched on early returns (STATS_UPDATE_MAX with 0 is a no-op),
+       and nvm_save_error_count is left for the dflash_save_blob failure
+       branch only (an MIB/copy failure isn't a flash error). */
     MibRequestConfirm_t mib;
     memset(&mib, 0, sizeof(mib));
     mib.Type = MIB_NVM_CTXS;
     s_last_mib_status = (int)LoRaMacMibGetRequestConfirm(&mib);
     if (s_last_mib_status != (int)LORAMAC_STATUS_OK) {
         s_last_ctx = NULL;
-        return 0;
+        goto early_return;
     }
     LoRaMacCtxs_t *ctx = mib.Param.Contexts;
     s_last_ctx = ctx;
     if (ctx == NULL) {
-        return 0;
+        goto early_return;
     }
 
     if (!nvm_copy_in(ctx->MacNvmCtx, ctx->MacNvmCtxSize,
-            s_nvm.mac_ctx, NVM_MAC_CTX_MAX, &s_nvm.mac_size)) return 0;
+            s_nvm.mac_ctx, NVM_MAC_CTX_MAX, &s_nvm.mac_size)) goto early_return;
     if (!nvm_copy_in(ctx->RegionNvmCtx, ctx->RegionNvmCtxSize,
-            s_nvm.region_ctx, NVM_REGION_CTX_MAX, &s_nvm.region_size)) return 0;
+            s_nvm.region_ctx, NVM_REGION_CTX_MAX, &s_nvm.region_size)) goto early_return;
     if (!nvm_copy_in(ctx->CryptoNvmCtx, ctx->CryptoNvmCtxSize,
-            s_nvm.crypto_ctx, NVM_CRYPTO_CTX_MAX, &s_nvm.crypto_size)) return 0;
+            s_nvm.crypto_ctx, NVM_CRYPTO_CTX_MAX, &s_nvm.crypto_size)) goto early_return;
     if (!nvm_copy_in(ctx->SecureElementNvmCtx, ctx->SecureElementNvmCtxSize,
-            s_nvm.se_ctx, NVM_SE_CTX_MAX, &s_nvm.se_size)) return 0;
+            s_nvm.se_ctx, NVM_SE_CTX_MAX, &s_nvm.se_size)) goto early_return;
     if (!nvm_copy_in(ctx->CommandsNvmCtx, ctx->CommandsNvmCtxSize,
-            s_nvm.cmds_ctx, NVM_CMDS_CTX_MAX, &s_nvm.cmds_size)) return 0;
+            s_nvm.cmds_ctx, NVM_CMDS_CTX_MAX, &s_nvm.cmds_size)) goto early_return;
     if (!nvm_copy_in(ctx->ClassBNvmCtx, ctx->ClassBNvmCtxSize,
-            s_nvm.classb_ctx, NVM_CLASSB_CTX_MAX, &s_nvm.classb_size)) return 0;
+            s_nvm.classb_ctx, NVM_CLASSB_CTX_MAX, &s_nvm.classb_size)) goto early_return;
     if (!nvm_copy_in(ctx->ConfirmQueueNvmCtx, ctx->ConfirmQueueNvmCtxSize,
-            s_nvm.cq_ctx, NVM_CQ_CTX_MAX, &s_nvm.cq_size)) return 0;
+            s_nvm.cq_ctx, NVM_CQ_CTX_MAX, &s_nvm.cq_size)) goto early_return;
 
     s_nvm.valid = true;
 
@@ -211,13 +237,40 @@ uint16_t NvmDataMgmtStore(void) {
         hdr.cmds_size   = (uint16_t)s_nvm.cmds_size;
         hdr.classb_size = (uint16_t)s_nvm.classb_size;
         hdr.cq_size     = (uint16_t)s_nvm.cq_size;
-        (void)dflash_save_blob(&hdr, packed, off);
+        bool _save_ok = dflash_save_blob(&hdr, packed, off);
         /* Errors here are non-fatal: RAM cache is still valid for
            in-boot persistence even if flash write failed. */
+        if (!_save_ok) {
+            STATS_INC(nvm_save_error_count);
+        }
     }
+
+    /* Phase 1 Step 10 — close the timing window. dflash_save_blob is
+       blocking-synchronous (see phase1_step0_preflight_symbols.md §9), so
+       the delta covers the actual flash erase+write cost. */
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    {
+        uint32_t _nvm_done_us = mp_hal_ticks_us();
+        STATS_STORE(nvm_save_done_us, _nvm_done_us);
+        uint32_t _nvm_dt_ms = (uint32_t)((_nvm_done_us - _nvm_call_us) / 1000u);
+        STATS_STORE(nvm_save_last_ms, _nvm_dt_ms);
+        STATS_UPDATE_MAX(nvm_save_max_ms, _nvm_dt_ms);
+    }
+    #endif
 
     return (uint16_t)(s_nvm.mac_size + s_nvm.region_size + s_nvm.crypto_size
         + s_nvm.se_size + s_nvm.cmds_size + s_nvm.classb_size + s_nvm.cq_size);
+
+early_return:
+    /* Step 10.5: close timing for the MIB / context-copy early-return paths
+       so timing fields stay consistent with nvm_save_count (which tracks
+       attempts, not successes). last_ms = 0 marks an early-return record;
+       max_ms is untouched because STATS_UPDATE_MAX(field, 0) is a no-op. */
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    STATS_STORE(nvm_save_done_us, _nvm_call_us);
+    #endif
+    STATS_STORE(nvm_save_last_ms, 0u);
+    return 0;
 }
 
 uint16_t NvmDataMgmtRestore(void) {

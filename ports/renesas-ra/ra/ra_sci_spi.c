@@ -157,6 +157,8 @@ typedef struct {
     volatile uint8_t done;
     uint8_t tx_idle_byte;   // sent on MOSI when src == NULL
     uint8_t rx_scratch;     // byte sink when dst == NULL
+    ra_sci_spi_done_cb_t done_cb;
+    void *done_user;
 } ra_sci_spi_xfer_t;
 static ra_sci_spi_xfer_t sci_spi_xfer[SCI_CH_MAX];
 
@@ -384,8 +386,27 @@ static void ra_sci_spi_calc_baud(uint32_t baud, ra_sci_spi_div_setting_t *div) {
 // runs, the last byte has already been moved into the user's dst buffer.
 
 static void ra_sci_spi_rxi_cb(uint32_t ch) {
-    // RX DTC has drained FRDR for the last byte. Foreground may now wake.
-    sci_spi_xfer[ch].done = 1;
+    // RX DTC has drained FRDR for the last byte. With TRANSFER_IRQ_END both DTC
+    // channels have already auto-disabled (count hit 0). Drop TIE/RIE so SCI
+    // stops demanding service, keep CKE so the master clock pin holds level.
+    // This used to sit at the foreground tail of ra_sci_spi_transfer; moving it
+    // here lets the new non-blocking ra_sci_spi_submit path share the cleanup
+    // without a second finalise hop.
+    R_SCI0_Type *sci_reg = sci_spi_regs[ch];
+    if (sci_reg != NULL) {
+        sci_reg->SCR = (uint8_t)(sci_reg->SCR & R_SCI0_SCR_CKE_Msk);
+    }
+    R_DTC_Disable((transfer_ctrl_t *)&sci_spi_tx_dtc[ch].ctrl);
+    R_DTC_Disable((transfer_ctrl_t *)&sci_spi_rx_dtc[ch].ctrl);
+
+    ra_sci_spi_xfer_t *xfer = &sci_spi_xfer[ch];
+    ra_sci_spi_done_cb_t cb = xfer->done_cb;
+    void *user = xfer->done_user;
+    xfer->done = 1;
+    if (cb != NULL) {
+        // Hard-IRQ context — callee must keep this lean.
+        cb(ch, user);
+    }
 }
 
 static void ra_sci_spi_txi_cb(uint32_t ch) {
@@ -597,17 +618,20 @@ bool ra_sci_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, ui
     return true;
 }
 
-// FIFO + dual-DTC full-duplex transfer.
-// One IRQ_END per direction: RX completion is the foreground wake signal.
-// While running, DTC pumps FTDR / drains FRDR autonomously — CPU sleeps in WFI.
+// FIFO + dual-DTC full-duplex submit. Foundation for both the blocking
+// ra_sci_spi_transfer (which spins on WFI) and the non-blocking caller that
+// polls ra_sci_spi_is_done() / takes the user-supplied done callback.
 //
-// Length is bounded by DTC: max 65535 bytes per transfer. Larger transfers
-// are split into chunks. Smaller chunks would fit in one FIFO depth (16) but
-// DTC handles the full length transparently.
-void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count) {
+// One IRQ_END per direction: RX completion is the wake signal. While running,
+// DTC pumps FTDR / drains FRDR autonomously — no CPU intervention needed.
+//
+// Length is bounded by DTC: max 65535 bytes per submit. Larger transfers are
+// the caller's responsibility to split.
+bool ra_sci_spi_submit(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count,
+                       ra_sci_spi_done_cb_t cb, void *user) {
     uint8_t sci_ch = sci_spi_id_to_ch[ch & 0xf];
     if (sci_ch >= SCI_CH_MAX || !sci_spi_active[sci_ch] || count == 0) {
-        return;
+        return false;
     }
     R_SCI0_Type *sci_reg = sci_spi_regs[sci_ch];
     ra_sci_spi_xfer_t *xfer = &sci_spi_xfer[sci_ch];
@@ -653,38 +677,58 @@ void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t
         rx_dst_mode = TRANSFER_ADDR_MODE_FIXED;
     }
 
+    // Install the optional done callback before clearing `done` and arming
+    // DTC — once SCR has TIE/RIE set the IRQ can fire any moment.
+    xfer->done_cb = cb;
+    xfer->done_user = user;
     xfer->done = 0;
 
     // Arm RX DTC first so the very first received byte is captured.
     if (!ra_sci_spi_dtc_arm(&sci_spi_rx_dtc[sci_ch],
             (void *)&sci_reg->FRDRL, rx_dst,
             TRANSFER_ADDR_MODE_FIXED, rx_dst_mode, len)) {
-        return;
+        xfer->done_cb = NULL;
+        xfer->done_user = NULL;
+        return false;
     }
     if (!ra_sci_spi_dtc_arm(&sci_spi_tx_dtc[sci_ch],
             tx_src, (void *)&sci_reg->FTDRL,
             tx_src_mode, TRANSFER_ADDR_MODE_FIXED, len)) {
         R_DTC_Disable((transfer_ctrl_t *)&sci_spi_rx_dtc[sci_ch].ctrl);
-        return;
+        xfer->done_cb = NULL;
+        xfer->done_user = NULL;
+        return false;
     }
 
     // Kick off: TE+RE with TIE+RIE (preserve CKE). TXI pends immediately because
     // TX FIFO has 16 free stages (TTRG=15 → ≥1 stage free fires TXI). DTC then
     // floods FTDR with `len` bytes; SCI shifts; RX DTC drains FRDR; RX IRQ_END
-    // fires our rxi_cb which sets done=1.
+    // fires rxi_cb which performs post-transfer SCR/DTC teardown and sets done=1.
     sci_reg->SCR = (uint8_t)((sci_reg->SCR & R_SCI0_SCR_CKE_Msk)
                              | R_SCI0_SCR_TE_Msk | R_SCI0_SCR_RE_Msk
                              | R_SCI0_SCR_TIE_Msk | R_SCI0_SCR_RIE_Msk);
+    return true;
+}
 
-    // Wait for RX DTC completion. WFI puts CPU to sleep between events.
-    while (xfer->done == 0) {
+bool ra_sci_spi_is_done(uint32_t ch) {
+    uint8_t sci_ch = sci_spi_id_to_ch[ch & 0xf];
+    if (sci_ch >= SCI_CH_MAX) {
+        return true;
+    }
+    return sci_spi_xfer[sci_ch].done != 0;
+}
+
+// Blocking variant preserved bit-for-bit at the API boundary: void return,
+// silent no-op for unknown channel / count==0 (handled inside submit).
+// Body is now submit + WFI spin; post-transfer SCR/DTC teardown lives in the
+// RX-end IRQ callback so both blocking and non-blocking paths share it.
+void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count) {
+    if (!ra_sci_spi_submit(ch, src, dst, count, NULL, NULL)) {
+        return;
+    }
+    while (!ra_sci_spi_is_done(ch)) {
         __asm__ __volatile__ ("wfi");
     }
-
-    // Stop SCI; ensure DTCs are disabled (they're already at count=0 but clear).
-    sci_reg->SCR &= (uint8_t)R_SCI0_SCR_CKE_Msk;
-    R_DTC_Disable((transfer_ctrl_t *)&sci_spi_tx_dtc[sci_ch].ctrl);
-    R_DTC_Disable((transfer_ctrl_t *)&sci_spi_rx_dtc[sci_ch].ctrl);
 }
 
 void ra_sci_spi_deinit(uint32_t ch) {
@@ -766,6 +810,22 @@ void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t
     (void)src;
     (void)dst;
     (void)count;
+}
+
+bool ra_sci_spi_submit(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count,
+                       ra_sci_spi_done_cb_t cb, void *user) {
+    (void)ch;
+    (void)src;
+    (void)dst;
+    (void)count;
+    (void)cb;
+    (void)user;
+    return false;
+}
+
+bool ra_sci_spi_is_done(uint32_t ch) {
+    (void)ch;
+    return true;
 }
 
 #endif

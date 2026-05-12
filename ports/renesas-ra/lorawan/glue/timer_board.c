@@ -34,6 +34,7 @@
 
 #include "ra/ra_timer.h"
 #include "glue/timer_board.h"
+#include "glue/lorawan_stats.h"
 #include "mac/LoRaMac.h"
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
@@ -146,10 +147,16 @@ static bool dispatch_post(TimerEvent_t *evt) {
         if (!s_dispatch_pool[i].in_use) {
             s_dispatch_pool[i].in_use = true;
             s_dispatch_pool[i].evt = evt;
+            STATS_INC(hard_isr_queue_push_count);
             return mp_sched_schedule_node(&s_dispatch_pool[i].node,
                 timer_dispatch_cb);
         }
     }
+    /* All 8 slots busy — IRQ event is dropped silently per the original
+       contract. Count it so QA can detect pool starvation.
+       Invariant: hard_isr_queue_push_count + hard_isr_queue_overflow_count
+       == total dispatch_post calls. */
+    STATS_INC(hard_isr_queue_overflow_count);
     return false;
 }
 
@@ -188,20 +195,53 @@ static void agt5_arm(TimerEvent_t *evt, uint32_t remaining_us) {
     ra_agt_timer_start(LORAWAN_AGT_TIMEOUT_CH);
 }
 
+/* ISR re-entry depth counters — written only by the matching ISR. A
+   non-zero reentry count means a higher-priority IRQ pre-empted this ISR
+   while it was mid-execution. We still run the body on re-entry (do NOT
+   drop the IRQ).
+
+   Save-restore over a uint8_t: each level enters with prev = depth and
+   restores to prev on exit, so an inner level completing cannot clear
+   the outer level's depth (the bug the bool sentinel had under deep
+   nesting). Same-NVIC-line ISRs tail-chain on ARMv8-M and cross-line
+   same-priority preemption is impossible, so plain volatile RMW is
+   race-free here. */
+static volatile uint8_t s_agt5_isr_depth;
+static volatile uint8_t s_agt4_isr_depth;
+
 static void agt5_oneshot_isr(void *param) {
     (void)param;
+    uint8_t prev = s_agt5_isr_depth;
+    if (prev > 0) {
+        STATS_INC(hard_isr_agt5_reentry_count);
+    }
+    s_agt5_isr_depth = (uint8_t)(prev + 1);
+    STATS_INC(hard_isr_agt5_count);
+    LORAWAN_ISR_CYCLES_BEGIN();
+
     TimerEvent_t *e = (TimerEvent_t *)s_agt5_owner;
     s_agt5_owner = NULL;
     if (e != NULL) {
         e->IsRunning = false;
         (void)dispatch_post(e);
     }
+
+    LORAWAN_ISR_CYCLES_END(hard_isr_agt5_cycles_max);
+    s_agt5_isr_depth = prev;
 }
 
 // ---- AGT4 1 kHz tick ISR -------------------------------------------------
 
 static void agt_tick_isr(void *param) {
     (void)param;
+    uint8_t prev = s_agt4_isr_depth;
+    if (prev > 0) {
+        STATS_INC(hard_isr_agt4_reentry_count);
+    }
+    s_agt4_isr_depth = (uint8_t)(prev + 1);
+    STATS_INC(hard_isr_agt4_count);
+    LORAWAN_ISR_CYCLES_BEGIN();
+
     s_tick_ms++;
 
     TimerEvent_t **pp = (TimerEvent_t **)&s_timer_list;
@@ -248,6 +288,9 @@ static void agt_tick_isr(void *param) {
 
         pp = &e->Next;
     }
+
+    LORAWAN_ISR_CYCLES_END(hard_isr_agt4_cycles_max);
+    s_agt4_isr_depth = prev;
 }
 
 // ---- Service lifecycle ---------------------------------------------------

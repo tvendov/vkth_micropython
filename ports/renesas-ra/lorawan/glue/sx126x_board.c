@@ -41,6 +41,7 @@
 #include "py/mperrno.h"
 
 #include "glue/sx126x_board.h"
+#include "glue/lorawan_stats.h"
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
@@ -111,10 +112,11 @@ typedef struct {
     uint8_t dio1_irq_no;
     mp_sched_node_t dio1_sched_node;
 
-    // Optional BUSY pin falling-edge IRQ (Phase 2).
+    // Optional BUSY pin falling-edge IRQ (Phase 2). AD5.6 folded the
+    // legacy busy_low_seen flag into SPI_CMPL_BUSY_LOW — wait-on-flag is
+    // the single mechanism now.
     bool busy_irq_active;
     uint8_t busy_irq_no;
-    volatile bool busy_low_seen;
 
     // Runtime-tunable inter-byte delay (Phase 2 / item 4).
     uint8_t interbyte_us;
@@ -158,7 +160,6 @@ void sx126x_board_init(const sx126x_board_cfg_t *cfg) {
     s_state.dio1_irq_no = 0xFF;
     s_state.busy_irq_active = false;
     s_state.busy_irq_no = 0xFF;
-    s_state.busy_low_seen = false;
     s_state.interbyte_us = LORAWAN_SX126X_INTERBYTE_US_DEFAULT;
     s_state.dio1_sched_node.next = NULL;
     s_state.dio1_sched_node.callback = NULL;
@@ -213,6 +214,12 @@ void sx126x_board_init(const sx126x_board_cfg_t *cfg) {
     pfs_pwpr_protect();
 
     s_state.initialized = true;
+
+    /* AD5.4: arm BUSY-falling ICU at boot so SPI_CMPL_BUSY_LOW counters and
+       (later, AD5.5) the pre-CS BUSY yield loop are populated from the
+       first SX1262 transaction. Falls back silently if the BUSY pin has
+       no ICU vector — caller path keeps polling. */
+    (void)SX126xBusyIrqEnable();
 }
 
 void sx126x_board_deinit(void) {
@@ -220,6 +227,7 @@ void sx126x_board_deinit(void) {
         return;
     }
     SX126xIoIrqDeinit();
+    SX126xBusyIrqDisable();
     cs_high();
     s_state.initialized = false;
 }
@@ -240,25 +248,79 @@ void SX126xReset(void) {
 
 // ---- BUSY-poll helper ---------------------------------------------------
 
+/* SPI/BUSY completion-flag word — set by ISRs, polled by yielding spin
+   in AD5.3+. Lives in .bss; single-byte aligned access is atomic on
+   Armv8-M. Writers OR-in a bit; the foreground reader/clearer holds the
+   s_spi_xfer_busy guard for the pre-CS path (AD5.5). The post-CS path
+   (SX126xWaitOnBusy, AD5.6) is multi-call-site outside that guard, but
+   still benefits from the same single-bit signaling because the only
+   bit it touches is SPI_CMPL_BUSY_LOW and the ISR is the only writer
+   from the other side. Hoisted above SX126xWaitOnBusy so both pre-CS
+   (sx126x_spi_xfer) and post-CS (this) callers see the same symbols. */
+static volatile uint8_t s_spi_completion_flag;
+
+#define SPI_CMPL_DTC_DONE   (1u << 0)   /* DTC RX-end IRQ fired         */
+#define SPI_CMPL_BUSY_LOW   (1u << 1)   /* BUSY-falling ICU IRQ fired   */
+#define SPI_CMPL_TIMEOUT    (1u << 2)   /* Foreground timeout observed  */
+
 void SX126xWaitOnBusy(void) {
     if (!s_state.initialized) {
         return;
     }
-    // Fast path: BUSY-pin ICU IRQ already saw the falling edge while we
-    // were doing other work. No poll needed.
-    if (s_state.busy_irq_active && s_state.busy_low_seen) {
-        s_state.busy_low_seen = false;
-        return;
-    }
-    uint32_t start = mp_hal_ticks_ms();
-    while (busy_high()) {
-        if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
-            return;  // timeout — caller may decide to raise
+
+    /* AD5.6: wait-on-flag for post-CS BUSY low. Multi-call-site (the
+       vendor radio layer in lorawan/radio/sx126x.c calls this outside
+       sx126x_spi_xfer), so:
+         - No opcode latching (no STATS_SET_OPCODE) — that work belongs to
+           the pre-CS path in sx126x_spi_xfer where s_spi_xfer_busy holds
+           the single-writer invariant (AD5.5 §8 invariant (a)/(c)).
+         - No SPI_CMPL_TIMEOUT interaction — that diagnostic bit is owned
+           by sx126x_spi_xfer's pre-CS path and the AD5.3 DTC yield loop.
+         - No s_spi_xfer_busy lifecycle touch — caller (vendor) owns it.
+       Clear SPI_CMPL_BUSY_LOW at entry so we observe only this wait's
+       falling edge, then yield on the bit (set by busy_icu_isr). */
+    s_spi_completion_flag &= ~SPI_CMPL_BUSY_LOW;
+
+    STATS_INC(busy_wait_count);
+    LORAWAN_BUSY_TIMING_BEGIN();
+    if (busy_high()) {
+        uint32_t start = mp_hal_ticks_ms();
+        while (!(s_spi_completion_flag & SPI_CMPL_BUSY_LOW)) {
+            /* R2 fallback: ICU may have fired before we cleared the bit,
+               or the rising-falling cycle was shorter than one yield
+               quantum. Re-read BUSY; if low, self-set and exit. */
+            if (!busy_high()) {
+                s_spi_completion_flag |= SPI_CMPL_BUSY_LOW;
+                break;
+            }
+            if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
+                STATS_INC(busy_timeout_count);
+                /* No STATS_SET_OPCODE(busy_timeout_opcode, ...) here:
+                   SX126xWaitOnBusy is multi-call-site without opcode
+                   context. The pre-CS path in sx126x_spi_xfer latches
+                   busy_timeout_opcode under the s_spi_xfer_busy single-
+                   writer invariant (AD5.5 §8 invariant (c)). */
+#ifndef LORAWAN_OBSERVATION_DISABLE
+                uint32_t _busy_dt = mp_hal_ticks_us() - _busy_t0;
+                STATS_STORE(busy_wait_last_us, _busy_dt);
+                STATS_UPDATE_MAX(busy_wait_max_us, _busy_dt);
+                STATS_UPDATE_MAX(spi_stage_post_busy_max_us, _busy_dt);  /* AD5.7 */
+#endif
+                return;  /* vendor return contract: caller continues */
+            }
+            mp_handle_pending(true);
         }
-        mp_handle_pending(true);
     }
-    // Clear any stale flag now that BUSY is observed low.
-    s_state.busy_low_seen = false;
+    LORAWAN_BUSY_TIMING_END(busy_wait_last_us, busy_wait_max_us);
+#ifndef LORAWAN_OBSERVATION_DISABLE
+    /* AD5.7 — post-CS stage delta. Reuses _busy_t0 from
+       LORAWAN_BUSY_TIMING_BEGIN(); LORAWAN_BUSY_TIMING_END leaves it in
+       scope (declared at the same block level). */
+    {
+        uint32_t _stage_dt = mp_hal_ticks_us() - _busy_t0;
+        STATS_UPDATE_MAX(spi_stage_post_busy_max_us, _stage_dt);
+    }
+#endif
 }
 
 void SX126xWakeup(void) {
@@ -269,8 +331,12 @@ void SX126xWakeup(void) {
     if (!s_state.initialized) {
         return;
     }
+    /* P3.0 — count this wake pulse. SX126xCheckDeviceReady() in vendor
+       sx126x.c only calls SX126xWakeup() when OperatingMode is SLEEP /
+       RX_DC / COLD_SLEEP, so this counter reflects real wake events. */
+    STATS_INC(sx126x_wake_count);
     cs_low();
-    mp_hal_delay_us(2);
+    mp_hal_delay_us(30);  /* SX1262 §9.6: NSS-low > 20 µs to leave sleep. */
     cs_high();
     SX126xWaitOnBusy();
 }
@@ -299,6 +365,26 @@ void SX126xWakeup(void) {
    re-schedules itself if guarded — work runs after outer SPI done. */
 static volatile bool s_spi_xfer_busy = false;
 
+/* s_spi_completion_flag + SPI_CMPL_* bit macros are hoisted above
+   SX126xWaitOnBusy (AD5.6) so both pre-CS and post-CS waiters see the
+   same symbols — see the definition there for full rationale. */
+
+/* DTC done-callback for ra_sci_spi_submit. Hard-IRQ-safe: flag write +
+   counter macros only. Defined in AD5.2 but NOT yet wired — AD5.3 will
+   pass this to ra_sci_spi_submit. Until then, sx126x_spi_xfer keeps
+   using the blocking ra_sci_spi_transfer wrapper and this body never
+   runs (hard_isr_dtc_count stays 0). __attribute__((unused)) silences
+   -Werror=unused-function for the AD5.2 build. */
+static void sx126x_dtc_done_cb(uint32_t ch, void *user) __attribute__((unused));
+static void sx126x_dtc_done_cb(uint32_t ch, void *user) {
+    (void)ch;
+    (void)user;
+    LORAWAN_ISR_CYCLES_BEGIN();
+    s_spi_completion_flag |= SPI_CMPL_DTC_DONE;
+    STATS_INC(hard_isr_dtc_count);
+    LORAWAN_ISR_CYCLES_END(hard_isr_dtc_cycles_max);
+}
+
 static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
     const uint8_t *data_out, uint8_t *data_in, uint16_t data_len,
     bool wait_for_busy) {
@@ -310,6 +396,7 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
     /* Re-entrancy refused. Caller (deferred DIO1 dispatch) should bail and
        leave its work for the next scheduler tick — by then outer SPI is done. */
     if (s_spi_xfer_busy) {
+        STATS_INC(sx126x_spi_busy_reject_count);
         return -MP_EBUSY;
     }
     s_spi_xfer_busy = true;
@@ -343,26 +430,104 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
         memset(s_tx_buf + cmd_len, SX126X_CMD_NOP, 1 + data_len);
     }
 
-    /* Pre-CS BUSY poll. Includes mp_handle_pending so the BUSY-pin IRQ
-       that signals chip-ready can actually run (it's scheduler-deferred,
-       not a tight HW interrupt). Without yield the BUSY bit can stay
-       high indefinitely from this CPU's perspective even though the
-       chip is actually ready. */
+    /* AD5.5: pre-CS BUSY wait-on-flag. Replaces the AD5.4 poll-spin with
+       a yielding spin on SPI_CMPL_BUSY_LOW (set by busy_icu_isr on the
+       BUSY-pin falling edge). Architect §8 must-preserve invariants:
+       (a) opcode latch is FIRST write inside the s_spi_xfer_busy-gated
+           section; (b) busy_wait_count + BUSY_TIMING wrap the wait shape-
+           identically; (c) timeout branch keeps busy_timeout_count +
+           busy_timeout_opcode co-located, the #ifndef LORAWAN_OBSERVATION_
+           DISABLE _busy_dt block, and clears s_spi_xfer_busy before
+           returning -MP_ETIMEDOUT; (d) s_rx_window_active = 1 for opcode
+           0x82 (SetRx) preserved verbatim. */
     {
-        uint32_t start = mp_hal_ticks_ms();
-        while (busy_high()) {
-            if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
-                s_spi_xfer_busy = false;
-                return -MP_ETIMEDOUT;
-            }
-            mp_handle_pending(true);
+        /* (a) Opcode latch — single-writer here (s_spi_xfer_busy == true). */
+        STATS_SET_OPCODE(busy_last_opcode, s_tx_buf[0]);
+        /* (d) SetRx (0x82) arms an RX window — see Phase 1 Step 10/10.5. */
+        if (s_tx_buf[0] == 0x82u) {
+            s_rx_window_active = 1u;
         }
+
+        /* R4 dead-letter: clear stale SPI_CMPL_BUSY_LOW AND SPI_CMPL_TIMEOUT
+           bits under the same single-writer protection. The AD5.3 DTC yield
+           loop sets SPI_CMPL_TIMEOUT on its own timeout — that diagnostic
+           bit must not bleed into this call's BUSY-wait observation. */
+        s_spi_completion_flag &= ~(SPI_CMPL_BUSY_LOW | SPI_CMPL_TIMEOUT);
+
+        /* (b) busy_wait_count + BUSY_TIMING wrap. */
+        STATS_INC(busy_wait_count);
+        LORAWAN_BUSY_TIMING_BEGIN();
+        if (busy_high()) {
+            uint32_t start = mp_hal_ticks_ms();
+            while (!(s_spi_completion_flag & SPI_CMPL_BUSY_LOW)) {
+                /* R2 fallback: BUSY edge bounce / missed IRQ. If BUSY is
+                   already low, the ICU may have fired before we cleared
+                   the bit, or the rising-falling cycle was shorter than
+                   one yield quantum. Self-set the bit and break. */
+                if (!busy_high()) {
+                    s_spi_completion_flag |= SPI_CMPL_BUSY_LOW;
+                    break;
+                }
+                if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
+                    /* (c) Timeout branch — co-located stats + dt + clear guard. */
+                    STATS_INC(busy_timeout_count);
+                    STATS_SET_OPCODE(busy_timeout_opcode, s_tx_buf[0]);
+#ifndef LORAWAN_OBSERVATION_DISABLE
+                    uint32_t _busy_dt = mp_hal_ticks_us() - _busy_t0;
+                    STATS_STORE(busy_wait_last_us, _busy_dt);
+                    STATS_UPDATE_MAX(busy_wait_max_us, _busy_dt);
+                    STATS_UPDATE_MAX(spi_stage_pre_busy_max_us, _busy_dt);  /* AD5.7 */
+#endif
+                    s_spi_completion_flag |= SPI_CMPL_TIMEOUT;
+                    s_spi_xfer_busy = false;
+                    return -MP_ETIMEDOUT;
+                }
+                mp_handle_pending(true);
+            }
+        }
+        LORAWAN_BUSY_TIMING_END(busy_wait_last_us, busy_wait_max_us);
+#ifndef LORAWAN_OBSERVATION_DISABLE
+        /* AD5.7 — pre-CS stage delta. Same _busy_t0 reuse pattern as
+           SX126xWaitOnBusy. Inside the BUSY-poll outer { ... } block. */
+        {
+            uint32_t _stage_dt = mp_hal_ticks_us() - _busy_t0;
+            STATS_UPDATE_MAX(spi_stage_pre_busy_max_us, _stage_dt);
+        }
+#endif
     }
 
     cs_low();
 
-    /* Single DTC-driven block transfer — full-duplex, NSS held low. */
-    ra_sci_spi_transfer(s_state.spi_id, s_tx_buf, s_rx_buf, total_len);
+    /* AD5.3: yielding DTC continuation. The clear of SPI_CMPL_DTC_DONE is
+       single-writer here (s_spi_xfer_busy == true gates re-entry); the bit
+       set by sx126x_dtc_done_cb is the only ISR-side write. */
+    s_spi_completion_flag &= ~SPI_CMPL_DTC_DONE;
+    uint32_t _dtc_start_ms = mp_hal_ticks_ms();
+#ifndef LORAWAN_OBSERVATION_DISABLE
+    /* AD5.7 — DTC stage start. Captured under the s_spi_xfer_busy single-
+       writer invariant; mp_hal_ticks_us() returns a free-running 32-bit µs
+       counter so the subtract is wrap-safe up to ~71 min, well past
+       SX126X_BUSY_TIMEOUT_MS. */
+    uint32_t _dtc_start_us = mp_hal_ticks_us();
+#endif
+    (void)ra_sci_spi_submit(s_state.spi_id, s_tx_buf, s_rx_buf, total_len,
+                            sx126x_dtc_done_cb, NULL);
+    while (!(s_spi_completion_flag & SPI_CMPL_DTC_DONE)) {
+        if ((uint32_t)(mp_hal_ticks_ms() - _dtc_start_ms) > SX126X_BUSY_TIMEOUT_MS) {
+            s_spi_completion_flag |= SPI_CMPL_TIMEOUT;
+            break;
+        }
+        mp_handle_pending(true);
+    }
+#ifndef LORAWAN_OBSERVATION_DISABLE
+    /* AD5.7 — DTC stage delta. Both success and timeout paths produce a
+       valid wall-time measurement; the timeout path is capped at
+       SX126X_BUSY_TIMEOUT_MS by the loop guard. */
+    {
+        uint32_t _dtc_dt = mp_hal_ticks_us() - _dtc_start_us;
+        STATS_UPDATE_MAX(spi_stage_dtc_max_us, _dtc_dt);
+    }
+#endif
 
     cs_high();
 
@@ -404,13 +569,29 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
         SX126xWaitOnBusy();
     }
 
+    STATS_INC(spi_xfer_count);
+    STATS_UPDATE_MAX(spi_max_len, total_len);
+    stats_spi_bytes_add(total_len);
+    if (total_len == 1) {
+        STATS_INC(spi_one_byte_count);
+    }
+
     s_spi_xfer_busy = false;
     return (status_code != 0) ? -MP_EIO : 0;
 }
 
 // ---- Public glue API: error-returning variants --------------------------
 
+/* P3.0 — wake-if-sleeping gate at every public entrypoint.
+   Vendor SX126xCheckDeviceReady() checks SX126xGetOperatingMode() and calls
+   SX126xWakeup() when the chip is in MODE_SLEEP / MODE_RX_DC / MODE_COLD_SLEEP,
+   then waits BUSY-low. Without this call the pre-CS BUSY poll inside
+   sx126x_spi_xfer hits a dead-chip BUSY=HIGH and times out after 5 s.
+   The 2026-05-06 post-CS skip-wait for SetSleep is the matching half-fix —
+   together they bracket the sleep transition correctly. */
+
 int SX126xWriteCommand_e(uint8_t opcode, const uint8_t *buffer, uint16_t size) {
+    SX126xCheckDeviceReady();
     uint8_t cmd[1] = { opcode };
     /* SetSleep (0x84) puts the chip in a state where BUSY is held HIGH
        until NSS goes low to wake it. Polling BUSY-low post-NSS-up will
@@ -424,11 +605,13 @@ int SX126xWriteCommand_e(uint8_t opcode, const uint8_t *buffer, uint16_t size) {
 }
 
 int SX126xReadCommand_e(uint8_t opcode, uint8_t *buffer, uint16_t size) {
+    SX126xCheckDeviceReady();
     uint8_t cmd[1] = { opcode };
     return sx126x_spi_xfer(cmd, 1, NULL, buffer, size, /*wait_busy=*/true);
 }
 
 int SX126xWriteRegisters_e(uint16_t address, const uint8_t *buffer, uint16_t size) {
+    SX126xCheckDeviceReady();
     uint8_t cmd[3] = {
         SX126X_CMD_WRITE_REGISTER,
         (uint8_t)((address >> 8) & 0xFF),
@@ -438,6 +621,7 @@ int SX126xWriteRegisters_e(uint16_t address, const uint8_t *buffer, uint16_t siz
 }
 
 int SX126xReadRegisters_e(uint16_t address, uint8_t *buffer, uint16_t size) {
+    SX126xCheckDeviceReady();
     uint8_t cmd[3] = {
         SX126X_CMD_READ_REGISTER,
         (uint8_t)((address >> 8) & 0xFF),
@@ -447,11 +631,13 @@ int SX126xReadRegisters_e(uint16_t address, uint8_t *buffer, uint16_t size) {
 }
 
 int SX126xWriteBuffer_e(uint8_t offset, const uint8_t *buffer, uint8_t size) {
+    SX126xCheckDeviceReady();
     uint8_t cmd[2] = { SX126X_CMD_WRITE_BUFFER, offset };
     return sx126x_spi_xfer(cmd, 2, buffer, NULL, size, /*wait_busy=*/true);
 }
 
 int SX126xReadBuffer_e(uint8_t offset, uint8_t *buffer, uint8_t size) {
+    SX126xCheckDeviceReady();
     uint8_t cmd[2] = { SX126X_CMD_READ_BUFFER, offset };
     return sx126x_spi_xfer(cmd, 2, NULL, buffer, size, /*wait_busy=*/true);
 }
@@ -534,10 +720,34 @@ static void dio1_sched_dispatch(mp_sched_node_t *node) {
     }
 }
 
+/* ISR re-entry depth counter — written only by dio1_icu_isr itself. A
+   non-zero hard_isr_dio1_reentry_count means a higher-priority IRQ
+   pre-empted this ISR while it was running. We still run the dispatch
+   on the re-entry path (do NOT drop the IRQ).
+
+   Save-restore over a uint8_t: each level enters with prev = depth,
+   stores prev+1, restores to prev on exit. Unlike the bool sentinel,
+   an inner level completing does NOT clear the outer level's flag, so
+   re-entry counting stays correct under deeper nesting. Same-NVIC-line
+   ISRs tail-chain on ARMv8-M, and cross-line same-priority preemption
+   is not possible, so plain volatile RMW is race-free here. */
+static volatile uint8_t s_dio1_isr_depth;
+
 static void dio1_icu_isr(void *param) {
     (void)param;
+    uint8_t prev = s_dio1_isr_depth;
+    if (prev > 0) {
+        STATS_INC(hard_isr_dio1_reentry_count);
+    }
+    s_dio1_isr_depth = (uint8_t)(prev + 1);
+    STATS_INC(hard_isr_dio1_count);
+    LORAWAN_ISR_CYCLES_BEGIN();
+
     // Runs in hard IRQ context. Defer to scheduler.
     (void)mp_sched_schedule_node(&s_state.dio1_sched_node, dio1_sched_dispatch);
+
+    LORAWAN_ISR_CYCLES_END(hard_isr_dio1_cycles_max);
+    s_dio1_isr_depth = prev;
 }
 
 void SX126xIoIrqInit(void (*irq_handler)(void)) {
@@ -663,14 +873,16 @@ void    SX126xSetClockSelect(uint8_t clkType) { s_clock_select = clkType; }
 
 // ---- BUSY IRQ wiring (Phase 2 / item 3) ---------------------------------
 //
-// Optional fast-path: enable BUSY pin falling-edge ICU IRQ. When BUSY
-// transitions high→low, the ISR sets `busy_low_seen`. SX126xWaitOnBusy
-// can use that flag to short-circuit. Falls back to polling if the pin
-// has no ICU vector.
+// BUSY pin falling-edge ICU IRQ. When BUSY transitions high→low, the
+// ISR sets SPI_CMPL_BUSY_LOW; both pre-CS (sx126x_spi_xfer, AD5.5) and
+// post-CS (SX126xWaitOnBusy, AD5.6) waiters yield on that bit.
 
 static void busy_icu_isr(void *param) {
     (void)param;
-    s_state.busy_low_seen = true;
+    LORAWAN_ISR_CYCLES_BEGIN();
+    s_spi_completion_flag |= SPI_CMPL_BUSY_LOW;
+    STATS_INC(hard_isr_busy_low_count);
+    LORAWAN_ISR_CYCLES_END(hard_isr_busy_low_cycles_max);
 }
 
 bool SX126xBusyIrqEnable(void) {
@@ -682,7 +894,6 @@ bool SX126xBusyIrqEnable(void) {
         return false;  // no vector — caller falls back to polling
     }
     s_state.busy_irq_no = irq_no;
-    s_state.busy_low_seen = false;
     ra_icu_set_callback(irq_no, busy_icu_isr, NULL);
     ra_icu_set_pin((uint32_t)s_state.busy->pin, /*irq_enable=*/true, false);
     ra_icu_trigger_pin((uint32_t)s_state.busy->pin, /*cond=falling*/0);
@@ -699,7 +910,6 @@ void SX126xBusyIrqDisable(void) {
     ra_icu_set_callback(s_state.busy_irq_no, NULL, NULL);
     s_state.busy_irq_active = false;
     s_state.busy_irq_no = 0xFF;
-    s_state.busy_low_seen = false;
 }
 
 // ---- Runtime inter-byte tuning (item 4) ---------------------------------
@@ -726,6 +936,7 @@ uint8_t sx126x_board_get_spi_id(void) {
 extern void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src,
     uint8_t *dst, uint32_t count);
 
+#ifdef LORAWAN_DEBUG_SPI_UNSAFE
 uint8_t sx126x_board_debug_xchg(uint8_t tx_byte) {
     static volatile uint8_t dbg_tx;
     static volatile uint8_t dbg_rx;
@@ -735,9 +946,19 @@ uint8_t sx126x_board_debug_xchg(uint8_t tx_byte) {
         (const uint8_t *)&dbg_tx, (uint8_t *)&dbg_rx, 1);
     return dbg_rx;
 }
+#else
+/* Production stub: byte-by-byte SPI debug helper is unavailable. The
+   bulk-only-SPI invariant (Step 15 grep gate) requires zero
+   ra_sci_spi_transfer(..., 1) call sites in the default build. */
+uint8_t sx126x_board_debug_xchg(uint8_t tx_byte) {
+    (void)tx_byte;
+    return 0xFF;
+}
+#endif
 
 // ---- Phase 1 testing helpers --------------------------------------------
 
+#ifdef LORAWAN_DEBUG_SPI_UNSAFE
 uint8_t sx126x_phase1_get_status(void) {
     /* SX126x GET_STATUS protocol differs from other read commands:
        the chip emits the status byte in the FIRST NOP after the opcode,
@@ -754,14 +975,25 @@ uint8_t sx126x_phase1_get_status(void) {
     cs_low();
     /* Pre-transaction BUSY poll. */
     {
+        /* Debug helper — bypasses s_spi_xfer_busy guard, so single-writer
+           invariant does not hold here. Counters only — no opcode latch. */
+        STATS_INC(busy_wait_count);
+        LORAWAN_BUSY_TIMING_BEGIN();
         uint32_t start = mp_hal_ticks_ms();
         while (busy_high()) {
             if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
+                STATS_INC(busy_timeout_count);
+#ifndef LORAWAN_OBSERVATION_DISABLE
+                uint32_t _busy_dt = mp_hal_ticks_us() - _busy_t0;
+                STATS_STORE(busy_wait_last_us, _busy_dt);
+                STATS_UPDATE_MAX(busy_wait_max_us, _busy_dt);
+#endif
                 cs_high();
                 return 0xFF;
             }
             mp_handle_pending(true);
         }
+        LORAWAN_BUSY_TIMING_END(busy_wait_last_us, busy_wait_max_us);
     }
     /* Byte 1: opcode 0xC0 — chip ignores rx, prepares status. */
     dbg_tx = SX126X_CMD_GET_STATUS;
@@ -775,6 +1007,13 @@ uint8_t sx126x_phase1_get_status(void) {
     cs_high();
     return status;
 }
+#else
+/* Production stub: same rationale as sx126x_board_debug_xchg above.
+   No SPI traffic, no BUSY wait, no s_spi_xfer_busy mutation. */
+uint8_t sx126x_phase1_get_status(void) {
+    return 0xFF;
+}
+#endif
 
 uint8_t sx126x_phase1_read_register(uint16_t addr) {
     return SX126xReadRegister(addr);

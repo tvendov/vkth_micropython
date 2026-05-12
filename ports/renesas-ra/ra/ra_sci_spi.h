@@ -33,4 +33,25 @@ bool ra_sci_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, ui
 void ra_sci_spi_deinit(uint32_t ch);
 void ra_sci_spi_transfer(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count);
 
+// Non-blocking submit API (AD5.1 foundation).
+//
+// `cb` (optional) fires from the SCI RX-end IRQ when the DTC drains the last
+// byte. The callback runs in hard-IRQ context — keep the body lean: no
+// allocations, no Python objects, no blocking calls. Callers that prefer
+// polling can pass NULL and use ra_sci_spi_is_done() instead.
+//
+// Semantics:
+//   - One call = one bulk transfer. src/dst NULL = idle byte / discard
+//     (matches ra_sci_spi_transfer).
+//   - Buffers must stay valid until is_done() returns true (or the callback
+//     fires).
+//   - No internal locking: callers must serialise per channel.
+//   - Returns false on illegal channel / inactive bus / count==0. On success
+//     the DTC pair has been armed and SCI started; control returns immediately.
+typedef void (*ra_sci_spi_done_cb_t)(uint32_t ch, void *user);
+
+bool ra_sci_spi_submit(uint32_t ch, const uint8_t *src, uint8_t *dst, uint32_t count,
+                       ra_sci_spi_done_cb_t cb, void *user);
+bool ra_sci_spi_is_done(uint32_t ch);
+
 #endif /* RA_RA_SCI_SPI_H_ */
