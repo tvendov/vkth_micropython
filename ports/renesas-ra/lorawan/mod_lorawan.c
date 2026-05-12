@@ -675,6 +675,7 @@ static void mac_mcps_confirm(McpsConfirm_t *cnf) {
        s_rx_window_active stays latched after the RX window closes and the
        next NvmDataMgmtStore() is falsely counted as in-window. */
     s_rx_window_active = 0u;
+    NvmDataMgmtFlushDeferred();  /* P3.4 — drain pending save */
     mac_post_event(MP_QSTR_mcps_confirm, (int)cnf->Status);
 }
 
@@ -684,6 +685,7 @@ static void mac_mcps_indication(McpsIndication_t *ind) {
        mac_mcps_confirm (Step 10.5); MLME exchanges are covered by
        mac_mlme_confirm. */
     s_rx_window_active = 0;
+    NvmDataMgmtFlushDeferred();  /* P3.4 — drain pending save */
     /* Mirror the upstream Renesas LoRaSample handler
        (samples/.../LoRaSample/main.c:240-258): copy payload only when
        Status is OK and BufferSize > 0. RxData and (BufferSize != 0)
@@ -712,6 +714,7 @@ static void mac_mlme_confirm(MlmeConfirm_t *cnf) {
        Clear here as a second-source so an MCPS-less MLME exchange (Join,
        LinkCheck) does not leave the flag latched. */
     s_rx_window_active = 0;
+    NvmDataMgmtFlushDeferred();  /* P3.4 — drain pending save */
     /* On OTAA join completion (MLME_JOIN), update the cached join state
        so Python `mac.is_joined()` becomes true without an extra MIB
        round-trip. Other MLME types (LINK_CHECK, TXCW, etc.) just pass

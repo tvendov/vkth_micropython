@@ -92,7 +92,15 @@ typedef struct lorawan_stats {
     /* P3.0 — counts NSS-low wake pulses issued by SX126xWakeup(). Increments
        once per call to vendor's SX126xCheckDeviceReady() that finds the chip
        in MODE_SLEEP/MODE_RX_DC/MODE_COLD_SLEEP. Should be 0 during init
-       (no sleep before first SetSleep) and grow by 1 per join+uplink cycle. */
+       (no sleep before first SetSleep) and grow by 1 per join+uplink cycle.
+
+       Q3.2 — derive wake_skip_count in Python as:
+         skip = spi_xfer_count - sx126x_wake_count
+       Each *_e entrypoint calls CheckDeviceReady() exactly once (after
+       which sx126x_spi_xfer() increments spi_xfer_count exactly once), so
+       the difference equals the count of SPI calls where the chip was
+       already awake (gate decided not to issue a wake pulse). Healthy
+       ratio: wake/xfer < 15% under steady traffic. */
     uint32_t sx126x_wake_count;
 
     /* group: busy */

@@ -75,6 +75,12 @@ static inline void pfs_pwpr_protect(void)   { _PWPR_LOC = 0x80; }
 #define SX126X_CMD_READ_BUFFER          (0x1E)
 #define SX126X_CMD_SET_STANDBY          (0x80)
 #define SX126X_CMD_SET_SLEEP            (0x84)
+#define SX126X_CMD_SET_RX               (0x82)
+#define SX126X_CMD_SET_TX               (0x83)
+#define SX126X_CMD_SET_FS               (0xC1)
+#define SX126X_CMD_SET_CAD              (0xC5)
+#define SX126X_CMD_CALIBRATE            (0x89)
+#define SX126X_CMD_CALIBRATE_IMAGE      (0x98)
 
 #define SX126X_STANDBY_RC               (0x00)
 
@@ -83,7 +89,63 @@ static inline void pfs_pwpr_protect(void)   { _PWPR_LOC = 0x80; }
 #define SX126X_STATUS_CMD_FAILED        (0x0A)
 #define SX126X_STATUS_SPI_FAILED        (0xFF)
 
-#define SX126X_BUSY_TIMEOUT_MS          (5000)
+/* P3.5 — opcode-aware BUSY timeout table.
+ *
+ * Pre-CS BUSY wait inside sx126x_spi_xfer knows the opcode. Replace the
+ * uniform 5 s ceiling with per-opcode budgets sized to the actual SX1262
+ * chip-protocol latencies (datasheet §13). A stuck-radio condition is now
+ * surfaced ~25× faster on cheap opcodes (200 µs vs 5 s); SetTx ramp keeps
+ * 50 ms; only truly unknown opcodes fall through to the 5 s safety net.
+ *
+ * Datasheet anchors (§13.1.x):
+ *   GetStatus      ~ 1 µs   (no state change)
+ *   ReadRegister   ~ µs     (just SPI read)
+ *   WriteRegister  ~ µs
+ *   ReadBuffer     ~ µs
+ *   WriteBuffer    ~ µs
+ *   SetSleep       ~ 1 ms   (transition; chip holds BUSY=HIGH until next NSS wake — wake handled by P3.0)
+ *   SetStandby     ~ 1 ms   (RC mode; XOSC variant slower)
+ *   SetFs          ~ 50 µs  (frequency-synthesis)
+ *   SetCad         ~ 50 ms  (channel-activity-detect — RX-like)
+ *   SetTx          ~ 50 ms  (PA ramp + packet-start)
+ *   SetRx          ~ 50 ms  (LNA cal + RX start)
+ *   Calibrate      ~ 10 ms
+ *   CalibrateImage ~ 10 ms
+ *
+ * Budgets include 2-3× headroom for worst-case temperature / Vcc.
+ * Post-CS path (SX126xWaitOnBusy without opcode context) keeps the 5 s
+ * default; its callers (vendor sx126x.c, mid-SPI internal waits) own
+ * the latency model.
+ */
+#define SX126X_BUSY_TIMEOUT_MS                (5000)  /* unknown / post-CS fallback */
+#define SX126X_BUSY_TIMEOUT_CHEAP_MS          (5)     /* register/buffer/status: pure SPI */
+#define SX126X_BUSY_TIMEOUT_MODE_TRANSITION_MS (20)   /* SetSleep, SetStandby, SetFs */
+#define SX126X_BUSY_TIMEOUT_CALIBRATE_MS      (50)    /* Calibrate, CalibrateImage */
+#define SX126X_BUSY_TIMEOUT_RADIO_OP_MS       (200)   /* SetTx, SetRx, SetCad ramp */
+
+static inline uint32_t sx126x_busy_timeout_ms_for_opcode(uint8_t opcode) {
+    switch (opcode) {
+        case SX126X_CMD_GET_STATUS:
+        case SX126X_CMD_READ_REGISTER:
+        case SX126X_CMD_WRITE_REGISTER:
+        case SX126X_CMD_READ_BUFFER:
+        case SX126X_CMD_WRITE_BUFFER:
+            return SX126X_BUSY_TIMEOUT_CHEAP_MS;
+        case SX126X_CMD_SET_SLEEP:
+        case SX126X_CMD_SET_STANDBY:
+        case SX126X_CMD_SET_FS:
+            return SX126X_BUSY_TIMEOUT_MODE_TRANSITION_MS;
+        case SX126X_CMD_CALIBRATE:
+        case SX126X_CMD_CALIBRATE_IMAGE:
+            return SX126X_BUSY_TIMEOUT_CALIBRATE_MS;
+        case SX126X_CMD_SET_TX:
+        case SX126X_CMD_SET_RX:
+        case SX126X_CMD_SET_CAD:
+            return SX126X_BUSY_TIMEOUT_RADIO_OP_MS;
+        default:
+            return SX126X_BUSY_TIMEOUT_MS;
+    }
+}
 
 // Inter-byte settle time default. Runtime-tunable via
 // sx126x_board_set_interbyte_us(). 0 = rely on FSP/DTC setup overhead
@@ -454,7 +516,11 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
            bit must not bleed into this call's BUSY-wait observation. */
         s_spi_completion_flag &= ~(SPI_CMPL_BUSY_LOW | SPI_CMPL_TIMEOUT);
 
-        /* (b) busy_wait_count + BUSY_TIMING wrap. */
+        /* (b) busy_wait_count + BUSY_TIMING wrap.
+           P3.5 — per-opcode timeout via sx126x_busy_timeout_ms_for_opcode().
+           Resolved once per call before the loop so the comparison cost
+           stays at one register fetch. */
+        const uint32_t pre_cs_budget_ms = sx126x_busy_timeout_ms_for_opcode(s_tx_buf[0]);
         STATS_INC(busy_wait_count);
         LORAWAN_BUSY_TIMING_BEGIN();
         if (busy_high()) {
@@ -468,7 +534,7 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
                     s_spi_completion_flag |= SPI_CMPL_BUSY_LOW;
                     break;
                 }
-                if ((uint32_t)(mp_hal_ticks_ms() - start) > SX126X_BUSY_TIMEOUT_MS) {
+                if ((uint32_t)(mp_hal_ticks_ms() - start) > pre_cs_budget_ms) {
                     /* (c) Timeout branch — co-located stats + dt + clear guard. */
                     STATS_INC(busy_timeout_count);
                     STATS_SET_OPCODE(busy_timeout_opcode, s_tx_buf[0]);

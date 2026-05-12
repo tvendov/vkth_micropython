@@ -41,6 +41,13 @@ bool NvmDataMgmtFactoryReset(void);
 int    nvm_board_last_status(void);
 size_t nvm_board_last_total_size(void);
 
+// P3.4 — deferred NVM flush. NvmDataMgmtStore() detects RX1/RX2 window
+// collision via s_rx_window_active and defers the flash write instead
+// of blocking the radio. The three MAC confirm callbacks
+// (mac_mcps_indication, mac_mcps_confirm, mac_mlme_confirm) call this
+// after they clear s_rx_window_active to flush any pending save.
+void NvmDataMgmtFlushDeferred(void);
+
 #ifdef __cplusplus
 }
 #endif
