@@ -131,3 +131,6 @@ dmypy.json
 
 # vim
 .swp
+
+# LoRaWAN bench secrets (DevEUIs / AppKeys)
+renesas_lora/LORAWAN_TESTS/credentials.py

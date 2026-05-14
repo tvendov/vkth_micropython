@@ -29,6 +29,7 @@
 #include "py/objstr.h"
 #include "py/mphal.h"
 #include "py/mperrno.h"
+#include "py/smallint.h"  /* Z3 — MP_SMALL_INT_MAX for saturating writes */
 
 #include "mod_lorawan.h"
 
@@ -41,6 +42,113 @@
 #include "glue/nvm_board.h"
 #include "glue/dflash.h"
 #include "glue/lorawan_stats.h"
+#include "glue/lorawan_rxc_diag.h"
+
+/* Z0 heap counters — see
+ *   LORAWAN_TESTS/coordination/ZERO_ALLOC_REMOVAL_PLAN_2026-05-13.md §Z0
+ * for the design rationale (post-init alloc bar, ISR tripwire). The
+ * counters wrap every mp_obj_new_* call site in this file via the
+ * MOD_LORAWAN_NEW_* macros below. Vendor LoRaMac + radio + SPI drivers
+ * are alloc-free per MEM_AUDIT_DESIGN_2026-05-13.md §2; instrumenting
+ * mod_lorawan.c alone covers the entire C alloc surface.
+ *
+ * Under -DLORAWAN_OBSERVATION_DISABLE the macros collapse to direct
+ * mp_obj_new_* calls so the reference build keeps zero counter cost.
+ *
+ * SCB->ICSR / SCB_ICSR_VECTACTIVE_Msk come via py/mphal.h →
+ * mphalport.h → RA HAL → CMSIS device header (same chain used by
+ * lorawan_stats_dwt_init below and by pendsv.c).
+ */
+
+#ifdef LORAWAN_OBSERVATION_DISABLE
+
+#define MOD_LORAWAN_HEAP_BUMP(field)            ((void)0)
+#define MOD_LORAWAN_HEAP_ARM_POST_INIT()        ((void)0)
+#define MOD_LORAWAN_HEAP_CLEAR()                ((void)0)
+
+#define MOD_LORAWAN_NEW_TUPLE(n, items)         mp_obj_new_tuple((n), (items))
+#define MOD_LORAWAN_NEW_DICT(n)                 mp_obj_new_dict((n))
+#define MOD_LORAWAN_NEW_BYTES(p, n)             mp_obj_new_bytes((p), (n))
+#define MOD_LORAWAN_NEW_STR(p, n)               mp_obj_new_str((p), (n))
+#define MOD_LORAWAN_NEW_BOOL(v)                 mp_obj_new_bool((v))
+#define MOD_LORAWAN_NEW_INT_U(v)                mp_obj_new_int_from_uint((v))
+#define MOD_LORAWAN_NEW_INT_ULL(v)              mp_obj_new_int_from_ull((v))
+
+#else  /* observation enabled — Z0 heap counters live */
+
+/* Z0 leaf storage. RAM-only globals; NOT part of g_lorawan_stats (no
+ * struct ABI change to flash NVM payloads). All atomic-relaxed to match
+ * the rest of the observation surface. */
+typedef struct mod_lorawan_heap_stats {
+    uint32_t c_alloc_count;             /* every mp_obj_new_* in this file */
+    uint32_t c_free_count;              /* paired counter (placeholder — */
+                                        /* no explicit m_del/free sites today) */
+    uint32_t mp_alloc_count_post_init;  /* armed=1 after lorawan_init returns */
+    uint32_t mp_free_count_post_init;
+    uint32_t isr_alloc_count;           /* TRIPWIRE — always 0 if correct */
+    uint32_t init_baseline_count;       /* snapshot of c_alloc_count at arm */
+    uint8_t  observation_armed;         /* 0 before init returns, 1 after */
+    uint8_t  _pad[3];
+} mod_lorawan_heap_stats_t;
+
+static volatile mod_lorawan_heap_stats_t s_heap = {0};
+
+/* T-V3.1 — Class C RX probe storage. See glue/lorawan_rxc_diag.h.
+ * Unconditional (not gated by LORAWAN_OBSERVATION_DISABLE) because the
+ * capture sites live in vendor LoRaMac.c / radio.c, and the leaves are
+ * read from mac.stats()['rxc'] regardless of observation build mode. */
+volatile mod_lorawan_rxc_diag_t lorawan_rxc_diag = {0};
+
+#define MOD_LORAWAN_HEAP_BUMP(field) \
+    ((void)__atomic_fetch_add((uint32_t *)&s_heap.field, 1u, __ATOMIC_RELAXED))
+
+#define MOD_LORAWAN_HEAP_ARM_POST_INIT() do {                                  \
+    /* snapshot baseline BEFORE flipping armed=1 so the relationship */        \
+    /* delta = c_alloc_count - init_baseline_count holds atomically */         \
+    /* w.r.t. any subsequent allocation. */                                    \
+    uint32_t _base = __atomic_load_n((uint32_t *)&s_heap.c_alloc_count,        \
+                                     __ATOMIC_RELAXED);                        \
+    __atomic_store_n((uint32_t *)&s_heap.init_baseline_count, _base,           \
+                     __ATOMIC_RELAXED);                                        \
+    __atomic_store_n((uint8_t *)&s_heap.observation_armed, 1u,                 \
+                     __ATOMIC_RELAXED);                                        \
+} while (0)
+
+#define MOD_LORAWAN_HEAP_CLEAR() do {                                          \
+    memset((void *)&s_heap, 0, sizeof(s_heap));                                \
+} while (0)
+
+static inline void mod_lorawan_heap_count_alloc(void) {
+    MOD_LORAWAN_HEAP_BUMP(c_alloc_count);
+    /* SCB_ICSR.VECTACTIVE is nonzero whenever we are inside an exception
+     * or IRQ handler (Cortex-M33 ARMv8-M ARM B3.4.3). Any nonzero hit
+     * here is a hard-bar violation — vendor drivers and our glue must
+     * never reach Python-object constructors in ISR context. */
+    if ((SCB->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0u) {
+        MOD_LORAWAN_HEAP_BUMP(isr_alloc_count);
+    }
+    if (__atomic_load_n((uint8_t *)&s_heap.observation_armed,
+                        __ATOMIC_RELAXED)) {
+        MOD_LORAWAN_HEAP_BUMP(mp_alloc_count_post_init);
+    }
+}
+
+#define MOD_LORAWAN_NEW_TUPLE(n, items) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_tuple((n), (items)))
+#define MOD_LORAWAN_NEW_DICT(n) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_dict((n)))
+#define MOD_LORAWAN_NEW_BYTES(p, n) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_bytes((p), (n)))
+#define MOD_LORAWAN_NEW_STR(p, n) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_str((p), (n)))
+#define MOD_LORAWAN_NEW_BOOL(v) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_bool((v)))
+#define MOD_LORAWAN_NEW_INT_U(v) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_int_from_uint((v)))
+#define MOD_LORAWAN_NEW_INT_ULL(v) \
+    (mod_lorawan_heap_count_alloc(), mp_obj_new_int_from_ull((v)))
+
+#endif  /* LORAWAN_OBSERVATION_DISABLE */
 
 /* LoRaMac stack — only available when LORAWAN_BUILD_PHASE >= 4 (the
    imported Renesas C tree is part of the build). Phase 5+ wires this
@@ -85,10 +193,12 @@ typedef struct _lorawan_mac_obj_t {
     uint8_t  rx_port;
     uint16_t rx_len;
     uint8_t  rx_buf[256];
-    mp_obj_t dio1_callback;        // Python callback for DIO1 via direct ICU
-    mp_obj_t event_callback;       // Phase 5 — generic LoRaMac event sink
+    /* Callbacks live in MP_STATE_VM(lorawan_mac_root_callbacks)[0..2]
+       so the GC sees them during root scan. Indices: 0=dio1, 1=event,
+       2=test_timer. Per HARDFAULT_ZALLOC_2026-05-13 §root-cause: this
+       singleton is in .bss, which gc_collect_root() does NOT walk, so
+       closure cells held only via these slots would otherwise be swept. */
     TimerEvent_t test_timer;       // backing storage for Mac.arm_oneshot test
-    mp_obj_t test_timer_callback;  // Python callback for arm_oneshot
 
     // Stable storage for OTAA credentials. LoRaMac MIB takes pointers
     // and never copies; the bytes objects from Python must outlive the
@@ -105,6 +215,29 @@ typedef struct _lorawan_mac_obj_t {
 } lorawan_mac_obj_t;
 
 static lorawan_mac_obj_t lorawan_mac_singleton;
+
+/* HardFault breadcrumb storage. Lives in .noinit (NOLOAD) so the value
+ * written by the last SBC() call survives both the fault and the JLink
+ * hardware nRESET that follows; see boards/VK_RA4M2/ra4m2ac3cfm.ld
+ * SECTIONS{.noinit (NOLOAD)} and bsp system.c (BSS-only memset).
+ * RA4M2 has no D-cache, so no cache maintenance needed. The magic is
+ * written at first Mac() construction so a power-cycle (RAM = X) reads
+ * back as "not valid", distinguishing it from a stale-but-real crumb. */
+__attribute__((section(".noinit"))) uint16_t lorawan_bc_last;
+__attribute__((section(".noinit"))) uint32_t lorawan_bc_magic;
+
+/* GC root slots for the three Python callbacks. Routed via MP_STATE_VM so
+   gc_collect_root() can see them — the singleton itself lives in .bss and
+   would otherwise hide closure cells from the collector. See
+   HARDFAULT_ZALLOC_2026-05-13.md §1. The MP_REGISTER_ROOT_POINTER directive
+   sits at end-of-file with the other port-level root pointers. */
+enum {
+    LORAWAN_CB_DIO1 = 0,
+    LORAWAN_CB_EVENT = 1,
+    LORAWAN_CB_TEST_TIMER = 2,
+    LORAWAN_CB_COUNT = 3,  /* KEEP IN SYNC with literal "3" in MP_REGISTER_ROOT_POINTER below; the qstr/root-pointer collector parses this file before enums are visible. */
+};
+#define LORAWAN_CB_SLOT(i)  (MP_STATE_VM(lorawan_mac_root_callbacks)[(i)])
 
 /* Phase 1 Observation — single owner of the counter storage. Includes
  * sentinel init for BUSY opcode fields per Step 3 §5; 0xFF means "no
@@ -144,6 +277,31 @@ volatile bool s_dwt_available = false;
  * are atomic at the bus level, so a plain volatile uint8_t is correct
  * without atomics. See lorawan_stats.h for the full clear-edge contract. */
 volatile uint8_t s_rx_window_active = 0;
+
+/* Z2 — packed-SMALL_INT event dispatch. The earlier static-tuple ring
+ * (commit afb75f64) HardFaulted on first MAC event after boot: rebinding
+ * a struct onto mp_type_tuple is not a valid mp_obj_t under the current
+ * runtime — mp_sched_schedule eventually walks the object through a path
+ * that assumes a real heap-allocated tuple. Replacement: pack (tag_id,
+ * status) into a single SMALL_INT (tagged pointer, zero allocation).
+ *   layout:  bits 0..7   = tag_id  (uint8, see mac_post_event)
+ *            bits 8..31  = status  (int24, sign-extended on unpack)
+ *
+ * Safe-range proof: on this port MP_SMALL_INT_MAX = 2^29 - 1. The packed
+ * value is `(status << 8) | tag_id`, so |packed| < 2^31. We need
+ * |packed| < 2^29, i.e. |status| < 2^21. LoRaMacEventInfoStatus_t is an
+ * enum with values 0..~20 (LORAMAC_EVENT_INFO_STATUS_*), well inside
+ * the bound. mac_error also passes small LoRaMacStatus_t codes. The
+ * 24-bit field is intentionally generous; tighten if any new caller
+ * ever passes a large status.
+ *
+ * Backpressure: s_event_drop_count ticks when mp_sched_schedule returns
+ * false (scheduler queue full → event dispatched dropped). Nonzero ⇒
+ * the Python pump (mac.process() cadence) fell behind. Exposed in
+ * mac.stats()['heap']['event_drop_count']. */
+#ifndef LORAWAN_OBSERVATION_DISABLE
+static volatile uint32_t s_event_drop_count;
+#endif
 
 #ifndef LORAWAN_OBSERVATION_DISABLE
 void lorawan_stats_dwt_init(void) {
@@ -192,9 +350,14 @@ void lorawan_stats_dwt_init(void) {}
 // `typedef void (DioIrqHandler)(void)`.
 static void lorawan_dio1_py_trampoline(void) {
     lorawan_mac_obj_t *self = &lorawan_mac_singleton;
-    if (self->dio1_callback != mp_const_none) {
-        (void)mp_sched_schedule(self->dio1_callback, MP_OBJ_FROM_PTR(self));
+    mp_obj_t cb = LORAWAN_CB_SLOT(LORAWAN_CB_DIO1);
+    if (cb == MP_OBJ_NULL || cb == mp_const_none) {
+        #ifndef LORAWAN_OBSERVATION_DISABLE
+        s_event_drop_count++;
+        #endif
+        return;
     }
+    (void)mp_sched_schedule(cb, MP_OBJ_FROM_PTR(self));
 }
 
 // Trampoline for arm_oneshot test callback. Upstream TimerEvent_t
@@ -202,10 +365,14 @@ static void lorawan_dio1_py_trampoline(void) {
 // to reach the Mac instance.
 static void lorawan_oneshot_py_trampoline(void) {
     lorawan_mac_obj_t *self = &lorawan_mac_singleton;
-    if (self->test_timer_callback != mp_const_none) {
-        (void)mp_sched_schedule(self->test_timer_callback,
-            MP_OBJ_FROM_PTR(self));
+    mp_obj_t cb = LORAWAN_CB_SLOT(LORAWAN_CB_TEST_TIMER);
+    if (cb == MP_OBJ_NULL || cb == mp_const_none) {
+        #ifndef LORAWAN_OBSERVATION_DISABLE
+        s_event_drop_count++;
+        #endif
+        return;
     }
+    (void)mp_sched_schedule(cb, MP_OBJ_FROM_PTR(self));
 }
 
 static void lorawan_mac_print(const mp_print_t *print, mp_obj_t self_in,
@@ -259,17 +426,27 @@ static mp_obj_t lorawan_mac_make_new(const mp_obj_type_t *type,
     lorawan_mac_obj_t *self = &lorawan_mac_singleton;
     self->base.type = type;
     self->region = region_qstr;
+    /* Mark the .noinit breadcrumb slot as valid for this boot. Leave
+     * lorawan_bc_last untouched so any stale crumb from a prior fault
+     * remains readable until the next SBC() overwrites it. */
+    lorawan_bc_magic = LORAWAN_BC_MAGIC;
     self->radio_initialized = false;
     self->timer_initialized = false;
     self->stack_initialized = false;
     self->keys_set = false;
     self->joined = false;
+    /* Z0 — reset heap counters at Mac() so each fresh instance starts
+       with observation_armed=0 and zeroed leaves. */
+    MOD_LORAWAN_HEAP_CLEAR();
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    s_event_drop_count = 0;
+    #endif
     self->rx_pending = false;
     self->rx_port = 0;
     self->rx_len = 0;
-    self->dio1_callback = mp_const_none;
-    self->event_callback = mp_const_none;
-    self->test_timer_callback = mp_const_none;
+    LORAWAN_CB_SLOT(LORAWAN_CB_DIO1) = mp_const_none;
+    LORAWAN_CB_SLOT(LORAWAN_CB_EVENT) = mp_const_none;
+    LORAWAN_CB_SLOT(LORAWAN_CB_TEST_TIMER) = mp_const_none;
     memset(self->deveui, 0, sizeof(self->deveui));
     memset(self->joineui, 0, sizeof(self->joineui));
     memset(self->appkey, 0, sizeof(self->appkey));
@@ -363,7 +540,7 @@ static MP_DEFINE_CONST_FUN_OBJ_3(lorawan_mac_radio_write_reg_obj,
 
 static mp_obj_t lorawan_mac_radio_busy(mp_obj_t self_in) {
     (void)self_in;
-    return mp_obj_new_bool(sx126x_phase1_busy_high());
+    return MOD_LORAWAN_NEW_BOOL(sx126x_phase1_busy_high());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_radio_busy_obj,
     lorawan_mac_radio_busy);
@@ -374,15 +551,15 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_radio_busy_obj,
 // user's Python callback via mp_sched_schedule. Pass None to unhook.
 static mp_obj_t lorawan_mac_set_dio1_callback(mp_obj_t self_in,
     mp_obj_t callback) {
-    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    (void)self_in;
     if (callback == mp_const_none) {
         SX126xIoIrqDeinit();
-        self->dio1_callback = mp_const_none;
+        LORAWAN_CB_SLOT(LORAWAN_CB_DIO1) = mp_const_none;
     } else {
         if (!mp_obj_is_callable(callback)) {
             mp_raise_TypeError(MP_ERROR_TEXT("callback not callable"));
         }
-        self->dio1_callback = callback;
+        LORAWAN_CB_SLOT(LORAWAN_CB_DIO1) = callback;
         SX126xIoIrqInit(lorawan_dio1_py_trampoline);
     }
     return mp_const_none;
@@ -394,7 +571,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_set_dio1_callback_obj,
 // if the BUSY pin has an ICU vector and the IRQ is now active.
 static mp_obj_t lorawan_mac_enable_busy_irq(mp_obj_t self_in) {
     (void)self_in;
-    return mp_obj_new_bool(SX126xBusyIrqEnable());
+    return MOD_LORAWAN_NEW_BOOL(SX126xBusyIrqEnable());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_enable_busy_irq_obj,
     lorawan_mac_enable_busy_irq);
@@ -541,7 +718,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_scan_set_rx_raw_obj,
 static mp_obj_t lorawan_mac_scan_get_errors(mp_obj_t self_in) {
     (void)self_in;
     RadioError_t errs = SX126xGetDeviceErrors();
-    return mp_obj_new_int_from_uint(errs.Value);
+    return MOD_LORAWAN_NEW_INT_U(errs.Value);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_get_errors_obj,
     lorawan_mac_scan_get_errors);
@@ -572,7 +749,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_scan_rssi_obj,
 // AGT4 monotonic ms (item 2 — timer service test surface).
 static mp_obj_t lorawan_mac_now_ms(mp_obj_t self_in) {
     (void)self_in;
-    return mp_obj_new_int_from_uint(lorawan_timer_now_ms());
+    return MOD_LORAWAN_NEW_INT_U(lorawan_timer_now_ms());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_now_ms_obj, lorawan_mac_now_ms);
 
@@ -588,7 +765,7 @@ static mp_obj_t lorawan_mac_arm_oneshot(mp_obj_t self_in,
     if (callback_in != mp_const_none && !mp_obj_is_callable(callback_in)) {
         mp_raise_TypeError(MP_ERROR_TEXT("callback not callable"));
     }
-    self->test_timer_callback = callback_in;
+    LORAWAN_CB_SLOT(LORAWAN_CB_TEST_TIMER) = callback_in;
     if (!lorawan_timer_oneshot(&self->test_timer, (uint32_t)ms,
             lorawan_oneshot_py_trampoline)) {
         mp_raise_OSError(MP_EIO);
@@ -611,7 +788,7 @@ static mp_obj_t lorawan_mac_arm_oneshot_us(mp_obj_t self_in,
     if (callback_in != mp_const_none && !mp_obj_is_callable(callback_in)) {
         mp_raise_TypeError(MP_ERROR_TEXT("callback not callable"));
     }
-    self->test_timer_callback = callback_in;
+    LORAWAN_CB_SLOT(LORAWAN_CB_TEST_TIMER) = callback_in;
     if (!lorawan_timer_oneshot_us(&self->test_timer, (uint32_t)us,
             lorawan_oneshot_py_trampoline)) {
         mp_raise_OSError(MP_EIO);
@@ -631,8 +808,8 @@ static mp_obj_t lorawan_mac_deinit(mp_obj_t self_in) {
         timer_board_deinit();
         self->timer_initialized = false;
     }
-    self->dio1_callback = mp_const_none;
-    self->test_timer_callback = mp_const_none;
+    LORAWAN_CB_SLOT(LORAWAN_CB_DIO1) = mp_const_none;
+    LORAWAN_CB_SLOT(LORAWAN_CB_TEST_TIMER) = mp_const_none;
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_deinit_obj, lorawan_mac_deinit);
@@ -649,22 +826,45 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_deinit_obj, lorawan_mac_deinit);
    forward a small QSTR tag so Python can switch on event type. */
 
 /* Forward the LoRaMac primitive event to the user's Python callback as
-   a (tag, status) 2-tuple. Tag is a qstr identifying the primitive
-   type; status is the LoRaMacEventInfoStatus_t code (LORAMAC_EVENT_INFO
-   _STATUS_OK == 0, others = various errors). The callback runs from
-   the regular MicroPython scheduler context (queued via
-   mp_sched_schedule, dispatched between bytecodes). */
+   a packed SMALL_INT (tagged pointer — zero allocation in this path).
+   Encoding: bits 0..7 = tag_id, bits 8..31 = status (sign-extended on
+   unpack). The Python helper `_lorawan_test_helpers.make_ev_cb` performs
+   the unpack. tag_id values are stable wire-contract (also mirrored in
+   the helper's _TAG_TO_ID table): 0=mcps_confirm, 1=mcps_indication,
+   2=mlme_confirm, 3=mlme_indication, 4=mac_error. Any new tag MUST be
+   added at the next free id AND in the helper LUT in the same change.
+
+   The qstr argument is kept on the C side for source clarity at call
+   sites (mac_mcps_confirm etc. read better with MP_QSTR_mcps_confirm
+   than with a magic 0) but is mapped to a small int here. The mapping
+   is a compile-time switch — no allocation, no string materialisation.
+   Runs in scheduler/Python context (LoRaMacProcess is serialised by
+   mac.process()); mp_sched_schedule queues the bound callback for
+   dispatch between bytecodes. */
 static void mac_post_event(qstr tag, int status) {
-    lorawan_mac_obj_t *self = &lorawan_mac_singleton;
-    if (self->event_callback == mp_const_none) {
+    mp_obj_t cb = LORAWAN_CB_SLOT(LORAWAN_CB_EVENT);
+    if (cb == MP_OBJ_NULL || cb == mp_const_none) {
+        #ifndef LORAWAN_OBSERVATION_DISABLE
+        s_event_drop_count++;
+        #endif
         return;
     }
-    mp_obj_t items[2] = {
-        MP_OBJ_NEW_QSTR(tag),
-        MP_OBJ_NEW_SMALL_INT(status),
-    };
-    (void)mp_sched_schedule(self->event_callback,
-        mp_obj_new_tuple(2, items));
+    uint8_t tag_id;
+    switch (tag) {
+        case MP_QSTR_mcps_confirm:    tag_id = 0u; break;
+        case MP_QSTR_mcps_indication: tag_id = 1u; break;
+        case MP_QSTR_mlme_confirm:    tag_id = 2u; break;
+        case MP_QSTR_mlme_indication: tag_id = 3u; break;
+        case MP_QSTR_mac_error:       tag_id = 4u; break;
+        default:                      tag_id = 255u; break;
+    }
+    int32_t packed = ((int32_t)status << 8) | (int32_t)tag_id;
+    mp_obj_t arg = MP_OBJ_NEW_SMALL_INT(packed);
+    if (!mp_sched_schedule(cb, arg)) {
+        #ifndef LORAWAN_OBSERVATION_DISABLE
+        s_event_drop_count++;
+        #endif
+    }
 }
 
 static void mac_mcps_confirm(McpsConfirm_t *cnf) {
@@ -820,7 +1020,20 @@ static mp_obj_t lorawan_mac_lorawan_init(mp_obj_t self_in) {
             MP_ERROR_TEXT("LoRaMacStart failed: %d"), (int)st);
     }
     self->stack_initialized = true;
-    self->joined = false;
+    MibRequestConfirm_t mib;
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NETWORK_ACTIVATION;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        self->joined = (mib.Param.NetworkActivation != ACTIVATION_TYPE_NONE);
+    } else {
+        self->joined = false;
+    }
+    /* Z0 — arm post-init alloc observation. Every mp_obj_new_* via
+       MOD_LORAWAN_NEW_* after this point counts toward
+       mp_alloc_count_post_init; init_baseline_count is snapshotted at
+       this instant so the delta (c_alloc_count - init_baseline_count)
+       isolates post-init activity. */
+    MOD_LORAWAN_HEAP_ARM_POST_INIT();
     return MP_OBJ_NEW_SMALL_INT((int)st);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_lorawan_init_obj,
@@ -928,11 +1141,11 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_process_obj, lorawan_mac_process);
 
 static mp_obj_t lorawan_mac_set_event_callback(mp_obj_t self_in,
     mp_obj_t cb_in) {
-    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    (void)self_in;
     if (cb_in != mp_const_none && !mp_obj_is_callable(cb_in)) {
         mp_raise_TypeError(MP_ERROR_TEXT("callback not callable"));
     }
-    self->event_callback = cb_in;
+    LORAWAN_CB_SLOT(LORAWAN_CB_EVENT) = cb_in;
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_set_event_callback_obj,
@@ -992,6 +1205,9 @@ static mp_obj_t lorawan_mac_join(size_t n_args, const mp_obj_t *args) {
     /* Reset cached join state — will be set true again from
        mac_mlme_confirm when the JoinAccept arrives. */
     self->joined = false;
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_rssi_dbm,    0, __ATOMIC_RELAXED);
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_snr_db,      0, __ATOMIC_RELAXED);
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_stats_valid, 0, __ATOMIC_RELAXED);
 
     MlmeReq_t req;
     memset(&req, 0, sizeof(req));
@@ -1004,7 +1220,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_join_obj, 1, lorawan_mac_join);
 
 static mp_obj_t lorawan_mac_is_joined(mp_obj_t self_in) {
     lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    return mp_obj_new_bool(self->joined);
+    return MOD_LORAWAN_NEW_BOOL(self->joined);
 }
 
 /* MLME_LINK_CHECK — queues a MAC LinkCheckReq command to be piggybacked
@@ -1036,7 +1252,7 @@ static mp_obj_t lorawan_mac_last_link_check(mp_obj_t self_in) {
         MP_OBJ_NEW_SMALL_INT(self->link_check_margin),
         MP_OBJ_NEW_SMALL_INT(self->link_check_gateways),
     };
-    return mp_obj_new_tuple(2, items);
+    return MOD_LORAWAN_NEW_TUPLE(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_last_link_check_obj,
     lorawan_mac_last_link_check);
@@ -1081,10 +1297,10 @@ static mp_obj_t lorawan_mac_get_sys_time(mp_obj_t self_in) {
        parsed and applied. Returns (seconds, sub_second). */
     SysTime_t t = SysTimeGet();
     mp_obj_t items[2] = {
-        mp_obj_new_int_from_uint((uint32_t)t.Seconds),
+        MOD_LORAWAN_NEW_INT_U((uint32_t)t.Seconds),
         MP_OBJ_NEW_SMALL_INT(t.SubSeconds),
     };
-    return mp_obj_new_tuple(2, items);
+    return MOD_LORAWAN_NEW_TUPLE(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_sys_time_obj,
     lorawan_mac_get_sys_time);
@@ -1127,7 +1343,7 @@ static mp_obj_t lorawan_mac_get_class(mp_obj_t self_in) {
     char c = (mib.Param.Class == CLASS_A) ? 'A' :
              (mib.Param.Class == CLASS_B) ? 'B' :
              (mib.Param.Class == CLASS_C) ? 'C' : '?';
-    return mp_obj_new_str(&c, 1);
+    return MOD_LORAWAN_NEW_STR(&c, 1);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_class_obj,
     lorawan_mac_get_class);
@@ -1217,7 +1433,7 @@ static mp_obj_t lorawan_mac_get_adr(mp_obj_t self_in) {
     if (LoRaMacMibGetRequestConfirm(&mib) != LORAMAC_STATUS_OK) {
         return mp_const_none;
     }
-    return mp_obj_new_bool(mib.Param.AdrEnable);
+    return MOD_LORAWAN_NEW_BOOL(mib.Param.AdrEnable);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_adr_obj,
     lorawan_mac_get_adr);
@@ -1272,20 +1488,20 @@ static mp_obj_t lorawan_mac_rx_diag(mp_obj_t self_in) {
             MP_ERROR_TEXT("call lorawan_init first"));
     }
     MibRequestConfirm_t mib;
-    mp_obj_t dict = mp_obj_new_dict(7);
+    mp_obj_t dict = MOD_LORAWAN_NEW_DICT(7);
 
     memset(&mib, 0, sizeof(mib));
     mib.Type = MIB_PUBLIC_NETWORK;
     if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
         mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_public_network),
-            mp_obj_new_bool(mib.Param.EnablePublicNetwork));
+            MOD_LORAWAN_NEW_BOOL(mib.Param.EnablePublicNetwork));
     }
 
     memset(&mib, 0, sizeof(mib));
     mib.Type = MIB_RX2_CHANNEL;
     if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
         mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_rx2_freq),
-            mp_obj_new_int_from_uint(mib.Param.Rx2Channel.Frequency));
+            MOD_LORAWAN_NEW_INT_U(mib.Param.Rx2Channel.Frequency));
         mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_rx2_dr),
             MP_OBJ_NEW_SMALL_INT(mib.Param.Rx2Channel.Datarate));
     }
@@ -1295,7 +1511,7 @@ static mp_obj_t lorawan_mac_rx_diag(mp_obj_t self_in) {
     if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
         mp_obj_dict_store(dict,
             MP_OBJ_NEW_QSTR(MP_QSTR_rx2_default_freq),
-            mp_obj_new_int_from_uint(mib.Param.Rx2DefaultChannel.Frequency));
+            MOD_LORAWAN_NEW_INT_U(mib.Param.Rx2DefaultChannel.Frequency));
     }
 
     memset(&mib, 0, sizeof(mib));
@@ -1303,7 +1519,7 @@ static mp_obj_t lorawan_mac_rx_diag(mp_obj_t self_in) {
     if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
         mp_obj_dict_store(dict,
             MP_OBJ_NEW_QSTR(MP_QSTR_max_rx_error_ms),
-            mp_obj_new_int_from_uint(mib.Param.SystemMaxRxError));
+            MOD_LORAWAN_NEW_INT_U(mib.Param.SystemMaxRxError));
     }
 
     memset(&mib, 0, sizeof(mib));
@@ -1326,6 +1542,67 @@ static mp_obj_t lorawan_mac_rx_diag(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_rx_diag_obj,
     lorawan_mac_rx_diag);
+
+static mp_obj_t lorawan_mac_last_rx_stats(mp_obj_t self_in) {
+    (void)self_in;
+    mp_obj_t t[3] = {
+        MP_OBJ_NEW_SMALL_INT((int8_t)__atomic_load_n(&lorawan_rxc_diag.last_rx_rssi_dbm,   __ATOMIC_RELAXED)),
+        MP_OBJ_NEW_SMALL_INT((int8_t)__atomic_load_n(&lorawan_rxc_diag.last_rx_snr_db,     __ATOMIC_RELAXED)),
+        mp_obj_new_bool(__atomic_load_n(&lorawan_rxc_diag.last_rx_stats_valid, __ATOMIC_RELAXED)),
+    };
+    return mp_obj_new_tuple(3, t);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_last_rx_stats_obj, lorawan_mac_last_rx_stats);
+
+/* r13 — RX-window diag tuple. 12-tuple as of r13-fix.
+ * Order (do not reorder — Python test scripts index by position):
+ *   [ 0] rx1_open_us
+ *   [ 1] rx1_close_us
+ *   [ 2] rx2_open_us
+ *   [ 3] rx2_close_us
+ *   [ 4] last_rx_done_slot_id            (uint8; 0 reset on MLME_JOIN_REQ)
+ *   [ 5] rx2_skipped_total               (uint32; cumulative since boot)
+ *   [ 6] last_join_rx1_window_timeout_symbols  (uint32; SYMBOLS not ms)
+ *   [ 7] last_join_rx2_window_timeout_symbols  (uint32; SYMBOLS not ms)
+ *   [ 8] last_join_used_override_flag    (0/1; r13-fix)
+ *   [ 9] last_join_effective_min_rx_symbols (uint8; r13-fix)
+ *   [10] last_join_effective_system_max_rx_error_ms (uint16 ms; r13-fix)
+ *   [11] last_join_rx1_window_offset_ms  (int16 ms, signed; r13-fix —
+ *                                         pre-stack-process-subtract)
+ * CYCCNT is 32-bit @ 100 MHz so it wraps every ~42.9 s; the caller is
+ * responsible for treating timestamps as ~modular deltas. */
+static mp_obj_t lorawan_mac_rx_window_diag(mp_obj_t self_in) {
+    (void)self_in;
+    const uint32_t cyc_per_us = 100u; /* 100 MHz core. */
+    uint32_t r1o = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.last_rx1_open_cyc,  __ATOMIC_RELAXED);
+    uint32_t r1c = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.last_rx1_close_cyc, __ATOMIC_RELAXED);
+    uint32_t r2o = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.last_rx2_open_cyc,  __ATOMIC_RELAXED);
+    uint32_t r2c = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.last_rx2_close_cyc, __ATOMIC_RELAXED);
+    uint8_t  sl  = __atomic_load_n(&lorawan_rxc_diag.last_rx_done_slot_id,           __ATOMIC_RELAXED);
+    uint32_t rsk = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.rx2_skipped_total,  __ATOMIC_RELAXED);
+    uint32_t to1 = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.last_join_rx1_window_timeout_symbols, __ATOMIC_RELAXED);
+    uint32_t to2 = __atomic_load_n((uint32_t *)&lorawan_rxc_diag.last_join_rx2_window_timeout_symbols, __ATOMIC_RELAXED);
+    uint8_t  ovr = __atomic_load_n(&lorawan_rxc_diag.last_join_used_override_flag,        __ATOMIC_RELAXED);
+    uint8_t  efm = __atomic_load_n(&lorawan_rxc_diag.last_join_effective_min_rx_symbols,  __ATOMIC_RELAXED);
+    uint16_t efe = __atomic_load_n((uint16_t *)&lorawan_rxc_diag.last_join_effective_system_max_rx_error_ms, __ATOMIC_RELAXED);
+    int16_t  rwo = __atomic_load_n((int16_t  *)&lorawan_rxc_diag.last_join_rx1_window_offset_ms,             __ATOMIC_RELAXED);
+    mp_obj_t t[12] = {
+        mp_obj_new_int_from_uint(r1o / cyc_per_us),
+        mp_obj_new_int_from_uint(r1c / cyc_per_us),
+        mp_obj_new_int_from_uint(r2o / cyc_per_us),
+        mp_obj_new_int_from_uint(r2c / cyc_per_us),
+        MP_OBJ_NEW_SMALL_INT(sl),
+        mp_obj_new_int_from_uint(rsk),
+        mp_obj_new_int_from_uint(to1),
+        mp_obj_new_int_from_uint(to2),
+        MP_OBJ_NEW_SMALL_INT(ovr),
+        MP_OBJ_NEW_SMALL_INT(efm),
+        MP_OBJ_NEW_SMALL_INT(efe),
+        MP_OBJ_NEW_SMALL_INT(rwo),
+    };
+    return mp_obj_new_tuple(12, t);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_rx_window_diag_obj, lorawan_mac_rx_window_diag);
 
 static mp_obj_t lorawan_mac_set_min_rx_symbols(mp_obj_t self_in,
     mp_obj_t n_in) {
@@ -1446,7 +1723,10 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_restore_obj,
 
 static mp_obj_t lorawan_mac_nvm_factory_reset(mp_obj_t self_in) {
     (void)self_in;
-    return mp_obj_new_bool(NvmDataMgmtFactoryReset());
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_rssi_dbm,    0, __ATOMIC_RELAXED);
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_snr_db,      0, __ATOMIC_RELAXED);
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_stats_valid, 0, __ATOMIC_RELAXED);
+    return MOD_LORAWAN_NEW_BOOL(NvmDataMgmtFactoryReset());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_factory_reset_obj,
     lorawan_mac_nvm_factory_reset);
@@ -1463,11 +1743,11 @@ static mp_obj_t lorawan_mac_load_credentials(mp_obj_t self_in) {
         return mp_const_none;
     }
     mp_obj_t items[3] = {
-        mp_obj_new_bytes(deveui,  8),
-        mp_obj_new_bytes(joineui, 8),
-        mp_obj_new_bytes(appkey,  16),
+        MOD_LORAWAN_NEW_BYTES(deveui,  8),
+        MOD_LORAWAN_NEW_BYTES(joineui, 8),
+        MOD_LORAWAN_NEW_BYTES(appkey,  16),
     };
-    return mp_obj_new_tuple(3, items);
+    return MOD_LORAWAN_NEW_TUPLE(3, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_load_credentials_obj,
     lorawan_mac_load_credentials);
@@ -1482,7 +1762,7 @@ static mp_obj_t lorawan_mac_nvm_diag(mp_obj_t self_in) {
     mib.Type = MIB_NVM_CTXS;
     LoRaMacStatus_t st = LoRaMacMibGetRequestConfirm(&mib);
     if (st != LORAMAC_STATUS_OK || mib.Param.Contexts == NULL) {
-        return mp_obj_new_tuple(0, NULL);
+        return MOD_LORAWAN_NEW_TUPLE(0, NULL);
     }
     LoRaMacCtxs_t *c = mib.Param.Contexts;
     mp_obj_t items[7] = {
@@ -1494,7 +1774,7 @@ static mp_obj_t lorawan_mac_nvm_diag(mp_obj_t self_in) {
         MP_OBJ_NEW_SMALL_INT((mp_int_t)c->ClassBNvmCtxSize),
         MP_OBJ_NEW_SMALL_INT((mp_int_t)c->ConfirmQueueNvmCtxSize),
     };
-    return mp_obj_new_tuple(7, items);
+    return MOD_LORAWAN_NEW_TUPLE(7, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_diag_obj,
     lorawan_mac_nvm_diag);
@@ -1530,6 +1810,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_is_joined_obj, 1,
 static uint8_t s_tx_buf[256];
 
 static mp_obj_t lorawan_mac_send(size_t n_args, const mp_obj_t *args) {
+    SBC(LWBC_S0);
     enum { ARG_self, ARG_port, ARG_data, ARG_confirmed, ARG_datarate };
     if (n_args < 3 || n_args > 5) {
         mp_raise_TypeError(MP_ERROR_TEXT(
@@ -1559,8 +1840,10 @@ static mp_obj_t lorawan_mac_send(size_t n_args, const mp_obj_t *args) {
         }
         datarate = (int8_t)dr;
     }
+    SBC(LWBC_S1);
 
     memcpy(s_tx_buf, buf.buf, buf.len);
+    SBC(LWBC_S2);
 
     McpsReq_t req;
     memset(&req, 0, sizeof(req));
@@ -1578,7 +1861,10 @@ static mp_obj_t lorawan_mac_send(size_t n_args, const mp_obj_t *args) {
         req.Req.Unconfirmed.fBufferSize = (uint16_t)buf.len;
         req.Req.Unconfirmed.Datarate = datarate;
     }
+    SBC(LWBC_S3);
+    SBC(LWBC_S4);
     LoRaMacStatus_t st = LoRaMacMcpsRequest(&req);
+    SBC(LWBC_S5);
     return MP_OBJ_NEW_SMALL_INT((int)st);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_send_obj, 3, lorawan_mac_send);
@@ -1605,9 +1891,9 @@ static mp_obj_t lorawan_mac_recv(mp_obj_t self_in) {
 
     mp_obj_t items[2] = {
         MP_OBJ_NEW_SMALL_INT(port),
-        mp_obj_new_bytes(tmp, len),
+        MOD_LORAWAN_NEW_BYTES(tmp, len),
     };
-    return mp_obj_new_tuple(2, items);
+    return MOD_LORAWAN_NEW_TUPLE(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_recv_obj, lorawan_mac_recv);
 
@@ -1637,43 +1923,43 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_recv_obj, 1,
 static mp_obj_t lorawan_mac_stats(mp_obj_t self_in) {
     (void)self_in;
 
-    mp_obj_t mac_group = mp_obj_new_dict(3);
+    mp_obj_t mac_group = MOD_LORAWAN_NEW_DICT(3);
     mp_obj_dict_store(mac_group, MP_ROM_QSTR(MP_QSTR_mac_process_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.mac_process_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.mac_process_count));
     mp_obj_dict_store(mac_group, MP_ROM_QSTR(MP_QSTR_mac_process_last_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.mac_process_last_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.mac_process_last_us));
     mp_obj_dict_store(mac_group, MP_ROM_QSTR(MP_QSTR_mac_process_max_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.mac_process_max_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.mac_process_max_us));
 
-    mp_obj_t spi_group = mp_obj_new_dict(9);
+    mp_obj_t spi_group = MOD_LORAWAN_NEW_DICT(9);
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_xfer_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_xfer_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_xfer_count));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_bytes_total),
-                      mp_obj_new_int_from_ull(stats_spi_bytes_read()));
+                      MOD_LORAWAN_NEW_INT_ULL(stats_spi_bytes_read()));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_max_len),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_max_len));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_max_len));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_one_byte_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_one_byte_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_one_byte_count));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_sx126x_spi_busy_reject_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.sx126x_spi_busy_reject_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.sx126x_spi_busy_reject_count));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_pre_busy_max_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_stage_pre_busy_max_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_stage_pre_busy_max_us));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_dtc_max_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_stage_dtc_max_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_stage_dtc_max_us));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_post_busy_max_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.spi_stage_post_busy_max_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_stage_post_busy_max_us));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_sx126x_wake_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.sx126x_wake_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.sx126x_wake_count));
 
-    mp_obj_t busy_group = mp_obj_new_dict(6);
+    mp_obj_t busy_group = MOD_LORAWAN_NEW_DICT(6);
     mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_wait_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_wait_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.busy_wait_count));
     mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_wait_last_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_wait_last_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.busy_wait_last_us));
     mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_wait_max_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_wait_max_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.busy_wait_max_us));
     mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_timeout_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.busy_timeout_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.busy_timeout_count));
     mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_timeout_opcode),
                       MP_OBJ_NEW_SMALL_INT(g_lorawan_stats.busy_timeout_opcode));
     mp_obj_dict_store(busy_group, MP_ROM_QSTR(MP_QSTR_busy_last_opcode),
@@ -1683,62 +1969,163 @@ static mp_obj_t lorawan_mac_stats(mp_obj_t self_in) {
        for the DTC done-callback + BUSY-falling ICU augmentation). All 4 read 0
        in AD5.2 — the callback is defined but not yet hooked into the LoRa SPI
        path (that ships in AD5.3 / AD5.4). */
-    mp_obj_t isr_group = mp_obj_new_dict(16);
+    mp_obj_t isr_group = MOD_LORAWAN_NEW_DICT(16);
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dio1_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dio1_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_dio1_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt4_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt4_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_agt4_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt5_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt5_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_agt5_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_queue_push_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_queue_push_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_queue_push_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_queue_overflow_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_queue_overflow_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_queue_overflow_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dtc_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dtc_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_dtc_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dtc_cycles_max),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dtc_cycles_max));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_dtc_cycles_max));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_busy_low_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_busy_low_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_busy_low_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_busy_low_cycles_max),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_busy_low_cycles_max));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_busy_low_cycles_max));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dio1_cycles_max),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dio1_cycles_max));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_dio1_cycles_max));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt4_cycles_max),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt4_cycles_max));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_agt4_cycles_max));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt5_cycles_max),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt5_cycles_max));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_agt5_cycles_max));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_dio1_reentry_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_dio1_reentry_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_dio1_reentry_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt4_reentry_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt4_reentry_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_agt4_reentry_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_hard_isr_agt5_reentry_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.hard_isr_agt5_reentry_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.hard_isr_agt5_reentry_count));
     mp_obj_dict_store(isr_group, MP_ROM_QSTR(MP_QSTR_dwt_available),
-                      mp_obj_new_bool(s_dwt_available));
+                      MOD_LORAWAN_NEW_BOOL(s_dwt_available));
 
-    mp_obj_t nvm_group = mp_obj_new_dict(7);
+    mp_obj_t nvm_group = MOD_LORAWAN_NEW_DICT(7);
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_count));
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_last_ms),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_last_ms));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_last_ms));
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_max_ms),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_max_ms));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_max_ms));
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_error_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_error_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_error_count));
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_call_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_call_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_call_us));
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_done_us),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_done_us));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_done_us));
     mp_obj_dict_store(nvm_group, MP_ROM_QSTR(MP_QSTR_nvm_save_in_rx_window_count),
-                      mp_obj_new_int_from_uint(g_lorawan_stats.nvm_save_in_rx_window_count));
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.nvm_save_in_rx_window_count));
 
-    mp_obj_t top = mp_obj_new_dict(5);
+    /* Z0 — heap allocation surveillance. See top-of-file Z0 block and
+       ZERO_ALLOC_REMOVAL_PLAN_2026-05-13.md §Z0 for the bar.
+       Under LORAWAN_OBSERVATION_DISABLE the leaves all read 0 (s_heap
+       storage is absent) — preserve the same shape so test code does
+       not branch on build mode. */
+    mp_obj_t heap_group = MOD_LORAWAN_NEW_DICT(7);
+    #ifdef LORAWAN_OBSERVATION_DISABLE
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_c_alloc_count),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_c_free_count),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_mp_alloc_count_post_init),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_mp_free_count_post_init),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_isr_alloc_count),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_init_baseline_count),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_event_drop_count),
+                      MP_OBJ_NEW_SMALL_INT(0));
+    #else
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_c_alloc_count),
+                      MOD_LORAWAN_NEW_INT_U(s_heap.c_alloc_count));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_c_free_count),
+                      MOD_LORAWAN_NEW_INT_U(s_heap.c_free_count));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_mp_alloc_count_post_init),
+                      MOD_LORAWAN_NEW_INT_U(s_heap.mp_alloc_count_post_init));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_mp_free_count_post_init),
+                      MOD_LORAWAN_NEW_INT_U(s_heap.mp_free_count_post_init));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_isr_alloc_count),
+                      MOD_LORAWAN_NEW_INT_U(s_heap.isr_alloc_count));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_init_baseline_count),
+                      MOD_LORAWAN_NEW_INT_U(s_heap.init_baseline_count));
+    mp_obj_dict_store(heap_group, MP_ROM_QSTR(MP_QSTR_event_drop_count),
+                      MOD_LORAWAN_NEW_INT_U(s_event_drop_count));
+    #endif
+
+    /* T-V3.1 — Class C RX probe leaves. Unconditional storage, see
+     * glue/lorawan_rxc_diag.h. Read atomically via __atomic_load_n so
+     * a concurrent ISR increment cannot tear a uint32. */
+    mp_obj_t rxc_group = MOD_LORAWAN_NEW_DICT(14);
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_rxc_open_attempts),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint16_t *)&lorawan_rxc_diag.rxc_open_attempts,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_rxc_open_skipped_rf_rx),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint16_t *)&lorawan_rxc_diag.rxc_open_skipped_rf_rx,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_rxc_open_skipped_rf_tx),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint16_t *)&lorawan_rxc_diag.rxc_open_skipped_rf_tx,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_rxc_region_ok),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint16_t *)&lorawan_rxc_diag.rxc_region_ok,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_rxc_region_fail),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint16_t *)&lorawan_rxc_diag.rxc_region_fail,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_rxc_radio_rx_result),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint16_t *)&lorawan_rxc_diag.rxc_radio_rx_result,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_rxc_freq),
+                      MOD_LORAWAN_NEW_INT_U(__atomic_load_n(
+                          (uint32_t *)&lorawan_rxc_diag.last_rxc_freq,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_rxc_dr),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint8_t *)&lorawan_rxc_diag.last_rxc_dr,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_rxc_continuous),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint8_t *)&lorawan_rxc_diag.last_rxc_continuous,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_radio_rx_timeout_arg_caller),
+                      MOD_LORAWAN_NEW_INT_U(__atomic_load_n(
+                          (uint32_t *)&lorawan_rxc_diag.last_radio_rx_timeout_arg_caller,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_radio_rx_timeout_arg),
+                      MOD_LORAWAN_NEW_INT_U(__atomic_load_n(
+                          (uint32_t *)&lorawan_rxc_diag.last_radio_rx_timeout_arg,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_rx_done_slot),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint8_t *)&lorawan_rxc_diag.last_rx_done_slot,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_rx_timeout_slot),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint8_t *)&lorawan_rxc_diag.last_rx_timeout_slot,
+                          __ATOMIC_RELAXED)));
+    mp_obj_dict_store(rxc_group, MP_ROM_QSTR(MP_QSTR_last_rx_error_slot),
+                      MP_OBJ_NEW_SMALL_INT(__atomic_load_n(
+                          (uint8_t *)&lorawan_rxc_diag.last_rx_error_slot,
+                          __ATOMIC_RELAXED)));
+
+    mp_obj_t top = MOD_LORAWAN_NEW_DICT(7);
     mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_mac),  mac_group);
     mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_spi),  spi_group);
     mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_busy), busy_group);
     mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_isr),  isr_group);
     mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_nvm),  nvm_group);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_heap), heap_group);
+    mp_obj_dict_store(top, MP_ROM_QSTR(MP_QSTR_rxc),  rxc_group);
     return top;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_stats_obj, lorawan_mac_stats);
@@ -1746,10 +2133,382 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_stats_obj, lorawan_mac_stats);
 static mp_obj_t lorawan_mac_stats_reset(mp_obj_t self_in) {
     (void)self_in;
     lorawan_stats_reset();
+    /* Z0 — also zero the heap-counter leaves, preserving observation_armed
+       (post-init observation continues across stats_reset, the standard
+       QA-MEM measurement-window pattern: arm → reset → start window).
+       Z2 — likewise reset the event drop counter; there is no longer
+       a ring head index (packed-int dispatch is stateless on the C
+       side, see mac_post_event). */
+    #ifndef LORAWAN_OBSERVATION_DISABLE
+    uint8_t armed = __atomic_load_n((uint8_t *)&s_heap.observation_armed,
+                                    __ATOMIC_RELAXED);
+    memset((void *)&s_heap, 0, sizeof(s_heap));
+    __atomic_store_n((uint8_t *)&s_heap.observation_armed, armed,
+                     __ATOMIC_RELAXED);
+    s_event_drop_count = 0;
+    #endif
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_stats_reset_obj,
     lorawan_mac_stats_reset);
+
+/* === Z3 — *_into accessors ============================================
+ *
+ * Zero-allocation companions to mac.stats(), mac.rx_diag(), mac.nvm_diag()
+ * and mac.recv(). Each variant takes caller-pre-allocated storage and
+ * mutates it in place, eliminating the per-call heap activity on the
+ * diagnostic / downlink hot paths. The classic methods stay around for
+ * backward-compat and ad-hoc use.
+ *
+ * Plan reference:
+ *   LORAWAN_TESTS/coordination/ZERO_ALLOC_REMOVAL_PLAN_2026-05-13.md §Z3
+ *   LORAWAN_TESTS/coordination/MEM_AUDIT_DESIGN_2026-05-13.md §2.6-2.8
+ *
+ * Caller contract — universal:
+ *   - Pre-allocate the dict / tuple / bytearray ONCE at init.
+ *   - Pre-populate every expected key with a placeholder value
+ *     (e.g. 0). The *_into() impl does NOT add keys — it uses
+ *     mp_map_lookup(MP_MAP_LOOKUP) and silently skips any missing key,
+ *     which prevents the rehash-and-allocate path inside mp_obj_dict_store.
+ *   - Counter values are written as SMALL_INT. Counters above
+ *     MP_SMALL_INT_MAX (2^30-1 on 32-bit MicroPython, 2^62-1 on 64-bit)
+ *     are TRUNCATED to that ceiling via z3_set_uint_leaf below; this
+ *     keeps the path allocation-free at the cost of saturating the
+ *     reported value. Audited list of "wide" counters today: all stay
+ *     well under 2^30 in canonical workloads (longest soak is 17 h ×
+ *     5 s = 12 240 uplinks; spi_bytes_total at ~32 B/xfer ≈ 4 × 10^5
+ *     B/uplink → ~4.9 × 10^9 over 17 h; that DOES exceed 2^30. Caller
+ *     wishing precise byte counts should keep using mac.stats() (which
+ *     allocates a 64-bit boxed int) on a slow cadence; the *_into()
+ *     hot-path readers are for delta-based observation where truncation
+ *     does not matter.). Document by listing the contract in the
+ *     method-level comment for the operator-facing API.
+ */
+
+#ifndef LORAWAN_OBSERVATION_DISABLE
+
+/* Write `val` into dict slot for `key` if and only if the key already
+ * exists. No allocation: only an existing map elem's value pointer is
+ * mutated. Returns true iff the leaf existed (caller can panic on a
+ * mis-shaped pre-allocated dict during dev-time, but production
+ * intentionally skips). Caller passes the dict's map (mp_obj_dict_get_map)
+ * so we do not re-resolve it for every leaf in a 30-leaf write loop. */
+static inline bool z3_dict_set_in_place(mp_map_t *map, qstr key_qstr,
+    mp_obj_t value) {
+    mp_map_elem_t *elem = mp_map_lookup(map, MP_OBJ_NEW_QSTR(key_qstr),
+        MP_MAP_LOOKUP);
+    if (elem == NULL) {
+        return false;
+    }
+    elem->value = value;
+    return true;
+}
+
+/* Saturate-cast uint32 to SMALL_INT positive range, write into dict
+ * slot in place. The SMALL_INT_MAX ceiling is 2^30-1 on 32-bit MP. See
+ * z3 caller-contract block above for the truncation policy. */
+static inline void z3_set_uint_leaf(mp_map_t *map, qstr key_qstr,
+    uint32_t v) {
+    mp_int_t sval = (v > (uint32_t)MP_SMALL_INT_MAX)
+                    ? MP_SMALL_INT_MAX : (mp_int_t)v;
+    (void)z3_dict_set_in_place(map, key_qstr, MP_OBJ_NEW_SMALL_INT(sval));
+}
+
+/* uint64 -> SMALL_INT saturating. spi_bytes_total is the only uint64
+ * counter today; documented as saturating per the §Z3 contract. */
+static inline void z3_set_uint64_leaf(mp_map_t *map, qstr key_qstr,
+    uint64_t v) {
+    mp_int_t sval = (v > (uint64_t)MP_SMALL_INT_MAX)
+                    ? MP_SMALL_INT_MAX : (mp_int_t)v;
+    (void)z3_dict_set_in_place(map, key_qstr, MP_OBJ_NEW_SMALL_INT(sval));
+}
+
+static inline void z3_set_bool_leaf(mp_map_t *map, qstr key_qstr, bool v) {
+    (void)z3_dict_set_in_place(map, key_qstr,
+        v ? mp_const_true : mp_const_false);
+}
+
+#endif  /* LORAWAN_OBSERVATION_DISABLE */
+
+/* mac.stats_into(prealloc) — Z3 zero-alloc companion to mac.stats().
+ *
+ * Caller pre-allocates a nested dict with the same six-group shape and
+ * every leaf key populated (any int placeholder, e.g. 0). The impl
+ * fetches each group dict via mp_obj_dict_get (raises KeyError if a
+ * group is missing — pre-allocation contract violation) and then mutates
+ * each leaf in place. Wide counters are saturated to SMALL_INT range
+ * (see truncation note in the §Z3 contract block).
+ *
+ * Returns mp_const_none — the prealloc dict is mutated, not replaced.
+ */
+static mp_obj_t lorawan_mac_stats_into(mp_obj_t self_in, mp_obj_t prealloc) {
+    (void)self_in;
+    #ifdef LORAWAN_OBSERVATION_DISABLE
+    (void)prealloc;
+    return mp_const_none;
+    #else
+    if (!mp_obj_is_dict_or_ordereddict(prealloc)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("stats_into requires a dict"));
+    }
+
+    mp_obj_t mac_group  = mp_obj_dict_get(prealloc, MP_OBJ_NEW_QSTR(MP_QSTR_mac));
+    mp_obj_t spi_group  = mp_obj_dict_get(prealloc, MP_OBJ_NEW_QSTR(MP_QSTR_spi));
+    mp_obj_t busy_group = mp_obj_dict_get(prealloc, MP_OBJ_NEW_QSTR(MP_QSTR_busy));
+    mp_obj_t isr_group  = mp_obj_dict_get(prealloc, MP_OBJ_NEW_QSTR(MP_QSTR_isr));
+    mp_obj_t nvm_group  = mp_obj_dict_get(prealloc, MP_OBJ_NEW_QSTR(MP_QSTR_nvm));
+    mp_obj_t heap_group = mp_obj_dict_get(prealloc, MP_OBJ_NEW_QSTR(MP_QSTR_heap));
+
+    mp_map_t *mac_map  = mp_obj_dict_get_map(mac_group);
+    mp_map_t *spi_map  = mp_obj_dict_get_map(spi_group);
+    mp_map_t *busy_map = mp_obj_dict_get_map(busy_group);
+    mp_map_t *isr_map  = mp_obj_dict_get_map(isr_group);
+    mp_map_t *nvm_map  = mp_obj_dict_get_map(nvm_group);
+    mp_map_t *heap_map = mp_obj_dict_get_map(heap_group);
+
+    z3_set_uint_leaf(mac_map, MP_QSTR_mac_process_count,   g_lorawan_stats.mac_process_count);
+    z3_set_uint_leaf(mac_map, MP_QSTR_mac_process_last_us, g_lorawan_stats.mac_process_last_us);
+    z3_set_uint_leaf(mac_map, MP_QSTR_mac_process_max_us,  g_lorawan_stats.mac_process_max_us);
+
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_xfer_count,                g_lorawan_stats.spi_xfer_count);
+    z3_set_uint64_leaf(spi_map, MP_QSTR_spi_bytes_total,               stats_spi_bytes_read());
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_max_len,                   g_lorawan_stats.spi_max_len);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_one_byte_count,            g_lorawan_stats.spi_one_byte_count);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_sx126x_spi_busy_reject_count,  g_lorawan_stats.sx126x_spi_busy_reject_count);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_stage_pre_busy_max_us,     g_lorawan_stats.spi_stage_pre_busy_max_us);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_stage_dtc_max_us,          g_lorawan_stats.spi_stage_dtc_max_us);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_stage_post_busy_max_us,    g_lorawan_stats.spi_stage_post_busy_max_us);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_sx126x_wake_count,             g_lorawan_stats.sx126x_wake_count);
+
+    z3_set_uint_leaf(busy_map, MP_QSTR_busy_wait_count,     g_lorawan_stats.busy_wait_count);
+    z3_set_uint_leaf(busy_map, MP_QSTR_busy_wait_last_us,   g_lorawan_stats.busy_wait_last_us);
+    z3_set_uint_leaf(busy_map, MP_QSTR_busy_wait_max_us,    g_lorawan_stats.busy_wait_max_us);
+    z3_set_uint_leaf(busy_map, MP_QSTR_busy_timeout_count,  g_lorawan_stats.busy_timeout_count);
+    z3_set_uint_leaf(busy_map, MP_QSTR_busy_timeout_opcode, g_lorawan_stats.busy_timeout_opcode);
+    z3_set_uint_leaf(busy_map, MP_QSTR_busy_last_opcode,    g_lorawan_stats.busy_last_opcode);
+
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_dio1_count,             g_lorawan_stats.hard_isr_dio1_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_agt4_count,             g_lorawan_stats.hard_isr_agt4_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_agt5_count,             g_lorawan_stats.hard_isr_agt5_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_queue_push_count,       g_lorawan_stats.hard_isr_queue_push_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_queue_overflow_count,   g_lorawan_stats.hard_isr_queue_overflow_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_dtc_count,              g_lorawan_stats.hard_isr_dtc_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_dtc_cycles_max,         g_lorawan_stats.hard_isr_dtc_cycles_max);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_busy_low_count,         g_lorawan_stats.hard_isr_busy_low_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_busy_low_cycles_max,    g_lorawan_stats.hard_isr_busy_low_cycles_max);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_dio1_cycles_max,        g_lorawan_stats.hard_isr_dio1_cycles_max);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_agt4_cycles_max,        g_lorawan_stats.hard_isr_agt4_cycles_max);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_agt5_cycles_max,        g_lorawan_stats.hard_isr_agt5_cycles_max);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_dio1_reentry_count,     g_lorawan_stats.hard_isr_dio1_reentry_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_agt4_reentry_count,     g_lorawan_stats.hard_isr_agt4_reentry_count);
+    z3_set_uint_leaf(isr_map, MP_QSTR_hard_isr_agt5_reentry_count,     g_lorawan_stats.hard_isr_agt5_reentry_count);
+    z3_set_bool_leaf(isr_map, MP_QSTR_dwt_available, s_dwt_available);
+
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_count,                 g_lorawan_stats.nvm_save_count);
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_last_ms,               g_lorawan_stats.nvm_save_last_ms);
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_max_ms,                g_lorawan_stats.nvm_save_max_ms);
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_error_count,           g_lorawan_stats.nvm_save_error_count);
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_call_us,               g_lorawan_stats.nvm_save_call_us);
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_done_us,               g_lorawan_stats.nvm_save_done_us);
+    z3_set_uint_leaf(nvm_map, MP_QSTR_nvm_save_in_rx_window_count,    g_lorawan_stats.nvm_save_in_rx_window_count);
+
+    z3_set_uint_leaf(heap_map, MP_QSTR_c_alloc_count,             s_heap.c_alloc_count);
+    z3_set_uint_leaf(heap_map, MP_QSTR_c_free_count,              s_heap.c_free_count);
+    z3_set_uint_leaf(heap_map, MP_QSTR_mp_alloc_count_post_init,  s_heap.mp_alloc_count_post_init);
+    z3_set_uint_leaf(heap_map, MP_QSTR_mp_free_count_post_init,   s_heap.mp_free_count_post_init);
+    z3_set_uint_leaf(heap_map, MP_QSTR_isr_alloc_count,           s_heap.isr_alloc_count);
+    z3_set_uint_leaf(heap_map, MP_QSTR_init_baseline_count,       s_heap.init_baseline_count);
+    z3_set_uint_leaf(heap_map, MP_QSTR_event_drop_count,          s_event_drop_count);
+
+    return mp_const_none;
+    #endif
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_stats_into_obj,
+    lorawan_mac_stats_into);
+
+#if LORAWAN_PHASE5_AVAILABLE
+
+/* mac.rx_diag_into(prealloc) — Z3 zero-alloc companion to mac.rx_diag().
+ * Same dict-mutate contract as stats_into. Returns mp_const_none. */
+static mp_obj_t lorawan_mac_rx_diag_into(mp_obj_t self_in, mp_obj_t prealloc) {
+    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->stack_initialized) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("call lorawan_init first"));
+    }
+    if (!mp_obj_is_dict_or_ordereddict(prealloc)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("rx_diag_into requires a dict"));
+    }
+    mp_map_t *m = mp_obj_dict_get_map(prealloc);
+    MibRequestConfirm_t mib;
+
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_PUBLIC_NETWORK;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        (void)z3_dict_set_in_place(m, MP_QSTR_public_network,
+            mib.Param.EnablePublicNetwork ? mp_const_true : mp_const_false);
+    }
+
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_RX2_CHANNEL;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        (void)z3_dict_set_in_place(m, MP_QSTR_rx2_freq,
+            MP_OBJ_NEW_SMALL_INT((mp_int_t)(mib.Param.Rx2Channel.Frequency
+                & (uint32_t)MP_SMALL_INT_MAX)));
+        (void)z3_dict_set_in_place(m, MP_QSTR_rx2_dr,
+            MP_OBJ_NEW_SMALL_INT(mib.Param.Rx2Channel.Datarate));
+    }
+
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_RX2_DEFAULT_CHANNEL;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        (void)z3_dict_set_in_place(m, MP_QSTR_rx2_default_freq,
+            MP_OBJ_NEW_SMALL_INT((mp_int_t)(mib.Param.Rx2DefaultChannel.Frequency
+                & (uint32_t)MP_SMALL_INT_MAX)));
+    }
+
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_SYSTEM_MAX_RX_ERROR;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        (void)z3_dict_set_in_place(m, MP_QSTR_max_rx_error_ms,
+            MP_OBJ_NEW_SMALL_INT((mp_int_t)mib.Param.SystemMaxRxError));
+    }
+
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_MIN_RX_SYMBOLS;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        (void)z3_dict_set_in_place(m, MP_QSTR_min_rx_symbols,
+            MP_OBJ_NEW_SMALL_INT(mib.Param.MinRxSymbols));
+    }
+
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NETWORK_ACTIVATION;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        (void)z3_dict_set_in_place(m, MP_QSTR_activation,
+            MP_OBJ_NEW_SMALL_INT(mib.Param.NetworkActivation));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_rx_diag_into_obj,
+    lorawan_mac_rx_diag_into);
+
+/* mac.nvm_diag_into(prealloc_tuple) — Z3 zero-alloc companion.
+ * Caller pre-allocates a 7-element tuple; the seven NVM context sizes
+ * are written into items[0..6] in the same order as mac.nvm_diag().
+ * Returns mp_const_none (or raises if the MIB read fails / tuple is
+ * not 7-wide). */
+static mp_obj_t lorawan_mac_nvm_diag_into(mp_obj_t self_in,
+    mp_obj_t prealloc_tuple) {
+    (void)self_in;
+    if (!mp_obj_is_type(prealloc_tuple, &mp_type_tuple)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("nvm_diag_into requires a tuple"));
+    }
+    mp_obj_tuple_t *t = MP_OBJ_TO_PTR(prealloc_tuple);
+    if (t->len != 7) {
+        mp_raise_ValueError(MP_ERROR_TEXT("tuple must be length 7"));
+    }
+    MibRequestConfirm_t mib;
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NVM_CTXS;
+    LoRaMacStatus_t st = LoRaMacMibGetRequestConfirm(&mib);
+    if (st != LORAMAC_STATUS_OK || mib.Param.Contexts == NULL) {
+        for (int i = 0; i < 7; i++) {
+            t->items[i] = MP_OBJ_NEW_SMALL_INT(0);
+        }
+        return mp_const_none;
+    }
+    LoRaMacCtxs_t *c = mib.Param.Contexts;
+    t->items[0] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->MacNvmCtxSize);
+    t->items[1] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->RegionNvmCtxSize);
+    t->items[2] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->CryptoNvmCtxSize);
+    t->items[3] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->SecureElementNvmCtxSize);
+    t->items[4] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->CommandsNvmCtxSize);
+    t->items[5] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->ClassBNvmCtxSize);
+    t->items[6] = MP_OBJ_NEW_SMALL_INT((mp_int_t)c->ConfirmQueueNvmCtxSize);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_nvm_diag_into_obj,
+    lorawan_mac_nvm_diag_into);
+
+/* mac.recv_into(buf, info) — Z3 zero-alloc companion to mac.recv().
+ *
+ * Drains a pending downlink into the caller's buffers:
+ *   buf  : a writable buffer-protocol object (typically bytearray(256))
+ *          large enough for the payload. The FRMPayload bytes are
+ *          memcpy'd into buf[0..n) and any trailing bytes are left
+ *          untouched.
+ *   info : a writable buffer-protocol object exposing at least
+ *          2 × sizeof(int32_t) = 8 bytes. Typically
+ *              array.array('i', [0, 0])
+ *          The impl writes:
+ *              info[0] = fport (1..223)
+ *              info[1] = byte length copied into buf
+ *          using little-endian int32 stores (matches array.array('i')
+ *          native layout on this port).
+ *
+ * Return:
+ *   - byte length on a drained downlink (0..256)
+ *   - 0 (and info[0]=info[1]=0) when no downlink is pending — caller
+ *     polls again next pump tick. Distinguishable from a 0-byte downlink
+ *     by reading info[0]: a real downlink always has fport >= 1.
+ *
+ * No allocation in either path. info_array doubles as the GC root for
+ * the metadata since it is a long-lived Python local in the test loop.
+ * Why this two-buffer shape? Returning (fport, length) as a 2-tuple
+ * would allocate; passing a side-channel array keeps the call signature
+ * compatible with `mac.recv()`'s "0 = nothing pending" semantic without
+ * any heap activity. See §Z3.4 in the plan for the deliberated trade-off.
+ */
+static mp_obj_t lorawan_mac_recv_into(mp_obj_t self_in,
+    mp_obj_t buf_obj, mp_obj_t info_obj) {
+    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    mp_buffer_info_t info_buf;
+    mp_get_buffer_raise(info_obj, &info_buf, MP_BUFFER_RW);
+    if (info_buf.len < 2 * (int)sizeof(int32_t)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("info must hold 2 int32 slots"));
+    }
+    int32_t *info_words = (int32_t *)info_buf.buf;
+
+    if (!self->rx_pending) {
+        info_words[0] = 0;
+        info_words[1] = 0;
+        return MP_OBJ_NEW_SMALL_INT(0);
+    }
+
+    mp_buffer_info_t data_buf;
+    mp_get_buffer_raise(buf_obj, &data_buf, MP_BUFFER_RW);
+
+    /* Snapshot under PRIMASK so a concurrent mac_mcps_indication does
+       not tear (port,len,buf,pending). Mirrors lorawan_mac_recv above. */
+    mp_uint_t state = disable_irq();
+    uint8_t  port = self->rx_port;
+    uint16_t len  = self->rx_len;
+    if ((size_t)len > (size_t)data_buf.len) {
+        len = (uint16_t)data_buf.len;
+    }
+    memcpy(data_buf.buf, self->rx_buf, len);
+    self->rx_pending = false;
+    self->rx_port = 0;
+    self->rx_len = 0;
+    enable_irq(state);
+
+    info_words[0] = (int32_t)port;
+    info_words[1] = (int32_t)len;
+    return MP_OBJ_NEW_SMALL_INT(len);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(lorawan_mac_recv_into_obj,
+    lorawan_mac_recv_into);
+
+#else  /* !LORAWAN_PHASE5_AVAILABLE — Z3 stubs */
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_rx_diag_into_obj, 2,
+    lorawan_mac_phase5_unavailable);
+static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_nvm_diag_into_obj, 2,
+    lorawan_mac_phase5_unavailable);
+static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_recv_into_obj, 1,
+    lorawan_mac_phase5_unavailable);
+
+#endif  /* LORAWAN_PHASE5_AVAILABLE */
 
 // ---- Class table ---------------------------------------------------------
 
@@ -1810,6 +2569,8 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_set_public_network), MP_ROM_PTR(&lorawan_mac_set_public_network_obj) },
     { MP_ROM_QSTR(MP_QSTR_init_defaults),      MP_ROM_PTR(&lorawan_mac_init_defaults_obj) },
     { MP_ROM_QSTR(MP_QSTR_rx_diag),            MP_ROM_PTR(&lorawan_mac_rx_diag_obj) },
+    { MP_ROM_QSTR(MP_QSTR_last_rx_stats),      MP_ROM_PTR(&lorawan_mac_last_rx_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rx_window_diag),     MP_ROM_PTR(&lorawan_mac_rx_window_diag_obj) },
     // Phase 6a — NVM debug surface.
     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
     { MP_ROM_QSTR(MP_QSTR_nvm_restore),        MP_ROM_PTR(&lorawan_mac_nvm_restore_obj) },
@@ -1822,6 +2583,11 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     // Phase 1 Observation — Python-facing counter snapshot + reset.
     { MP_ROM_QSTR(MP_QSTR_stats),              MP_ROM_PTR(&lorawan_mac_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_stats_reset),        MP_ROM_PTR(&lorawan_mac_stats_reset_obj) },
+    // Z3 — zero-allocation *_into() variants of diagnostic/recv surfaces.
+    { MP_ROM_QSTR(MP_QSTR_stats_into),         MP_ROM_PTR(&lorawan_mac_stats_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rx_diag_into),       MP_ROM_PTR(&lorawan_mac_rx_diag_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nvm_diag_into),      MP_ROM_PTR(&lorawan_mac_nvm_diag_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recv_into),          MP_ROM_PTR(&lorawan_mac_recv_into_obj) },
 };
 static MP_DEFINE_CONST_DICT(lorawan_mac_locals_dict,
     lorawan_mac_locals_dict_table);
@@ -1837,11 +2603,27 @@ MP_DEFINE_CONST_OBJ_TYPE(
 
 // ---- Module-level globals -----------------------------------------------
 
+/* HardFault breadcrumb readout. Returns (magic_ok, last_id). magic_ok
+ * is True iff the .noinit magic word survived as expected (i.e. some
+ * Mac() in this device's recent past wrote it). last_id is the raw
+ * uint16_t enum value of the most recent SBC() — interpretation is
+ * left to the Python side (LWBC_NONE=0 means "no breadcrumb yet"). */
+static mp_obj_t lorawan_last_breadcrumb(void) {
+    mp_obj_t items[2] = {
+        mp_obj_new_bool(lorawan_bc_magic == LORAWAN_BC_MAGIC),
+        MP_OBJ_NEW_SMALL_INT((mp_int_t)lorawan_bc_last),
+    };
+    return mp_obj_new_tuple(2, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(lorawan_last_breadcrumb_obj,
+    lorawan_last_breadcrumb);
+
 static const mp_rom_map_elem_t lorawan_module_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_lorawan) },
-    { MP_ROM_QSTR(MP_QSTR_Mac),      MP_ROM_PTR(&lorawan_mac_type) },
-    { MP_ROM_QSTR(MP_QSTR__PHASE),   MP_ROM_INT(LORAWAN_PHASE) },
-    { MP_ROM_QSTR(MP_QSTR_EU868),    MP_ROM_QSTR(MP_QSTR_EU868) },
+    { MP_ROM_QSTR(MP_QSTR___name__),         MP_ROM_QSTR(MP_QSTR_lorawan) },
+    { MP_ROM_QSTR(MP_QSTR_Mac),              MP_ROM_PTR(&lorawan_mac_type) },
+    { MP_ROM_QSTR(MP_QSTR__PHASE),           MP_ROM_INT(LORAWAN_PHASE) },
+    { MP_ROM_QSTR(MP_QSTR_EU868),            MP_ROM_QSTR(MP_QSTR_EU868) },
+    { MP_ROM_QSTR(MP_QSTR__last_breadcrumb), MP_ROM_PTR(&lorawan_last_breadcrumb_obj) },
 };
 static MP_DEFINE_CONST_DICT(lorawan_module_globals,
     lorawan_module_globals_table);
@@ -1852,5 +2634,11 @@ const mp_obj_module_t mp_module_lorawan = {
 };
 
 MP_REGISTER_MODULE(MP_QSTR_lorawan, mp_module_lorawan);
+
+/* GC roots for the three Mac callback slots — see HARDFAULT_ZALLOC_2026-05-13.md.
+   Indices: 0=dio1, 1=event, 2=test_timer. Routed via MP_STATE_VM so the
+   collector can see closures held only by the singleton (which lives in .bss
+   and is otherwise invisible to gc_collect_root). */
+MP_REGISTER_ROOT_POINTER(mp_obj_t lorawan_mac_root_callbacks[3]);  /* literal must match LORAWAN_CB_COUNT above */
 
 #endif // MICROPY_HW_LORA_STACK_RENESAS

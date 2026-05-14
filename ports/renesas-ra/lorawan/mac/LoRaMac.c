@@ -55,6 +55,14 @@
 #include "LoRaMac.h"
 #include "LoRaMacConfig.h"
 
+/* mac.send() breadcrumb macro SBC() — see mod_lorawan.h. Foreground
+ * call-path only (LoRaMacMcpsRequest → Send → ScheduleTx → SendFrameOnChannel). */
+#include "mod_lorawan.h"
+
+/* T-V3.1 — Class C RX probe instrumentation. Captures decision points
+ * inside OpenContinuousRxCWindow and the three radio-event handlers. */
+#include "glue/lorawan_rxc_diag.h"
+
 #if defined( LORACOMBO_ENABLED )
     #include "RadioWrapper.h"
     #define LORAMAC_RADIO_INIT( p_radioEvt )    RadioWrapperInit( RADIOWRAP_LORAMODE_LORAWAN, (p_radioEvt) )
@@ -1048,6 +1056,23 @@ static void ProcessRadioRxDone( void )
     MacCtx.McpsIndication.Rssi = rssi;
     MacCtx.McpsIndication.Snr = snr;
     MacCtx.McpsIndication.RxSlot = MacCtx.RxSlot;
+    LORAWAN_RXC_STORE_U8(last_rx_done_slot, (uint8_t)MacCtx.RxSlot);  /* T-V3.1 #12 */
+    /* r13 Phase 1 — slot-id snapshot reset on MLME_JOIN_REQ + close-timestamp. */
+    __atomic_store_n(&lorawan_rxc_diag.last_rx_done_slot_id,
+                     (uint8_t)MacCtx.RxSlot, __ATOMIC_RELAXED);
+    {
+        uint32_t cyc = *(volatile uint32_t *)0xE0001004UL;
+        if( MacCtx.RxSlot == RX_SLOT_WIN_1 )
+        {
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx1_close_cyc,
+                             cyc, __ATOMIC_RELAXED);
+        }
+        else if( MacCtx.RxSlot == RX_SLOT_WIN_2 )
+        {
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx2_close_cyc,
+                             cyc, __ATOMIC_RELAXED);
+        }
+    }
     MacCtx.McpsIndication.Port = 0;
     MacCtx.McpsIndication.Multicast = 0;
     MacCtx.McpsIndication.FramePending = 0;
@@ -1065,7 +1090,8 @@ static void ProcessRadioRxDone( void )
 
     LORAMAC_RADIOSLEEP_RXDONE( 0 );
 
-    if( MacCtx.McpsIndication.RxSlot == RX_SLOT_WIN_1 )
+    if( ( MacCtx.McpsIndication.RxSlot == RX_SLOT_WIN_1 ) ||
+        ( MacCtx.NvmCtx->DeviceClass == CLASS_C ) )
     {
         TimerStop( &MacCtx.RxWindowTimer2 );
     }
@@ -1691,11 +1717,41 @@ static void HandleRadioRxErrorTimeout( LoRaMacEventInfoStatus_t rx1EventInfoStat
 
 static void ProcessRadioRxError( void )
 {
+    LORAWAN_RXC_STORE_U8(last_rx_error_slot, (uint8_t)MacCtx.RxSlot);  /* T-V3.1 #14 */
+    /* r13 Phase 1 — close timestamp for RxError on the active slot. */
+    {
+        uint32_t cyc = *(volatile uint32_t *)0xE0001004UL;
+        if( MacCtx.RxSlot == RX_SLOT_WIN_1 )
+        {
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx1_close_cyc,
+                             cyc, __ATOMIC_RELAXED);
+        }
+        else if( MacCtx.RxSlot == RX_SLOT_WIN_2 )
+        {
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx2_close_cyc,
+                             cyc, __ATOMIC_RELAXED);
+        }
+    }
     HandleRadioRxErrorTimeout( LORAMAC_EVENT_INFO_STATUS_RX1_ERROR, LORAMAC_EVENT_INFO_STATUS_RX2_ERROR );
 }
 
 static void ProcessRadioRxTimeout( void )
 {
+    LORAWAN_RXC_STORE_U8(last_rx_timeout_slot, (uint8_t)MacCtx.RxSlot);  /* T-V3.1 #13 */
+    /* r13 Phase 1 — close timestamp for RxTimeout on the active slot. */
+    {
+        uint32_t cyc = *(volatile uint32_t *)0xE0001004UL;
+        if( MacCtx.RxSlot == RX_SLOT_WIN_1 )
+        {
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx1_close_cyc,
+                             cyc, __ATOMIC_RELAXED);
+        }
+        else if( MacCtx.RxSlot == RX_SLOT_WIN_2 )
+        {
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx2_close_cyc,
+                             cyc, __ATOMIC_RELAXED);
+        }
+    }
     HandleRadioRxErrorTimeout( LORAMAC_EVENT_INFO_STATUS_RX1_TIMEOUT, LORAMAC_EVENT_INFO_STATUS_RX2_TIMEOUT );
 }
 
@@ -2147,6 +2203,10 @@ static void OnRxWindow2TimerEvent( void )
     // If yes, we don't setup the Rx2 window.
     if( MacCtx.RxSlot == RX_SLOT_WIN_1 )
     {
+        /* r13 Phase 1 — cumulative count of RX2 windows skipped because RX1
+         * was still active when the RX2 timer fired. Never reset. */
+        __atomic_fetch_add((uint32_t *)&lorawan_rxc_diag.rx2_skipped_total,
+                           1u, __ATOMIC_RELAXED);
         return;
     }
 
@@ -3018,6 +3078,7 @@ static void ProcessMacCommands( uint8_t *payload, uint8_t macIndex, uint8_t comm
 
 LoRaMacStatus_t Send( LoRaMacHeader_t* macHdr, uint8_t fPort, void* fBuffer, uint16_t fBufferSize )
 {
+    SBC(LWBC_M4);
     LoRaMacFrameCtrl_t fCtrl;
     LoRaMacStatus_t status = LORAMAC_STATUS_PARAMETER_INVALID;
     int8_t datarate = MacCtx.NvmCtx->MacParams.ChannelsDatarate;
@@ -3028,7 +3089,8 @@ LoRaMacStatus_t Send( LoRaMacHeader_t* macHdr, uint8_t fPort, void* fBuffer, uin
     int8_t adrCalcDataRate, adrCalcTxPower;
     uint8_t adrCalcNbTrans;
 
-    // Check if we are joined
+    /* NO_NETWORK_JOINED early return bypasses M5/M6 — clean status path,
+     * not a fault. */
     if( MacCtx.NvmCtx->NetworkActivation == ACTIVATION_TYPE_NONE )
     {
         return LORAMAC_STATUS_NO_NETWORK_JOINED;
@@ -3101,11 +3163,13 @@ LoRaMacStatus_t Send( LoRaMacHeader_t* macHdr, uint8_t fPort, void* fBuffer, uin
 
     // Prepare the frame
     status = PrepareFrame( macHdr, &fCtrl, fPort, fBuffer, fBufferSize );
+    SBC(LWBC_M5);
     frameStatus = status;  // Store the result.
 
     // Validate status
     if( ( status == LORAMAC_STATUS_OK ) || ( status == LORAMAC_STATUS_SKIPPED_APP_DATA ) )
     {
+        SBC(LWBC_M6);
         // Schedule frame, do not allow delayed transmissions
         status = ScheduleTx( false );
     }
@@ -3205,6 +3269,7 @@ static LoRaMacStatus_t CheckForClassBCollision( void )
 
 static LoRaMacStatus_t ScheduleTx( bool allowDelayedTx )
 {
+    SBC(LWBC_M7);
     LoRaMacStatus_t status = LORAMAC_STATUS_PARAMETER_INVALID;
     LoRaMacStatus_t retval = LORAMAC_STATUS_PARAMETER_INVALID;
     NextChanParams_t nextChan;
@@ -3267,14 +3332,32 @@ static LoRaMacStatus_t ScheduleTx( bool allowDelayedTx )
 
     if( status == LORAMAC_STATUS_OK )
     {
+        /* r13-fix — join RX1 only: raise SystemMaxRxError to at least
+         * JOIN_RX1_MAX_RX_ERROR_MS so RX1 opens early enough to catch the
+         * SF7 JoinAccept preamble. Data RX1 and all RX2 paths keep the
+         * configured value. ResetMacParameters() leaves MinRxSymbols /
+         * SystemMaxRxError untouched (they are seeded once at L4351-4352),
+         * so reading them here gives the user-installed value. */
+        uint8_t  rx1_min_sym = MacCtx.NvmCtx->MacParams.MinRxSymbols;
+        uint32_t rx1_max_err = MacCtx.NvmCtx->MacParams.SystemMaxRxError;
+        uint8_t  join_override_used = 0;
+        if( MacCtx.NvmCtx->NetworkActivation == ACTIVATION_TYPE_NONE )
+        {
+            if( rx1_max_err < (uint32_t)JOIN_RX1_MAX_RX_ERROR_MS )
+            {
+                rx1_max_err = (uint32_t)JOIN_RX1_MAX_RX_ERROR_MS;
+                join_override_used = 1;
+            }
+        }
+
         // Compute Rx1 windows parameters
         RegionComputeRxWindowParameters( MacCtx.NvmCtx->Region,
                                          RegionApplyDrOffset( MacCtx.NvmCtx->Region,
                                                               MacCtx.NvmCtx->MacParams.DownlinkDwellTime,
                                                               MacCtx.NvmCtx->MacParams.ChannelsDatarate,
                                                               MacCtx.NvmCtx->MacParams.Rx1DrOffset ),
-                                         MacCtx.NvmCtx->MacParams.MinRxSymbols,
-                                         MacCtx.NvmCtx->MacParams.SystemMaxRxError,
+                                         rx1_min_sym,
+                                         rx1_max_err,
                                          &MacCtx.RxWindow1Config );
         MacCtx.RxWindow1Config.WindowOffset -= LoRaMacGetStackProcessTime( LORAMAC_STACK_PROCTIME_SEL_RX1_ON );
         // Compute Rx2 windows parameters
@@ -3289,6 +3372,34 @@ static LoRaMacStatus_t ScheduleTx( bool allowDelayedTx )
         {
             MacCtx.RxWindow1Delay = MacCtx.NvmCtx->MacParams.JoinAcceptDelay1 + MacCtx.RxWindow1Config.WindowOffset;
             MacCtx.RxWindow2Delay = MacCtx.NvmCtx->MacParams.JoinAcceptDelay2 + MacCtx.RxWindow2Config.WindowOffset;
+            /* r13 Phase 1 — capture WindowTimeout (in SYMBOLS) computed by
+             * Region for the JOIN attempt. Reset by MLME_JOIN_REQ enqueue. */
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_join_rx1_window_timeout_symbols,
+                             (uint32_t)MacCtx.RxWindow1Config.WindowTimeout, __ATOMIC_RELAXED);
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_join_rx2_window_timeout_symbols,
+                             (uint32_t)MacCtx.RxWindow2Config.WindowTimeout, __ATOMIC_RELAXED);
+            /* r13-fix — capture the override decision + effective RX1 inputs
+             * + computed RX1 WindowOffset. WindowOffset captured BEFORE the
+             * stack-process-time subtraction so the gate-arithmetic is
+             * directly verifiable. Saturated to int16 (actual values are a
+             * few tens of ms). */
+            {
+                int32_t wo32 = MacCtx.RxWindow1Config.WindowOffset
+                             + (int32_t)LoRaMacGetStackProcessTime( LORAMAC_STACK_PROCTIME_SEL_RX1_ON );
+                int16_t wo16;
+                if( wo32 >  INT16_MAX ) { wo16 = INT16_MAX; }
+                else if( wo32 < INT16_MIN ) { wo16 = INT16_MIN; }
+                else { wo16 = (int16_t)wo32; }
+                __atomic_store_n(&lorawan_rxc_diag.last_join_used_override_flag,
+                                 join_override_used, __ATOMIC_RELAXED);
+                __atomic_store_n(&lorawan_rxc_diag.last_join_effective_min_rx_symbols,
+                                 rx1_min_sym, __ATOMIC_RELAXED);
+                __atomic_store_n((uint16_t *)&lorawan_rxc_diag.last_join_effective_system_max_rx_error_ms,
+                                 (uint16_t)((rx1_max_err > 0xFFFFu) ? 0xFFFFu : rx1_max_err),
+                                 __ATOMIC_RELAXED);
+                __atomic_store_n((int16_t *)&lorawan_rxc_diag.last_join_rx1_window_offset_ms,
+                                 wo16, __ATOMIC_RELAXED);
+            }
         }
         else
         {
@@ -3330,6 +3441,7 @@ static LoRaMacStatus_t ScheduleTx( bool allowDelayedTx )
         }
         if (retval == LORAMAC_STATUS_OK)
         {
+            SBC(LWBC_M8);
             // Try to send now
             retval = SendFrameOnChannel( MacCtx.Channel );
         }
@@ -3572,6 +3684,22 @@ static void RxWindowSetup( TimerEvent_t* rxTimer, RxConfigParams_t* rxConfig )
     {
         RadioResult_t   result;
 
+        /* r13 Phase 1 — DWT CYCCNT just before Radio.Rx() opens the window.
+         * DWT_CYCCNT (0xE0001004) is enabled in mphalport.c. */
+        {
+            uint32_t cyc = *(volatile uint32_t *)0xE0001004UL;
+            if( rxConfig->RxSlot == RX_SLOT_WIN_1 )
+            {
+                __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx1_open_cyc,
+                                 cyc, __ATOMIC_RELAXED);
+            }
+            else if( rxConfig->RxSlot == RX_SLOT_WIN_2 )
+            {
+                __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx2_open_cyc,
+                                 cyc, __ATOMIC_RELAXED);
+            }
+        }
+
         result = Radio.Rx( MacCtx.NvmCtx->MacParams.MaxRxWindow );
         MacCtx.RxSlot = rxConfig->RxSlot;
 
@@ -3590,9 +3718,20 @@ static void OpenContinuousRxCWindow( void )
 {
     RadioState_t radioStatus;
 
+    LORAWAN_RXC_INC_U16(rxc_open_attempts);  /* T-V3.1 #1 */
+
     radioStatus = Radio.GetStatus();
     if( (radioStatus == RF_RX_RUNNING) || (radioStatus == RF_TX_RUNNING) )
     {
+        /* T-V3.1 #2, #3 — distinguish which busy state caused the skip */
+        if( radioStatus == RF_RX_RUNNING )
+        {
+            LORAWAN_RXC_INC_U16(rxc_open_skipped_rf_rx);
+        }
+        else
+        {
+            LORAWAN_RXC_INC_U16(rxc_open_skipped_rf_tx);
+        }
         return;
     }
 
@@ -3612,6 +3751,13 @@ static void OpenContinuousRxCWindow( void )
     MacCtx.RxWindowCConfig.RxContinuous = false;
 #endif
 
+    /* T-V3.1 #7, #8, #9 — snapshot decision inputs before RegionRxConfig */
+    LORAWAN_RXC_STORE_U32(last_rxc_freq, MacCtx.RxWindowCConfig.Frequency);
+    LORAWAN_RXC_STORE_U8(last_rxc_dr,
+        (uint8_t)MacCtx.NvmCtx->MacParams.RxCChannel.Datarate);
+    LORAWAN_RXC_STORE_U8(last_rxc_continuous,
+        MacCtx.RxWindowCConfig.RxContinuous ? 1u : 0u);
+
     LORAMAC_RADIOWAKEUP_RXC( 0 );
 
     // At this point the Radio should be idle.
@@ -3620,14 +3766,24 @@ static void OpenContinuousRxCWindow( void )
     {
         RadioResult_t   result;
 
+        LORAWAN_RXC_INC_U16(rxc_region_ok);  /* T-V3.1 #4 */
+
         result = Radio.Rx( 0 ); // Continuous mode
         MacCtx.RxSlot = MacCtx.RxWindowCConfig.RxSlot;
 
-        if( result != RADIO_SUCCESS )
+        if( result == RADIO_SUCCESS )
+        {
+            LORAWAN_RXC_INC_U16(rxc_radio_rx_result);  /* T-V3.1 #6 */
+        }
+        else
         {
             // If it fails to set RX mode due to invalid Rx parameter, notify to application layer via callback
             LoRaMacErrorNotify( LORAMAC_ERROR_NOTIFICATION_STATUS_RADIO_CHECK_FAIL_RX_CFG );
         }
+    }
+    else
+    {
+        LORAWAN_RXC_INC_U16(rxc_region_fail);  /* T-V3.1 #5 */
     }
 }
 
@@ -3737,6 +3893,7 @@ LoRaMacStatus_t PrepareFrame( LoRaMacHeader_t* macHdr, LoRaMacFrameCtrl_t* fCtrl
 
 LoRaMacStatus_t SendFrameOnChannel( uint8_t channel )
 {
+    SBC(LWBC_M9);
     TxConfigParams_t txConfig;
     int8_t txPower = 0;
     RadioResult_t       result;
@@ -3793,6 +3950,7 @@ LoRaMacStatus_t SendFrameOnChannel( uint8_t channel )
 
     // Send now
     result = Radio.Send( MacCtx.PktBuffer, MacCtx.PktBufferLen );
+    SBC(LWBC_M10);
 
     if( result == RADIO_SUCCESS )
     {
@@ -4221,7 +4379,13 @@ LoRaMacStatus_t LoRaMacInitialization( LoRaMacPrimitives_t* primitives, LoRaMacC
     // Init parameters which are not set in function ResetMacParameters
     MacCtx.NvmCtx->MacParamsDefaults.ChannelsNbTrans  = 1;
     MacCtx.NvmCtx->MacParamsDefaults.SystemMaxRxError = 10;
-    MacCtx.NvmCtx->MacParamsDefaults.MinRxSymbols     = 6;
+    // Board-default robustness policy for VK_RA4M2 + Wio-SX1262:
+    // MinRxSymbols=6 yields ~6.1 ms RX window at SF7, shorter than the
+    // 8-symbol JoinAccept preamble (~8.2 ms) — chip cannot lock and
+    // every OTAA fails with RX2_TIMEOUT. 24 gives ~24 ms window, safe
+    // across SF7..SF12. Was previously forced via Python boilerplate
+    // mac.set_min_rx_symbols(24). See project_lorawan_otaa_success.
+    MacCtx.NvmCtx->MacParamsDefaults.MinRxSymbols     = 24;
     MacCtx.NvmCtx->MacParamsDefaults.EnableCca        = LORAMAC_ENABLE_CCA_DEFAULT;
 
     MacCtx.NvmCtx->MacParams.SystemMaxRxError = MacCtx.NvmCtx->MacParamsDefaults.SystemMaxRxError;
@@ -6112,6 +6276,22 @@ LoRaMacStatus_t LoRaMacMlmeRequest( MlmeReq_t* mlmeRequest )
 
             queueElement.Status = LORAMAC_EVENT_INFO_STATUS_JOIN_FAIL;
 
+            /* r13 Phase 1 — reset per-JOIN snapshots. rx2_skipped_total
+             * stays cumulative. r13-fix added the 4 override-visibility
+             * fields below; they reset to 0 here and get populated by the
+             * RX-window compute site (see L33xx area in this file). */
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx1_open_cyc,  0u, __ATOMIC_RELAXED);
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx1_close_cyc, 0u, __ATOMIC_RELAXED);
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx2_open_cyc,  0u, __ATOMIC_RELAXED);
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_rx2_close_cyc, 0u, __ATOMIC_RELAXED);
+            __atomic_store_n(&lorawan_rxc_diag.last_rx_done_slot_id,           0u, __ATOMIC_RELAXED);
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_join_rx1_window_timeout_symbols, 0u, __ATOMIC_RELAXED);
+            __atomic_store_n((uint32_t *)&lorawan_rxc_diag.last_join_rx2_window_timeout_symbols, 0u, __ATOMIC_RELAXED);
+            __atomic_store_n(&lorawan_rxc_diag.last_join_used_override_flag,         0u, __ATOMIC_RELAXED);
+            __atomic_store_n(&lorawan_rxc_diag.last_join_effective_min_rx_symbols,   0u, __ATOMIC_RELAXED);
+            __atomic_store_n((uint16_t *)&lorawan_rxc_diag.last_join_effective_system_max_rx_error_ms, 0u, __ATOMIC_RELAXED);
+            __atomic_store_n((int16_t  *)&lorawan_rxc_diag.last_join_rx1_window_offset_ms,             0,  __ATOMIC_RELAXED);
+
             status = SendReJoinReq( JOIN_REQ );
 
             if( status != LORAMAC_STATUS_OK )
@@ -6241,6 +6421,7 @@ LoRaMacStatus_t LoRaMacMlmeRequest( MlmeReq_t* mlmeRequest )
 
 LoRaMacStatus_t LoRaMacMcpsRequest( McpsReq_t* mcpsRequest )
 {
+    SBC(LWBC_M0);
     GetPhyParams_t getPhy;
     PhyParam_t phyParam;
     LoRaMacStatus_t status = LORAMAC_STATUS_SERVICE_UNKNOWN;
@@ -6252,6 +6433,8 @@ LoRaMacStatus_t LoRaMacMcpsRequest( McpsReq_t* mcpsRequest )
     int8_t datarate = DR_0;
     bool readyToSend = false;
 
+    /* Early return mcpsRequest==NULL → LORAMAC_STATUS_PARAMETER_INVALID
+     * bypasses M1 (returns to Python cleanly, no fault path). */
     if( mcpsRequest == NULL )
     {
         return LORAMAC_STATUS_PARAMETER_INVALID;
@@ -6261,10 +6444,12 @@ LoRaMacStatus_t LoRaMacMcpsRequest( McpsReq_t* mcpsRequest )
     // return a valid value in case the MAC is busy.
     mcpsRequest->ReqReturn.DutyCycleWaitTime = 0;
 
+    /* BUSY early return bypasses M1 too — also a clean status path. */
     if( LoRaMacIsBusy( ) == true )
     {
         return LORAMAC_STATUS_BUSY;
     }
+    SBC(LWBC_M1);
 
     macHdr.Value = 0;
     memset1( ( uint8_t* ) &MacCtx.McpsConfirm, 0, sizeof( MacCtx.McpsConfirm ) );
@@ -6315,6 +6500,7 @@ LoRaMacStatus_t LoRaMacMcpsRequest( McpsReq_t* mcpsRequest )
         getPhy.Attribute = PHY_MIN_TX_DR;
         getPhy.UplinkDwellTime = MacCtx.NvmCtx->MacParams.UplinkDwellTime;
         phyParam = RegionGetPhyParam( MacCtx.NvmCtx->Region, &getPhy );
+        SBC(LWBC_M2);
         // Apply the minimum possible datarate.
         // Some regions have limitations for the minimum datarate.
         datarate = R_MAX( datarate, ( int8_t )phyParam.Value );
@@ -6351,6 +6537,7 @@ LoRaMacStatus_t LoRaMacMcpsRequest( McpsReq_t* mcpsRequest )
                                       MacCtx.ResponseTimeoutStartTime );
 #endif
 
+        SBC(LWBC_M3);
         status = Send( &macHdr, fPort, fBuffer, fBufferSize );
         if( ( status == LORAMAC_STATUS_OK ) || (status == LORAMAC_STATUS_SKIPPED_APP_DATA) )
         {

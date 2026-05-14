@@ -38,6 +38,7 @@
 #include "board.h"
 #include "r_radio_region_api.h"
 #include "timer-board.h"
+#include "glue/lorawan_rxc_diag.h"  /* T-V3.1 — caller timeout + SX126xSetRx* literal capture */
 
 /*!
  *  (RA0E1 and RA0E2)
@@ -1574,6 +1575,8 @@ RadioResult_t RadioRx( uint32_t timeout )
 {
     RadioResult_t retVal = RADIO_SUCCESS;
 
+    LORAWAN_RXC_STORE_U32(last_radio_rx_timeout_arg_caller, timeout);  /* T-V3.1 #10 */
+
     #if defined( RP_USE_RADIO_CFG_CHECK )
     if( PibValues.radioCfgCheckEnable )
     {
@@ -1605,10 +1608,13 @@ RadioResult_t RadioRx( uint32_t timeout )
     if( RxContinuous == true )
     {
         SX126xSetRxTxFallbackMode( FB_FS );
-        SX126xSetRx( 0x0 ); // No timeout. Rx Single mode.
+        LORAWAN_RXC_STORE_U32(last_radio_rx_timeout_arg, 0xFFFFFFu);  /* T-V3.1 #11 */
+        SX126xSetRx( 0xFFFFFF ); // Rx Continuous (0xFFFFFF magic per sx126x.c:277).
     }
     else
     {
+        LORAWAN_RXC_STORE_U32(last_radio_rx_timeout_arg,
+                              ((uint32_t)RxTimeout) << 6);  /* T-V3.1 #11 */
         SX126xSetRx( RxTimeout << 6 );
     }
 
@@ -1621,6 +1627,12 @@ RadioResult_t RadioRx( uint32_t timeout )
 
 void RadioRxBoosted( uint32_t timeout )
 {
+    /* T-V3.1 #10 — also capture caller arg when boosted path is taken
+     * directly. RadioRx() forwards through here when PibValues.gainBoosted,
+     * so the caller-arg store at RadioRx entry has already fired in that
+     * path; redundant write is intentional for direct callers. */
+    LORAWAN_RXC_STORE_U32(last_radio_rx_timeout_arg_caller, timeout);
+
     SX126xSetDioIrqParams( IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT | IRQ_CRC_ERROR,
                            IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT | IRQ_CRC_ERROR,
                            IRQ_RADIO_NONE,
@@ -1635,10 +1647,13 @@ void RadioRxBoosted( uint32_t timeout )
     if( RxContinuous == true )
     {
         SX126xSetRxTxFallbackMode( FB_FS );
-        SX126xSetRxBoosted( 0x0 ); // No timeout. Rx Single mode.
+        LORAWAN_RXC_STORE_U32(last_radio_rx_timeout_arg, 0xFFFFFFu);  /* T-V3.1 #11 */
+        SX126xSetRxBoosted( 0xFFFFFF ); // Rx Continuous (0xFFFFFF magic per sx126x.c:277).
     }
     else
     {
+        LORAWAN_RXC_STORE_U32(last_radio_rx_timeout_arg,
+                              ((uint32_t)RxTimeout) << 6);  /* T-V3.1 #11 */
         SX126xSetRxBoosted( RxTimeout << 6 );
     }
 }
@@ -1883,6 +1898,16 @@ bool RadioIrqProcess( void )
             }
             SX126xGetPayload( RadioRxPayload, &size , 255 );
             SX126xGetPacketStatus( &RadioPktStatus );
+
+            if ( PACKET_TYPE_LORA == RadioPktStatus.packetType ) {
+                // sx126x.c GetPacketStatus already converts to dBm / dB —
+                // don't re-apply datasheet §13.5.3 formula. Pass-through.
+                int8_t rssi_dbm = (int8_t)RadioPktStatus.Params.LoRa.RssiPkt;
+                int8_t snr_db   = (int8_t)RadioPktStatus.Params.LoRa.SnrPkt;
+                __atomic_store_n(&lorawan_rxc_diag.last_rx_rssi_dbm,   rssi_dbm, __ATOMIC_RELAXED);
+                __atomic_store_n(&lorawan_rxc_diag.last_rx_snr_db,     snr_db,   __ATOMIC_RELAXED);
+                __atomic_store_n(&lorawan_rxc_diag.last_rx_stats_valid, 1u,      __ATOMIC_RELAXED);
+            }
 
             if ( ( ( irqRegs & IRQ_CRC_ERROR ) != IRQ_CRC_ERROR ) || (PibValues.callRxDoneInPayloadCrcError == true) )
             {

@@ -77,6 +77,25 @@
     #endif
 
 /*!
+ * r13 — Join-only RX1 early-open margin (milliseconds).
+ *
+ * Applied via MAX() against MacParams.SystemMaxRxError at JoinAccept RX1
+ * compute (see LoRaMac.c around the RegionComputeRxWindowParameters call
+ * gated on NetworkActivation == ACTIVATION_TYPE_NONE). The override is
+ * RX1-only; RX2 keeps the configured SystemMaxRxError so the SF12 fallback
+ * window does not widen unnecessarily.
+ *
+ * Empirical basis: SF7 JoinAcceptDelay1=5000 ms scheduling on the bench
+ * showed RX1 opening ~92 ms after the gateway JoinAccept preamble ended.
+ * 100 ms gives ~90 ms earlier RX1 open at MinRxSymbols=24 and matches the
+ * P-C-100 probe that succeeded 5/5 cold OTAA joins.
+ *
+ * MAX() against MacParams.SystemMaxRxError so a Python-side user override
+ * via mac.set_max_rx_error(N>100) still wins.
+ */
+#define JOIN_RX1_MAX_RX_ERROR_MS            (100u)
+
+/*!
  * Processing time for downlink (from TxDone to start RxON)
  */
 #if defined(__RA0E1__)
