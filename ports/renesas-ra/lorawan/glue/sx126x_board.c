@@ -42,6 +42,7 @@
 
 #include "glue/sx126x_board.h"
 #include "glue/lorawan_stats.h"
+#include "glue/lorawan_pump.h"
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
@@ -172,7 +173,9 @@ typedef struct {
     void (*dio1_c_handler)(void);
     bool  dio1_irq_active;
     uint8_t dio1_irq_no;
-    mp_sched_node_t dio1_sched_node;
+    /* Phase 7 — dio1_sched_node was the trampoline anchor for the old
+       mp_sched_schedule_node path. The single scheduling path is now
+       lorawan_driver_request_pump(); the field is removed. */
 
     // Optional BUSY pin falling-edge IRQ (Phase 2). AD5.6 folded the
     // legacy busy_low_seen flag into SPI_CMPL_BUSY_LOW — wait-on-flag is
@@ -185,6 +188,38 @@ typedef struct {
 } sx126x_state_t;
 
 static sx126x_state_t s_state;
+
+/* Phase 7 — DIO1 ISR breadcrumbs consumed by the guarded pump body in
+   lorawan_pump.c. Single-writer (hard ISR) / single-reader (pump body,
+   scheduler ctx). The seq counter is bumped unconditionally on every
+   ISR so the consumer can compute (s_dio1_isr_seq - s_dio1_pump_seen_seq)
+   to detect late drains, and t0_dwt is the DWT->CYCCNT snapshot at ISR
+   entry that closes the dio1_to_pump_us latency histogram. */
+static volatile uint32_t s_dio1_t0_dwt;
+static volatile uint32_t s_dio1_isr_seq;
+
+void lorawan_dio1_state_get(uint32_t *out_t0_dwt, uint32_t *out_isr_seq) {
+    if (out_t0_dwt != NULL) {
+        *out_t0_dwt = s_dio1_t0_dwt;
+    }
+    if (out_isr_seq != NULL) {
+        *out_isr_seq = s_dio1_isr_seq;
+    }
+}
+
+/* Phase 8 Edit C — cached 5-byte SetRx command. Refreshed on every opcode
+   0x82 SPI write inside sx126x_spi_xfer (see 0x82 detection block ~L520).
+   Phase 8 is observation-only: the cache is written but never consumed —
+   the actual SetRx still routes through the SPI transport. Phase 11 RFC
+   will add a hard-ISR DTC consumer that fast-starts SetRx without going
+   through the full SPI helper. At that point an invalidation matrix is
+   required for radio-config opcodes (0x86 SetRfFrequency, 0x88 SetMod-
+   Params, 0x8A SetPacketParams, 0x9F SetLoRaSymbNumTimeout) — none of
+   which Phase 8 touches. Single-writer (SPI path) / single-reader
+   (Phase 11 hard ISR); a plain volatile buffer is race-safe under the
+   s_spi_xfer_busy gate. */
+static volatile uint8_t s_setrx_cmd_buf[5];
+static volatile uint8_t s_setrx_cmd_ready;
 
 // Internal: assert/deassert NSS, abstracted so the SPI helper stays clean.
 static inline void cs_low(void)  { mp_hal_pin_low((mp_hal_pin_obj_t)s_state.cs); }
@@ -223,8 +258,6 @@ void sx126x_board_init(const sx126x_board_cfg_t *cfg) {
     s_state.busy_irq_active = false;
     s_state.busy_irq_no = 0xFF;
     s_state.interbyte_us = LORAWAN_SX126X_INTERBYTE_US_DEFAULT;
-    s_state.dio1_sched_node.next = NULL;
-    s_state.dio1_sched_node.callback = NULL;
 
     // RF switch enable BEFORE SPI init (matches lorawan_app.py:1056).
     if (s_state.rf_sw != NULL) {
@@ -458,7 +491,7 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
     /* Re-entrancy refused. Caller (deferred DIO1 dispatch) should bail and
        leave its work for the next scheduler tick — by then outer SPI is done. */
     if (s_spi_xfer_busy) {
-        STATS_INC(sx126x_spi_busy_reject_count);
+        STATS_INC(spi_nested_reject_count);
         return -MP_EBUSY;
     }
     s_spi_xfer_busy = true;
@@ -500,14 +533,61 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
            identically; (c) timeout branch keeps busy_timeout_count +
            busy_timeout_opcode co-located, the #ifndef LORAWAN_OBSERVATION_
            DISABLE _busy_dt block, and clears s_spi_xfer_busy before
-           returning -MP_ETIMEDOUT; (d) s_rx_window_active = 1 for opcode
-           0x82 (SetRx) preserved verbatim. */
+           returning -MP_ETIMEDOUT.
+       Phase 8 — invariant (d) (s_rx_window_active = 1u on opcode 0x82)
+       is REMOVED here. Provenance moved into
+       lorawan_pump_stamp_rx1_arm_t0() in lorawan_pump.c, which is
+       invoked from timer_board.c TimerStart on the RX1-callback-match
+       branch — that fires ~1-2 ms earlier (at the moment MAC commits to
+       opening the RX window). Earlier set widens the NVM-deferral
+       window — strictly safer (more deferrals, never wrong ones). The
+       set lives in the stamp helper rather than TimerStart itself so
+       non-RX1 timers (AckTimeout, TxDelayed) do not raise the flag.
+       See Edit B1 / B2 in the Phase 8 commit and the reader-audit RESP. */
     {
         /* (a) Opcode latch — single-writer here (s_spi_xfer_busy == true). */
         STATS_SET_OPCODE(busy_last_opcode, s_tx_buf[0]);
-        /* (d) SetRx (0x82) arms an RX window — see Phase 1 Step 10/10.5. */
+
+        /* Phase 8 Edit A — opcode 0x82 SetRx. Close the
+           rx1_arm_to_setrx_us histogram pair (t0 stamped by TimerStart
+           in timer_board.c), then cache the 5-byte command for the
+           Phase 11 hard-ISR DTC fast-start consumer.
+
+           Order matters: sample t1 BEFORE any of the BUSY-wait work
+           below, so the histogram captures the TimerStart → SetRx
+           dispatch latency without contamination from this SPI call's
+           own pre-CS busy poll. The cache memcpy uses cmd_len + 4
+           data bytes — upstream SX126xSetRx calls into SX126xWriteCommand
+           with cmd_len=1 and 4 data bytes ({t23, t15, t07, timeout_stop_
+           type}), totalling exactly 5 bytes in s_tx_buf at this point
+           (s_tx_buf assembly at the top of the function already copied
+           cmd[0..cmd_len-1] then data_out[0..data_len-1]). */
         if (s_tx_buf[0] == 0x82u) {
-            s_rx_window_active = 1u;
+            uint32_t t1 = DWT->CYCCNT;
+            uint32_t t0 = lorawan_pump_consume_rx1_arm_t0();
+            if (t0 != 0u) {
+                /* Match lorawan_pump.c cyc_to_us rounding: +50 then /100
+                   for DWT @ 100 MHz. Inlined here so the histogram path
+                   stays one TU; the helper itself is file-private. */
+                uint32_t dt_us = (t1 - t0 + 50u) / 100u;
+                lorawan_pump_observe_rx1_arm_to_setrx_us(dt_us);
+            }
+            /* Cache the SetRx command. Phase 8 ships this as
+               observation-only — no Phase 8 consumer; Phase 11 RFC adds
+               the hard-ISR DTC start. SX126xSetRx writes opcode 0x82 +
+               3 bytes timeout = 4 bytes total (sx126x.c:362-377). The
+               5th slot (timeout-stop-type) is reserved for Phase 11. */
+            if (total_len >= 4u) {
+                /* volatile destination via byte copy to avoid the
+                   memcpy-with-volatile-arg warning some toolchains emit. */
+                s_setrx_cmd_buf[0] = s_tx_buf[0];
+                s_setrx_cmd_buf[1] = s_tx_buf[1];
+                s_setrx_cmd_buf[2] = s_tx_buf[2];
+                s_setrx_cmd_buf[3] = s_tx_buf[3];
+                s_setrx_cmd_buf[4] = s_tx_buf[4];
+                s_setrx_cmd_ready = 1u;
+                lorawan_pump_observe_setrx_cmd_cache();
+            }
         }
 
         /* R4 dead-letter: clear stale SPI_CMPL_BUSY_LOW AND SPI_CMPL_TIMEOUT
@@ -523,6 +603,11 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
         const uint32_t pre_cs_budget_ms = sx126x_busy_timeout_ms_for_opcode(s_tx_buf[0]);
         STATS_INC(busy_wait_count);
         LORAWAN_BUSY_TIMING_BEGIN();
+        /* Phase 7 cleanup — DWT-stamp pre-CS BUSY-wait worst case µs.
+           Outer fence so the no-wait path (busy already low at entry)
+           still contributes a zero-length sample tracked in the same
+           field as the wait path. */
+        uint32_t t_busy_enter = DWT->CYCCNT;
         if (busy_high()) {
             uint32_t start = mp_hal_ticks_ms();
             while (!(s_spi_completion_flag & SPI_CMPL_BUSY_LOW)) {
@@ -545,11 +630,26 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
                     STATS_UPDATE_MAX(spi_stage_pre_busy_max_us, _busy_dt);  /* AD5.7 */
 #endif
                     s_spi_completion_flag |= SPI_CMPL_TIMEOUT;
+                    /* Phase 7 cleanup — observe the wait µs on the timeout
+                       leg too so a stuck-BUSY event surfaces in pump_diag. */
+                    {
+                        uint32_t t_busy_exit = DWT->CYCCNT;
+                        uint32_t busy_us = (t_busy_exit - t_busy_enter + 50u) / 100u;
+                        lorawan_pump_observe_spi_busy_wait_us(busy_us);
+                    }
                     s_spi_xfer_busy = false;
                     return -MP_ETIMEDOUT;
                 }
-                mp_handle_pending(true);
+                /* Phase 7 — drain deferred MP events only; do not run Python
+                   bytecodes from the SPI BUSY-wait so the DIO1 -> guarded-pump
+                   path no longer races against an opaque dispatch-budget tail. */
+                mp_event_handle_nowait();
             }
+        }
+        {
+            uint32_t t_busy_exit = DWT->CYCCNT;
+            uint32_t busy_us = (t_busy_exit - t_busy_enter + 50u) / 100u;
+            lorawan_pump_observe_spi_busy_wait_us(busy_us);
         }
         LORAWAN_BUSY_TIMING_END(busy_wait_last_us, busy_wait_max_us);
 #ifndef LORAWAN_OBSERVATION_DISABLE
@@ -578,12 +678,22 @@ static int sx126x_spi_xfer(const uint8_t *cmd, uint16_t cmd_len,
 #endif
     (void)ra_sci_spi_submit(s_state.spi_id, s_tx_buf, s_rx_buf, total_len,
                             sx126x_dtc_done_cb, NULL);
+    /* Phase 7 cleanup — DWT-stamp the DTC-yield wait. Same worst-case
+       field as the pre-CS path (operator-spec'd: one number across both
+       sites). */
+    uint32_t t_dtc_enter = DWT->CYCCNT;
     while (!(s_spi_completion_flag & SPI_CMPL_DTC_DONE)) {
         if ((uint32_t)(mp_hal_ticks_ms() - _dtc_start_ms) > SX126X_BUSY_TIMEOUT_MS) {
             s_spi_completion_flag |= SPI_CMPL_TIMEOUT;
             break;
         }
-        mp_handle_pending(true);
+        /* Phase 7 — drain deferred MP events only (see pre-CS BUSY-wait). */
+        mp_event_handle_nowait();
+    }
+    {
+        uint32_t t_dtc_exit = DWT->CYCCNT;
+        uint32_t dtc_us = (t_dtc_exit - t_dtc_enter + 50u) / 100u;
+        lorawan_pump_observe_spi_busy_wait_us(dtc_us);
     }
 #ifndef LORAWAN_OBSERVATION_DISABLE
     /* AD5.7 — DTC stage delta. Both success and timeout paths produce a
@@ -768,23 +878,33 @@ uint8_t SX126xGetDeviceId(void) {
     return SX1262;
 }
 
-// ---- DIO1 IRQ wiring (Phase 2 — direct ICU registration) ----------------
-//
-// Path: DIO1 (P015) rising edge → ICU hard IRQ → dio1_icu_isr() (this
-// file) sets a flag and posts mp_sched_schedule_node → MicroPython
-// scheduler invokes dio1_sched_dispatch() between bytecodes →
-// `s_state.dio1_c_handler()` runs in scheduler context.
-//
-// The hard IRQ does NOT call the user callback directly. Hard-IRQ context
-// cannot allocate, cannot touch GC, cannot run Python. The scheduler-
-// context dispatch lifts the boundary cleanly.
-
-static void dio1_sched_dispatch(mp_sched_node_t *node) {
-    (void)node;
+void sx126x_board_dispatch_dio1_irq(void) {
+    /* Phase 7 cleanup — DWT-stamp the RadioOnDioIrq() body so the worst-
+       case dispatch µs is observable from mac.pump_diag(). DWT @ 100 MHz
+       per VK_RA4M2 clock tree; +50 rounding matches lorawan_pump.c's
+       cyc_to_us(). */
+    uint32_t t_enter = DWT->CYCCNT;
     if (s_state.dio1_c_handler != NULL) {
         s_state.dio1_c_handler();
     }
+    uint32_t t_exit = DWT->CYCCNT;
+    uint32_t delta_us = (t_exit - t_enter + 50u) / 100u;
+    lorawan_pump_observe_dio1_dispatch_us(delta_us);
 }
+
+// ---- DIO1 IRQ wiring (Phase 7 — guarded-pump handshake) -----------------
+//
+// Path: DIO1 (P015) rising edge → ICU hard IRQ → dio1_icu_isr() stamps
+// t0 / bumps seq / sets s_radio_irq_pending → lorawan_driver_request_pump
+// (REASON_DIO1) → MicroPython scheduler dispatches the pump trampoline
+// → pump body consumes the pending flag, calls RadioOnDioIrq() BEFORE
+// LoRaMacProcess() so the stack sees the radio IRQ on this pass.
+//
+// The hard IRQ does NOT call the user callback directly. Hard-IRQ context
+// cannot allocate, cannot touch GC, cannot run Python. The pump body's
+// scheduler-context dispatch lifts the boundary cleanly. The old
+// dio1_sched_dispatch trampoline is gone — the single scheduling path is
+// now lorawan_driver_request_pump() which owns scheduler registration.
 
 /* ISR re-entry depth counter — written only by dio1_icu_isr itself. A
    non-zero hard_isr_dio1_reentry_count means a higher-priority IRQ
@@ -806,11 +926,23 @@ static void dio1_icu_isr(void *param) {
         STATS_INC(hard_isr_dio1_reentry_count);
     }
     s_dio1_isr_depth = (uint8_t)(prev + 1);
+
+    /* Phase 7 — stamp t0 anchor and bump race-detection seq BEFORE the
+       pending-flag publish so the pump body always sees a consistent
+       (t0, seq) pair for this ISR instance. DWT->CYCCNT @ 100 MHz; the
+       pump body converts cycles -> us. */
+    uint32_t t0 = DWT->CYCCNT;
+    s_dio1_t0_dwt = t0;
+    s_dio1_isr_seq++;
+    s_radio_irq_pending = 1u;
+
     STATS_INC(hard_isr_dio1_count);
     LORAWAN_ISR_CYCLES_BEGIN();
 
-    // Runs in hard IRQ context. Defer to scheduler.
-    (void)mp_sched_schedule_node(&s_state.dio1_sched_node, dio1_sched_dispatch);
+    /* Single scheduling path: guarded pump. The pump body consumes
+       s_radio_irq_pending in safe context and dispatches RadioOnDioIrq
+       BEFORE LoRaMacProcess so the stack sees the IRQ on this pass. */
+    lorawan_driver_request_pump(LORAWAN_PUMP_REASON_DIO1);
 
     LORAWAN_ISR_CYCLES_END(hard_isr_dio1_cycles_max);
     s_dio1_isr_depth = prev;
@@ -992,6 +1124,13 @@ uint8_t sx126x_board_get_interbyte_us(void) {
    actually configured for SPI(3). */
 uint8_t sx126x_board_get_spi_id(void) {
     return s_state.spi_id;
+}
+
+/* Phase 4 — defer probe for the guarded C pump (lorawan_pump.c). Exposes
+   the s_spi_xfer_busy re-entry flag so the pump can skip a Radio.IrqProcess
+   pass that would just hit the spi_nested_reject_count gate anyway. */
+bool sx126x_board_spi_busy(void) {
+    return s_spi_xfer_busy;
 }
 
 /* Debug — perform a single 1-byte exchange via ra_sci_spi_transfer at

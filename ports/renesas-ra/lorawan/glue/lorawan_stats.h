@@ -79,7 +79,11 @@ typedef struct lorawan_stats {
     uint32_t spi_xfer_count;
     uint32_t spi_max_len;
     uint32_t spi_one_byte_count;
-    uint32_t sx126x_spi_busy_reject_count;
+    /* incremented on s_spi_xfer_busy re-entry (formerly named
+       sx126x_spi_busy_reject_count). Renamed in Phase 4 of the clean-port
+       effort to clarify that this is a nested-call rejection, not a chip
+       BUSY-line condition. */
+    uint32_t spi_nested_reject_count;
     /* AD5.7 — per-stage micro-timing. spi_stage_pre_busy_max_us and
        spi_stage_post_busy_max_us separate the busy_wait_max_us aggregate
        (pre-CS + post-CS) into its two contributors so cycle-budget
@@ -140,6 +144,15 @@ typedef struct lorawan_stats {
     uint32_t nvm_save_call_us;
     uint32_t nvm_save_done_us;
     uint32_t nvm_save_in_rx_window_count;
+
+    /* group: mcps — Phase 4 declares storage + zero-init only. Increment
+       sites land in Phase 10 (operator decision 9). All five fields read
+       0 in Phase 4 builds; getters exist via mac.pump_diag(). */
+    uint32_t mcps_indication_queued_count;
+    uint32_t mcps_indication_dropped_count;
+    uint32_t mcps_indication_queue_high_water;
+    uint32_t event_cb_drain_count;
+    uint32_t event_cb_drain_reentry_skip_count;
 } lorawan_stats_t;
 
 extern volatile lorawan_stats_t g_lorawan_stats;

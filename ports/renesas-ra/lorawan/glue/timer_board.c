@@ -35,7 +35,16 @@
 #include "ra/ra_timer.h"
 #include "glue/timer_board.h"
 #include "glue/lorawan_stats.h"
+#include "glue/lorawan_pump.h"
 #include "mac/LoRaMac.h"
+
+/* Direct DWT->CYCCNT access — mirrors lorawan_pump.c convention so we
+   don't pull a CMSIS header into the timer TU. DWT init is owned by
+   lorawan_stats_dwt_init() in mod_lorawan.c (called from the lorawan.Mac
+   constructor before timer_board_init), so the counter is guaranteed
+   to be ticking by the time TimerStart() can run. */
+#define LORAWAN_DWT_CYCCNT_ADDR  (0xE0001004u)
+#define LORAWAN_DWT_CYCCNT       (*(volatile uint32_t *)LORAWAN_DWT_CYCCNT_ADDR)
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
@@ -71,6 +80,57 @@ typedef struct {
 static timer_ext_slot_t s_ext[LORAWAN_TIMER_EXT_SLOTS];
 
 #define LORAWAN_AGT5_HANDOFF_MS  (5u)
+
+/* Phase 6 — Strategy B (TimerInit-intercept) callback capture.
+ *
+ * Why Strategy B: OnRxWindow1TimerEvent is declared `static` in
+ * mac/LoRaMac.c (L516 / L2182). Strategy A (`extern void
+ * OnRxWindow1TimerEvent(void);`) cannot link against a static
+ * upstream symbol, and Phase 6 forbids touching mac/. So we capture
+ * the callback pointer by ordinal at TimerInit() time.
+ *
+ * Init ordering contract: LoRaMacInitialization (mac/LoRaMac.c L4417-
+ * 4420) issues four TimerInit calls in fixed source order before the
+ * radio is brought up:
+ *   ordinal 0 : OnTxDelayedTimerEvent
+ *   ordinal 1 : OnRxWindow1TimerEvent  <-- our target
+ *   ordinal 2 : OnRxWindow2TimerEvent
+ *   ordinal 3 : OnAckTimeoutTimerEvent
+ * Trade-off: robust to upstream symbol renames; fragile to upstream
+ * MAC init reordering. If that order ever changes, the histogram will
+ * silently stamp the wrong timer — guarded by Phase 8's t1 consumer
+ * landing on the SetRx opcode, which will refuse to record a sample if
+ * the captured pointer doesn't actually fire RX1.
+ *
+ * State reset: s_rx1_cb_capture_count is zeroed in timer_board_init()
+ * before the LoRaMac init runs, so a soft-reset / re-init lifecycle
+ * picks up a fresh capture each time. */
+static void (*s_rx_window1_callback)(void);
+static uint8_t s_rx1_cb_capture_count;
+
+/* Phase 6 instrumentation (p6-instrument-001) — TimerInit ordinal log.
+   Populated inside TimerInit() in source-order of every non-NULL callback,
+   capped at 8 entries. QA compares these against objdump addresses of the
+   upstream OnRxWindow{1,2}TimerEvent / OnAckTimeoutTimerEvent /
+   OnTxDelayedTimerEvent symbols to falsify H1 (ordinal-1 = RX1 heuristic).
+   Cleared in TimerInternalInit() so a soft-reset / re-init picks up a
+   fresh capture. */
+static void  *s_timer_init_ordinals[8];
+static uint8_t s_timer_init_ordinal_idx;
+
+/* Phase 6 P3 probe (p6-instrument-002). Pointers passed to TimerStart()
+   in the order TimerStart is called. Wraps at 8. Used to compare against
+   the OnRxWindow1TimerEvent runtime address (0x40989 with Thumb bit) to
+   decide whether RX1 is ever armed. */
+static uint32_t s_timerstart_callback_log[8];
+static volatile uint32_t s_timerstart_log_head;
+
+/* Phase 6 P3 probe — pointers invoked inside timer_dispatch_cb's
+   matched-callback walk, in order. Wraps at 8. Discriminates H5
+   (subscribe-hook compare broken) vs H6 (MAC never reaches RX1
+   TimerStart due to LoRaMacProcess starvation). */
+static uint32_t s_timer_dispatch_callback_log[8];
+static volatile uint32_t s_timer_dispatch_log_head;
 
 // Helper: enter/leave critical section.
 static inline mp_uint_t enter_critical(void) {
@@ -138,6 +198,38 @@ static void timer_dispatch_cb(mp_sched_node_t *node) {
     slot->in_use = false;
     slot->evt = NULL;
     if (evt != NULL && evt->Callback != NULL) {
+        /* Phase 6 P3 (p6-instrument-002) — log the callback pointer
+           being dispatched. Pairs with s_timerstart_callback_log so
+           QA can verify which timers actually fire vs which got armed. */
+        s_timer_dispatch_callback_log[s_timer_dispatch_log_head & 7] =
+            (uint32_t)(uintptr_t)evt->Callback;
+        s_timer_dispatch_log_head++;
+        /* Phase 8 t0 RELOCATE — stamp t0 + arm s_rx_window_active at the
+           callback-entry moment, not at TimerStart. This is the moment
+           the RX1 timer FIRED, not when it was armed. The dispatch
+           responsiveness from this point to SetRx 0x82 is what the
+           rx1_arm_to_setrx_us metric measures (HARD gate p99 ≤ 2000 µs).
+           Stamping at TimerStart yielded ~RX1_DELAY (~5 s for join) per
+           sample — useless for the gate. Helper sets s_rx_window_active=1u
+           inside itself, so the NVM-deferral flag also moves to this
+           site (single provenance: callback-entry only). */
+        if (evt->Callback == s_rx_window1_callback) {
+            lorawan_pump_stamp_rx1_arm_t0(LORAWAN_DWT_CYCCNT);
+        }
+        /* Phase 6 — TIMER reason pump request. The AGT4/AGT5 ISR posts
+           this trampoline into mp_sched (see dispatch_post()); we run
+           in scheduler-tail context here, NOT hard ISR. The callback
+           we are about to invoke is OnRx{Window1,Window2}TimerEvent /
+           OnTxDelayedTimerEvent / OnAckTimeoutTimerEvent — each sets a
+           MAC-internal flag that LoRaMacProcess() must drain. Option
+           (i) — request BEFORE invoking the callback — keeps the pump
+           edge anchored to the timer-fire moment regardless of how
+           much wall time the callback itself takes. Option (ii) (after
+           the callback) was rejected: it conflates timer-fire latency
+           with callback-body latency in the dispatch histogram, and
+           re-requests on every callback bodily traversing the deadline
+           list, which is more invasive. */
+        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_TIMER);
         evt->Callback();
     }
 }
@@ -308,6 +400,17 @@ void TimerInternalInit(void) {
         s_dispatch_pool[i].in_use = false;
         s_dispatch_pool[i].evt = NULL;
     }
+    /* Phase 6 — clear the Strategy B capture so the next
+       LoRaMacInitialization pass picks up the fresh RX1 callback
+       address at ordinal 1. */
+    s_rx_window1_callback = NULL;
+    s_rx1_cb_capture_count = 0;
+    memset(s_timer_init_ordinals, 0, sizeof(s_timer_init_ordinals));
+    s_timer_init_ordinal_idx = 0;
+    memset(s_timerstart_callback_log, 0, sizeof(s_timerstart_callback_log));
+    s_timerstart_log_head = 0;
+    memset(s_timer_dispatch_callback_log, 0, sizeof(s_timer_dispatch_callback_log));
+    s_timer_dispatch_log_head = 0;
 }
 
 void timer_board_init(void) {
@@ -385,6 +488,59 @@ void TimerInit(TimerEvent_t *obj, void (*callback)(void)) {
         ext->fine_us = 0;
         ext->precision = false;
     }
+    /* Phase 6 — Strategy B ordinal-1 capture. The first TimerInit call
+       in a fresh init pass is TxDelayedTimer; the second is the RX1
+       timer (mac/LoRaMac.c L4417-4418). Capture only the first one we
+       see at ordinal 1, then stop incrementing so radio.c's later
+       TimerInit calls (TxTimeoutTimer, RxTimeoutTimer) cannot displace
+       the captured pointer. NULL callbacks are skipped — a no-op
+       TimerInit shouldn't shift the ordinal. */
+    if (callback != NULL && s_rx_window1_callback == NULL) {
+        if (s_rx1_cb_capture_count == 1u) {
+            s_rx_window1_callback = callback;
+        }
+        if (s_rx1_cb_capture_count < 4u) {
+            s_rx1_cb_capture_count++;
+        }
+    }
+    /* Phase 6 instrumentation (p6-instrument-001) — log every non-NULL
+       TimerInit callback in source-order, capped at 8 slots, for QA
+       cross-check against objdump-derived symbol addresses. Independent
+       of the ordinal-1 capture above — that one stops once latched; this
+       one keeps logging up to the cap so we can see what came after. */
+    if (callback != NULL && s_timer_init_ordinal_idx < 8u) {
+        s_timer_init_ordinals[s_timer_init_ordinal_idx++] = (void *)callback;
+    }
+}
+
+uint8_t lorawan_timer_init_log_get(uintptr_t *out, uint8_t cap) {
+    if (out == NULL || cap == 0u) {
+        return 0u;
+    }
+    uint8_t n = s_timer_init_ordinal_idx;
+    if (n > 8u) {
+        n = 8u;
+    }
+    if (n > cap) {
+        n = cap;
+    }
+    for (uint8_t i = 0; i < n; i++) {
+        out[i] = (uintptr_t)s_timer_init_ordinals[i];
+    }
+    return n;
+}
+
+void lorawan_timer_logs_get(uint32_t *out_ts, uint32_t *out_disp) {
+    if (out_ts != NULL) {
+        for (uint8_t i = 0; i < 8u; i++) {
+            out_ts[i] = s_timerstart_callback_log[i];
+        }
+    }
+    if (out_disp != NULL) {
+        for (uint8_t i = 0; i < 8u; i++) {
+            out_disp[i] = s_timer_dispatch_callback_log[i];
+        }
+    }
 }
 
 void TimerSetValue(TimerEvent_t *obj, uint32_t value_ms) {
@@ -424,6 +580,21 @@ void TimerStart(TimerEvent_t *obj) {
     obj->Next = (TimerEvent_t *)s_timer_list;
     s_timer_list = obj;
     obj->IsRunning = true;
+    /* Phase 6 P3 (p6-instrument-002) — log every TimerStart callback
+       pointer regardless of whether it matches the captured RX1 hook.
+       Discriminates H5 vs H6: if RX1 ptr (0x40989 with Thumb bit) ever
+       appears here, MAC is reaching TimerStart and the subscribe-hook
+       compare below is the bug. */
+    s_timerstart_callback_log[s_timerstart_log_head & 7] = (uint32_t)(uintptr_t)obj->Callback;
+    s_timerstart_log_head++;
+    /* Phase 8 t0 RELOCATE — the rx1_arm_to_setrx_us t0 was previously
+       stamped here at TimerStart (timer ARM moment). Master decision A
+       (MSG p8-t0-relocate): the HARD gate p99 ≤ 2000 µs measures
+       DISPATCH responsiveness from timer EXPIRY to SetRx 0x82, not from
+       arm to send — at arm time every sample equals ~RX1_DELAY (~5 s
+       for join), unachievable. The stamp now lives at callback-entry
+       inside timer_dispatch_cb. The s_rx_window_active=1u side effect
+       moves with it (helper sets both atomically). */
     leave_critical(state);
 }
 

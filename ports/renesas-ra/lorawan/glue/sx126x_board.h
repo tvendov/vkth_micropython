@@ -107,6 +107,19 @@ uint8_t sx126x_board_get_interbyte_us(void);
 // methods so we can diagnose ra_sci_spi_transfer behaviour directly.
 uint8_t sx126x_board_get_spi_id(void);
 
+/* Phase 4 — defer probe for the guarded C pump. Returns the current
+   value of the file-private s_spi_xfer_busy re-entry guard. Allows
+   lorawan_pump.c to defer pump_run() if a SPI transaction is in
+   progress in scheduler/Python context. */
+bool sx126x_board_spi_busy(void);
+
+/* Phase 7 — invoke the DIO1 C handler registered via SX126xIoIrqInit()
+   (i.e. radio.c's RadioOnDioIrq). Called from the guarded-pump body in
+   safe (scheduler) context after s_radio_irq_pending is consumed. No-op
+   if no handler is registered. Keeps s_state encapsulated in
+   sx126x_board.c — pump.c does not link directly against RadioOnDioIrq. */
+void sx126x_board_dispatch_dio1_irq(void);
+
 /*
  * Byte-by-byte SPI debug helpers. Real implementation is gated behind
  * LORAWAN_DEBUG_SPI_UNSAFE. In production builds (default), these

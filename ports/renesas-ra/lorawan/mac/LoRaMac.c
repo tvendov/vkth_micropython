@@ -3332,23 +3332,9 @@ static LoRaMacStatus_t ScheduleTx( bool allowDelayedTx )
 
     if( status == LORAMAC_STATUS_OK )
     {
-        /* r13-fix — join RX1 only: raise SystemMaxRxError to at least
-         * JOIN_RX1_MAX_RX_ERROR_MS so RX1 opens early enough to catch the
-         * SF7 JoinAccept preamble. Data RX1 and all RX2 paths keep the
-         * configured value. ResetMacParameters() leaves MinRxSymbols /
-         * SystemMaxRxError untouched (they are seeded once at L4351-4352),
-         * so reading them here gives the user-installed value. */
         uint8_t  rx1_min_sym = MacCtx.NvmCtx->MacParams.MinRxSymbols;
         uint32_t rx1_max_err = MacCtx.NvmCtx->MacParams.SystemMaxRxError;
         uint8_t  join_override_used = 0;
-        if( MacCtx.NvmCtx->NetworkActivation == ACTIVATION_TYPE_NONE )
-        {
-            if( rx1_max_err < (uint32_t)JOIN_RX1_MAX_RX_ERROR_MS )
-            {
-                rx1_max_err = (uint32_t)JOIN_RX1_MAX_RX_ERROR_MS;
-                join_override_used = 1;
-            }
-        }
 
         // Compute Rx1 windows parameters
         RegionComputeRxWindowParameters( MacCtx.NvmCtx->Region,

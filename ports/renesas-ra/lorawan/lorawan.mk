@@ -19,6 +19,7 @@ SRC_C += \
     $(LORAWAN_DIR)/glue/dma_board.c \
     $(LORAWAN_DIR)/glue/nvm_board.c \
     $(LORAWAN_DIR)/glue/dflash.c \
+    $(LORAWAN_DIR)/glue/lorawan_pump.c \
     $(LORAWAN_DIR)/glue/utilities.c
 
 # ---- Phase 4+: imported Renesas tree -----------------------------------
@@ -26,6 +27,16 @@ SRC_C += \
 # mac/, radio/, soft_se/, system/ tree. Default 3 keeps the Phase 3
 # v1 timer + glue build untouched while we land Phase 4 incrementally.
 LORAWAN_BUILD_PHASE ?= 3
+
+# ---- Phase 5+ — guarded C pump enable gate -----------------------------
+# Default 1 per operator decision 8: Phase 5 wires MacProcessNotify into
+# the guarded pump and un-gates LoRaMacProcess() inside pump_run. The
+# flag stays in source as a manual A/B bisect knob; override with
+# LORAWAN_C_PUMP_ENABLE=0 on the make command line to compile out the
+# LoRaMacProcess() call for emergency comparison.
+LORAWAN_C_PUMP_ENABLE ?= 1
+CFLAGS += -DLORAWAN_C_PUMP_ENABLE=$(LORAWAN_C_PUMP_ENABLE)
+
 ifeq ($(shell test $(LORAWAN_BUILD_PHASE) -ge 4 && echo y),y)
 CFLAGS += -DLORAWAN_BUILD_PHASE=$(LORAWAN_BUILD_PHASE)
 SRC_C += $(wildcard $(LORAWAN_DIR)/mac/*.c)

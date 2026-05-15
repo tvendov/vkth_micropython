@@ -61,21 +61,17 @@ typedef struct mod_lorawan_rxc_diag {
      * type, fixed the name in the r13-fix wave. */
     uint32_t last_join_rx1_window_timeout_symbols;
     uint32_t last_join_rx2_window_timeout_symbols;
-    /* r13-fix — join-only RX1 SystemMaxRxError override visibility.
+    /* Join-only RX1 compute visibility.
      * Reset to 0 on MLME_JOIN_REQ enqueue alongside the timeout snapshots.
      *
      * last_join_used_override_flag:
-     *     1 if the join RX1 compute ran with SystemMaxRxError raised by
-     *     the JOIN_RX1_MAX_RX_ERROR_MS gate, 0 if the user-configured
-     *     value already met or exceeded the gate.
+     *     Reserved (always 0 in clean upstream — no override applied).
      * last_join_effective_min_rx_symbols:
      *     MinRxSymbols passed into RegionComputeRxWindowParameters for
-     *     the JOIN RX1 call. Currently always equals MacParams.MinRxSymbols
-     *     (override is on the error term only), exposed for symmetry and
-     *     forward-compat.
+     *     the JOIN RX1 call. Equals MacParams.MinRxSymbols.
      * last_join_effective_system_max_rx_error_ms:
      *     SystemMaxRxError actually passed into the JOIN RX1 compute,
-     *     i.e. after the MAX(JOIN_RX1_MAX_RX_ERROR_MS, MacParams.*) gate.
+     *     i.e. MacParams.SystemMaxRxError (region default).
      * last_join_rx1_window_offset_ms:
      *     RxWindow1Config.WindowOffset (ms, signed) returned by the JOIN
      *     RX1 compute, BEFORE the LoRaMacGetStackProcessTime subtraction.

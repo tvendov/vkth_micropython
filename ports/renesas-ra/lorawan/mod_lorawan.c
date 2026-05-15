@@ -43,6 +43,7 @@
 #include "glue/dflash.h"
 #include "glue/lorawan_stats.h"
 #include "glue/lorawan_rxc_diag.h"
+#include "glue/lorawan_pump.h"
 
 /* Z0 heap counters — see
  *   LORAWAN_TESTS/coordination/ZERO_ALLOC_REMOVAL_PLAN_2026-05-13.md §Z0
@@ -476,6 +477,13 @@ static mp_obj_t lorawan_mac_make_new(const mp_obj_type_t *type,
        hard_isr_*_cycles_max. Idempotent; safe to call repeatedly. */
     lorawan_stats_dwt_init();
 
+    /* Phase 4 — initialise the guarded C pump state machine in the
+       constructor so request_pump() / pump_run() are live from object
+       birth. lorawan_pump_init() is idempotent (checks s_pump_initialized
+       and bails if already done), so the later call inside
+       lorawan_mac_lorawan_init() remains harmless. */
+    lorawan_pump_init();
+
     sx126x_board_init(&cfg);
     self->radio_initialized = true;
 
@@ -810,6 +818,9 @@ static mp_obj_t lorawan_mac_deinit(mp_obj_t self_in) {
     }
     LORAWAN_CB_SLOT(LORAWAN_CB_DIO1) = mp_const_none;
     LORAWAN_CB_SLOT(LORAWAN_CB_TEST_TIMER) = mp_const_none;
+    /* Phase 4 — drop pump scheduling state so a subsequent Mac() ctor
+       starts from clean counters. */
+    lorawan_pump_deinit();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_deinit_obj, lorawan_mac_deinit);
@@ -953,24 +964,20 @@ static void mac_nvm_context_change(uint32_t notifyMibFlags) {
     (void)NvmDataMgmtStore();
 }
 
-/* Removed: s_mac_process_node + mac_process_dispatch — auto-scheduled
-   LoRaMacProcess via mp_sched introduced re-entrancy hazard during
-   adapter SPI transfers. mac_process_notify() is now a no-op; Python's
-   mac.process() drives the state machine. */
+/* Phase 5 — MacProcessNotify now feeds the guarded C pump. Historical
+   context: a prior direct mp_sched_schedule of LoRaMacProcess from this
+   callback caused re-entrancy: scheduled dispatch fired from inside the
+   SX1262 adapter's BUSY-poll yield mid-sx126x_spi_xfer, triggering nested
+   LoRaMacProcess → RadioIrqProcess → SX126x* SPI commands that clobbered
+   the outer call's static s_tx_buf/s_rx_buf and the chip's command FIFO
+   state. The guarded pump (glue/lorawan_pump.c) replaces that path: it
+   coalesces requests via mp_sched_schedule_node, defers against
+   sx126x_board_spi_busy() and flash-busy gates, and brackets
+   LoRaMacProcess() with an s_process_running re-entry guard. See
+   BOUNDARY_AUDIT.md §Risk(c). */
 
 static void mac_process_notify(void) {
-    /* No-op. Previously scheduled mac_process_dispatch via mp_sched here,
-       but that introduced a re-entrancy hazard: any deferred dispatch
-       could fire from inside our adapter's BUSY-poll yield (when
-       sx126x_spi_xfer was mid-transfer), causing nested LoRaMacProcess
-       → RadioIrqProcess → SX126x* SPI commands that clobbered the outer
-       call's static s_tx_buf/s_rx_buf and the chip's command FIFO state.
-       Python's mac.process() (called from the application loop) is now
-       the sole driver of LoRaMacProcess — single, serialized trigger.
-       Trade-off: timer flags consumed at the polling cadence rather than
-       between bytecodes. Acceptable given Python loops typically poll
-       at 1-20 ms intervals. */
-    (void)0;
+    lorawan_driver_request_pump(LORAWAN_PUMP_REASON_NOTIFY);
 }
 
 static void mac_error_notify(LoRaMacErrorNotificationStatus_t status) {
@@ -1020,6 +1027,12 @@ static mp_obj_t lorawan_mac_lorawan_init(mp_obj_t self_in) {
             MP_ERROR_TEXT("LoRaMacStart failed: %d"), (int)st);
     }
     self->stack_initialized = true;
+    /* Phase 4 — initialise the guarded C pump state machine + counter
+       histograms. Idempotent: a previous deinit() left storage stale
+       but the init zeros everything. Must happen after stack_initialized
+       so request_pump() called from any Phase-5+ ISR wiring finds a
+       running pump. */
+    lorawan_pump_init();
     MibRequestConfirm_t mib;
     memset(&mib, 0, sizeof(mib));
     mib.Type = MIB_NETWORK_ACTIVATION;
@@ -1135,6 +1148,13 @@ static mp_obj_t lorawan_mac_process(mp_obj_t self_in) {
         return mp_const_none;
     }
     instrument_mac_process_call();
+    /* Phase 4 — exercise the guarded C pump from the Python side so
+       TR-5 can observe pump_request_count and pump_run_count climb.
+       The pump body is gated on LORAWAN_C_PUMP_ENABLE; in Phase 4 the
+       body is a no-op (LoRaMacProcess is NOT called from here), so
+       this introduces no behavioural change to the live r13-fix path
+       running via instrument_mac_process_call above. */
+    lorawan_driver_request_pump(LORAWAN_PUMP_REASON_PY);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_process_obj, lorawan_mac_process);
@@ -1604,6 +1624,224 @@ static mp_obj_t lorawan_mac_rx_window_diag(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_rx_window_diag_obj, lorawan_mac_rx_window_diag);
 
+/* mac.pump_diag() — Phase 4 introspection. Returns a dict with the
+ * guarded-C-pump counter surface (operator decisions 5 + 9 + 10).
+ *
+ * Three histogram quartets are exposed as sub-dicts ({p50, p95, p99, max}
+ * in microseconds). In Phase 4 only pump_dispatch_latency_us produces
+ * non-zero samples (request->run wait); dio1_to_pump_us and
+ * rx1_arm_to_setrx_us read 0 until Phase 7 / 6 wire their t0 stamps.
+ *
+ * The five mcps_* / event_cb_* counters live in g_lorawan_stats and
+ * also read 0 in Phase 4 (Phase 10 wires the increment sites). Storage
+ * exists so the dict schema is stable now.
+ *
+ * Co-exists with the legacy 12-tuple from rx_window_diag() — that ABI
+ * remains stable for r13-fix demo backwards-compat. */
+static mp_obj_t lorawan_mac_pump_diag(mp_obj_t self_in) {
+    (void)self_in;
+    lorawan_pump_stats_t s;
+    lorawan_pump_stats_get(&s);
+
+    mp_obj_t dict = MOD_LORAWAN_NEW_DICT(24);
+
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_mac_process_reentry_count),
+                      MOD_LORAWAN_NEW_INT_U(s.mac_process_reentry_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_spi_nested_reject_count),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_nested_reject_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_pump_request_count),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_request_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_pump_run_count),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_run_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_pump_deferred_spi_busy_count),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_deferred_spi_busy_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_pump_deferred_flash_busy_count),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_deferred_flash_busy_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_rx1_arm_t0_stamp_count),
+                      MOD_LORAWAN_NEW_INT_U(s.rx1_arm_t0_stamp_count));
+
+    mp_obj_t hd = MOD_LORAWAN_NEW_DICT(6);
+    mp_obj_dict_store(hd, MP_ROM_QSTR(MP_QSTR_p50),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_us_p50));
+    mp_obj_dict_store(hd, MP_ROM_QSTR(MP_QSTR_p95),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_us_p95));
+    mp_obj_dict_store(hd, MP_ROM_QSTR(MP_QSTR_p99),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_us_p99));
+    mp_obj_dict_store(hd, MP_ROM_QSTR(MP_QSTR_max),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_us_max));
+    mp_obj_dict_store(hd, MP_ROM_QSTR(MP_QSTR_count),
+                      MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_us_count));
+    mp_obj_dict_store(hd, MP_ROM_QSTR(MP_QSTR_first_sample_boot_ms),
+                      MOD_LORAWAN_NEW_INT_U(
+                          s.pump_dispatch_latency_us_first_sample_boot_ms));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_pump_dispatch_latency_us), hd);
+
+    mp_obj_t hi = MOD_LORAWAN_NEW_DICT(6);
+    mp_obj_dict_store(hi, MP_ROM_QSTR(MP_QSTR_p50),
+                      MOD_LORAWAN_NEW_INT_U(s.dio1_to_pump_us_p50));
+    mp_obj_dict_store(hi, MP_ROM_QSTR(MP_QSTR_p95),
+                      MOD_LORAWAN_NEW_INT_U(s.dio1_to_pump_us_p95));
+    mp_obj_dict_store(hi, MP_ROM_QSTR(MP_QSTR_p99),
+                      MOD_LORAWAN_NEW_INT_U(s.dio1_to_pump_us_p99));
+    mp_obj_dict_store(hi, MP_ROM_QSTR(MP_QSTR_max),
+                      MOD_LORAWAN_NEW_INT_U(s.dio1_to_pump_us_max));
+    mp_obj_dict_store(hi, MP_ROM_QSTR(MP_QSTR_count),
+                      MOD_LORAWAN_NEW_INT_U(s.dio1_to_pump_us_count));
+    mp_obj_dict_store(hi, MP_ROM_QSTR(MP_QSTR_first_sample_boot_ms),
+                      MOD_LORAWAN_NEW_INT_U(
+                          s.dio1_to_pump_us_first_sample_boot_ms));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_dio1_to_pump_us), hi);
+
+    mp_obj_t hr = MOD_LORAWAN_NEW_DICT(6);
+    mp_obj_dict_store(hr, MP_ROM_QSTR(MP_QSTR_p50),
+                      MOD_LORAWAN_NEW_INT_U(s.rx1_arm_to_setrx_us_p50));
+    mp_obj_dict_store(hr, MP_ROM_QSTR(MP_QSTR_p95),
+                      MOD_LORAWAN_NEW_INT_U(s.rx1_arm_to_setrx_us_p95));
+    mp_obj_dict_store(hr, MP_ROM_QSTR(MP_QSTR_p99),
+                      MOD_LORAWAN_NEW_INT_U(s.rx1_arm_to_setrx_us_p99));
+    mp_obj_dict_store(hr, MP_ROM_QSTR(MP_QSTR_max),
+                      MOD_LORAWAN_NEW_INT_U(s.rx1_arm_to_setrx_us_max));
+    mp_obj_dict_store(hr, MP_ROM_QSTR(MP_QSTR_count),
+                      MOD_LORAWAN_NEW_INT_U(s.rx1_arm_to_setrx_us_count));
+    mp_obj_dict_store(hr, MP_ROM_QSTR(MP_QSTR_first_sample_boot_ms),
+                      MOD_LORAWAN_NEW_INT_U(
+                          s.rx1_arm_to_setrx_us_first_sample_boot_ms));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_rx1_arm_to_setrx_us), hr);
+
+    /* p7-instrument-003 — per-reason pump_dispatch_latency split. Four
+       sub-dicts keyed by reason string; each sub-dict has the same 6
+       histogram fields as the aggregate above. Used to decide whether a
+       latency outlier is boot-bound or driven by one specific reason
+       (DIO1 = radio IRQ path; TIMER = MAC timer path; NOTIFY = MAC
+       process notification; PY = Python mac.process trampoline). */
+    {
+        mp_obj_t by_reason = MOD_LORAWAN_NEW_DICT(4);
+        static const struct { qstr key; uint8_t idx; } reason_map[4] = {
+            { MP_QSTR_NOTIFY, LORAWAN_PUMP_REASON_NOTIFY },
+            { MP_QSTR_TIMER,  LORAWAN_PUMP_REASON_TIMER  },
+            { MP_QSTR_DIO1,   LORAWAN_PUMP_REASON_DIO1   },
+            { MP_QSTR_PY,     LORAWAN_PUMP_REASON_PY     },
+        };
+        for (uint32_t k = 0; k < 4u; k++) {
+            uint8_t i = reason_map[k].idx;
+            mp_obj_t hb = MOD_LORAWAN_NEW_DICT(6);
+            mp_obj_dict_store(hb, MP_ROM_QSTR(MP_QSTR_p50),
+                MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_by_reason_p50[i]));
+            mp_obj_dict_store(hb, MP_ROM_QSTR(MP_QSTR_p95),
+                MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_by_reason_p95[i]));
+            mp_obj_dict_store(hb, MP_ROM_QSTR(MP_QSTR_p99),
+                MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_by_reason_p99[i]));
+            mp_obj_dict_store(hb, MP_ROM_QSTR(MP_QSTR_max),
+                MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_by_reason_max[i]));
+            mp_obj_dict_store(hb, MP_ROM_QSTR(MP_QSTR_count),
+                MOD_LORAWAN_NEW_INT_U(s.pump_dispatch_latency_by_reason_count[i]));
+            mp_obj_dict_store(hb, MP_ROM_QSTR(MP_QSTR_first_sample_boot_ms),
+                MOD_LORAWAN_NEW_INT_U(
+                    s.pump_dispatch_latency_by_reason_first_sample_boot_ms[i]));
+            mp_obj_dict_store(by_reason, MP_ROM_QSTR(reason_map[k].key), hb);
+        }
+        mp_obj_dict_store(dict,
+            MP_ROM_QSTR(MP_QSTR_pump_dispatch_latency_us_by_reason), by_reason);
+    }
+
+    /* Phase 7 cleanup — radio-touched-path latency long-pole probes.
+       Each is a single uint32 (worst-case µs), not a histogram, because
+       the binary question is: does the dispatch wrapper or the SPI BUSY-
+       wait loop ever exceed the ~100 ms outlier seen in TR-2? Updated
+       by lorawan_pump_observe_*_us() called from sx126x_board.c. */
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_dio1_dispatch_max_us),
+                      MOD_LORAWAN_NEW_INT_U(s.dio1_dispatch_max_us));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_spi_busy_wait_max_us),
+                      MOD_LORAWAN_NEW_INT_U(s.spi_busy_wait_max_us));
+
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_mcps_indication_queued_count),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.mcps_indication_queued_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_mcps_indication_dropped_count),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.mcps_indication_dropped_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_mcps_indication_queue_high_water),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.mcps_indication_queue_high_water));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_event_cb_drain_count),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.event_cb_drain_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_event_cb_drain_reentry_skip_count),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.event_cb_drain_reentry_skip_count));
+
+    /* Phase 6 instrumentation (p6-instrument-001) — per-reason pump_request
+       counter (6 ints: idx 0 unused .. INTERNAL=5) for H4 verification, and
+       TimerInit ordinal log (8 ints: callback pointers in source order) for
+       H1 verification against objdump'd OnRx / OnAck / OnTxDelayed symbols. */
+    {
+        mp_obj_t reason_items[6];
+        for (uint32_t i = 0; i < 6u; i++) {
+            reason_items[i] =
+                MOD_LORAWAN_NEW_INT_U(s.pump_request_by_reason[i]);
+        }
+        mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_pump_request_by_reason),
+                          mp_obj_new_tuple(6, reason_items));
+
+        uintptr_t ord_buf[8] = {0};
+        (void)lorawan_timer_init_log_get(ord_buf, 8);
+        mp_obj_t ord_items[8];
+        for (uint32_t i = 0; i < 8u; i++) {
+            ord_items[i] = MOD_LORAWAN_NEW_INT_U((mp_uint_t)ord_buf[i]);
+        }
+        mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_timer_init_ordinals),
+                          mp_obj_new_tuple(8, ord_items));
+
+        /* Phase 6 P3 (p6-instrument-002) — TimerStart-side and dispatch-side
+           callback-pointer ring logs (8 slots each, physical order). QA
+           compares each slot against the OnRxWindow1TimerEvent runtime
+           address (objdump 0x40988 + 1 Thumb bit = 0x40989) to decide H5
+           vs H6: presence in timerstart_log but absence in dispatch_log
+           means RX1 was armed but never fired; absence in both means MAC
+           never reached the RX1 TimerStart at all (LoRaMacProcess starvation). */
+        uint32_t ts_buf[8] = {0};
+        uint32_t disp_buf[8] = {0};
+        lorawan_timer_logs_get(ts_buf, disp_buf);
+        mp_obj_t ts_items[8];
+        mp_obj_t disp_items[8];
+        for (uint32_t i = 0; i < 8u; i++) {
+            ts_items[i] = mp_obj_new_int_from_uint(ts_buf[i]);
+            disp_items[i] = mp_obj_new_int_from_uint(disp_buf[i]);
+        }
+        mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_timerstart_log),
+                          mp_obj_new_tuple(8, ts_items));
+        mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_timer_dispatch_log),
+                          mp_obj_new_tuple(8, disp_items));
+    }
+
+    /* Phase 7 — DIO1 hard-ISR -> pump-body race-detection pair. ISR seq
+       is bumped on every DIO1 fire in sx126x_board.c; pump_seen_seq is
+       snapshotted in lorawan_pump.c when the radio-IRQ pending flag is
+       consumed. QA computes (dio1_isr_seq - dio1_pump_seen_seq) to
+       detect deferred drains. */
+    {
+        uint32_t isr_seq = 0u;
+        lorawan_dio1_state_get(NULL, &isr_seq);
+        mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_dio1_isr_seq),
+                          MOD_LORAWAN_NEW_INT_U(isr_seq));
+        mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_dio1_pump_seen_seq),
+                          MOD_LORAWAN_NEW_INT_U(
+                              lorawan_dio1_pump_seen_seq_get()));
+    }
+
+    /* Phase 8 — anti-fake-pass + SetRx cache observation. The first key
+       MUST read 0 across any TR-1 / TR-3 run: Phase 8 deletes the SPI-
+       side s_rx_window_active=1u write, and any re-introduction routed
+       through lorawan_pump_observe_rx_window_active_set_via_spi() will
+       surface here. setrx_cmd_cache_count rises in lockstep with
+       rx1_arm_to_setrx_us.count (both pulse on opcode 0x82 in the SPI
+       path); setrx_cmd_cache_ready is the last-known buffer-valid flag. */
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_rx_window_active_set_via_spi_count),
+                      MOD_LORAWAN_NEW_INT_U(s.rx_window_active_set_via_spi_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_setrx_cmd_cache_count),
+                      MOD_LORAWAN_NEW_INT_U(s.setrx_cmd_cache_count));
+    mp_obj_dict_store(dict, MP_ROM_QSTR(MP_QSTR_setrx_cmd_cache_ready),
+                      MOD_LORAWAN_NEW_INT_U(s.setrx_cmd_cache_ready));
+
+    return dict;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_pump_diag_obj, lorawan_mac_pump_diag);
+
 static mp_obj_t lorawan_mac_set_min_rx_symbols(mp_obj_t self_in,
     mp_obj_t n_in) {
     lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -1940,8 +2178,8 @@ static mp_obj_t lorawan_mac_stats(mp_obj_t self_in) {
                       MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_max_len));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_one_byte_count),
                       MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_one_byte_count));
-    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_sx126x_spi_busy_reject_count),
-                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.sx126x_spi_busy_reject_count));
+    mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_nested_reject_count),
+                      MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_nested_reject_count));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_pre_busy_max_us),
                       MOD_LORAWAN_NEW_INT_U(g_lorawan_stats.spi_stage_pre_busy_max_us));
     mp_obj_dict_store(spi_group, MP_ROM_QSTR(MP_QSTR_spi_stage_dtc_max_us),
@@ -2273,7 +2511,7 @@ static mp_obj_t lorawan_mac_stats_into(mp_obj_t self_in, mp_obj_t prealloc) {
     z3_set_uint64_leaf(spi_map, MP_QSTR_spi_bytes_total,               stats_spi_bytes_read());
     z3_set_uint_leaf(spi_map,   MP_QSTR_spi_max_len,                   g_lorawan_stats.spi_max_len);
     z3_set_uint_leaf(spi_map,   MP_QSTR_spi_one_byte_count,            g_lorawan_stats.spi_one_byte_count);
-    z3_set_uint_leaf(spi_map,   MP_QSTR_sx126x_spi_busy_reject_count,  g_lorawan_stats.sx126x_spi_busy_reject_count);
+    z3_set_uint_leaf(spi_map,   MP_QSTR_spi_nested_reject_count,       g_lorawan_stats.spi_nested_reject_count);
     z3_set_uint_leaf(spi_map,   MP_QSTR_spi_stage_pre_busy_max_us,     g_lorawan_stats.spi_stage_pre_busy_max_us);
     z3_set_uint_leaf(spi_map,   MP_QSTR_spi_stage_dtc_max_us,          g_lorawan_stats.spi_stage_dtc_max_us);
     z3_set_uint_leaf(spi_map,   MP_QSTR_spi_stage_post_busy_max_us,    g_lorawan_stats.spi_stage_post_busy_max_us);
@@ -2571,6 +2809,8 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_rx_diag),            MP_ROM_PTR(&lorawan_mac_rx_diag_obj) },
     { MP_ROM_QSTR(MP_QSTR_last_rx_stats),      MP_ROM_PTR(&lorawan_mac_last_rx_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_rx_window_diag),     MP_ROM_PTR(&lorawan_mac_rx_window_diag_obj) },
+    // Phase 4 — guarded C pump counter surface (operator decisions 5/9/10).
+    { MP_ROM_QSTR(MP_QSTR_pump_diag),          MP_ROM_PTR(&lorawan_mac_pump_diag_obj) },
     // Phase 6a — NVM debug surface.
     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
     { MP_ROM_QSTR(MP_QSTR_nvm_restore),        MP_ROM_PTR(&lorawan_mac_nvm_restore_obj) },
