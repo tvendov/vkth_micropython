@@ -31,14 +31,15 @@
 #include "mpconfigboard.h"  // board-specific: MICROPY_HW_RTC_SOURCE etc. (-I$(BOARD_DIR) in CFLAGS)
 
 // AGTMR2 bit 7 (LPM): selects AGTSCLK source for AGT sub-clock path.
-// 0 = SOSC — external 32.768 kHz sub-clock crystal (not present on VK_RA4M2)
-// 1 = LOCO — internal 32.768 kHz oscillator (VK_RA4M2 has 16 MHz MAIN_OSC only, no SOSC)
-// MICROPY_HW_RTC_SOURCE == 1 means LOCO is used (no SOSC crystal on the board)
-#if defined(MICROPY_HW_RTC_SOURCE) && (MICROPY_HW_RTC_SOURCE == 1)
-#define AGT_AGTMR2_LPM_BIT (0x80U)  // LOCO: internal 32.768 kHz (no SOSC crystal)
-#else
-#define AGT_AGTMR2_LPM_BIT (0x00U)  // SOSC: external 32.768 kHz sub-clock crystal
-#endif
+// 0 = SOSC — external 32.768 kHz sub-clock crystal
+// 1 = LOCO — internal 32.768 kHz oscillator
+// LPM=1 prohibits access to AGT/AGTCR registers (RA4M2 §22.2.6), which would
+// break counter()/ISR. This port therefore keeps LPM=0 unconditionally.
+// Low-frequency timer branches default to AGTKCLK (TCK=100b) = LOCO direct,
+// which does not need LPM. SOSC is reached via AGTSCLK (TCK=110b, LPM=0) and
+// is selected at runtime through ra_agt_timer_set_freq_ex() — see ra_timer.h
+// ra_agt_clock_source_t.
+#define AGT_AGTMR2_LPM_BIT (0x00U)
 #include "ra_gpio.h"
 #include "ra_int.h"
 #include "ra_utils.h"
@@ -753,9 +754,18 @@ void ra_agt_timer_stop(uint32_t ch) {
     agt_regs[ch]->CTRL.AGTCR_b.TSTART = 0; /* stop counter */
 }
 
-void ra_agt_timer_set_freq(uint32_t ch, float freq) {
+bool ra_agt_timer_set_freq_ex(uint32_t ch, float freq, ra_agt_clock_source_t clk_src) {
     if (!ra_agt_timer_is_valid(ch)) {
-        return;
+        return false;
+    }
+    /* SOSC selection requires the board to actually have the sub-clock crystal
+     * populated AND the BSP to have started it. Reject at compile time on
+     * boards that don't (caller in the Python layer should also gate this so
+     * the user gets a clean error instead of a silent no-op). */
+    if (clk_src == RA_AGT_CLOCK_SOSC) {
+        #if !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
+        return false;
+        #endif
     }
     R_AGTX0_AGT16_Type *agt_reg = agt_regs[ch];
     uint8_t source = 0;
@@ -763,46 +773,44 @@ void ra_agt_timer_set_freq(uint32_t ch, float freq) {
     uint8_t cks = 0;
     ra_agt_timer_state[ch].irq_count = 0;
     if (freq > (float)(PCLK / 2)) {
-        return;
+        return false;
     } else if (freq >= 1000.0) {
-        /* PCLKB/2: crystal-accurate, for freq >= 1000 Hz. */
+        /* PCLKB/2: crystal-accurate, for freq >= 1000 Hz. clk_src ignored. */
         source = AGT_PCLKB2;
         period_counts = (uint32_t)((float)(PCLK / 2) / freq);
     } else if (freq >= 77.0) {
         /* PCLKB/8: crystal-accurate, for 77–999 Hz.
          * PCLKB/8 = PCLK / 8 (40 MHz / 8 = 5 MHz on VK_RA4M2).
          * Min freq = 5000000/65536 ≈ 76.3 Hz.
-         * Preferred over AGTLCLK (LOCO ±15% RC) for accuracy. */
+         * Preferred over LOCO (±15% RC) for accuracy. clk_src ignored. */
         source = AGT_PCLKB8;
         period_counts = (uint32_t)((float)(PCLK / 8) / freq);
     } else if (freq > 1.0) {
-        /* AGTLCLK (TCK=100b) = LOCO 32.768 kHz directly, no LPM needed.
-         * AGTSCLK (TCK=110b) would require LPM=1 to select LOCO on boards
-         * without SOSC crystal, but LPM=1 prohibits access to AGT/AGTCR
-         * registers, breaking counter() and ISR (RA4M2 §22.2.6). */
-        source = AGT_AGTKCLK;
+        /* Low-frequency branch. AGTSCLK (TCK=110b, LPM=0) feeds from SOSC
+         * crystal; AGTKCLK (TCK=100b) feeds from LOCO directly. Both deliver
+         * 32.768 kHz nominal so the divider/period math is identical — only
+         * the TCK selector differs. */
+        source = (clk_src == RA_AGT_CLOCK_SOSC) ? AGT_AGTSCLK : AGT_AGTKCLK;
         cks = 2;
         period_counts = (uint32_t)((float)(32768 / 4) / freq);
     } else if (freq > 0.01) {
-        source = AGT_AGTKCLK;
+        source = (clk_src == RA_AGT_CLOCK_SOSC) ? AGT_AGTSCLK : AGT_AGTKCLK;
         period_counts = (uint32_t)((float)(32768 / 128) / freq);
         cks = 7;
     } else {
-        return;
+        return false;
     }
     if (period_counts == 0U) {
         period_counts = 1U;
     }
     if (period_counts > AGT_MAX_PERIOD_16BIT) {
-        return;
+        return false;
     }
     agt_reg->CTRL.AGTCR_b.TSTART = 0;                // stop counter
     /* Write order matters (RA4M2 manual §22.2.5 Note 7):
      * "Do not change TCK[2:0] when CKS[2:0] is not 000b."
      * So: clear CKS first, then set TCK, then set CKS.
-     * LPM=0 always: we use AGTLCLK (TCK=100b, LOCO direct) instead of
-     * AGTSCLK (TCK=110b) for low-frequency timers.  AGTLCLK does not
-     * require LPM=1, so AGT/AGTCR register access stays permitted. */
+     * LPM stays 0 always — see AGT_AGTMR2_LPM_BIT comment at top of file. */
     agt_reg->CTRL.AGTMR2 = 0;                        // CKS=000b first
     agt_reg->CTRL.AGTMR1 = (uint8_t)(source << 4);   // set TCK
     agt_reg->CTRL.AGTMR2 = cks;                      // now set CKS
@@ -813,6 +821,18 @@ void ra_agt_timer_set_freq(uint32_t ch, float freq) {
         ra_agt_timer_state[ch].input_saved_clock_valid = true;
         ra_agt_timer_apply_input_mode(ch);
     }
+    return true;
+}
+
+void ra_agt_timer_set_freq(uint32_t ch, float freq) {
+    /* Default low-freq AGT source = SOSC (crystal-accurate ±20-50 ppm) on
+     * boards that populate the sub-clock; falls back to LOCO transparently
+     * elsewhere via the _ex check at L765-769. */
+    #if defined(MICROPY_HW_SUBCLK_POPULATED) && (MICROPY_HW_SUBCLK_POPULATED == 1)
+    (void)ra_agt_timer_set_freq_ex(ch, freq, RA_AGT_CLOCK_SOSC);
+    #else
+    (void)ra_agt_timer_set_freq_ex(ch, freq, RA_AGT_CLOCK_DEFAULT);
+    #endif
 }
 
 float ra_agt_timer_get_freq(uint32_t ch) {
@@ -1109,7 +1129,7 @@ void ra_agt_timer_deinit(uint32_t ch) {
     ra_agt_timer_module_stop(ch);
 }
 
-__WEAK void agt_int_isr(void) {
+void ra_port_agt_int_isr(void) {
     IRQn_Type irq = R_FSP_CurrentIrqGet();
     uint32_t ch;
     ra_agt_irq_source_t source;
@@ -1122,6 +1142,18 @@ __WEAK void agt_int_isr(void) {
     }
     ra_agt_timer_chk_callback(ch, source);
 }
+
+/* Compatibility shim: every board's generated vector_data.c still references
+ * `agt_int_isr`. On the LoRaWAN renesas flavour, FSP's r_agt.c provides a
+ * strong `agt_int_isr` and AGT4/AGT5 slots are rerouted in vector_data.c to
+ * `ra_port_agt_int_isr` for the port-owned channels. On every other build
+ * (including non-LoRaWAN VK_RA4M2), this shim keeps the legacy symbol so the
+ * board vector tables continue to bind without per-board edits. */
+#if !defined(MICROPY_HW_LORA_STACK_RENESAS) || (MICROPY_HW_LORA_STACK_RENESAS == 0)
+void agt_int_isr(void) {
+    ra_port_agt_int_isr();
+}
+#endif
 
 extern uint32_t uwTick;
 

@@ -33,7 +33,11 @@ void iic_master_eri_isr(void);
 void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
+void ra_port_agt_int_isr(void);
+#if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
 void agt_int_isr(void);
+/* agt_comp_int_isr prototype lands in Commit 2 with vendor timer-board.c. */
+#endif
 void dmac_int_isr(void);
 void adc_scan_end_isr(void);
 void encoder_compare_a_isr(void);

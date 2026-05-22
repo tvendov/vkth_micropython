@@ -4,6 +4,26 @@
 #define MICROPY_HW_MCU_SYSCLK       100000000  // ICLK: XTAL 16MHz /2 *25 /2 = 100MHz (PLL=200MHz)
 #define MICROPY_HW_MCU_PCLK         50000000   // PCLKB: PLL 200MHz /4 = 50MHz
 
+// Stage G direct-C-path compile-time gates (r16 design В§5).
+// Default OFF вЂ” preserves r14 scheduler-trampoline behaviour bit-for-bit.
+// Override via CFLAGS_EXTRA=-DMICROPY_HW_LORA_DIRECT_C_PATH=1 for HIL bring-up.
+// Sub-gates collapse to the master switch in G.1; G.2/G.3 may set them
+// independently for bisection.
+#ifndef MICROPY_HW_LORA_DIRECT_C_PATH
+#define MICROPY_HW_LORA_DIRECT_C_PATH         (0)
+#endif
+#ifndef MICROPY_HW_LORA_DIRECT_C_PATH_RX1
+#define MICROPY_HW_LORA_DIRECT_C_PATH_RX1     (MICROPY_HW_LORA_DIRECT_C_PATH)
+#endif
+#ifndef MICROPY_HW_LORA_DIRECT_C_PATH_RX2
+#define MICROPY_HW_LORA_DIRECT_C_PATH_RX2     (MICROPY_HW_LORA_DIRECT_C_PATH)
+#endif
+#ifndef MICROPY_HW_LORA_DIRECT_C_PATH_DIO1
+#define MICROPY_HW_LORA_DIRECT_C_PATH_DIO1    (MICROPY_HW_LORA_DIRECT_C_PATH)
+#endif
+
+// LoRaWAN receive timing uses the active AGT backend.
+
 // module config
 // #define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_BASIC_FEATURES)
 // #define MICROPY_ENABLE_FINALISER    (1)
@@ -11,9 +31,9 @@
 #define MICROPY_EMIT_THUMB          (1)
 #define MICROPY_EMIT_INLINE_THUMB   (1)
 #define MICROPY_PY_BUILTINS_COMPLEX (1)
-// AES за LoRaWAN MIC (CMAC) и payload encryption (CTR).
-// MICROPY_PY_CRYPTOLIB / _CTR / MICROPY_SSL_AXTLS се подават от Makefile (-D)
-// под единния превключвател MICROPY_HW_ENABLE_LORA в mpconfigboard.mk.
+// AES Р·Р° LoRaWAN MIC (CMAC) Рё payload encryption (CTR).
+// MICROPY_PY_CRYPTOLIB / _CTR / MICROPY_SSL_AXTLS СЃРµ РїРѕРґР°РІР°С‚ РѕС‚ Makefile (-D)
+// РїРѕРґ РµРґРёРЅРЅРёСЏ РїСЂРµРІРєР»СЋС‡РІР°С‚РµР» MICROPY_HW_ENABLE_LORA РІ mpconfigboard.mk.
 #define MICROPY_PY_GENERATOR_PEND_THROW (1)
 #define MICROPY_PY_MATH             (1)
 #define MICROPY_PY_HEAPQ            (1)
@@ -25,6 +45,10 @@
 #define MICROPY_HW_ENABLE_RNG       (1)     // SCE9 hardware RNG + AES (LoRaWAN)
 #define MICROPY_HW_ENABLE_RTC       (1)
 #define MICROPY_HW_RTC_SOURCE       (0)     // 0: subclock (SOSC 32.768 kHz crystal), 1: LOCO (RC ~32 kHz)
+// SOSC 32.768 kHz crystal physically populated on P214/P215. Gates run-time
+// source='sosc' selection on machine.RTC() and machine.Timer() (see machine_rtc.c,
+// timer.c). Must match BSP_CLOCK_CFG_SUBCLOCK_POPULATED in ra_cfg/fsp_cfg/bsp/bsp_cfg.h.
+#define MICROPY_HW_SUBCLK_POPULATED (1)
 #define MICROPY_HW_ENABLE_ADC       (1)
 #ifndef MICROPY_HW_ENABLE_DAC
 #define MICROPY_HW_ENABLE_DAC       (1)
@@ -32,8 +56,8 @@
 #ifndef MICROPY_HW_ENABLE_TOUCHPAD
 #define MICROPY_HW_ENABLE_TOUCHPAD  (1)
 #endif
-// MICROPY_HW_ENABLE_DSP се дефинира от Makefile (-D) на база
-// MICROPY_HW_ENABLE_DSP в mpconfigboard.mk. Mпре-дефинирай тук — единен превключвател.
+// MICROPY_HW_ENABLE_DSP СЃРµ РґРµС„РёРЅРёСЂР° РѕС‚ Makefile (-D) РЅР° Р±Р°Р·Р°
+// MICROPY_HW_ENABLE_DSP РІ mpconfigboard.mk. MРїСЂРµ-РґРµС„РёРЅРёСЂР°Р№ С‚СѓРє вЂ” РµРґРёРЅРµРЅ РїСЂРµРІРєР»СЋС‡РІР°С‚РµР».
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_USBDEV    (1)
 #define MICROPY_HW_USB_CDC          (1)
@@ -82,7 +106,7 @@
 #define MICROPY_HW_I2C0_SCL         (pin_P400)
 #define MICROPY_HW_I2C0_SDA         (pin_P401)
 
-// I2C1 — shares P205/P206 with UART4 and BLE DA14531 (cannot use both at once)
+// I2C1 вЂ” shares P205/P206 with UART4 and BLE DA14531 (cannot use both at once)
 // RA4M2 datasheet Table 19.23: P205=SCL1_B, P206=SDA1_B, PSEL=00111b
 #define MICROPY_HW_I2C1_SCL         (pin_P205)
 #define MICROPY_HW_I2C1_SDA         (pin_P206)
@@ -125,7 +149,7 @@
 
 // SPI3 via SCI9 simple SPI (RA4M2 datasheet Table 19.18, PSEL=00101b).
 // Notes:
-// - Master-only, 8-bit, blocking — same backend as SPI2.
+// - Master-only, 8-bit, blocking вЂ” same backend as SPI2.
 // - Shares the SCI9 hardware block with UART9 (mutual exclusion via SCI owner).
 // - Pins overlap with SPI1 (RSPI1) on P109/P110/P111. Cannot use SPI1 and SPI3
 //   simultaneously; deinit one before constructing the other.
@@ -151,7 +175,7 @@
 
 // Quadrature Encoder (GPT Phase Counting)
 // Uses GPT4: P302=GTIOC4A (encoder A), P301=GTIOC4B (encoder B)
-// Board-edge pins. Note: shares pins with UART2 — do not use both simultaneously.
+// Board-edge pins. Note: shares pins with UART2 вЂ” do not use both simultaneously.
 #define MICROPY_HW_ENCODER_A        (pin_P302) // GTIOC4A
 #define MICROPY_HW_ENCODER_B        (pin_P301) // GTIOC4B
 

@@ -59,6 +59,23 @@ typedef enum {
     RA_AGT_TIMER_CAPTURE_MEASURE_EVENT_COUNT = 3,
 } ra_agt_timer_capture_measure_t;
 
+/* Low-frequency (<1000 Hz) clock source preference for ra_agt_timer_set_freq_ex().
+ * Branches running on PCLKB/2 or PCLKB/8 ignore this — they are always
+ * crystal-accurate.
+ * DEFAULT = legacy AGTKCLK path (LOCO direct, ±15%).
+ * LOCO    = explicit AGTKCLK (TCK=100b). Same as DEFAULT.
+ * SOSC    = AGTSCLK (TCK=110b) with LPM=0 — uses external 32.768 kHz crystal
+ *           (±20–50 ppm). Requires MICROPY_HW_SUBCLK_POPULATED == 1 at compile
+ *           time AND BSP_CLOCK_CFG_SUBCLOCK_POPULATED == 1 so FSP starts SOSC.
+ * Note: LPM=1 (which would let AGTSCLK select LOCO on boards without SOSC) is
+ *       NOT supported here — it prohibits AGT/AGTCR register access per
+ *       RA4M2 §22.2.6 and breaks counter()/ISR. */
+typedef enum {
+    RA_AGT_CLOCK_DEFAULT = 0,
+    RA_AGT_CLOCK_LOCO = 1,
+    RA_AGT_CLOCK_SOSC = 2,
+} ra_agt_clock_source_t;
+
 bool ra_agt_timer_is_valid(uint32_t ch);
 bool ra_agt_timer_reserve(uint32_t ch);
 void ra_agt_timer_release_reservation(uint32_t ch);
@@ -72,6 +89,7 @@ ra_agt_timer_mode_t ra_agt_timer_get_mode(uint32_t ch);
 void ra_agt_timer_start(uint32_t ch);
 void ra_agt_timer_stop(uint32_t ch);
 void ra_agt_timer_set_freq(uint32_t ch, float freq);
+bool ra_agt_timer_set_freq_ex(uint32_t ch, float freq, ra_agt_clock_source_t source);
 float ra_agt_timer_get_freq(uint32_t ch);
 bool ra_agt_timer_set_period(uint32_t ch, uint32_t period_counts);
 uint32_t ra_agt_timer_get_period(uint32_t ch);
@@ -96,7 +114,7 @@ void *ra_agt_timer_get_fast_entry(uint32_t ch);
 uintptr_t ra_agt_timer_get_fast_param(uint32_t ch);
 void ra_agt_timer_init(uint32_t ch, float freq);
 void ra_agt_timer_deinit(uint32_t ch);
-__WEAK void agt_int_isr(void);
+void ra_port_agt_int_isr(void);
 uint32_t mtick();
 
 #endif /* RA_RA_TIMER_H_ */

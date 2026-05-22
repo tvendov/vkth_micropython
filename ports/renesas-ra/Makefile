@@ -431,6 +431,14 @@ endif
 # DMAC for DAC streaming
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_dmac/r_dmac.c
 
+# AGT FSP driver. Gated by MICROPY_HW_LORA_STACK_RENESAS — the LoRaWAN
+# vendor timer-board.c uses R_AGT_Open/Close/Start/Stop. Symbol-collision
+# avoidance with the port's own AGT path is handled by routing AGT4/AGT5
+# slots in boards/<BOARD>/ra_gen/vector_data.c.
+ifeq ($(MICROPY_HW_LORA_STACK),renesas)
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_agt/r_agt.c
+endif
+
 ifeq ($(USE_FSP_FLASH), 1)
 CFLAGS += -DUSE_FSP_FLASH
 
@@ -527,7 +535,11 @@ INC += -I$(TOP)/ports/renesas-ra/ble
 SRC_C += ble/modra_ble.c ble/ra_ble.c ble/ra_ble_config.c ble/ra_ble_events.c ble/gatt_db.c
 SRC_C += ble/profile_cmn/r_ble_serv_common.c ble/profile_cmn/r_ble_servs_if.c ble/profile_cmn/r_ble_servc_if.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/rm_ble_abs/rm_ble_abs.c
+# r_agt.c is added unconditionally for the LoRaWAN renesas stack at top of file;
+# BLE also needs it but cannot duplicate — skipped here when LoRaWAN active.
+ifneq ($(MICROPY_HW_LORA_STACK),renesas)
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_agt/r_agt.c
+endif
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ble/r_ble.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_gpt/r_gpt.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_icu/r_icu.c

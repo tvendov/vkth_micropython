@@ -9,6 +9,28 @@
 BSP_WEAK_REFERENCE void ctsu_write_isr(void) { }
 BSP_WEAK_REFERENCE void ctsu_read_isr(void) { }
 BSP_WEAK_REFERENCE void ctsu_end_isr(void) { }
+
+/* AGT vector routing.
+ *
+ * Non-LoRaWAN flavour: every AGT slot binds to the port handler under its
+ * new name (ra_port_agt_int_isr). Behaviour is byte-for-byte identical to
+ * the pre-rename state where the table referenced the legacy `agt_int_isr`
+ * symbol — that symbol is now a compatibility shim in ra/ra_timer.c.
+ *
+ * LoRaWAN renesas flavour (MICROPY_HW_LORA_STACK_RENESAS == 1):
+ *   AGT0..3 (port Timer(1..4)) → ra_port_agt_int_isr
+ *   AGT4/AGT5 INT (LoRaWAN free-run + compare cycle-end)
+ *                                → agt_int_isr (FSP r_agt.c strong def)
+ *   AGT5 COMPARE_A (LoRaWAN sub-second alarm)
+ *                                → agt_comp_int_isr (vendor strong def)
+ *   AGT4 COMPARE_A/B, AGT5 COMPARE_B → unused; routed to port handler
+ *      (no-op for these slots because they are never enabled).
+ */
+void ra_port_agt_int_isr(void);
+#if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
+void agt_int_isr(void);
+/* agt_comp_int_isr prototype lands in Commit 2 with vendor timer-board.c. */
+#endif
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
         #if VECTOR_DATA_IRQ_COUNT > 0
 BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
@@ -59,24 +81,46 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [43] = r_icu_isr,         /* ICU IRQ13 (External pin interrupt 13) */
     [44] = r_icu_isr,         /* ICU IRQ14 (External pin interrupt 14) */
     [45] = r_icu_isr,         /* ICU IRQ15 (External pin interrupt 15) */
-    [46] = agt_int_isr,         /* AGT0 INT (AGT interrupt) */
-    [47] = agt_int_isr,         /* AGT1 INT (AGT interrupt) */
-    [48] = agt_int_isr,         /* AGT2 INT (AGT interrupt) */
-    [49] = agt_int_isr,         /* AGT3 INT (AGT interrupt) */
-    [50] = agt_int_isr,         /* AGT4 INT (AGT interrupt) */
-    [51] = agt_int_isr,         /* AGT5 INT (AGT interrupt) */
-    [52] = agt_int_isr,         /* AGT0 COMPAREA (Compare match A) */
-    [53] = agt_int_isr,         /* AGT0 COMPAREB (Compare match B) */
-    [54] = agt_int_isr,         /* AGT1 COMPAREA (Compare match A) */
-    [55] = agt_int_isr,         /* AGT1 COMPAREB (Compare match B) */
-    [56] = agt_int_isr,         /* AGT2 COMPAREA (Compare match A) */
-    [57] = agt_int_isr,         /* AGT2 COMPAREB (Compare match B) */
-    [58] = agt_int_isr,         /* AGT3 COMPAREA (Compare match A) */
-    [59] = agt_int_isr,         /* AGT3 COMPAREB (Compare match B) */
-    [60] = agt_int_isr,         /* AGT4 COMPAREA (Compare match A) */
-    [61] = agt_int_isr,         /* AGT4 COMPAREB (Compare match B) */
-    [62] = agt_int_isr,         /* AGT5 COMPAREA (Compare match A) */
-    [63] = agt_int_isr,         /* AGT5 COMPAREB (Compare match B) */
+#if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
+    [46] = ra_port_agt_int_isr, /* AGT0 INT (AGT interrupt) */
+    [47] = ra_port_agt_int_isr, /* AGT1 INT (AGT interrupt) */
+    [48] = ra_port_agt_int_isr, /* AGT2 INT (AGT interrupt) */
+    [49] = ra_port_agt_int_isr, /* AGT3 INT (AGT interrupt) */
+    [50] = agt_int_isr,         /* AGT4 INT (FSP r_agt strong — LoRaWAN free-run cycle-end) */
+    [51] = agt_int_isr,         /* AGT5 INT (FSP r_agt strong — LoRaWAN compare cycle-end) */
+    [52] = ra_port_agt_int_isr, /* AGT0 COMPAREA (Compare match A) */
+    [53] = ra_port_agt_int_isr, /* AGT0 COMPAREB (Compare match B) */
+    [54] = ra_port_agt_int_isr, /* AGT1 COMPAREA (Compare match A) */
+    [55] = ra_port_agt_int_isr, /* AGT1 COMPAREB (Compare match B) */
+    [56] = ra_port_agt_int_isr, /* AGT2 COMPAREA (Compare match A) */
+    [57] = ra_port_agt_int_isr, /* AGT2 COMPAREB (Compare match B) */
+    [58] = ra_port_agt_int_isr, /* AGT3 COMPAREA (Compare match A) */
+    [59] = ra_port_agt_int_isr, /* AGT3 COMPAREB (Compare match B) */
+    [60] = ra_port_agt_int_isr, /* AGT4 COMPAREA (unused on LoRaWAN flavour) */
+    [61] = ra_port_agt_int_isr, /* AGT4 COMPAREB (unused on LoRaWAN flavour) */
+    /* TODO: flip to agt_comp_int_isr in Commit 2 when vendor timer-board.c lands */
+    [62] = ra_port_agt_int_isr, /* AGT5 COMPAREA (temp Commit 1 route; vendor handler lands in Commit 2) */
+    [63] = ra_port_agt_int_isr, /* AGT5 COMPAREB (unused on LoRaWAN flavour) */
+#else
+    [46] = ra_port_agt_int_isr, /* AGT0 INT (AGT interrupt) */
+    [47] = ra_port_agt_int_isr, /* AGT1 INT (AGT interrupt) */
+    [48] = ra_port_agt_int_isr, /* AGT2 INT (AGT interrupt) */
+    [49] = ra_port_agt_int_isr, /* AGT3 INT (AGT interrupt) */
+    [50] = ra_port_agt_int_isr, /* AGT4 INT (AGT interrupt) */
+    [51] = ra_port_agt_int_isr, /* AGT5 INT (AGT interrupt) */
+    [52] = ra_port_agt_int_isr, /* AGT0 COMPAREA (Compare match A) */
+    [53] = ra_port_agt_int_isr, /* AGT0 COMPAREB (Compare match B) */
+    [54] = ra_port_agt_int_isr, /* AGT1 COMPAREA (Compare match A) */
+    [55] = ra_port_agt_int_isr, /* AGT1 COMPAREB (Compare match B) */
+    [56] = ra_port_agt_int_isr, /* AGT2 COMPAREA (Compare match A) */
+    [57] = ra_port_agt_int_isr, /* AGT2 COMPAREB (Compare match B) */
+    [58] = ra_port_agt_int_isr, /* AGT3 COMPAREA (Compare match A) */
+    [59] = ra_port_agt_int_isr, /* AGT3 COMPAREB (Compare match B) */
+    [60] = ra_port_agt_int_isr, /* AGT4 COMPAREA (Compare match A) */
+    [61] = ra_port_agt_int_isr, /* AGT4 COMPAREB (Compare match B) */
+    [62] = ra_port_agt_int_isr, /* AGT5 COMPAREA (Compare match A) */
+    [63] = ra_port_agt_int_isr, /* AGT5 COMPAREB (Compare match B) */
+#endif
     [64] = dmac_int_isr,         /* DMAC0 INT (DMAC transfer end 0) */
     [65] = dmac_int_isr,         /* DMAC1 INT (DMAC transfer end 1) */
     [66] = dmac_int_isr,         /* DMAC2 INT (DMAC transfer end 2) */

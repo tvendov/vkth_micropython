@@ -52,10 +52,15 @@ extern "C" {
 #define BSP_CLOCK_CFG_MAIN_OSC_CLOCK_SOURCE (0)
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_DRIVE
+/* RA4M2 SOMCR.SODRV: 0 = STANDARD drive (matches 32.768 kHz crystal on VK_RA4M2). */
 #define BSP_CLOCK_CFG_SUBCLOCK_DRIVE (0)
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_POPULATED
-#define BSP_CLOCK_CFG_SUBCLOCK_POPULATED (0)
+/* VK_RA4M2 carries a 32.768 kHz crystal on P214/P215 (SUBCLK pair). Setting
+ * this to 1 makes FSP bsp_clocks.c start the SOSC oscillator at boot and wait
+ * BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS for it to stabilise, so RTC and
+ * AGTSCLK can use it. */
+#define BSP_CLOCK_CFG_SUBCLOCK_POPULATED (1)
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS
 #define BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS 1000
