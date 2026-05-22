@@ -290,6 +290,15 @@ bool ra_agt_timer_is_valid(uint32_t ch) {
 }
 
 bool ra_agt_timer_reserve(uint32_t ch) {
+    #ifdef MICROPY_HW_AGT_RESERVED_MASK
+    /* Board-level reservation: channels permanently owned by another
+     * driver (e.g. LoRaWAN renesas stack on VK_RA4M2: AGT4/AGT5). Reject
+     * before any state inspection so a stuck/half-open hardware state on
+     * the LoRaWAN channels cannot accidentally be surfaced to Python. */
+    if ((MICROPY_HW_AGT_RESERVED_MASK >> ch) & 1U) {
+        return false;
+    }
+    #endif
     if (ch >= AGT_CH_SIZE || agt_reserved[ch]) {
         return false;
     }

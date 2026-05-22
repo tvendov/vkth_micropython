@@ -36,7 +36,7 @@ void ctsu_end_isr(void);
 void ra_port_agt_int_isr(void);
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
 void agt_int_isr(void);
-/* agt_comp_int_isr prototype lands in Commit 2 with vendor timer-board.c. */
+void agt_comp_int_isr(void);
 #endif
 void dmac_int_isr(void);
 void adc_scan_end_isr(void);

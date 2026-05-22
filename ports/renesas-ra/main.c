@@ -298,6 +298,14 @@ soft_reset:
 
     MICROPY_BOARD_TOP_SOFT_RESET_LOOP(&state);
 
+    #if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
+    /* Release AGT4/AGT5 left half-open by a prior LoRaWAN MAC. Vendor
+     * timer-board.c has no de-init path, so without this the second
+     * lorawan.Mac() after a soft-reset silently fails BoardTimerInit. */
+    extern void lorawan_softreset_agt_release(void);
+    lorawan_softreset_agt_release();
+    #endif
+
     // Python threading init
     #if MICROPY_PY_THREAD
     mp_thread_init();

@@ -684,6 +684,17 @@ FILE2H = $(TOP)/tools/file2h.py
 # List of sources for qstr extraction
 SRC_QSTR += $(SRC_C) $(SRC_CXX) $(SHARED_SRC_C) $(GEN_PINS_SRC)
 
+# Vendor LoRaWAN timer-board.c (pristine RA2L1EK source) lives in a
+# different board's directory under lorawan/boards/ra2l1ek_sx126x/, so its
+# relative `#include "board.h"` resolves to that board's header and
+# collides with the CLI -DRP_USE_RF_SWITCH/-DRP_USE_DCDC_FOR_RADIO under
+# -Werror. The per-file CFLAGS in lorawan.mk apply only to the compile
+# step, not the bulk qstr preprocess. The file contains no MicroPython
+# qstrs, so excluding it from the qstr pass is safe.
+ifeq ($(MICROPY_HW_LORA_STACK),renesas)
+SRC_QSTR := $(filter-out lorawan/boards/ra2l1ek_sx126x/timer-board.c,$(SRC_QSTR))
+endif
+
 # Making OBJ use an order-only dependency on the generated pins.h file
 # has the side effect of making the pins.h file before we actually compile
 # any of the objects. The normal dependency generation will deal with the

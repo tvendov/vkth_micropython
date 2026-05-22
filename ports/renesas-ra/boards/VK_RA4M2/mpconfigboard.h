@@ -24,6 +24,15 @@
 
 // LoRaWAN receive timing uses the active AGT backend.
 
+// On the LoRaWAN renesas flavour the vendor timer-board.c owns AGT4 and
+// AGT5 (free-run cycle-end + sub-second compare-A alarm). Reject Python
+// machine.Timer() attempts on those channels so a user cannot half-open
+// them and confuse the LoRaWAN state machine. Bit N set => AGT channel N
+// reserved. See ports/renesas-ra/ra/ra_timer.c ra_agt_timer_reserve().
+#if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
+#define MICROPY_HW_AGT_RESERVED_MASK (0x30U)  /* bit 4 = AGT4, bit 5 = AGT5 */
+#endif
+
 // module config
 // #define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_BASIC_FEATURES)
 // #define MICROPY_ENABLE_FINALISER    (1)

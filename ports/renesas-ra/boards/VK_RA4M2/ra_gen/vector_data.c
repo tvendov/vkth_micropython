@@ -29,7 +29,7 @@ BSP_WEAK_REFERENCE void ctsu_end_isr(void) { }
 void ra_port_agt_int_isr(void);
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && (MICROPY_HW_LORA_STACK_RENESAS == 1)
 void agt_int_isr(void);
-/* agt_comp_int_isr prototype lands in Commit 2 with vendor timer-board.c. */
+void agt_comp_int_isr(void);
 #endif
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
         #if VECTOR_DATA_IRQ_COUNT > 0
@@ -98,8 +98,7 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [59] = ra_port_agt_int_isr, /* AGT3 COMPAREB (Compare match B) */
     [60] = ra_port_agt_int_isr, /* AGT4 COMPAREA (unused on LoRaWAN flavour) */
     [61] = ra_port_agt_int_isr, /* AGT4 COMPAREB (unused on LoRaWAN flavour) */
-    /* TODO: flip to agt_comp_int_isr in Commit 2 when vendor timer-board.c lands */
-    [62] = ra_port_agt_int_isr, /* AGT5 COMPAREA (temp Commit 1 route; vendor handler lands in Commit 2) */
+    [62] = agt_comp_int_isr,    /* AGT5 COMPAREA (vendor strong — LoRaWAN sub-second alarm) */
     [63] = ra_port_agt_int_isr, /* AGT5 COMPAREB (unused on LoRaWAN flavour) */
 #else
     [46] = ra_port_agt_int_isr, /* AGT0 INT (AGT interrupt) */
