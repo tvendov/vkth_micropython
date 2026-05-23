@@ -1,6 +1,0 @@
-# Reserved for portable LoRaMac-node system helpers (Phase 2).
-# Files to import: delay.c, delay.h, fifo.c, fifo.h, systime.c, systime.h
-# Files to REWRITE for FSP 4.4: timer.c (Renesas package targets FSP 6.2 r_agt
-# API). Replacement is glue/timer_board.c which uses the existing ra_timer.c
-# wrapper.
-# Files to DROP: gpio.c, spi.h impls, uart.c — replaced by MicroPython HAL.

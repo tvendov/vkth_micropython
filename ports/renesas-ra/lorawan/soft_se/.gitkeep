@@ -1,3 +1,0 @@
-# Reserved for soft secure-element (Phase 3).
-# Source: boards/VK_RA4M2/examples/LoRa/lorawan_upstream/renesas_lora/samples/project/src/peripherals/soft-se/
-# Crypto backend wired against modaes_cmac.c (already in port) and axTLS AES.

@@ -1,4 +1,0 @@
-# Reserved for SX126x driver tree (Phase 1).
-# Source of imports:
-#   boards/VK_RA4M2/examples/LoRa/lorawan_upstream/renesas_lora/samples/project/src/radio/
-# Files: radio.c, sx126x.c, sx126x.h, region/r_radio_region*.c/h

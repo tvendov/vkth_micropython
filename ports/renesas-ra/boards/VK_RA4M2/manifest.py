@@ -15,11 +15,10 @@ if not _LORA_STACK:
     _LORA_STACK = "python" if os.environ.get("MICROPY_HW_ENABLE_LORA", "0") == "1" else "none"
 
 if _LORA_STACK == "renesas":
-    # Phase 6c — async wrapper around the C `lorawan` module. Provides
-    # AsyncMac with `await join()` / `await send()` / `await wait_recv()`
-    # built on the C event_callback infrastructure.
-    _LORAWAN_PY = "$(PORT_DIR)/lorawan/python"
-    freeze(_LORAWAN_PY, "lorawan_async.py")
+    # Current VK board-layer bring-up compiles the Renesas C stack with the
+    # Python binding disabled by default.  Do not freeze the old async wrapper
+    # until it is moved out of lorawan/wrong/ and retargeted to the active API.
+    pass
 
 if _LORA_STACK == "python":
     # Freeze micropySX126X (PHY) и GereZoltan/LoRaWAN (MAC) в firmware,

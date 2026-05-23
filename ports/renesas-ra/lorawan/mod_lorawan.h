@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026
  *
- * Renesas LoRaWAN C-stack — MicroPython binding header (Phase 0 skeleton).
+ * Renesas LoRaWAN C-stack — MicroPython binding header.
  *
  * This module is built only when the renesas-ra port is configured with
  *   MICROPY_HW_LORA_STACK = renesas
@@ -19,67 +19,30 @@
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
-// Phase status — incremented as the stack is brought up. Exposed as
-// `lorawan._PHASE` for debug / progress tracking from Python.
-//   0 = skeleton only
-//   1 = radio HAL (SX126x board glue + DIO1/BUSY IRQ)
-//   2 = timer service AGT4 + direct ICU + runtime tuning
-//   3 = AGT5 sub-ms hand-off (RX1/RX2 ±200 µs)
-//   4 = LoRaMac compiles (imported tree, no calls yet)
-//   5 = LoRaMac binding: init + keys + process + join + send + recv
-//   6 = ADR + NVM persistence (RAM-backed in 6a.1, flash in 6a.2)    ← current
-//   7 = production
-#define LORAWAN_PHASE       (6)
-
-/* mac.send() HardFault localization breadcrumbs. Each checkpoint writes
- * its enum ID into a .noinit RAM slot that survives a HardFault and a
- * subsequent JLink hard reset (RA4M2 has no D-cache, see linker .noinit
- * section in boards/VK_RA4M2/ra4m2ac3cfm.ld). Readable from Python via
- * lorawan._last_breadcrumb() after the next boot.
- *
- * Sites: S0..S5 in mod_lorawan.c lorawan_mac_send(); M0..M10 in
- * mac/LoRaMac.c LoRaMacMcpsRequest/Send/PrepareFrame/ScheduleTx/
- * SendFrameOnChannel. Foreground (synchronous mac.send) context only;
- * do NOT place inside any ISR (the .noinit write itself is safe, but the
- * breadcrumbs were placed to localize fg-call faults). */
-#ifndef LORAWAN_SEND_BREADCRUMBS
-#define LORAWAN_SEND_BREADCRUMBS (1)
-#endif
-
-typedef enum {
-    LWBC_NONE = 0,
-    LWBC_S0,
-    LWBC_S1,
-    LWBC_S2,
-    LWBC_S3,
-    LWBC_S4,
-    LWBC_S5,
-    LWBC_M0,
-    LWBC_M1,
-    LWBC_M2,
-    LWBC_M3,
-    LWBC_M4,
-    LWBC_M5,
-    LWBC_M6,
-    LWBC_M7,
-    LWBC_M8,
-    LWBC_M9,
-    LWBC_M10,
-} lorawan_bc_t;
-
-#define LORAWAN_BC_MAGIC (0xB12EAD51u)
-
-extern uint16_t lorawan_bc_last;
-extern uint32_t lorawan_bc_magic;
-
-#if LORAWAN_SEND_BREADCRUMBS
-#define SBC(id) (lorawan_bc_last = (uint16_t)(id))
-#else
-#define SBC(id) ((void)0)
-#endif
-
-// Forward declarations for the Phase 0 stub Mac class.
+// Forward declaration for the MicroPython Mac/LoRaWAN type.
 extern const mp_obj_type_t lorawan_mac_type;
+
+/* 040/041 — "Python supplied a machine.SPI object" sentinel.
+   Set true by lorawan_mac_make_new() AFTER it has either created or
+   type-checked the MicroPython machine.SPI object and stashed the
+   reference in lorawan_mac_obj_t::spi_obj. Read by
+   sx126x_board_init() before any SPI bus access; if false, the board
+   layer refuses to init and raises -MP_EIO.
+   Caller contract:
+     - `lorawan.LoRaWAN(spi_bus=3, clk=..., mosi=..., miso=..., ...)`
+       creates a normal MicroPython machine.SPI object through the public
+       constructor path, then roots it for the LoRaWAN lifetime.
+     - callers may still pass `spi=machine.SPI(...)` as a shortcut.
+     - Python/MicroPython owns the resource lifecycle and must NOT call
+       spi.deinit() while LoRaWAN is active.
+   What this flag does NOT prove:
+     - for `spi=...`, it does NOT prove SPI id/baud/polarity/phase/pins;
+     - it does NOT prove SCI9 is open or remains open;
+     - it does NOT prevent user-driven spi.deinit().
+   Runtime bus-state failures surface through the board-layer byte transfer
+   path, which calls the standard MicroPython SPI protocol on this rooted
+   object. The Renesas backend state remains private to `machine_spi.c`. */
+extern bool lorawan_spi_pinned;
 
 #endif // MICROPY_HW_LORA_STACK_RENESAS
 

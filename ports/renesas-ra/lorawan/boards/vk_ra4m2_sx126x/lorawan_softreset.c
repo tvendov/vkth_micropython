@@ -49,16 +49,31 @@ void lorawan_softreset_agt_release(void) {
     g_timer1_ctrl.open = 0U;
 }
 
-void timer_board_init(mp_obj_t timer0, mp_obj_t timer1) {
-    /* The Python-side machine.Timer objects exist only to (a) keep
-     * pin/channel reservation visible at the API surface and (b) anchor
-     * GC roots; the actual hardware open is done by the vendor stack
-     * against AGT4/AGT5 (fixed by lorawan_hal_data.c). Accept any object
-     * here and pass it through as a root pointer in mod_lorawan.c. */
-    (void)timer0;
-    (void)timer1;
+void timer_board_init(void) {
+    /* AGT4/AGT5 are boot-reserved via MICROPY_HW_AGT_RESERVED_MASK so the
+     * vendor stack owns the hardware directly. Release any half-open state
+     * from a prior VM cycle, then let BoardTimerInit re-open both channels. */
     lorawan_softreset_agt_release();
     BoardTimerInit();
+
+    /* HIL diagnostic + workaround for TSTART=0 issue (2026-05-23, master
+     * authorized). BoardTimerInit returns with AGTCR=0x00 despite both
+     * R_AGT_Open succeeding (.open == AGT_OPEN). R_AGT_Start in
+     * RpMcuResourceTimerStart either never runs or its TSTART write is
+     * reverted. Manual R_AGT_Start fallback unblocks AGT counter. */
+    uint8_t cr0_pre = g_timer0_ctrl.p_reg->AGT16.CTRL.AGTCR;
+    uint8_t cr1_pre = g_timer1_ctrl.p_reg->AGT16.CTRL.AGTCR;
+    if ((cr0_pre & 0x01U) == 0U) {
+        R_AGT_Start((timer_ctrl_t *)&g_timer0_ctrl);
+    }
+    if ((cr1_pre & 0x01U) == 0U) {
+        R_AGT_Start((timer_ctrl_t *)&g_timer1_ctrl);
+    }
+    uint8_t cr0_post = g_timer0_ctrl.p_reg->AGT16.CTRL.AGTCR;
+    uint8_t cr1_post = g_timer1_ctrl.p_reg->AGT16.CTRL.AGTCR;
+    mp_printf(&mp_plat_print,
+              "timer_board_init: AGTCR t0 pre=0x%02x post=0x%02x  t1 pre=0x%02x post=0x%02x\n",
+              cr0_pre, cr0_post, cr1_pre, cr1_post);
 }
 
 void timer_board_deinit(void) {

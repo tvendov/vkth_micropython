@@ -1,6 +1,0 @@
-# Reserved for Renesas LoRaMac-node tree (Phase 3).
-# Source of imports:
-#   boards/VK_RA4M2/examples/LoRa/lorawan_upstream/renesas_lora/samples/project/src/mac/
-# Do NOT copy:
-#   * any file that references hal_data.h or bsp_api.h directly
-#   * region/RegionCN470*.c (drop unless explicitly enabled)

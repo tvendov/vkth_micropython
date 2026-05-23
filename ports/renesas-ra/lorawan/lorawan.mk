@@ -80,7 +80,8 @@ CFLAGS += -DLORAWAN_BUILD_PHASE=$(LORAWAN_BUILD_PHASE)
 # address, and data are shifted byte-by-byte while CS stays asserted.
 SRC_C += $(wildcard $(LORAWAN_DIR)/mac/*.c)
 SRC_C += $(wildcard $(LORAWAN_DIR)/mac/region/*.c)
-SRC_C += $(wildcard $(LORAWAN_DIR)/radio/*.c)
+SRC_C += $(LORAWAN_DIR)/radio/sx126x/radio.c
+SRC_C += $(LORAWAN_DIR)/radio/sx126x/sx126x.c
 SRC_C += $(wildcard $(LORAWAN_DIR)/radio/region/*.c)
 SRC_C += $(wildcard $(LORAWAN_DIR)/peripherals/soft-se/*.c)
 SRC_C += $(LORAWAN_DIR)/boards/mcu/utilities.c
@@ -168,7 +169,7 @@ LORAWAN_VENDOR_CFLAGS := \
 # object files. The VK board layer keeps the strict project-wide -Werror.
 $(BUILD)/$(LORAWAN_DIR)/mac/%.o:        CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
 $(BUILD)/$(LORAWAN_DIR)/mac/region/%.o: CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
-$(BUILD)/$(LORAWAN_DIR)/radio/%.o:      CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
+$(BUILD)/$(LORAWAN_DIR)/radio/sx126x/%.o: CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
 $(BUILD)/$(LORAWAN_DIR)/radio/region/%.o: CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
 $(BUILD)/$(LORAWAN_DIR)/peripherals/soft-se/%.o: CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
 $(BUILD)/$(LORAWAN_DIR)/system/%.o:     CFLAGS += $(LORAWAN_VENDOR_CFLAGS)
