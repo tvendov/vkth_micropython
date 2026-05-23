@@ -1,0 +1,6 @@
+print('[INFO] T11_DEVNONCE_MONOTONICITY: orchestrated multi-cycle test')
+print('[INFO] Operator runs t01_otaa_sf7.py 100x with JLink hard reset (RSetType 5) between each')
+print('[INFO] Each cycle: JLink reset -> mpremote run t01_otaa_sf7.py -> capture stdout')
+print('[INFO] Master pulls SenseCap station log + ChirpStack journal for the 100-cycle window')
+print('[INFO] Master asserts DevNonce strictly increasing across all 100 JOIN_REQ frames')
+print('[INFO] PASS criterion: 100/100 joined AND DevNonce monotonic AND no JOIN_NONCE_FAIL')

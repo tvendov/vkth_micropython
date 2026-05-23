@@ -15,22 +15,9 @@
 extern "C" {
 #endif
 
-typedef enum {
-    LORAWAN_PUMP_REASON_NOTIFY   = 1,
-    LORAWAN_PUMP_REASON_TIMER    = 2,
-    LORAWAN_PUMP_REASON_DIO1     = 3,
-    LORAWAN_PUMP_REASON_PY       = 4,
-    LORAWAN_PUMP_REASON_INTERNAL = 5,
-} lorawan_pump_reason_t;
-
-void lorawan_pump_init(void);
-
-#define LORAWAN_PUMP_REQUEST_TIMER   (1u << 0)
-#define LORAWAN_PUMP_REQUEST_DIO1    (1u << 1)
-#define LORAWAN_PUMP_REQUEST_NOTIFY  (1u << 2)
-#define LORAWAN_PUMP_REQUEST_PY      (1u << 3)
-
-void lorawan_pump_request(uint32_t reason_mask);
+/* Single board-layer entry: DIO1 ISR (sx126x-board.c) requests foreground
+ * LoRaMac service. lorawan_pump_init() is internal to mod_lorawan.c. */
+void lorawan_pump_request_dio1(void);
 
 #ifdef __cplusplus
 }

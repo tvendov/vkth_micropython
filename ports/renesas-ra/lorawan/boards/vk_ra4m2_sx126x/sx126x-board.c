@@ -66,19 +66,8 @@ static inline void pfs_pwpr_protect(void)   { _PWPR_LOC = 0x80; }
 // TCXO setup (SX126xIoTcxoInit) and the LoRaMac adapter layer.
 #include "board.h"
 
-typedef struct {
-    uint8_t spi_bus;
-    uint32_t spi_baud_hz;
-    mp_obj_t spi_obj;
-    void *cs_pin;
-    void *rst_pin;
-    void *gpio_busy_pin;
-    void *irq_pin;
-    void *rf_sw_pin;
-} sx126x_board_cfg_t;
+#include "sx126x_board_cfg.h"
 
-void sx126x_board_init(const sx126x_board_cfg_t *cfg);
-void sx126x_board_deinit(void);
 bool sx126x_board_is_initialized(void);
 int SX126xWriteCommand_e(uint8_t opcode, const uint8_t *buffer, uint16_t size);
 int SX126xReadCommand_e(uint8_t opcode, uint8_t *buffer, uint16_t size);
@@ -222,7 +211,7 @@ void BoardRadioDio1Callback(external_irq_callback_args_t *p_args) {
     (void)p_args;
     BoardRadioIrqPreprocess();
     sx126x_board_dispatch_dio1_irq();
-    lorawan_pump_request(LORAWAN_PUMP_REQUEST_DIO1);
+    lorawan_pump_request_dio1();
 }
 
 void SX126xIoTcxoInit(void) {
@@ -311,13 +300,10 @@ void sx126x_board_init(const sx126x_board_cfg_t *cfg) {
         mp_hal_pin_high((mp_hal_pin_obj_t)s_state.rf_sw);
     }
 
-    /* The SPI object is Python-owned and GC-rooted by mod_lorawan.c before
-       this board layer is initialized. This sentinel only proves that a
-       machine.SPI object was accepted and rooted; it does not verify bus id,
-       pin mux, baudrate, mode, or protect against user spi.deinit().
-       Transfers use the standard MicroPython SPI protocol byte-by-byte. */
-    extern bool lorawan_spi_pinned;  /* defined in lorawan/mod_lorawan.c */
-    if (!lorawan_spi_pinned) {
+    /* cfg->spi_obj is the Python-owned machine.SPI rooted by mod_lorawan.c
+     * (lorawan_spi_obj_root). Reject if caller didn't supply one — the dup
+     * sentinel `lorawan_spi_pinned` is gone. */
+    if (cfg->spi_obj == mp_const_none || cfg->spi_obj == MP_OBJ_NULL) {
         mp_raise_OSError(MP_EIO);
     }
     (void)cfg->spi_baud_hz;  /* requested via constructor/SPI object; not re-validated here */

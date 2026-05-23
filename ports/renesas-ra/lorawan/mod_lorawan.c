@@ -52,19 +52,7 @@
 #include "lorawan_pump.h"
 #include "board.h"
 
-typedef struct {
-    uint8_t spi_bus;
-    uint32_t spi_baud_hz;
-    mp_obj_t spi_obj;
-    void *cs_pin;
-    void *rst_pin;
-    void *gpio_busy_pin;
-    void *irq_pin;
-    void *rf_sw_pin;
-} sx126x_board_cfg_t;
-
-void sx126x_board_init(const sx126x_board_cfg_t *cfg);
-void sx126x_board_deinit(void);
+#include "boards/vk_ra4m2_sx126x/sx126x_board_cfg.h"
 void SX126xIoIrqDeinit(void);
 bool sx126x_board_spi_busy(void);
 
@@ -78,14 +66,6 @@ void timer_board_deinit(void);
  * (0x34/0x44) to the SX126x — otherwise the chip listens with private
  * syncword (0x14/0x24) and never demodulates JoinAccept. */
 void RadioSetPublicNetwork(bool enable);
-
-#define MOD_LORAWAN_NEW_TUPLE(n, items)         mp_obj_new_tuple((n), (items))
-#define MOD_LORAWAN_NEW_DICT(n)                 mp_obj_new_dict((n))
-#define MOD_LORAWAN_NEW_BYTES(p, n)             mp_obj_new_bytes((p), (n))
-#define MOD_LORAWAN_NEW_STR(p, n)               mp_obj_new_str((p), (n))
-#define MOD_LORAWAN_NEW_BOOL(v)                 mp_obj_new_bool((v))
-#define MOD_LORAWAN_NEW_INT_U(v)                mp_obj_new_int_from_uint((v))
-#define MOD_LORAWAN_NEW_INT_ULL(v)              mp_obj_new_int_from_ull((v))
 
 #include "LoRaMac.h"
 
@@ -147,16 +127,6 @@ typedef struct _lorawan_mac_obj_t {
     int8_t  link_check_margin;       // dB above demod sensitivity, 0..254
     uint8_t link_check_gateways;     // number of GWs that heard the uplink
 
-    /* Python-owned SPI object reference. Set in lorawan_mac_make_new from
-       either a caller-supplied `spi=` object or the constructor-created
-       `machine.SPI(spi_bus, sck=clk, mosi=mosi, miso=miso, ...)` object.
-       This field is held for read access only (e.g., a future `mac.spi`
-       property). It is NOT a GC root: the Mac singleton lives in .bss
-       and gc_collect_root() does not walk .bss-static storage. The real
-       GC root is MP_STATE_PORT(lorawan_spi_obj_root), registered by the
-       MP_REGISTER_ROOT_POINTER directive at end-of-file. */
-    mp_obj_t spi_obj;
-
     /* AGT4/AGT5 are boot-reserved via MICROPY_HW_AGT_RESERVED_MASK in
        mpconfigboard.h. The C board layer (vendor timer-board.c) opens
        g_timer0_ctrl / g_timer1_ctrl directly through R_AGT_Open, so no
@@ -164,21 +134,6 @@ typedef struct _lorawan_mac_obj_t {
 } lorawan_mac_obj_t;
 
 static lorawan_mac_obj_t lorawan_mac_singleton;
-
-/* "Python/MicroPython supplied a machine.SPI object" sentinel.
-   Single writer: lorawan_mac_make_new (after `spi=` type-check or internal
-   public machine.SPI constructor call).
-   Single reader: sx126x_board_init (lorawan/boards/.../sx126x-board.c)
-   via the extern declaration in mod_lorawan.h.
-   What this flag means:
-     - true  => LoRaWAN has a GC-rooted object typed as &machine_spi_type.
-   What it does NOT mean:
-     - it does NOT prove SCI9 is actually open or remains open;
-     - it does NOT prevent the user from calling spi.deinit().
-   Runtime SPI failures (closed/deinit'd bus, mis-configured peripheral)
-   are surfaced by the byte-by-byte radio transfer path; this sentinel only
-   gates the init-time refusal. */
-bool lorawan_spi_pinned = false;
 
 /* GC root slots for Python callbacks owned by the binding. Routed via
    MP_STATE_VM so gc_collect_root() can see them; the singleton itself lives
@@ -188,20 +143,6 @@ enum {
     LORAWAN_CB_COUNT = 1,  /* KEEP IN SYNC with literal "1" in MP_REGISTER_ROOT_POINTER below; the qstr/root-pointer collector parses this file before enums are visible. */
 };
 #define LORAWAN_CB_SLOT(i)  (MP_STATE_VM(lorawan_mac_root_callbacks)[(i)])
-
-/* GC-visible roots for the Python-owned pin objects passed to the board
-   layer. The RA port's named Pin objects are static, but keeping these roots
-   makes the binding match the authority contract and protects callers that
-   pass explicit Pin objects. */
-enum {
-    LORAWAN_PIN_ROOT_CS = 0,
-    LORAWAN_PIN_ROOT_RST = 1,
-    LORAWAN_PIN_ROOT_GPIO_BUSY = 2,
-    LORAWAN_PIN_ROOT_IRQ = 3,
-    LORAWAN_PIN_ROOT_RF_SW = 4,
-    LORAWAN_PIN_ROOT_COUNT = 5,
-};
-#define LORAWAN_PIN_ROOT(i) (MP_STATE_PORT(lorawan_pin_obj_roots)[(i)])
 
 /* Single owner of the internal counter storage. 0xFF means "no BUSY opcode
  * observed yet". */
@@ -221,14 +162,6 @@ volatile lorawan_stats_t g_lorawan_stats = {
  * actually advanced. false means cycle-max readings are unavailable. */
 volatile bool s_dwt_available = false;
 
-/* RX-window-active flag. Set in sx126x_spi_xfer
- * when staging SetRx (0x82); cleared in mac_mcps_indication,
- * mac_mlme_confirm, and mac_mcps_confirm; read in NvmDataMgmtStore.
- * All sites run in scheduler/Python context. Aligned byte stores on Armv8-M
- * are atomic at the bus level, so a plain volatile uint8_t is correct
- * without atomics. See lorawan_stats.h for the full clear-edge contract. */
-volatile uint8_t s_rx_window_active = 0;
-
 /* Foreground service coordinator.
  *
  * Keep it with the binding because it is not a board driver and not a second
@@ -236,25 +169,21 @@ volatile uint8_t s_rx_window_active = 0;
  * DIO1/timer/notify/Python and runs upstream LoRaMacProcess() from foreground
  * mac.process().
  */
-#define LORAWAN_PUMP_REASON_COUNT  (6u)
-
 static volatile uint8_t s_process_running;
 static volatile uint8_t s_process_pending;
 static volatile uint8_t s_pump_scheduled;
 static volatile uint8_t s_pump_initialized;
-static volatile uint32_t s_pump_reason_mask;
 static volatile uint32_t s_event_drop_count;
 
 #define LORAWAN_JOIN_DEFAULT_TIMEOUT_MS (15000u)
 
-void lorawan_pump_init(void) {
+static void lorawan_pump_init(void) {
     if (s_pump_initialized) {
         return;
     }
     s_process_running = 0;
     s_process_pending = 0;
     s_pump_scheduled = 0;
-    s_pump_reason_mask = 0;
     s_event_drop_count = 0;
     s_pump_initialized = 1;
 }
@@ -264,20 +193,14 @@ static void lorawan_pump_deinit(void) {
     s_process_running = 0;
     s_process_pending = 0;
     s_pump_scheduled = 0;
-    s_pump_reason_mask = 0;
     s_event_drop_count = 0;
 }
 
-static void lorawan_driver_request_pump(uint8_t reason) {
+static void lorawan_driver_request_pump(void) {
     if (!s_pump_initialized) {
         return;
     }
-    uint8_t r = reason;
-    if (r == 0u || r >= LORAWAN_PUMP_REASON_COUNT) {
-        r = LORAWAN_PUMP_REASON_INTERNAL;
-    }
     mp_uint_t irq_state = disable_irq();
-    s_pump_reason_mask |= (1u << r);
 
     if (s_pump_scheduled || s_process_running) {
         s_process_pending = 1u;
@@ -302,20 +225,13 @@ static void lorawan_driver_pump_run(void) {
             return;
         }
 
-        uint32_t reasons = s_pump_reason_mask;
-        s_pump_reason_mask = 0;
         s_process_pending = 0u;
         s_process_running = 1u;
         s_pump_scheduled = 1u;
         enable_irq(irq_state);
 
-        if (reasons & (1u << LORAWAN_PUMP_REASON_DIO1)) {
-            s_rx_window_active = 0u;
-        }
-
         if (sx126x_board_spi_busy()) {
             irq_state = disable_irq();
-            s_pump_reason_mask |= reasons;
             s_process_running = 0u;
             s_pump_scheduled = 1u;
             s_process_pending = 1u;
@@ -336,7 +252,7 @@ static void lorawan_driver_pump_run(void) {
 
         irq_state = disable_irq();
         s_process_running = 0u;
-        if (s_process_pending == 0u && s_pump_reason_mask == 0u) {
+        if (s_process_pending == 0u) {
             s_pump_scheduled = 0u;
             enable_irq(irq_state);
             return;
@@ -345,31 +261,8 @@ static void lorawan_driver_pump_run(void) {
     }
 }
 
-void lorawan_pump_request(uint32_t reason_mask) {
-    bool any = false;
-    if (reason_mask & LORAWAN_PUMP_REQUEST_TIMER) {
-        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_TIMER);
-        any = true;
-    }
-    if (reason_mask & LORAWAN_PUMP_REQUEST_DIO1) {
-        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_DIO1);
-        any = true;
-    }
-    if (reason_mask & LORAWAN_PUMP_REQUEST_NOTIFY) {
-        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_NOTIFY);
-        any = true;
-    }
-    if (reason_mask & LORAWAN_PUMP_REQUEST_PY) {
-        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_PY);
-        any = true;
-    }
-    if (!any) {
-        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_INTERNAL);
-    }
-}
-
-static void lorawan_pump_drain(void) {
-    lorawan_driver_pump_run();
+void lorawan_pump_request_dio1(void) {
+    lorawan_driver_request_pump();
 }
 
 /* Packed-SMALL_INT event dispatch.
@@ -422,16 +315,6 @@ void lorawan_stats_dwt_init(void) {
 void lorawan_stats_dwt_init(void) {}
 #endif
 
-static void lorawan_mac_print(const mp_print_t *print, mp_obj_t self_in,
-    mp_print_kind_t kind) {
-    (void)kind;
-    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_printf(print,
-        "Mac(region=%q, radio=%s)",
-        self->region,
-        self->radio_initialized ? "init" : "uninit");
-}
-
 static const machine_pin_obj_t *resolve_pin(mp_obj_t user_obj, qstr default_qstr) {
     if (user_obj == mp_const_none) {
         return machine_pin_find(MP_OBJ_NEW_QSTR(default_qstr));
@@ -463,7 +346,7 @@ static mp_obj_t lorawan_create_spi_obj(mp_int_t spi_bus, mp_int_t baudrate,
    The real protocol FSM lives in mac/LoRaMac.c (MacCtx.MacState). */
 static mp_obj_t lorawan_mac_status(mp_obj_t self_in) {
     lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_obj_t d = mp_obj_new_dict(12);
+    mp_obj_t d = mp_obj_new_dict(10);
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_region),
         MP_OBJ_NEW_QSTR(self->region));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_radio_initialized),
@@ -480,14 +363,10 @@ static mp_obj_t lorawan_mac_status(mp_obj_t self_in) {
         mp_obj_new_bool(self->rx_pending));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_rx_len),
         MP_OBJ_NEW_SMALL_INT(self->rx_len));
-    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_spi_pinned),
-        mp_obj_new_bool(lorawan_spi_pinned));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_mac_busy),
-        mp_obj_new_bool(self->stack_initialized && LoRaMacIsBusy()));
+        mp_obj_new_bool(LoRaMacIsBusy()));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_event_drop_count),
-        MOD_LORAWAN_NEW_INT_U(s_event_drop_count));
-    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_state_authority),
-        MP_OBJ_NEW_QSTR(MP_QSTR_LoRaMac));
+        mp_obj_new_int_from_uint(s_event_drop_count));
     return d;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_status_obj, lorawan_mac_status);
@@ -506,21 +385,21 @@ static mp_obj_t lorawan_mac_make_new(const mp_obj_type_t *type,
         { MP_QSTR_baudrate, MP_ARG_KW_ONLY | MP_ARG_INT,
             { .u_int = LORAWAN_DEFAULT_SPI_BAUD } },
         { MP_QSTR_clk,      MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P111) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_CLK_QSTR) } },
         { MP_QSTR_mosi,     MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P109) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_MOSI_QSTR) } },
         { MP_QSTR_miso,     MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P110) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_MISO_QSTR) } },
         { MP_QSTR_cs,       MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P206) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_CS_QSTR) } },
         { MP_QSTR_irq,      MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P015) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_IRQ_QSTR) } },
         { MP_QSTR_rst,      MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P001) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_RST_QSTR) } },
         { MP_QSTR_gpio_busy, MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P002) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_GPIO_BUSY_QSTR) } },
         { MP_QSTR_rf_sw,    MP_ARG_KW_ONLY | MP_ARG_OBJ,
-            { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_P100) } },
+            { .u_rom_obj = MP_ROM_QSTR(LORAWAN_DEFAULT_RF_SW_QSTR) } },
         /* Optional shortcut for callers that already constructed
            machine.SPI(3, ...). If omitted, this constructor creates the
            MicroPython SPI object from spi_bus/clk/mosi/miso. */
@@ -607,14 +486,7 @@ static mp_obj_t lorawan_mac_make_new(const mp_obj_type_t *type,
     /* DWT CYCCNT is used only by optional observation counters. */
     lorawan_stats_dwt_init();
 
-    self->spi_obj = spi_arg;
     MP_STATE_PORT(lorawan_spi_obj_root) = spi_arg;
-    lorawan_spi_pinned = true;
-    LORAWAN_PIN_ROOT(LORAWAN_PIN_ROOT_CS) = MP_OBJ_FROM_PTR(cs_pin);
-    LORAWAN_PIN_ROOT(LORAWAN_PIN_ROOT_RST) = MP_OBJ_FROM_PTR(rst_pin);
-    LORAWAN_PIN_ROOT(LORAWAN_PIN_ROOT_GPIO_BUSY) = MP_OBJ_FROM_PTR(gpio_busy_pin);
-    LORAWAN_PIN_ROOT(LORAWAN_PIN_ROOT_IRQ) = MP_OBJ_FROM_PTR(irq_pin);
-    LORAWAN_PIN_ROOT(LORAWAN_PIN_ROOT_RF_SW) = MP_OBJ_FROM_PTR(rf_sw_pin);
 
     nlr_buf_t nlr;
     if (nlr_push(&nlr) == 0) {
@@ -644,11 +516,6 @@ static mp_obj_t lorawan_mac_make_new(const mp_obj_type_t *type,
         }
         lorawan_pump_deinit();
         MP_STATE_PORT(lorawan_spi_obj_root) = mp_const_none;
-        self->spi_obj = mp_const_none;
-        lorawan_spi_pinned = false;
-        for (size_t i = 0; i < LORAWAN_PIN_ROOT_COUNT; ++i) {
-            LORAWAN_PIN_ROOT(i) = mp_const_none;
-        }
         nlr_jump(nlr.ret_val);
     }
 
@@ -694,11 +561,6 @@ static mp_obj_t lorawan_mac_deinit(mp_obj_t self_in) {
     /* Release LoRaWAN-side references only. Python remains the owner of the
        machine.SPI object, so deinit() does not call spi.deinit(). */
     MP_STATE_PORT(lorawan_spi_obj_root) = mp_const_none;
-    self->spi_obj = mp_const_none;
-    lorawan_spi_pinned = false;
-    for (size_t i = 0; i < LORAWAN_PIN_ROOT_COUNT; ++i) {
-        LORAWAN_PIN_ROOT(i) = mp_const_none;
-    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_deinit_obj, lorawan_mac_deinit);
@@ -759,23 +621,10 @@ static void mac_post_event(qstr tag, int status) {
 }
 
 static void mac_mcps_confirm(McpsConfirm_t *cnf) {
-    /* Class A uplink with NO downlink completes via the LoRaMac RX-timeout
-       path: ProcessRadioRxTimeout -> HandleRadioRxErrorTimeout -> MacDone=1
-       -> MacMcpsConfirm, with no MacMcpsIndication. Without this clear edge,
-       s_rx_window_active stays latched after the RX window closes and the
-       next NvmDataMgmtStore() is falsely counted as in-window. */
-    s_rx_window_active = 0u;
-    NvmDataMgmtFlushDeferred();  /* drain pending save */
     mac_post_event(MP_QSTR_mcps_confirm, (int)cnf->Status);
 }
 
 static void mac_mcps_indication(McpsIndication_t *ind) {
-    /* A real MCPS downlink indication closes the active
-       RX window. The no-downlink timeout path is covered separately by
-       mac_mcps_confirm; MLME exchanges are covered by
-       mac_mlme_confirm. */
-    s_rx_window_active = 0;
-    NvmDataMgmtFlushDeferred();  /* drain pending save */
     /* Mirror the upstream Renesas LoRaSample handler
        (samples/.../LoRaSample/main.c:240-258): copy payload only when
        Status is OK and BufferSize > 0. RxData and (BufferSize != 0)
@@ -799,12 +648,6 @@ static void mac_mcps_indication(McpsIndication_t *ind) {
 }
 
 static void mac_mlme_confirm(MlmeConfirm_t *cnf) {
-    /* MLME-level confirm (JOIN, LINK_CHECK, ...) closes
-       any outstanding RX window the MAC opened to receive the response.
-       Clear here as a second-source so an MCPS-less MLME exchange (Join,
-       LinkCheck) does not leave the flag latched. */
-    s_rx_window_active = 0;
-    NvmDataMgmtFlushDeferred();  /* drain pending save */
     /* On OTAA join completion (MLME_JOIN), update the cached join state
        so Python `mac.is_joined()` becomes true without an extra MIB
        round-trip. Other MLME types (LINK_CHECK, TXCW, etc.) just pass
@@ -834,10 +677,6 @@ static uint8_t mac_get_battery_level(void) {
     return BoardGetBatteryLevel();
 }
 
-static float mac_get_temperature_level(void) {
-    return 25.0f;  /* placeholder — board has no temperature sensor */
-}
-
 static void mac_nvm_context_change(uint32_t notifyMibFlags) {
     (void)notifyMibFlags;
     /* LoRaMac flagged a persistent-state change (DevNonce,
@@ -853,7 +692,7 @@ static void mac_nvm_context_change(uint32_t notifyMibFlags) {
    deferring against sx126x_board_spi_busy() and flash-busy gates. */
 
 static void mac_process_notify(void) {
-    lorawan_driver_request_pump(LORAWAN_PUMP_REASON_NOTIFY);
+    lorawan_driver_request_pump();
 }
 
 static void mac_error_notify(LoRaMacErrorNotificationStatus_t status) {
@@ -869,7 +708,7 @@ static LoRaMacPrimitives_t s_primitives = {
 
 static LoRaMacCallback_t s_callbacks = {
     .GetBatteryLevel     = mac_get_battery_level,
-    .GetTemperatureLevel = mac_get_temperature_level,
+    .GetTemperatureLevel = NULL,    /* vendor stack tolerates NULL; no sensor wired */
     .NvmContextChange    = mac_nvm_context_change,
     .MacProcessNotify    = mac_process_notify,
     .MacErrorNotify      = mac_error_notify,
@@ -997,8 +836,8 @@ static mp_obj_t lorawan_mac_process(mp_obj_t self_in) {
     if (!self->stack_initialized) {
         return mp_const_none;
     }
-    lorawan_driver_request_pump(LORAWAN_PUMP_REASON_PY);
-    lorawan_pump_drain();
+    lorawan_driver_request_pump();
+    lorawan_driver_pump_run();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_process_obj, lorawan_mac_process);
@@ -1095,8 +934,8 @@ static mp_obj_t lorawan_mac_join(size_t n_args, const mp_obj_t *args) {
 
     uint32_t t0 = mp_hal_ticks_ms();
     while (!self->join_confirm_seen) {
-        lorawan_driver_request_pump(LORAWAN_PUMP_REASON_PY);
-        lorawan_pump_drain();
+        lorawan_driver_request_pump();
+        lorawan_driver_pump_run();
         if ((uint32_t)(mp_hal_ticks_ms() - t0) >
             LORAWAN_JOIN_DEFAULT_TIMEOUT_MS) {
             return MP_OBJ_NEW_SMALL_INT(-MP_ETIMEDOUT);
@@ -1108,7 +947,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR(lorawan_mac_join_obj, 1, lorawan_mac_join);
 
 static mp_obj_t lorawan_mac_is_joined(mp_obj_t self_in) {
     lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    return MOD_LORAWAN_NEW_BOOL(self->joined);
+    return mp_obj_new_bool(self->joined);
 }
 
 /* MLME_LINK_CHECK — queues a MAC LinkCheckReq command to be piggybacked
@@ -1140,7 +979,7 @@ static mp_obj_t lorawan_mac_last_link_check(mp_obj_t self_in) {
         MP_OBJ_NEW_SMALL_INT(self->link_check_margin),
         MP_OBJ_NEW_SMALL_INT(self->link_check_gateways),
     };
-    return MOD_LORAWAN_NEW_TUPLE(2, items);
+    return mp_obj_new_tuple(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_last_link_check_obj,
     lorawan_mac_last_link_check);
@@ -1204,10 +1043,10 @@ static mp_obj_t lorawan_mac_get_sys_time(mp_obj_t self_in) {
        parsed and applied. Returns (seconds, sub_second). */
     SysTime_t t = SysTimeGet();
     mp_obj_t items[2] = {
-        MOD_LORAWAN_NEW_INT_U((uint32_t)t.Seconds),
+        mp_obj_new_int_from_uint((uint32_t)t.Seconds),
         MP_OBJ_NEW_SMALL_INT(t.SubSeconds),
     };
-    return MOD_LORAWAN_NEW_TUPLE(2, items);
+    return mp_obj_new_tuple(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_sys_time_obj,
     lorawan_mac_get_sys_time);
@@ -1250,7 +1089,7 @@ static mp_obj_t lorawan_mac_get_class(mp_obj_t self_in) {
     char c = (mib.Param.Class == CLASS_A) ? 'A' :
              (mib.Param.Class == CLASS_B) ? 'B' :
              (mib.Param.Class == CLASS_C) ? 'C' : '?';
-    return MOD_LORAWAN_NEW_STR(&c, 1);
+    return mp_obj_new_str(&c, 1);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_class_obj,
     lorawan_mac_get_class);
@@ -1340,7 +1179,7 @@ static mp_obj_t lorawan_mac_get_adr(mp_obj_t self_in) {
     if (LoRaMacMibGetRequestConfirm(&mib) != LORAMAC_STATUS_OK) {
         return mp_const_none;
     }
-    return MOD_LORAWAN_NEW_BOOL(mib.Param.AdrEnable);
+    return mp_obj_new_bool(mib.Param.AdrEnable);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_get_adr_obj,
     lorawan_mac_get_adr);
@@ -1509,15 +1348,23 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_store_obj,
     lorawan_mac_nvm_store);
 
 static mp_obj_t lorawan_mac_nvm_restore(mp_obj_t self_in) {
-    (void)self_in;
-    return MP_OBJ_NEW_SMALL_INT(NvmDataMgmtRestore());
+    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    uint16_t restored = NvmDataMgmtRestore();
+
+    MibRequestConfirm_t mib;
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NETWORK_ACTIVATION;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        self->joined = (mib.Param.NetworkActivation != ACTIVATION_TYPE_NONE);
+    }
+    return MP_OBJ_NEW_SMALL_INT(restored);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_restore_obj,
     lorawan_mac_nvm_restore);
 
 static mp_obj_t lorawan_mac_nvm_factory_reset(mp_obj_t self_in) {
     (void)self_in;
-    return MOD_LORAWAN_NEW_BOOL(NvmDataMgmtFactoryReset());
+    return mp_obj_new_bool(NvmDataMgmtFactoryReset());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_factory_reset_obj,
     lorawan_mac_nvm_factory_reset);
@@ -1616,9 +1463,9 @@ static mp_obj_t lorawan_mac_recv(mp_obj_t self_in) {
 
     mp_obj_t items[2] = {
         MP_OBJ_NEW_SMALL_INT(port),
-        MOD_LORAWAN_NEW_BYTES(tmp, len),
+        mp_obj_new_bytes(tmp, len),
     };
-    return MOD_LORAWAN_NEW_TUPLE(2, items);
+    return mp_obj_new_tuple(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_recv_obj, lorawan_mac_recv);
 
@@ -1664,7 +1511,6 @@ MP_DEFINE_CONST_OBJ_TYPE(
     MP_QSTR_Mac,
     MP_TYPE_FLAG_NONE,
     make_new, lorawan_mac_make_new,
-    print, lorawan_mac_print,
     locals_dict, &lorawan_mac_locals_dict
 );
 
@@ -1689,14 +1535,10 @@ MP_REGISTER_MODULE(MP_QSTR_lorawan, mp_module_lorawan);
 /* GC root for the Mac event callback. */
 MP_REGISTER_ROOT_POINTER(mp_obj_t lorawan_mac_root_callbacks[1]);  /* literal must match LORAWAN_CB_COUNT above */
 
-/* Real GC-visible root for the Python-owned SPI(3) object. The Mac
-   singleton lives in .bss, so `self->spi_obj` is NOT a GC root: a stash
-   there is invisible to gc_collect_root() and does not keep the SPI
-   instance alive across a collection. Routing the reference through
-   MP_STATE_PORT() registers a slot the collector walks every cycle, which
-   is the only mechanism that actually pins the object. This does NOT
-   prevent the user from calling spi.deinit(); see contract comments above. */
+/* GC root for the Python-owned machine.SPI object — the Mac singleton lives
+   in .bss which gc_collect_root() does not walk, so the SPI ref must live
+   in MP_STATE_PORT. User may still call spi.deinit(); LoRaWAN stops using
+   it after deinit(). */
 MP_REGISTER_ROOT_POINTER(mp_obj_t lorawan_spi_obj_root);
-MP_REGISTER_ROOT_POINTER(mp_obj_t lorawan_pin_obj_roots[5]);  /* literal must match LORAWAN_PIN_ROOT_COUNT above */
 
 #endif // MICROPY_HW_LORA_STACK_RENESAS
