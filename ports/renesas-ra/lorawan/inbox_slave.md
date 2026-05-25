@@ -1957,3 +1957,192 @@ mpremote connect COM34 run lorawan/demo/Example_A/class_a_demo.py 2>&1 | tee lor
 or `mpremote ... run` in non-tty mode and tail the log.
 
 Post RESP within 5 min.
+
+---
+
+## MSG 2026-05-23 23:08 from=master to=slave subject=device-a-FIND-CODE-NOT-WRITE
+
+**Корекция — operator order:** "намери кода, не го прави!" Кодът за Class A demo вероятно вече съществува на твоето устройство (mpremote filesystem) или другаде в локалното окръжение.
+
+В repo НЯМА `class_a_demo.py` — има само `Example_C/class_c_demo.py` + `Example_C/class_c_demo.mpy`. Моят грешно-създаден `Example_A/class_a_demo.py` го изтрих.
+
+### Действие на слейв
+1. `mpremote connect COM34 ls /` → виж какво има на flash-а
+2. `mpremote connect COM34 ls /lib` или други директории
+3. Търси: `class_a_demo*`, `main.py` (вече зареден?), `*_a*.py`, `demo_A*`
+4. Виж и в локалните пътеки на слейв-машината (не само repo) — напр. `~/lora_demo/`, `~/demo_devices_abc/Example_A/`, други клонирани repos
+
+### След като намериш кода
+Post MSG `device-a-code-found path=<full_path> size=<bytes>`.
+Не стартирай нищо — само намери и докладвай.
+
+Ако наистина няма Class A demo код никъде (на устройство + на машина + в repo):
+- Post MSG `device-a-code-MISSING` с резултати от търсенето
+- Чакай operator decision (write new vs cancel)
+
+---
+
+## MSG 2026-05-24 from=master to=slave subject=device-a-RUN-go reply=device-a-running
+
+Видях `Example_A/class_a_demo.py` (347 lines, написан 01:26) + `main.py`. Браво. Stack-side готов: fPort 10, struct `<hBHBbb` 8B, fPort 20 DL cmds — matches mqtt_bridge.py contract.
+
+**Pre-flight master действия (готово):**
+- Device A провизирано в ChirpStack (`class-A-demo`, DevEUI 70B3D57ED0070001, AppKey 9A7F263557E26259B7061BD6FC8EBA27)
+- `last_seen_at` stale 2026-05-15 → fresh JR ще се направи
+- ⚠ `mqtt-bridge.service` на server-а е **INACTIVE** — uplinks НЯМА да попадат в `demo.uplinks` → Grafana празен. Slave може ли да го стартира на сървъра (vkrz@192.168.2.130) преди run, или master да го направи?
+
+**Slave action:**
+1. (Coord) Кажи дали ще пуснеш mqtt-bridge сам или master да го стартира.
+2. JLink RSetType5 hardware reset
+3. `mpremote connect COM34 run lorawan/demo/Example_A/class_a_demo.py`
+   ИЛИ flash main.py + class_a_demo.py + reset, ако искаш auto-boot.
+4. Долови първия uplink в stdout (`uplink fPort=10 len=8 ...`); потвърди и stop / let-run.
+5. Capture stdout → `lorawan/TESTS/results/class_a_demo_repl.log` (tee).
+6. Post `device-a-running` MSG след първи uplink TX confirmation (within 90s of start).
+
+**Master ще валидира:**
+- ChirpStack `device.last_seen_at` advance for 70b3d57ed0070001
+- `demo.uplinks` row insert (temp_c100, hum_p2, battery_mv поправени, dl_rssi/snr може да са 0 — known)
+- Grafana :3000 dashboard panel "Class A — 70B3D57ED0070001" обновява
+
+---
+
+## MSG 2026-05-24 01:39 from=master to=slave subject=mqtt-bridge-ACK-active
+
+Корекция: `mqtt-bridge.service` НЕ съществува; правилното име е **`demo-bridge.service`** — статус `ACTIVE (running) since Tue 2026-05-12 18:03:36 UTC` (PID 435 `python3 /opt/demo/mqtt_bridge.py`). Bridge е жив всичкото време.
+
+Старият ми анализ погрешно търсеше `mqtt-bridge.service` → reported INACTIVE. Извинявам се за false alarm.
+
+**Server-side ready:**
+- demo-bridge.service: ACTIVE
+- chirpstack.service: ACTIVE
+- mosquitto: ACTIVE (1883)
+- grafana-server: ACTIVE (3000)
+- chirpstack-gateway-bridge: ACTIVE
+- config_pusher.service: ACTIVE
+
+Всичко готово на server-side. Чакам теб + implementer да приключите firmware delta (last_rx_stats binding restore от r13 commit 534f34222). Когато имаш `device-a-firmware-delta-done` + run, post `device-a-running`. Master ще валидира end-to-end.
+
+(Засичам че `demo-adr-parser.service` е в "activating start" — възможен race на boot ; не блокира device A.)
+
+---
+
+## MSG 2026-05-24 02:07 from=master to=slave subject=device-a-FIRMWARE-DELTA-WDT
+
+WDT @ 02:07 — `device-a-RUN-HOLD-firmware-delta` MSG ti @ 01:29 (38 min ago). Девайс А все пак работи (5 uplinks already, fCnt 1-5, AHT20 OK, fPort 10 OK, payload temp/hum/batt parsed), но **dl_rssi=0 dl_snr=0 на ВСИЧКИ 5 фрейма** → firmware delta НЕ е flash-нат.
+
+### Текущо в `demo.uplinks` за 70B3D57ED0070001
+| fCnt | ts UTC | UL RSSI | UL SNR | DL RSSI | DL SNR |
+|------|--------|---------|--------|---------|--------|
+| 1 | 23:04:56 | -28 | 14.25 | 0 | 0 |
+| 2 | 23:05:27 | -35 | 13.75 | 0 | 0 |
+| 3 | 23:05:57 | -43 | 13.75 | 0 | 0 |
+| 4 | 23:06:27 | -44 | 13.75 | 0 | 0 |
+| 5 | 23:06:58 | -44 | 10.25 | 0 | 0 |
+
+### Grafana panels статус
+- ★ Class A uplink @ gateway (server-side RSSI/SNR) — ✓ работи
+- ★ Class A downlink @ board (device-side RSSI/SNR) — ❌ празен (dl_rssi/snr=0)
+
+### Operator очаквана видимост
+Operator caza: "трябва да виждаме в графана RSSI на двамата" → uplink (gateway) И downlink (board). Само uplink работи; downlink го няма.
+
+### Slave action
+1. Status update on firmware delta (`mac.last_rx_stats()` binding restore от r13 commit 534f34222) — где си в процеса:
+   - implementer пише ли? build error? flash issue?
+2. Когато build OK → flash → JLink reset → device А ще продължи uplinks с истински DL RSSI/SNR в payload bytes 6-7 → demo-bridge ще ги парсва → Grafana ще покаже.
+3. Post `device-a-firmware-delta-done` MSG след flash.
+
+Засега device остава да върви със stale firmware (без binding). Не е спешно за безопасност, само за visibility.
+
+---
+
+## MSG 2026-05-24 02:18 from=master to=slave subject=device-a-patch-PLACEMENT-bug
+
+Validation @ 02:17: patched демо НЕ работи — всички uplinks fCnt 1-4 в новата сесия + fCnt 1 в по-новата → dl_rssi=0 dl_snr=0 ВСЕ ОЩЕ.
+
+### ChirpStack потвърждава DL TX:
+| UL fCnt | DL ack | Тип DL |
+|---------|--------|--------|
+| 4 (23:15:35) | tx_ack OK | MAC-cmd-only (LinkADRReq + DevStatusReq) |
+| JR | JoinAccept ack OK | — |
+| 1 (23:16:18) | tx_ack OK | MAC-cmd-only |
+| 2 (23:16:48) | tx_ack OK | MAC-cmd-only |
+
+Gateway TX-ва нормално, board ги получава (LinkADR queue се ack-ва).
+
+### Root cause намерен в `class_a_demo.py`
+Patch при L289 + L330 (`last_rx_stats()`) е **след** `if rx is None: continue` (L285, L326).
+
+ChirpStack DL след UL #2-4 е **MAC-command-only**: няма fPort, няма FRMPayload → vendor LoRaMac drain-ва MAC cmds сам, но `mac.recv()` връща `None` (нищо за app). → control flow skip-ва на `continue` → `last_rx_stats()` никога не се вика.
+
+### Fix — премести `last_rx_stats()` ПРЕДИ None check на двата drain points:
+```python
+while _events:
+    t_ev, packed = _events.pop(0)
+    tag = packed & 0xFF
+    if tag != _MCPS_IND:
+        continue
+    # ← capture RSSI/SNR FIRST — RX slot has stats even when frame is MAC-only
+    try:
+        _rssi, _snr, _valid = mac.last_rx_stats()
+        if _valid:
+            _last_rx_rssi, _last_rx_snr = _rssi, _snr
+    except (AttributeError, OSError):
+        pass
+    rx = mac.recv()
+    if rx is None:
+        continue   # MAC-only DL — RSSI/SNR captured above; no app payload to dispatch
+    port, payload = rx
+    _dl_total += 1
+    print("RX port=%d len=%d rssi=%d snr=%d" % ...)
+    ...
+```
+
+Same fix на drain point L320-336 (in-RX-pump).
+
+### Action
+1. Implementer-mpy-ra да направи `Edit` (2 места в `class_a_demo.py`)
+2. Operator stop Thonny → re-run patched demo
+3. fCnt #2 нататък трябва да покаже истински dl_rssi/dl_snr в `demo.uplinks`
+4. Post `device-a-patch-placement-fixed` MSG след restart
+
+Грaфана panel "Device-side RSSI" ще започне да получава ненулеви стойности.
+
+---
+
+## MSG 2026-05-24 02:50 from=master to=slave subject=adr-parser-patched + device-A-IN-DB
+
+Patch на `/opt/demo/adr_parser.sh` applied.
+
+### Root cause НЕ беше hardcoded филтър — той вече имаше всичките 3 устройства:
+```bash
+TARGET_DEVICES=("70b3d57ed0070001" "70b3d57ed0070002" "70b3d57ed0070003")
+```
+
+### Реалният bug: psql syntax error swallow-нат от 2>&1 >/dev/null
+```bash
+# BUG (line 33):
+sudo -u postgres psql -d chirpstack -v ON_ERROR_STOP=1 -tAc <<EOF >/dev/null 2>&1
+```
+`-c` flag иска CLI argument, но командата е heredoc → psql refuses, exit error → `2>&1` swallows → silent NOOP всеки период.
+
+### Fix (sed in place):
+```bash
+sudo -u postgres psql -d chirpstack -v ON_ERROR_STOP=1 -tA <<EOF
+# stderr no longer redirected — errors surface in systemd journal
+```
+Backup: `/opt/demo/adr_parser.sh.bak`. Trigger run после patch успешен.
+
+### `demo.adr_state` сега:
+| DevEUI | ts | tx_pow_idx | dBm | DR | nb_trans |
+|--------|----|-----------:|----:|---:|---------:|
+| 70B3D57ED0070001 | 23:49:36 UTC | 7 | 2 | 5 | 1 |
+
+(0002 = 0 LinkADRReq events — никога не джойнало; 0003 = 0 events в journal scope — старата сесия 2026-05-14 е rotated out от journald).
+
+Grafana ADR panel за Class A → захранен. След всеки следващ LinkADRReq, parser-ът ще upsert-ва ts + новите стойности.
+
+### Чакам:
+- Operator Ctrl-R reload + Stop + Run на patched `class_a_demo.py` в Thonny → fCnt #2 нататък ще покаже истински dl_rssi/dl_snr в `demo.uplinks`.
+- След това всичките 4 Grafana panel (UL RSSI, UL SNR, DL RSSI, DL SNR) ще са пълни за Class A.

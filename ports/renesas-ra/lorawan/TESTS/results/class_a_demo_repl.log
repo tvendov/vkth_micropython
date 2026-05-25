@@ -1,0 +1,9 @@
+boot: VK_RA4M2 Class A demo
+OLED OK
+AHT20 status=0x18 calibrated=True
+AHT20 OK
+sensor: 24.79C  51.5%
+Traceback (most recent call last):
+  File "<stdin>", line 347, in <module>
+  File "<stdin>", line 238, in main
+ValueError: SPI bus busy
