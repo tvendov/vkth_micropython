@@ -1,0 +1,17 @@
+[Unit]
+Description=VK_RA4M2 LoRaWAN config-pusher
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/demo-bridge/config_pusher.py
+Restart=on-failure
+RestartSec=5
+User=demo
+Group=demo
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

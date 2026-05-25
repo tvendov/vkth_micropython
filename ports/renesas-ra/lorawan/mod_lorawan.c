@@ -162,6 +162,12 @@ volatile lorawan_stats_t g_lorawan_stats = {
  * actually advanced. false means cycle-max readings are unavailable. */
 volatile bool s_dwt_available = false;
 
+/* r12/r13 last-RX-stats triplet. See lorawan_stats.h for the producer /
+   consumer contract. _valid stays 0 until the first successful downlink. */
+volatile int8_t  s_lorawan_last_rx_rssi_dbm    = 0;
+volatile int8_t  s_lorawan_last_rx_snr_db      = 0;
+volatile uint8_t s_lorawan_last_rx_stats_valid = 0;
+
 /* Foreground service coordinator.
  *
  * Keep it with the binding because it is not a board driver and not a second
@@ -644,6 +650,20 @@ static void mac_mcps_indication(McpsIndication_t *ind) {
         self->rx_len  = (uint16_t)n;
         self->rx_pending = true;
     }
+    /* r12/r13 last-RX-stats producer. ind->Rssi is int16 (LoRaMac.h L529)
+       but realistic LoRa RSSI fits in int8 dBm; saturate to keep the
+       Python API width contract. ind->Snr is already int8. Pre-converted
+       to dBm / dB upstream (see reference_sx126x_pkt_status_preconverted).
+       Fires for any indication path even when RxData is false (e.g. MAC
+       command-only DL), matching r13 behaviour — the radio.c IRQ that
+       populated rxc_diag also did not gate on RxData. */
+    {
+        int16_t rssi16 = ind->Rssi;
+        int8_t rssi8 = (rssi16 > 127) ? 127 : ((rssi16 < -128) ? -128 : (int8_t)rssi16);
+        __atomic_store_n(&s_lorawan_last_rx_rssi_dbm,    rssi8,    __ATOMIC_RELAXED);
+        __atomic_store_n(&s_lorawan_last_rx_snr_db,      ind->Snr, __ATOMIC_RELAXED);
+        __atomic_store_n(&s_lorawan_last_rx_stats_valid, 1u,       __ATOMIC_RELAXED);
+    }
     mac_post_event(MP_QSTR_mcps_indication, (int)ind->Status);
 }
 
@@ -885,6 +905,11 @@ static LoRaMacStatus_t lorawan_mac_join_start(lorawan_mac_obj_t *self,
     self->joined = false;
     self->join_confirm_seen = false;
     self->join_confirm_status = (int)LORAMAC_EVENT_INFO_STATUS_ERROR;
+
+    /* r13 parity — clear last-RX-stats _valid flag on every join attempt
+       so Python sees stale RSSI/SNR as "not yet observed since this join".
+       The actual int8 fields are left in place for forensic readability. */
+    __atomic_store_n(&s_lorawan_last_rx_stats_valid, 0u, __ATOMIC_RELAXED);
 
     MlmeReq_t req;
     memset(&req, 0, sizeof(req));
@@ -1364,6 +1389,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_restore_obj,
 
 static mp_obj_t lorawan_mac_nvm_factory_reset(mp_obj_t self_in) {
     (void)self_in;
+    __atomic_store_n(&s_lorawan_last_rx_rssi_dbm,    0,  __ATOMIC_RELAXED);
+    __atomic_store_n(&s_lorawan_last_rx_snr_db,      0,  __ATOMIC_RELAXED);
+    __atomic_store_n(&s_lorawan_last_rx_stats_valid, 0u, __ATOMIC_RELAXED);
     return mp_obj_new_bool(NvmDataMgmtFactoryReset());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_factory_reset_obj,
@@ -1469,6 +1497,22 @@ static mp_obj_t lorawan_mac_recv(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_recv_obj, lorawan_mac_recv);
 
+/* mac.last_rx_stats() -> (rssi_dbm:int, snr_db:int, valid:bool).
+   Restored 2026-05-24 for the Class A demo (payload bytes 6-7). Values
+   are populated by mac_mcps_indication from McpsIndication_t .Rssi/.Snr,
+   which LoRaMac.c fills from Radio.PacketStatus (sx126x.c pre-converts
+   to dBm / dB — no further scaling here). */
+static mp_obj_t lorawan_mac_last_rx_stats(mp_obj_t self_in) {
+    (void)self_in;
+    mp_obj_t t[3] = {
+        MP_OBJ_NEW_SMALL_INT((int8_t)__atomic_load_n(&s_lorawan_last_rx_rssi_dbm,   __ATOMIC_RELAXED)),
+        MP_OBJ_NEW_SMALL_INT((int8_t)__atomic_load_n(&s_lorawan_last_rx_snr_db,     __ATOMIC_RELAXED)),
+        mp_obj_new_bool(__atomic_load_n(&s_lorawan_last_rx_stats_valid, __ATOMIC_RELAXED)),
+    };
+    return mp_obj_new_tuple(3, t);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_last_rx_stats_obj, lorawan_mac_last_rx_stats);
+
 // ---- Class table ---------------------------------------------------------
 
 static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
@@ -1502,6 +1546,7 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_nvm_factory_reset),  MP_ROM_PTR(&lorawan_mac_nvm_factory_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_send),               MP_ROM_PTR(&lorawan_mac_send_obj) },
     { MP_ROM_QSTR(MP_QSTR_recv),               MP_ROM_PTR(&lorawan_mac_recv_obj) },
+    { MP_ROM_QSTR(MP_QSTR_last_rx_stats),      MP_ROM_PTR(&lorawan_mac_last_rx_stats_obj) },
 };
 static MP_DEFINE_CONST_DICT(lorawan_mac_locals_dict,
     lorawan_mac_locals_dict_table);

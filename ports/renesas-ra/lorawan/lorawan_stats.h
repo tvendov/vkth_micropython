@@ -40,28 +40,24 @@ extern "C" {
  * reporting / re-enable attempts when false. */
 extern volatile bool s_dwt_available;
 
-/* s_rx_window_active ? set by sx126x_spi_xfer when staging SetRx (0x82);
- * cleared by:
- *   - mac_mcps_indication  (real downlink received)
- *   - mac_mlme_confirm     (MLME-driven RX: Join, LinkCheck)
- *   - mac_mcps_confirm     (Class A uplink with no downlink; RX timeout path)
- * Approximation: a radio-side RxTimeout that does not bubble to any of these
- * three callbacks would leave the flag latched; in that case
- * nvm_save_in_rx_window_count over-counts; dedicated RX-arm/disarm hooks can
- * tighten this later.
- *
- * All four sites run in scheduler/Python context, never hard ISR, so a plain
- * volatile uint8_t store/load is sufficient on Armv8-M (aligned byte access
- * is atomic at the AHB bus). Consumer is NvmDataMgmtStore() ? increments
- * nvm_save_in_rx_window_count when a flash save begins while RX collision
- * risk is active. */
-extern volatile uint8_t s_rx_window_active;
+/* r12/r13 last-RX-stats triplet (restored 2026-05-24 for class_a_demo).
+ * Producer: mac_mcps_indication in mod_lorawan.c reads McpsIndication_t
+ * .Rssi / .Snr — these are already filled by LoRaMac.c from
+ * Radio.PacketStatus, which per sx126x.c GetPacketStatus is converted
+ * to dBm / dB (see reference_sx126x_pkt_status_preconverted.md). Single
+ * writer (scheduler/foreground context). Consumer: lorawan_mac_last_rx_stats
+ * Python binding. _valid is reset on join start + factory reset; the
+ * triplet is left intact across resets-without-new-RX so the last value
+ * stays visible to user code. */
+extern volatile int8_t  s_lorawan_last_rx_rssi_dbm;
+extern volatile int8_t  s_lorawan_last_rx_snr_db;
+extern volatile uint8_t s_lorawan_last_rx_stats_valid;
 
 /* Storage layout. Order matches Step 2 schema; mac group sits first so the
  * subsequent uint64_t in the spi group naturally lands on an 8-byte
  * boundary (offset 16 from struct base which is itself 8-byte aligned).
  *
- * Total logical size: 12 + 4 pad + 8 + 16 + 20 + 44 + 28 = 132 B.
+ * Total logical size: 12 + 4 pad + 8 + 16 + 20 + 44 + 24 = 128 B.
  */
 typedef struct lorawan_stats {
     /* group: mac */
@@ -134,7 +130,6 @@ typedef struct lorawan_stats {
     uint32_t nvm_save_error_count;
     uint32_t nvm_save_call_us;
     uint32_t nvm_save_done_us;
-    uint32_t nvm_save_in_rx_window_count;
 
     /* group: mcps ? storage + zero-init only. Increment sites are optional. */
     uint32_t mcps_indication_queued_count;
