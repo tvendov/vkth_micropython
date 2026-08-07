@@ -1,0 +1,23 @@
+{
+    "deploy": [
+        "../deploy.md"
+    ],
+    "docs": "https://vekatech.com/VK-RA6M3_docs/brochures/VK-RA6M3%20Flyer%20R2.pdf",
+    "features": [
+        "DAC",
+        "USB",
+        "microSD",
+        "Ethernet",
+        "Camera",
+        "Display",
+        "External Flash"
+    ],
+    "images": [
+        "VK-RA6M3.jpg"
+    ],
+    "mcu": "ra6m3",
+    "product": "VK-RA6M3",
+    "thumbnail": "",
+    "url": "https://vekatech.com",
+    "vendor": "Vekatech"
+}

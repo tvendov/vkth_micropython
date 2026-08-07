@@ -299,6 +299,7 @@ static void ra_dac_dmac_error_clear(void) {
     if (R_DMA->DMECHR_b.DMESTA != 0U) {
         R_DMA->DMECHR = R_DMA_DMECHR_DMESTA_Msk;
     }
+#if defined(R_BUS_B_BUS3ERRCLR_SLERRCLR_Msk)
     if (R_BUS->BUS3ERRSTAT != 0U) {
         R_BUS->BUS3ERRCLR = (uint8_t)(R_BUS->BUS3ERRSTAT &
             (R_BUS_B_BUS3ERRCLR_SLERRCLR_Msk |
@@ -306,25 +307,36 @@ static void ra_dac_dmac_error_clear(void) {
              R_BUS_B_BUS3ERRCLR_MMERRCLR_Msk |
              R_BUS_B_BUS3ERRCLR_ILERRCLR_Msk));
     }
+#endif
+#if defined(R_BUS_B_DMACDTCERRCLR_MTERRCLR_Msk)
     if (R_BUS->DMACDTCERRSTAT_b.MTERRSTAT != 0U) {
         R_BUS->DMACDTCERRCLR = R_BUS_B_DMACDTCERRCLR_MTERRCLR_Msk;
     }
+#endif
 }
 
 static void ra_dac_dmac_make_channel_secure(uint8_t channel) {
+#if BSP_FEATURE_TZ_HAS_TRUSTZONE
     uint32_t mask = 1UL << channel;
 
     R_BSP_RegisterProtectDisable(BSP_REG_PROTECT_SAR);
     R_CPSCU->ICUSARC = (R_CPSCU->ICUSARC | ~R_CPSCU_ICUSARC_SADMACn_Msk) & ~mask;
     R_BSP_RegisterProtectEnable(BSP_REG_PROTECT_SAR);
+#else
+    (void)channel;
+#endif
 }
 
 static int32_t ra_dac_dmac_runtime_diag(uint8_t dmac_ch) {
     uint32_t diag = 0U;
 
     diag |= (R_DMA->DMECHR & 0x0001FFFFUL);
+#if defined(R_BUS_B_BUS3ERRCLR_SLERRCLR_Msk)
     diag |= ((uint32_t)R_BUS->BUS3ERRSTAT & 0xFFUL) << 17;
+#endif
+#if defined(R_BUS_B_DMACDTCERRCLR_MTERRCLR_Msk)
     diag |= ((uint32_t)R_BUS->DMACDTCERRSTAT & 0xFFUL) << 25;
+#endif
     diag |= ((uint32_t)dmac_ch & 0x7UL) << 29;
     return (int32_t)diag;
 }
@@ -876,10 +888,17 @@ bool ra_dac_stream_is_active(uint8_t ch) {
         bool done = dmac_reg->DMSTS_b.DTIF != 0U || remaining == 0U;
         bool runtime_error =
             (!dte && !done) ||
-            (R_DMA->DMECHR_b.DMESTA != 0U && R_DMA->DMECHR_b.DMECH == state->dmac_ch) ||
-            (R_BUS->BUS3ERRSTAT != 0U) ||
-            (R_BUS->DMACDTCERRSTAT_b.MTERRSTAT != 0U) ||
+            (R_DMA->DMECHR_b.DMESTA != 0U && R_DMA->DMECHR_b.DMECH == state->dmac_ch);
+#if defined(R_BUS_B_BUS3ERRCLR_SLERRCLR_Msk)
+        runtime_error = runtime_error || (R_BUS->BUS3ERRSTAT != 0U);
+#endif
+#if defined(R_BUS_B_DMACDTCERRCLR_MTERRCLR_Msk)
+        runtime_error = runtime_error || (R_BUS->DMACDTCERRSTAT_b.MTERRSTAT != 0U);
+#endif
+#if BSP_FEATURE_DMAC_HAS_DELSR
+        runtime_error = runtime_error ||
             ((R_ICU->DELSR[state->dmac_ch] & 0x1FFU) == 0U && remaining != 0U);
+#endif
 
         if (runtime_error) {
             ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, ra_dac_dmac_runtime_diag(state->dmac_ch));

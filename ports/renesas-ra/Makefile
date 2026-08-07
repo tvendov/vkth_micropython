@@ -25,6 +25,10 @@ include $(BOARD_DIR)/mpconfigboard.mk
 
 USE_FSP_LPM ?= 1
 USE_FSP_QSPI ?= 0
+USE_FSP_SDHI ?= 0
+USE_FSP_ETH ?= 0
+USE_FSP_LCD ?= 0
+USE_FSP_CAM ?= 0
 FSP_BOARD_NAME ?= $(shell echo $(BOARD) | tr '[:upper:]' '[:lower:]')
 
 # qstr definitions (must come before including py.mk)
@@ -75,7 +79,7 @@ INC += -I$(TOP)/lib/tinyusb/hw
 INC += -I$(TOP)/lib/tinyusb/src
 INC += -I$(TOP)/shared/tinyusb
 INC += -Ilwip_inc
-ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M5))
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M3 RA6M5))
 INC += -Ira
 endif
 INC += -I$(BOARD_DIR)/ra_gen
@@ -111,6 +115,7 @@ CFLAGS_MCU_RA4M2 = $(CFLAGS_CORTEX_M) -mtune=cortex-m33 -mcpu=cortex-m33
 CFLAGS_MCU_RA4W1 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
 CFLAGS_MCU_RA6M1 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
 CFLAGS_MCU_RA6M2 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4
+CFLAGS_MCU_RA6M3 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4 -DRA6M2
 CFLAGS_MCU_RA6M5 = $(CFLAGS_CORTEX_M) -mtune=cortex-m33 -mcpu=cortex-m33
 
 ASFLAGS += $(CFLAGS_CORTEX_M) -mcpu=cortex-$(MCU_SERIES)
@@ -224,6 +229,11 @@ DRIVERS_SRC_C += $(addprefix drivers/,\
 	dht/dht.c \
 	)
 
+BOARD_SRC_C := $(wildcard $(BOARD_DIR)/*.c)
+ifeq ($(CMSIS_MCU),RA6M3)
+BOARD_SRC_C := $(filter-out $(BOARD_DIR)/ra_dac.c $(BOARD_DIR)/rng.c,$(BOARD_SRC_C))
+endif
+
 SRC_C += \
 	boardctrl.c \
 	main.c \
@@ -270,7 +280,7 @@ SRC_C += \
 	storage.c \
 	fatfs_port.c \
 	usbd.c \
-	$(wildcard $(BOARD_DIR)/*.c)
+	$(BOARD_SRC_C)
 
 SRC_C += $(addprefix $(BOARD_DIR)/ra_gen/,\
 	common_data.c \
@@ -388,6 +398,19 @@ HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether_phy/r_ether_phy.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ether_phy/targets/ICS1894/r_ether_phy_target_ics1894.c
 endif
 
+ifeq ($(USE_FSP_LCD), 1)
+CFLAGS += -DUSE_FSP_LCD
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_glcdc/r_glcdc.c \
+	$(HAL_DIR)/ra/fsp/src/r_sci_i2c/r_sci_i2c.c \
+	$(HAL_DIR)/ra/fsp/src/r_icu/r_icu.c
+endif
+
+ifeq ($(USE_FSP_CAM), 1)
+CFLAGS += -DUSE_FSP_CAM
+HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_pdc/r_pdc.c \
+	$(HAL_DIR)/ra/fsp/src/r_jpeg/r_jpeg.c
+endif
+
 # SCE (Secure Crypto Engine) — hardware AES / GCM / CMAC / SHA / TRNG / RSA / ECC.
 # Disabled by default.  To enable, set USE_FSP_SCE=1 in the board's
 # mpconfigboard.mk and supply ra_cfg/fsp_cfg/r_sce_cfg.h plus a board-level
@@ -453,14 +476,14 @@ HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_flash_hp/r_flash_hp.c
 endif
 endif
 
-ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA6M1 RA6M2 RA6M5))
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA6M1 RA6M2 RA6M3 RA6M5))
 ifeq ($(USE_FSP_FLASH), 1)
 CFLAGS += -DUSE_FSP_FLASH
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_flash_hp/r_flash_hp.c
 endif
 endif
 
-ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M5))
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M3 RA6M5))
 HAL_SRC_C += $(addprefix ra/,\
 	ra_adc.c \
 	ra_storm_adc.c \
@@ -549,6 +572,35 @@ LIBS := -lr_ble $(LIBS)
 endif
 
 ifeq ($(MICROPY_HW_ENABLE_RNG),1)
+ifeq ($(CMSIS_MCU),RA6M3)
+CRYPTO_DIR = ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey/
+
+INC += -I$(TOP)/$(HAL_DIR)/$(CRYPTO_DIR)/private/inc
+INC += -I$(TOP)/$(HAL_DIR)/$(CRYPTO_DIR)/public/inc
+INC += -I$(TOP)/$(HAL_DIR)/$(CRYPTO_DIR)/primitive
+INC += -I$(TOP)/$(HAL_DIR)/ra/fsp/src/r_sce/common
+INC += -I$(TOP)/$(HAL_DIR)/ra/fsp/src/r_sce
+
+HAL_SRC_C += $(addprefix $(HAL_DIR)/$(CRYPTO_DIR)/,\
+	adaptors/r_sce_adapt.c \
+	primitive/hw_sce_p_p00.c \
+	primitive/hw_sce_p_p01.c \
+	primitive/hw_sce_p_p02.c \
+	primitive/hw_sce_p_p20.c \
+	primitive/hw_sce_p_func050.c \
+	primitive/hw_sce_p_func051.c \
+	primitive/hw_sce_p_func052.c \
+	primitive/hw_sce_p_func053.c \
+	primitive/hw_sce_p_func054.c \
+	primitive/hw_sce_p_func100.c \
+	primitive/hw_sce_p_func101.c \
+	primitive/hw_sce_p_func102.c \
+	primitive/hw_sce_p_func103.c \
+	primitive/hw_sce_p_subprc01.c \
+	primitive/hw_sce_p_subprc02.c \
+	)
+endif
+ifeq ($(CMSIS_MCU),RA6M5)
 CRYPTO_DIR = ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9/
 
 INC += -I$(TOP)/$(HAL_DIR)/$(CRYPTO_DIR)/inc
@@ -583,6 +635,7 @@ HAL_SRC_C += $(addprefix $(HAL_DIR)/$(CRYPTO_DIR)/,\
 	primitive/r_sce_func103.c \
 	primitive/r_sce_subprc01.c\
 	)
+endif
 endif
 
 OBJ += $(PY_O)
@@ -672,6 +725,9 @@ AF_FILE = boards/ra6m1_af.csv
 endif
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA6M2))
 AF_FILE = boards/ra6m2_af.csv
+endif
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA6M3))
+AF_FILE = boards/ra6m3_af.csv
 endif
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA6M5))
 AF_FILE = boards/ra6m5_af.csv
