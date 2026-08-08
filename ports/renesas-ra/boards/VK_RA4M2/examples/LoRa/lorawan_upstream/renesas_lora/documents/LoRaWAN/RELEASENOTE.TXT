@@ -1,0 +1,189 @@
+RA2E1, RA2L1, RA0E1, RA0E2 LoRaWAN(R) Stack and Sample Application Release Notes 
+                                                                          Nov. 28, 2025
+
+--------------------------------------------------------------------------------------
+[ VERSION ]
+
+  - 4.90
+
+--------------------------------------------------------------------------------------
+[ CONTENTS ]
+
+  - LoRaWAN Stack:
+    [document]
+      LoRaWAN(R) Stack Reference Guide
+        (package top)/documents/LoRaWAN/r11an0228ej0490-lora.pdf
+    [source codes]
+        (package top)/samples/project/src/mac
+
+  - LoRaSample (LoRaWAN Stack Sample Application with AT-command):
+    [document]
+       LoRaWAN(R) Stack Sample Application
+         (package top)/documents/LoRaWAN/r11an0231ej0490-lora.pdf
+    [source codes]
+      (package top)/samples/project/src/apps/LoRaSample
+      (package top)/samples/project/src/mac
+      (package top)/samples/project/src/radio, system, boards, peripherals
+    [project file]
+      (package top)/samples/project/(IDE)/(BOARD)/LoRaSample
+
+  - LoRaFuotaSample (Firmware Update over LoRaWAN Sample Application with AT-command):
+    [document]
+      Firmware Update over LoRaWAN(R) Sample Application
+         (package top)/documents/LoRaWAN/r11an0741ej0490-ra2-lora.pdf
+    [source codes]
+      (package top)/samples/project/src/apps/LoRaFuotaSample
+      (package top)/samples/project/src/apps/FWUpdateSample
+      (package top)/samples/project/src/mac
+      (package top)/samples/project/src/radio, system, boards, peripherals
+    [project file]
+      (package top)/samples/project/(IDE)/ra2l1ek_sx126x/LoRaFuotaSample
+      (package top)/samples/project/(IDE)/ra2l1ek_sx126x/FWUpdateSample
+    [tool] 
+      (package top)/samples/tool/FUOTA
+    [note]
+      Unsupported for RA2E1, RA0E1 and RA0E2
+
+    NOTE: Above "IDE", "BOARD" are as follows.
+      IDE=e2studio:
+          e2 studio 2025-10 with FSP6.2.0
+      BOARD=ra2e1fpb_sx126x:
+          RA2E1 Fast Prototyping Board and Semtech SX1261/SX1262 shield. 
+      BOARD=ra2l1ek_sx126x:
+          Evaluation Kit for RA2L1 MCU Group and Semtech SX1261/SX1262 shield. 
+      BOARD=ra0e1fpb_sx126x:
+          RA0E1 Fast Prototyping Board and Semtech SX1261/SX1262 shield. 
+      BOARD=ra0e2fpb_sx126x:
+          RA0E2 Fast Prototyping Board and Semtech SX1261/SX1262 shield. 
+
+--------------------------------------------------------------------------------------
+[ Development Tools ]
+  - e2 studio 2025-10 with FSP6.2.0
+
+--------------------------------------------------------------------------------------
+[ Revision History ]
+  - V4.90
+    - Updated supported version of software development tools
+      - e2 studio 2025-10 with FSP6.2.0
+    - LoRaSample (LoRaWAN Stack Sample Application with AT-command):
+      - Fixed an issue where Rx data was not displayed correctly in Renesas LPWA Studio when
+        bit 0 of the <debugmode> parameter of AT+DEBUG command is set.
+    - Firmware Update over LoRaWAN Sample Application
+      - Supports FUOTA v2.0.0 compliance test sample application.
+      - Improved process in case of power failure during firmware update.
+      - Added macros to configure the storage area of F/W image.
+      - Fixed Issues
+        - Fixed calculation of MIC in Fragment Data Block protocol v2.0.0.
+        - Fixed to accept FragSessionSetupReq command frame with DevAddress is zero.
+        - Fixed to response FragSessionStatusReq command of inactive session id.
+        - Fixed an issue where MultiPackBufferReq command was discarded when it was 
+          received while sending MultiPackBufferFrag commands.
+        - Fixed an issue where remote multicast session may not start even when the start time
+          arrives.
+        - Fixed an issue where remote multicast session may not end even after the session
+          timeout period has expired.
+        - Fixed an issue where the event of the reboot timing may not be notified even when the 
+          reboot time received via the DevRebootTimeReq or DevRebootCountdownReq command arrives.
+
+  - V4.70
+    - Added support for FPB-RA0E2.
+    - Updated supported version of software development tools.
+    - Improved process in case of power failure during firmware update.
+
+  - V4.50
+    - Supports FPB-RA0E1.
+    - Updated supported version of software development tools.
+
+  - V4.40
+    - Updated supported version of software development tools
+
+  - V4.20
+    - Supports EK-RA2L1.
+    - Supports LoRaWAN FUOTA for RA2L1.
+
+  - V4.10
+    - LoRaWAN stack, LoRaSample
+      - Updated the RL78 related descriptions in the documents. No changes for RA2E1.
+
+  - V4.00
+    - LoRaWAN Stack
+      - First release for RA2E1(R7FA2E1A9xxFM).
+      - Supports IN865, AU915 and KR920 regions for RA2E1.
+      - Supports compliance test sample application for RA2E1.
+
+  - V3.12
+    - LoRaWAN Stack
+      - Fixed two issues regarding the timer driver functions such as TimerStart and 
+        TimerGetCurrentTime. It is highly recommended to update to this version to fix 
+        the issues because those issues could affect the LoRaWAN stack operations.
+        One issue is that the timer callback function could be called after several
+        ten days in case of RL78/G23 and RL78/G14 even when the timeout for the timer
+        is not set to such large value. This issue could be occurred if the second
+        of Real Time Clock (RTC) is changed during the specific processing of TimerStart
+        function and the timeout for the timer is set to less than 16 seconds in case
+        of RL78/G23 and one second in case of RL78/G14. This issue could cause the 
+        LoRaWAN API functions which request the LoRaWAN stack to send frames could be
+        not returned until several ten days after the time those API functions are called.
+        Another issue is that the error of the current time returned from TimerGetCurrentTime
+        could be around +1/-1 second in case of RL78/G14. This issue could be occurred
+        if the second of RTC is changed during the specific processing of 
+        TimerGetCurrentTime. This issue could cause the LoRaWAN stack to fail to receive
+        frames and synchronize beacon frames.
+
+  - V3.10
+    - Supports RL78/G23-128p Fast Prototyping Board
+    - LoRaWAN Stack
+      - Supports LoRaWAN V1.0.4/V1.0.3/V1.0.2 specification and LoRaWAN Reginal Parameters 
+        RP002-1.0.3/1.0.2 and V1.0.3 Rev.A. These specifications can be chosen at 
+        compiling time.
+      - Fixed an issue that Tx power was set to be lowered by 10dBm in case of EU868.
+    - LoRaSample, LoRaFuotaSample
+      - Disabled to read keys (AppKey, AppSKey and NwkSKey) by default.
+        If necessary, specify APP_AT_KEY_READ_ENABLED at compiling time.
+
+  - V3.01
+    - LoRaSample
+      - Supported official Renesas Flash Driver(RFD) RL78 Type01 for RL78/G23.
+
+  - V3.00
+    - Supported RL78/G23(R7F100GLG) for LoRaWAN Stack and LoRaSample
+    - LoRaWAN Stack
+      - Fixed the calculating formula for the beacon reception timing adjustment
+        UpdateBeaconState()
+           (Old) adjustGuardStart = enlargeOffset + SysTimeErrorTimeMs;
+           (New) adjustGuardStart = enlargeOffset - SysTimeErrorTimeMs;
+      - Updated the macros for the reception window timing adjustment
+    - LoRaSample
+      - Add definition '__PRINTF_TINY__' to use simplified version of printf in at_proc.c
+    - LoRaFuotaSample
+      - Add definition '__PRINTF_TINY__' to use simplified version of printf in at_proc.c
+      - Changed the version of the FW image sample from V03.00 to V09.00.
+
+  - V2.20
+    - Added Firmware Update over LoRaWAN Sample Application
+    - Fixed an issue that ADR setting could be incorrect if the setting stored in the data 
+      flash is ON. [LoRaSample]
+
+  - V2.10
+    - Supports Class B and multicast operations of LoRaWAN Ver1.0.3 specification
+    - Improved Rx window duration control according to SX1261/SX1262 specification
+    - Supports to disable Class B operations when LORAMAC_CLASSB_ENABLED is not defined
+    - Supports auto detection of Semtech SX1261/SX1262 shield configuration such as
+      SX1261 or SX1262, and XTAL or TCXO
+    - Increased stabilization time for MCU fSUB source
+
+  - V2.00
+    - Supports LoRaWAN Ver1.0.3 specification, Class A/B operation
+    - Supports LoRaWAN Ver1.0.3 regional parameters for AS923
+
+  - V1.00
+    - First release
+
+
+[ Limitation ]
+  - None.
+
+[ Known issue ]
+  - None.
+
+--------------------------------------------------------------------------------------

@@ -1,0 +1,8 @@
+collapse/module.driver.comms_i2c_on_comms_i2c_bus.1674879983=false
+collapse/module.driver.comms_i2c_on_comms_i2c_device.843387114=false
+collapse/module.driver.hs300x_on_hs300x.409952355=false
+collapse/module.driver.i2c_on_iic_master.1565599938=false
+collapse/module.driver.spi_on_sci_spi.962838291=false
+collapse/module.driver.uart_on_sci_uart.2283174=false
+collapse/module.middleware.rm_vee_flash.1311525949=false
+eclipse.preferences.version=1

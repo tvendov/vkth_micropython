@@ -67,9 +67,9 @@ VK_RA4M2 + Wio-SX1262 Header Board, твърдо свързани:
 ```
 SX1262             VK_RA4M2 pin
 ──────             ────────────
-SCK                P111   (SPI(1) CLK)
-MOSI               P109   (SPI(1) MOSI)
-MISO               P110   (SPI(1) MISO)
+SCK                P111   (SPI(3) SCK)
+MOSI               P109   (SPI(3) MOSI)
+MISO               P110   (SPI(3) MISO)
 NSS  (CS)          P206
 DIO1 (IRQ)         P015
 RESET              P001

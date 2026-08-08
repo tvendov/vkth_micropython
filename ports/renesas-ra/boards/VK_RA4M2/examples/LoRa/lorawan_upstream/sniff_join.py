@@ -9,7 +9,7 @@ from sx126x import SX126X_SYNC_WORD_PUBLIC
 rf_sw = Pin("P100", Pin.OUT, value=1)
 
 # Init радиото с LoRaWAN параметри (frequency, SF, BW, sync) за EU868 канал 0
-sx = SX1262(spi_bus=1, clk="P111", mosi="P109", miso="P110",
+sx = SX1262(spi_bus=3, clk="P111", mosi="P109", miso="P110",
             cs="P206", irq="P015", rst="P001", gpio="P002")
 sx.begin(
     freq=868.1, bw=125.0, sf=12, cr=5,             # DR0 = SF12 BW125

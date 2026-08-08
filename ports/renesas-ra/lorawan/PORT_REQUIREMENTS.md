@@ -1,239 +1,223 @@
-# LoRaWAN Port Requirements — VK_RA4M2 + Wio-SX1262
+# LoRaWAN Port Requirements
 
-**Version:** 1.0
-**Date:** 2026-05-09
-**Status:** Approved for implementation
-**Scope:** `ports/renesas-ra/lorawan/glue/` only
+Date: 2026-05-21
+Doc-Version: 1.0
+Status: Primary authority contract; implementation gaps are tracked explicitly.
 
----
+## Purpose
 
-## 1. Purpose
+Create a LoRaWAN driver for MicroPython on RA4M2 without duplicating the
+upstream LoRaMac protocol stack.
 
-Define functional and non-functional requirements for the renesas-ra port of LoRaMac-node so that OTAA Class A/C operation works against the local ChirpStack 4.17 + SenseCAP M2 (BasicStation) infrastructure with deterministic, repeatable success.
+## Required Python Interface
 
-Constrains the work to the **glue/porting layer**. Upstream LoRaMac stack code is treated as read-only.
+The driver must support these MicroPython entries:
 
----
-
-## 2. Functional Requirements
-
-### FR-1 — OTAA Join Succeeds
-
-**Statement:** `mac.join()` produces `mac.is_joined() == True` within 12 seconds for a properly provisioned EU868 device.
-
-**Verification:** 5/5 consecutive runs pass after `mac.nvm_factory_reset()`. Test fixture `LORAWAN_TESTS/join_test.py`.
-
-### FR-2 — Single MlmeConfirm Status
-
-**Statement:** Successful join emits exactly one `('mlme_confirm', 0)` event. No `mlme_confirm 3` (RX1_TIMEOUT) precedes it under nominal RF conditions.
-
-**Verification:** Event log inspection.
-
-### FR-3 — Class C Downlink Latency
-
-**Statement:** After successful join + `mac.set_class('C')`, server-initiated downlinks reach the device with end-to-end latency < 1.5s (server tx queue → board `mac.recv()`).
-
-**Verification:** ChirpStack REST queue → board callback timestamp diff. 10/10 downlinks pass.
-
-### FR-4 — Repeatability
-
-**Statement:** Across power-cycle and `nvm_factory_reset` boundaries, FR-1 through FR-3 hold without manual intervention or parameter tuning.
-
----
-
-## 3. Non-Functional Requirements
-
-### NFR-1 — No Calibration Constants
-
-**Statement:** Solution shall not introduce magic-number compensation (timing offsets, "safety margins", `chain_latency_ms` constants, `WindowOffset` overrides). The fix must be architectural, not tuned.
-
-**Rationale:** Constants break across SF/BW changes, polling cadence variations, and clock-source drift. Fragility is unacceptable.
-
-### NFR-2 — Single-File-Class Touch
-
-**Statement:** Modifications restricted to `lorawan/glue/`. The following are **read-only**:
-- `lorawan/mac/LoRaMac.c`, `lorawan/mac/LoRaMac.h`
-- `lorawan/radio/radio.c`, `lorawan/radio/sx126x.c`
-- `lorawan/region/RegionEU868.c` (and all Region\*.c)
-- `lib/fsp/` submodule
-
-### NFR-3 — Hardware Untouched
-
-**Statement:** No hardware modification. Existing VK_RA4M2 + Wio-SX1262 daughter board confirmed operational.
-
-### NFR-4 — Upstream Compatibility
-
-**Statement:** Glue layer shall conform to the upstream LoRaMac-node `BoardSupport` API (`TimerEvent_t`, `Radio_s`, `SX126xHal*`). No upstream API changes.
-
-### NFR-5 — Python ABI Stability
-
-**Statement:** No change to `lorawan.Mac` Python-facing API. Existing user code using `mac.join`, `mac.set_class`, `mac.send`, `mac.recv` continues to work unchanged.
-
----
-
-## 4. Constraints
-
-### C-1 — Existing Architecture (Current State)
-
-Timer dispatch in `glue/timer_board.c` uses `mp_sched_schedule_node` for callback deferral. Effect: HW IRQ → Python scheduler → flag set → next `mac.process()` call → RxWindowSetup. End-to-end latency ~67 ms (vs ~5 ms target).
-
-SPI commands to SX1262 in `glue/sx126x_board.c` use byte-by-byte `ra_sci_spi_transfer`. A typical `SetRxConfig` (~10 chip commands) costs ~30 ms. Per-byte FSP overhead dominates.
-
-### C-2 — LoRaWAN RX Window Tolerance
-
-EU868 RX1 at +5.000 s, RX2 at +6.000 s after JoinRequest TX-done. Gateway preamble at SF7/BW125 is 8.2 ms wide. Board RX window must overlap preamble.
-
-### C-3 — MicroPython Scheduler Semantics
-
-`mp_handle_pending` runs at bytecode boundaries, sleep checkpoints, and inside HAL delay loops. Latency from `mp_sched_schedule_node` to dispatched callback is non-zero and non-deterministic (0..N ms).
-
----
-
-## 5. Architecture Decisions
-
-### AD-1 — Hard ISR Timer Dispatch
-
-Timer ISR (`agt_tick_isr`, `agt5_oneshot_isr`) shall invoke `evt->Callback()` directly, removing the `dispatch_post → mp_sched_schedule_node → timer_dispatch_cb` indirection.
-
-**Justification:** The LoRaMac timer callbacks `OnRxWindow1TimerEvent` (LoRaMac.c:2128) and `OnRxWindow2TimerEvent` (LoRaMac.c:2153) write a single `volatile` flag word. ISR-safe by inspection. Indirection adds ~5 ms with zero functional benefit.
-
-### AD-2 — ISR-Driven MAC Process Trigger
-
-After timer-event flag is set in ISR, dispatch a single `mp_sched_schedule_node` to invoke `LoRaMacProcess()`. This drives the MAC state machine without dependency on Python `mac.process()` polling cadence.
-
-**Justification:** Removes the 0..20 ms Python polling latency from the critical path. Python polling becomes a watchdog/keepalive, not the timing source.
-
-### AD-3 — Block-Streamed SPI for SX1262 Commands (atomic DMA burst)
-
-**Principle:** *One SPI transfer = one DMA burst.* SX1262 commands have a fixed format (1 opcode + N param bytes). They shall be issued as an atomic block transaction.
-
-**Pattern:**
-
-```c
-sx126x_spi_xfer(buf, len) {
-    wait_busy_low();              // single check before CS
-    nss_low();
-    fsp_spi_write_dma(buf, len);  // single DMAC transfer; CPU free during clock-out
-    nss_high();
-    wait_busy_low();              // single check after CS (skip for SET_SLEEP-class)
-}
+```text
+lorawan.Mac(...)
+lorawan_init()
+init_defaults()
+set_keys(deveui, joineui, appkey)
+join()
+send(port, payload)
+recv()
+status()
+is_joined()
+set_event_callback(callback)
+dio1_isr(pin)
+process()
 ```
 
-**Forbidden in hot path:**
-- Per-byte SPI ops (`spi_write_one_byte` loops)
-- `interbyte_us` delays (legacy debug knob — default 0; declared deprecated in production)
-- `mp_handle_pending(true)` — ISR/PendSV context cannot yield to MicroPython VM
+`process()` is a manual foreground service entry. Normal join/send/receive
+timing must not depend on a Python polling loop.
 
-**Justification:** For a 9-byte `SetRxConfig` command at 8 MHz SCK:
-- Theoretical SPI clock-out: 9 µs
-- DMA setup overhead: ~1 µs
-- Total: ~10 µs per command (vs current ~ms-class with byte-loop + interbyte + handle_pending)
+No raw radio/SPI diagnostic helper is part of the public binding surface.
 
-Per-command cost drops from ~3 ms to **~10–50 µs** (oscilloscope-measured CS-edge to CS-edge). Critical-path SPI cost in `RxWindowSetup` drops from ~30 ms to **~150 µs total** (Standby + SetPacketType + SetModulationParams + SetPacketParams + SetRxConfig + Rx).
+## Board Pin Requirements
 
-### AD-4 — Reuse Existing DMAC Infrastructure
+```text
++--------------------------+-----------------+----------+----------------------------------------------+
+| SIGNAL                   | MICROPYTHON PIN | RA PORT  | REQUIREMENT                                  |
++--------------------------+-----------------+----------+----------------------------------------------+
+| DIO1 radio interrupt     | P015            | P0_15    | Configure as rising hard interrupt.          |
+| radio reset              | P001            | P0_1     | Python-created pin; board layer toggles it.  |
+| radio busy               | P002            | P0_2     | Polled status input, not ICU interrupt.      |
+| radio chip select        | P206            | P2_6     | Active radio chip-select signal.             |
+| radio-frequency switch 1 | P100            | P1_0     | High while LoRa radio path is used.          |
+| SPI3 serial clock        | P111            | P1_11    | SPI clock.                                   |
+| SPI3 master input        | P110            | P1_10    | Radio-to-RA4M2 data line.                    |
+| SPI3 master output       | P109            | P1_9     | RA4M2-to-radio data line.                    |
++--------------------------+-----------------+----------+----------------------------------------------+
+```
 
-`glue/dma_board.c` already provides DMAC channel reservation/management primitives for this port. AD-3 shall use this API.
+`SPI3` is the MicroPython SPI instance implemented by RA SCI9 on this board.
 
-- DMAC channel(s) for SX1262 SPI3 TX/RX statically assigned at `radio_init`.
-- ELC link from SCI3 RX request to DMAC trigger (rx-direction reads).
-- Channel allocation visible in build `.map`; verified no collision with DAC, AudioADC, or other peripherals on VK_RA4M2.
+## Python Resource Ownership
 
-### AD-5 — DMAC Completion via Flag, Not VM Yield
+The public ownership pattern follows the `micropySX126X` style:
 
-DMAC_END IRQ sets a completion flag. PendSV pump (or ISR-side wait) reads the flag and proceeds. No `mp_sched_schedule_node` call between SPI fire and SPI completion — the path stays in NVIC priority space.
+```python
+SPI_BUS  = 3
+PIN_SCK  = "P111"
+PIN_MOSI = "P109"
+PIN_MISO = "P110"
+PIN_CS   = "P206"
+PIN_RST  = "P001"
+PIN_BUSY = "P002"
+PIN_DIO1 = "P015"
 
-**Justification:** If SPI completes before the next LoRaMac action would otherwise occur, zero extra latency. The Python VM is *never* on the timing-critical path.
+lora = LoRaWAN(
+    spi_bus=SPI_BUS,
+    clk=PIN_SCK,
+    mosi=PIN_MOSI,
+    miso=PIN_MISO,
+    cs=PIN_CS,
+    irq=PIN_DIO1,
+    rst=PIN_RST,
+    gpio_busy=PIN_BUSY,
+)
+```
 
----
+The constructor creates/configures the MicroPython SPI and pin resources.
+MicroPython/Python owns `spi_bus`, `clk`, `mosi`, `miso`, `cs`, `irq`, `rst`,
+and `gpio_busy`.
 
-## 6. Implementation Scope
+The C LoRaWAN board layer may keep lifetime references and use the agreed pins,
+but it must not privately create, own, deinitialize, or reinitialize duplicate
+SPI/pin objects.
 
-### S-1 — `glue/timer_board.c`
+While LoRaWAN is active, user code must not call `spi.deinit()` on the owned SPI
+resource and must not use another SPI owner on the same radio pins. The C
+binding cannot reliably detect that violation without private `machine_spi.c`
+access.
 
-- Replace `dispatch_post(e)` with direct `e->Callback()` in `agt_tick_isr` and `agt5_oneshot_isr`.
-- Add `s_macproc_node` static `mp_sched_node_t`.
-- Add `lora_mac_process_dispatch(mp_sched_node_t *)` static function calling `LoRaMacProcess()`.
-- After timer-list walk in ISR, schedule the macproc node iff `LoRaMacTimerEvents.Events.Value != 0`.
+## SPI And BUSY Requirements
 
-### S-2 — `glue/sx126x_board.c`
+- SX126x transfers use the constructor-owned MicroPython SPI object
+  byte-by-byte, matching the Renesas `SpiInOut` board sources.
+- The Renesas RA `machine.SPI` backend is a void synchronous transfer
+  boundary; submit failures inside that backend are an accepted 1:1 wrapper
+  limitation and are surfaced only indirectly through later radio
+  status/read diagnostics.
+- The radio hot path must not build a batched async layer.
+- CS remains asserted across the opcode/address/data byte sequence.
+- `BUSY` on P002 is a polled status signal. It is not an ICU interrupt source.
+- BUSY polling follows the same synchronous board-layer boundary as upstream.
+- `Radio.Rx(...)` and `Radio.Send(...)` must not report final success before
+  required SPI/BUSY work is complete.
 
-- Refactor `SX126xWriteCommand_e`, `SX126xReadCommand`, `SX126xWriteRegister`, `SX126xReadRegister` to issue **one** DMAC transfer per opcode payload.
-- Acquire DMAC TX channel (and RX channel for read commands) at `radio_init` time; release on deinit.
-- Bidirectional commands use TX dummy / RX capture pattern (DMAC fed dummy bytes for clocking, RX DMAC captures incoming).
-- Preserve existing BUSY pin polling guard before each transaction (exactly **2** checks per transfer: pre-CS-low and post-CS-high; skipped post-CS for SET_SLEEP-class commands).
-- Remove all `mp_handle_pending(true)` calls from SPI hot path (legacy `interbyte_us` becomes deprecated debug knob, defaults to 0).
-- DMAC_END IRQ sets a single completion flag; pump waits on flag, no VM yield.
+## Timing Requirements
 
-### S-3 — Verification fixture
+- Python creates and passes the timer object.
+- LoRaWAN arms/disarms that timer only through the public timer methods.
+- Timer expiry immediately enters the C timer service path.
+- The binding arms the Python-owned DIO1 pin through the public
+  `Pin.irq`/`extint` path with `hard=True` and rising-edge trigger.
+- The DIO1 callback body enters the C radio interrupt service path.
+- Python receives results through scheduled callbacks; Python does not open RX1
+  or RX2 windows.
 
-- Reuse `LORAWAN_TESTS/join_test.py` as primary acceptance test.
-- Add bounded-loop variant `LORAWAN_TESTS/join_repeatability.py` running FR-4 (5 consecutive `nvm_factory_reset` + join cycles).
+## State Authority Requirements
 
----
+`mac/LoRaMac.c` is the only LoRaWAN protocol state machine.
 
-## 7. Test Plan
+The binding must not implement or store a parallel LoRaWAN state machine.
 
-| Test | Source | Pass Criteria |
-|---|---|---|
-| T-1: Single OTAA join | `join_test.py` | `is_joined=True`, events `[(_, 0)]`, elapsed < 12s |
-| T-2: Repeatability | `join_repeatability.py` | T-1 passes 5/5 |
-| T-3: Class C downlink latency | `testH_classc_hardcoded.py` + ChirpStack REST queue | latency < 1.5s, 10/10 |
-| T-4: No regression — Class A uplink | `test1_confirmed.py` | confirmed uplink → ack within 12s |
-| T-5: ISR safety — long Python computation | Custom: queue 5s of pure-Python work, then check timer accuracy | RX windows still hit; no missed flags |
-| T-6: SPI command cost (oscilloscope) | CS_falling → CS_rising for `SetRxConfig` | < 50 µs |
-| T-7: RxWindowSetup total time | trace from RxWindowTimer1 fire to chip-RX-active | < 200 µs |
-| T-8: RX1 timing accuracy | board RX-active timestamp − expected +5000 ms | within ±2 ms (stretch: ±0.5 ms) |
-| T-9: Hot-path source check | `grep -c 'interbyte\|mp_handle_pending' lorawan/glue/sx126x_board.c` (excluding init) | == 0 |
-| T-10: DMAC channel collision | `.map` inspection + concurrent run with DAC + AudioADC tests | no allocation conflict |
+Forbidden in `mod_lorawan.c`:
 
-All tests run on physical VK_RA4M2 board on COM34 against local ChirpStack 4.17 (192.168.1.188) via SenseCAP M2 (192.168.1.187).
+```text
+lorawan_state_t
+self->state
+LORAWAN_STATE_* transition helper
+join/send/RX-window transition table
+copied MacCtx.MacState lifecycle bits
+```
 
----
+Allowed in `mod_lorawan.c`:
 
-## 8. Out of Scope
+```text
+Python object lifetime flags
+Python SPI/timer/pin/callback roots
+pending API request metadata
+last event delivery metadata
+single pending receive payload
+status() projection labels
+```
 
-- Class B beacon acquisition (deferred — requires bridge upgrade or Semtech UDP swap)
-- FUOTA / multicast support
-- Sub-millisecond RX1 timing (35-symbol preamble margin already adequate)
-- Region tuning beyond defaults
-- LoRaMac.c modifications including `LORAMAC_RADIOWAKEUP_RXWIN` macro patch (rejected — duplicate path; `radio.c:RadioSetModem` PATCH already covers sync re-apply)
-- SPI driver replacement beyond glue layer (FSP `r_sci_spi`/`r_spi_b` selection deferred)
-- Audio subsystem regressions on RA6M5 (separate effort)
+Allowed in the board layer:
 
----
+```text
+chip-select state
+BUSY polling phase
+DIO1 edge latch
+transport-local guards
+```
 
-## 9. Risks & Mitigations
+`status()` is a binding snapshot/projection. It may expose derived labels such
+as joined, mac_busy, rx_pending, spi_pinned, and state_authority, but those
+labels must be derived from LoRaMac public APIs, callbacks, MIB values,
+binding-local facts, and board transport facts.
 
-| ID | Risk | Mitigation |
-|---|---|---|
-| R-1 | Hard-ISR `e->Callback()` calls a callback that allocates or calls Python | Audit: only `OnRxWindow1TimerEvent`, `OnRxWindow2TimerEvent`, `OnAckTimeoutTimerEvent`, `OnRetransmitTimeoutTimerEvent`, `OnTxDelayedTimerEvent` are valid timer callbacks. All inspected: flag-only. |
-| R-2 | DMAC channel collision with audio/SPI master in user code | Reserve DMAC channels at `radio_init` time; document channel IDs in `dma_board.h`. Block conflicting allocation. |
-| R-3 | DMAC_END IRQ priority inversion blocks AGT4 1 kHz tick | Configure DMAC_END at lower NVIC priority than AGT4. AGT4 must preempt. |
-| R-4 | `LoRaMacProcess()` is not re-entrant | Add `s_in_lmprocess` guard in `lora_mac_process_dispatch` — drop nested invocation. |
-| R-5 | Build breaks on RA6M5 sibling port (VK_RA6M5) | Glue files are board-conditional via `MICROPY_HW_LORA_STACK_RENESAS`. Verify RA6M5 build still compiles even if not exercised. |
+## Foreground Service Requirements
 
----
+- `lorawan_pump_request_dio1()` requests bounded foreground LoRaMac service.
+- `mod_lorawan.c` coordinates calls to public LoRaMac service entry points.
+- `mod_lorawan.c` is not a second LoRaWAN protocol scheduler.
+- Foreground service execution must have a re-entry guard.
+- Foreground service execution may enter synchronous Renesas-compatible radio SPI through
+  LoRaMac public calls.
+- Foreground service execution must not hide a second LoRaWAN protocol scheduler.
+- Timer, DIO1, and MacProcessNotify may request service.
+- Hard interrupt paths must set C facts and return quickly.
 
-## 10. Acceptance Sign-off
+## Python Notification Requirements
 
-- [ ] FR-1 (OTAA join 5/5)
-- [ ] FR-2 (mlme_confirm 0 only)
-- [ ] FR-3 (Class C downlink < 1.5s)
-- [ ] FR-4 (repeatability across power cycle)
-- [ ] NFR-1 (no calibration constants in diff)
-- [ ] NFR-2 (diff confined to `glue/`)
-- [ ] T-1 .. T-6 pass on COM34 board
+- C events are delivered through `set_event_callback(callback)`.
+- LoRaWAN confirm/indication/error events are delivered through one
+  `mp_sched_schedule(...)` attempt to the user callback.
+- If scheduling fails or no callback is registered, a drop counter increments.
+- The C binding does not expose native `asyncio` Stream, Queue, or Event.
+- A Python wrapper may use `asyncio.ThreadSafeFlag` above the C callback.
+- `recv()` remains synchronous at the C binding level.
 
----
+## Design Completion Requirements
 
-## 11. References
+```text
++-------+--------------------------------+----------------------------------------------+
+| ORDER | REQUIRED PART                  | REQUIRED BEHAVIOR                            |
++-------+--------------------------------+----------------------------------------------+
+| 1     | LoRaMac status projection      | Report derived labels without duplicate FSM. |
+| 2     | Radio/SPI transport             | Byte-by-byte Renesas/Semtech SPI semantics. |
+| 3     | LoRaMac synchronous boundary    | Return after required SPI/BUSY work is done. |
+| 4     | Schedule/drop counters          | Report scheduler/callback delivery drops.    |
+| 5     | Python asyncio wrapper          | Wake async code via asyncio.ThreadSafeFlag.  |
+| 6     | Optional queues                 | Add higher-level helpers after core works.   |
++-------+--------------------------------+----------------------------------------------+
+```
 
-- `lorawan/glue/timer_board.c` — timer dispatch architecture
-- `lorawan/glue/sx126x_board.c` — radio HAL
-- `lorawan/glue/dma_board.c` — DMAC primitives
-- `lorawan/mac/LoRaMac.c:2126-2154` — timer callback definitions (read-only)
-- `LORAWAN_TESTS/join_test.py` — acceptance fixture
-- ChirpStack server: `192.168.1.188`
-- Gateway: `192.168.1.187` (SenseCAP M2)
-- Test device: `class-C-demo`, DevEUI `70b3d57ed0070003`
+## Driver Acceptance
+
+The driver is acceptable when these work without a second protocol FSM:
+
+```text
+stack initialization
+key setup
+join request and join confirm
+uplink request and uplink confirm
+receive window 1
+receive window 2
+downlink indication
+Python notification
+recv() readout
+error notification and retry path
+status() projection from real LoRaMac/binding/transport facts
+schedule failure and callback/drop counters
+async Python wake through asyncio.ThreadSafeFlag wrapper
+```
+
+## Code Placement
+
+- Binding code stays in `mod_lorawan.c`.
+- Board-specific radio/timer/interrupt transport code stays in
+  `boards/vk_ra4m2_sx126x/`.
+- Vendor LoRaMac core changes stay minimal and diagnostic-only when possible.

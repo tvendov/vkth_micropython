@@ -1,0 +1,797 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstr.i.last
+GEN build-VK_RA4M2-r4/genhdr/qstr.split
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.split
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.split
+GEN build-VK_RA4M2-r4/genhdr/compressed.split
+GEN build-VK_RA4M2-r4/genhdr/compressed.collected
+Compressed data updated
+GEN build-VK_RA4M2-r4/genhdr/compressed.data.h
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.collected
+Root pointer registrations updated
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.h
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.collected
+Module registrations updated
+QSTR updated
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.h
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.generated.h
+CC ../../py/mpstate.c
+CC ../../py/nlr.c
+CC ../../py/nlrx86.c
+CC ../../py/nlrx64.c
+CC ../../py/nlrthumb.c
+CC ../../py/nlraarch64.c
+CC ../../py/nlrmips.c
+CC ../../py/nlrpowerpc.c
+CC ../../py/nlrxtensa.c
+CC ../../py/nlrrv32.c
+CC ../../py/nlrrv64.c
+CC ../../py/nlrsetjmp.c
+CC ../../py/malloc.c
+CC ../../py/gc.c
+CC ../../py/pystack.c
+CC ../../py/qstr.c
+CC ../../py/vstr.c
+CC ../../py/mpprint.c
+CC ../../py/unicode.c
+CC ../../py/mpz.c
+CC ../../py/reader.c
+CC ../../py/lexer.c
+CC ../../py/parse.c
+CC ../../py/scope.c
+CC ../../py/compile.c
+CC ../../py/emitcommon.c
+CC ../../py/emitbc.c
+CC ../../py/asmbase.c
+CC ../../py/asmx64.c
+CC ../../py/emitnx64.c
+CC ../../py/asmx86.c
+CC ../../py/emitnx86.c
+CC ../../py/asmthumb.c
+CC ../../py/emitnthumb.c
+CC ../../py/emitinlinethumb.c
+CC ../../py/asmarm.c
+CC ../../py/emitnarm.c
+CC ../../py/asmxtensa.c
+CC ../../py/emitnxtensa.c
+CC ../../py/emitinlinextensa.c
+CC ../../py/emitnxtensawin.c
+CC ../../py/asmrv32.c
+CC ../../py/emitnrv32.c
+CC ../../py/emitinlinerv32.c
+CC ../../py/emitndebug.c
+CC ../../py/formatfloat.c
+CC ../../py/parsenumbase.c
+CC ../../py/parsenum.c
+CC ../../py/emitglue.c
+CC ../../py/persistentcode.c
+CC ../../py/runtime.c
+CC ../../py/runtime_utils.c
+CC ../../py/scheduler.c
+CC ../../py/nativeglue.c
+CC ../../py/pairheap.c
+CC ../../py/ringbuf.c
+CC ../../py/cstack.c
+CC ../../py/stackctrl.c
+CC ../../py/argcheck.c
+CC ../../py/warning.c
+CC ../../py/profile.c
+CC ../../py/map.c
+CC ../../py/obj.c
+CC ../../py/objarray.c
+CC ../../py/objattrtuple.c
+CC ../../py/objbool.c
+CC ../../py/objboundmeth.c
+CC ../../py/objcell.c
+CC ../../py/objclosure.c
+CC ../../py/objcode.c
+CC ../../py/objcomplex.c
+CC ../../py/objdeque.c
+CC ../../py/objdict.c
+CC ../../py/objenumerate.c
+CC ../../py/objexcept.c
+CC ../../py/objfilter.c
+CC ../../py/objfloat.c
+CC ../../py/objfun.c
+CC ../../py/objgenerator.c
+CC ../../py/objgetitemiter.c
+CC ../../py/objint.c
+CC ../../py/objint_longlong.c
+CC ../../py/objint_mpz.c
+CC ../../py/objlist.c
+CC ../../py/objmap.c
+CC ../../py/objmodule.c
+CC ../../py/objobject.c
+CC ../../py/objpolyiter.c
+CC ../../py/objproperty.c
+CC ../../py/objnone.c
+CC ../../py/objnamedtuple.c
+CC ../../py/objrange.c
+CC ../../py/objreversed.c
+CC ../../py/objringio.c
+CC ../../py/objset.c
+CC ../../py/objsingleton.c
+CC ../../py/objslice.c
+CC ../../py/objstr.c
+CC ../../py/objstrunicode.c
+CC ../../py/objstringio.c
+CC ../../py/objtuple.c
+CC ../../py/objtype.c
+CC ../../py/objzip.c
+CC ../../py/opmethods.c
+CC ../../py/sequence.c
+CC ../../py/stream.c
+CC ../../py/binary.c
+CC ../../py/builtinimport.c
+CC ../../py/builtinevex.c
+CC ../../py/builtinhelp.c
+CC ../../py/modarray.c
+CC ../../py/modbuiltins.c
+CC ../../py/modcollections.c
+CC ../../py/modgc.c
+CC ../../py/modio.c
+CC ../../py/modmath.c
+CC ../../py/modcmath.c
+CC ../../py/modmicropython.c
+CC ../../py/modstruct.c
+CC ../../py/modsys.c
+CC ../../py/moderrno.c
+CC ../../py/modthread.c
+CC ../../py/vm.c
+CC ../../py/bc.c
+CC ../../py/showbc.c
+CC ../../py/repl.c
+CC ../../py/smallint.c
+CC ../../py/frozenmod.c
+CC ../../extmod/machine_adc.c
+CC ../../extmod/machine_adc_block.c
+MPY asyncio/__init__.py
+MPY asyncio/core.py
+MPY asyncio/event.py
+MPY asyncio/funcs.py
+MPY asyncio/lock.py
+MPY asyncio/stream.py
+MPY uasyncio.py
+MPY neopixel.py
+GEN build-VK_RA4M2-r4/frozen_content.c
+CC ../../extmod/machine_bitstream.c
+CC ../../extmod/machine_i2c.c
+CC ../../extmod/machine_i2c_target.c
+CC ../../extmod/machine_i2s.c
+CC ../../extmod/machine_mem.c
+CC ../../extmod/machine_pinbase.c
+CC ../../extmod/machine_pulse.c
+CC ../../extmod/machine_pwm.c
+CC ../../extmod/machine_signal.c
+CC ../../extmod/machine_spi.c
+CC ../../extmod/machine_uart.c
+CC ../../extmod/machine_usb_device.c
+CC ../../extmod/machine_wdt.c
+CC ../../extmod/modasyncio.c
+CC ../../extmod/modbinascii.c
+CC ../../extmod/modbluetooth.c
+CC ../../extmod/modbtree.c
+CC ../../extmod/modcryptolib.c
+CC ../../extmod/moddeflate.c
+CC ../../extmod/modframebuf.c
+CC ../../extmod/modhashlib.c
+CC ../../extmod/modheapq.c
+CC ../../extmod/modjson.c
+CC ../../extmod/modlwip.c
+CC ../../extmod/modmachine.c
+CC ../../extmod/modmarshal.c
+CC ../../extmod/modnetwork.c
+CC ../../extmod/modonewire.c
+CC ../../extmod/modopenamp.c
+CC ../../extmod/modopenamp_remoteproc.c
+CC ../../extmod/modopenamp_remoteproc_store.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../extmod/modrandom.c
+CC ../../extmod/modre.c
+CC ../../extmod/modselect.c
+CC ../../extmod/modsocket.c
+CC ../../extmod/modtls_axtls.c
+CC ../../extmod/modtls_mbedtls.c
+CC ../../extmod/mbedtls/mbedtls_alt.c
+CC ../../extmod/modtime.c
+CC ../../extmod/moductypes.c
+CC ../../extmod/modvfs.c
+CC ../../extmod/modwebrepl.c
+CC ../../extmod/modwebsocket.c
+CC ../../extmod/network_cyw43.c
+CC ../../extmod/network_esp_hosted.c
+CC ../../extmod/network_lwip.c
+CC ../../extmod/network_ninaw10.c
+CC ../../extmod/network_ppp_lwip.c
+CC ../../extmod/network_wiznet5k.c
+CC ../../extmod/os_dupterm.c
+CC ../../extmod/vfs.c
+CC ../../extmod/vfs_blockdev.c
+CC ../../extmod/vfs_fat.c
+CC ../../extmod/vfs_fat_diskio.c
+CC ../../extmod/vfs_fat_file.c
+CC ../../extmod/vfs_lfs.c
+CC ../../extmod/vfs_rom.c
+CC ../../extmod/vfs_rom_file.c
+CC ../../extmod/vfs_posix.c
+CC ../../extmod/vfs_posix_file.c
+CC ../../extmod/vfs_reader.c
+CC ../../extmod/virtpin.c
+CC ../../shared/libc/abort_.c
+CC ../../shared/libc/printf.c
+CC ../../lib/oofatfs/ff.c
+CC ../../lib/oofatfs/ffunicode.c
+CC ../../lib/libm/acoshf.c
+CC ../../lib/libm/asinfacosf.c
+CC ../../lib/libm/asinhf.c
+CC ../../lib/libm/atan2f.c
+CC ../../lib/libm/atanf.c
+CC ../../lib/libm/atanhf.c
+CC ../../lib/libm/ef_rem_pio2.c
+CC ../../lib/libm/erf_lgamma.c
+CC ../../lib/libm/fmodf.c
+CC ../../lib/libm/kf_cos.c
+CC ../../lib/libm/kf_rem_pio2.c
+CC ../../lib/libm/kf_sin.c
+CC ../../lib/libm/kf_tan.c
+CC ../../lib/libm/log1pf.c
+CC ../../lib/libm/math.c
+CC ../../lib/libm/nearbyintf.c
+CC ../../lib/libm/roundf.c
+CC ../../lib/libm/sf_cos.c
+CC ../../lib/libm/sf_erf.c
+CC ../../lib/libm/sf_frexp.c
+CC ../../lib/libm/sf_ldexp.c
+CC ../../lib/libm/sf_modf.c
+CC ../../lib/libm/sf_sin.c
+CC ../../lib/libm/sf_tan.c
+CC ../../lib/libm/wf_lgamma.c
+CC ../../lib/libm/wf_tgamma.c
+CC ../../lib/libm/thumb_vfp_sqrtf.c
+CC ../../shared/libc/string0.c
+CC ../../shared/netutils/dhcpserver.c
+CC ../../shared/netutils/netutils.c
+CC ../../shared/netutils/trace.c
+CC ../../shared/readline/readline.c
+CC ../../shared/runtime/gchelper_native.c
+CC ../../shared/runtime/interrupt_char.c
+CC ../../shared/runtime/mpirq.c
+CC ../../shared/runtime/pyexec.c
+CC ../../shared/runtime/softtimer.c
+CC ../../shared/runtime/stdout_helpers.c
+CC ../../shared/runtime/sys_stdio_mphal.c
+CC ../../shared/timeutils/timeutils.c
+CC ../../shared/tinyusb/mp_usbd.c
+CC ../../shared/tinyusb/mp_usbd_cdc.c
+CC ../../shared/tinyusb/mp_usbd_descriptor.c
+CC ../../drivers/bus/softspi.c
+CC ../../drivers/bus/softqspi.c
+CC ../../drivers/memory/spiflash.c
+CC ../../drivers/dht/dht.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_clocks.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_common.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_delay.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_group_irq.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_guard.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_io.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_irq.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_register_protection.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_rom_registers.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_sbrk.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_security.c
+CC ../../lib/fsp/ra/fsp/src/r_ioport/r_ioport.c
+CC ../../lib/fsp/ra/fsp/src/r_sci_uart/r_sci_uart.c
+CC ../../lib/fsp/ra/fsp/src/r_adc/r_adc.c
+CC ../../lib/fsp/ra/fsp/src/r_dtc/r_dtc.c
+CC ../../lib/fsp/ra/fsp/src/r_dmac/r_dmac.c
+CC ../../lib/fsp/ra/fsp/src/r_flash_hp/r_flash_hp.c
+CC ra/ra_adc.c
+CC ra/ra_storm_adc.c
+CC ra/ra_storm_detect.c
+CC ra/ra_dac.c
+CC ra/ra_flash.c
+CC ra/ra_gpio.c
+CC ra/ra_i2c.c
+CC ra/ra_i2c_slave.c
+CC ra/ra_icu.c
+CC ra/ra_init.c
+CC ra/ra_int.c
+CC ra/ra_opamp.c
+CC ra/ra_acmplp.c
+CC ra/ra_rtc.c
+CC ra/ra_sci.c
+CC ra/ra_sci_spi.c
+CC ra/ra_sci_ws2812.c
+CC ra/ra_spi.c
+CC ra/ra_timer.c
+CC ra/ra_gpt.c
+CC ra/ra_encoder.c
+CC ra/ra_utils.c
+CC ../../lib/fsp/ra/fsp/src/r_ctsu/r_ctsu.c
+CC ra/ra_ctsu.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//public/r_sce.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//public/r_sce_ecc.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//public/r_sce_sha.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//public/r_sce_aes.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//private/r_sce_private.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p00.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p20.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p26.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p81.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p82.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p92.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_p40.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func050.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func051.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func052.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func053.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func054.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func100.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func101.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func040.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func048.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func102.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_func103.c
+CC ../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/r_sce_subprc01.c
+CC ../../lib/tinyusb/src/class/cdc/cdc_device.c
+CC ../../lib/tinyusb/src/class/dfu/dfu_rt_device.c
+CC ../../lib/tinyusb/src/class/hid/hid_device.c
+CC ../../lib/tinyusb/src/class/midi/midi_device.c
+CC ../../lib/tinyusb/src/class/msc/msc_device.c
+CC ../../lib/tinyusb/src/class/usbtmc/usbtmc_device.c
+CC ../../lib/tinyusb/src/class/vendor/vendor_device.c
+CC ../../lib/tinyusb/src/common/tusb_fifo.c
+CC ../../lib/tinyusb/src/device/usbd.c
+CC ../../lib/tinyusb/src/device/usbd_control.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/dcd_rusb2.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/hcd_rusb2.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/rusb2_common.c
+CC ../../lib/tinyusb/src/tusb.c
+CC boardctrl.c
+CC main.c
+CC ra_hal.c
+CC ra_it.c
+CC rng.c
+CC mphalport.c
+CC mpnetworkport.c
+CC mpthreadport.c
+CC irq.c
+CC pendsv.c
+CC systick.c
+CC powerctrl.c
+CC powerctrlboot.c
+CC pybthread.c
+CC factoryreset.c
+CC timer.c
+CC led.c
+CC uart.c
+CC gccollect.c
+CC help.c
+CC machine_timer.c
+CC machine_bitstream.c
+CC machine_dac.c
+CC machine_i2c.c
+CC machine_opamp.c
+CC machine_comparator.c
+CC machine_spi.c
+CC machine_ws2812.c
+CC machine_encoder.c
+CC machine_audioadc.c
+CC machine_pin.c
+CC machine_rtc.c
+CC machine_sdcard.c
+CC modaudiomixer.c
+CC modrenesas.c
+CC moddataflash.c
+CC extint.c
+CC usrsw.c
+CC flash.c
+CC flashbdev.c
+CC storage.c
+CC fatfs_port.c
+CC usbd.c
+CC boards/VK_RA4M2/ra_gen/common_data.c
+CC boards/VK_RA4M2/ra_gen/hal_data.c
+CC boards/VK_RA4M2/ra_gen/pin_data.c
+CC boards/VK_RA4M2/ra_gen/vector_data.c
+CC lorawan/mod_lorawan.c
+CC lorawan/glue/sx126x_board.c
+CC lorawan/glue/timer_board.c
+CC lorawan/glue/dma_board.c
+CC lorawan/glue/nvm_board.c
+CC lorawan/glue/utilities.c
+CC lorawan/mac/LoRaMac.c
+CC lorawan/mac/LoRaMacAdr.c
+In file included from lorawan/mac/LoRaMac.h:136,
+                 from lorawan/mac/region/Region.h:67,
+                 from lorawan/mac/LoRaMac.c:41:
+./timer.h:31:14: error: unknown type name 'mp_obj_type_t'
+   31 | extern const mp_obj_type_t pyb_timer_type;
+      |              ^~~~~~~~~~~~~
+In file included from lorawan/mac/LoRaMac.h:137:
+lorawan/system/systime.h:138:1: error: unknown type name 'TimerTime_t'
+  138 | TimerTime_t SysTimeToMs( SysTime_t sysTime );
+      | ^~~~~~~~~~~
+lorawan/system/systime.h:147:26: error: unknown type name 'TimerTime_t'
+  147 | SysTime_t SysTimeFromMs( TimerTime_t timeMs );
+      |                          ^~~~~~~~~~~
+In file included from lorawan/radio/region/r_radio_region_api.h:98,
+                 from lorawan/radio/radio.h:39,
+                 from lorawan/mac/LoRaMac.h:138:
+lorawan/radio/region/r_radio_region.h:109:5: error: unknown type name 'TimerTime_t'
+  109 |     TimerTime_t         tsLastTx;                       //!< Timestamp of last transmission time (transmission start time).
+      |     ^~~~~~~~~~~
+In file included from lorawan/mac/LoRaMac.h:139:
+lorawan/mac/LoRaMacTypes.h:608:5: error: unknown type name 'TimerTime_t'
+  608 |     TimerTime_t LastJoinTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:612:5: error: unknown type name 'TimerTime_t'
+  612 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:616:5: error: unknown type name 'TimerTime_t'
+  616 |     TimerTime_t TimeOff;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:743:5: error: unknown type name 'TimerTime_t'
+  743 |     TimerTime_t DutyCycleWaitTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:907:5: error: unknown type name 'TimerTime_t'
+  907 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:1235:5: error: unknown type name 'TimerTime_t'
+ 1235 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:1253:5: error: unknown type name 'TimerTime_t'
+ 1253 |     TimerTime_t BeaconTimingDelay;
+      |     ^~~~~~~~~~~
+In file included from lorawan/mac/region/Region.h:70:
+lorawan/mac/region/RegionCommon.h:209:5: error: unknown type name 'TimerTime_t'
+  209 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/RegionCommon.h:349:60: error: unknown type name 'TimerTime_t'
+  349 | void RegionCommonSetBandTxDone( bool joined, Band_t* band, TimerTime_t lastTxDone );
+      |                                                            ^~~~~~~~~~~
+lorawan/mac/region/RegionCommon.h:365:1: error: unknown type name 'TimerTime_t'
+  365 | TimerTime_t RegionCommonUpdateBandTimeOff( bool joined, bool dutyCycle, Band_t* bands, uint8_t nbBands );
+      | ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1021:5: error: unknown type name 'TimerTime_t'
+ 1021 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1377:5: error: unknown type name 'TimerTime_t'
+ 1377 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1388:5: error: unknown type name 'TimerTime_t'
+ 1388 |     TimerTime_t AggrTimeOff;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1392:5: error: unknown type name 'TimerTime_t'
+ 1392 |     TimerTime_t LastAggrTx;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1663:91: error: unknown type name 'TimerTime_t'
+ 1663 | bool RegionTxConfig( LoRaMacRegion_t region, TxConfigParams_t* txConfig, int8_t* txPower, TimerTime_t* txTimeOnAir );
+      |                                                                                           ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1766:112: error: unknown type name 'TimerTime_t'
+ 1766 | LoRaMacStatus_t RegionNextChannel( LoRaMacRegion_t region, NextChanParams_t* nextChanParams, uint8_t* channel, TimerTime_t* time, TimerTime_t* aggregatedTimeOff );
+      |                                                                                                                ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1766:131: error: unknown type name 'TimerTime_t'
+ 1766 | LoRaMacStatus_t RegionNextChannel( LoRaMacRegion_t region, NextChanParams_t* nextChanParams, uint8_t* channel, TimerTime_t* time, TimerTime_t* aggregatedTimeOff );
+      |                                                                                                                                   ^~~~~~~~~~~
+In file included from lorawan/mac/LoRaMac.c:42:
+lorawan/mac/LoRaMacClassB.h:212:5: error: unknown type name 'TimerTime_t'
+  212 |     TimerTime_t NextBeaconRxAdjusted;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:225:5: error: unknown type name 'TimerTime_t'
+  225 |     TimerTime_t BeaconTimingDelay;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:230:5: error: unknown type name 'TimerTime_t'
+  230 |     TimerTime_t LastSystimeSetTimeMs;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:520:93: error: unknown type name 'TimerTime_t'
+  520 | void LoRaMacClassBBeaconTimingAns( uint16_t beaconTimingDelay, uint8_t beaconTimingChannel, TimerTime_t lastRxDone );
+      |                                                                                             ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:543:1: error: unknown type name 'TimerTime_t'
+  543 | TimerTime_t LoRaMacClassBIsUplinkCollision( TimerTime_t txTimeOnAir );
+      | ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:543:45: error: unknown type name 'TimerTime_t'
+  543 | TimerTime_t LoRaMacClassBIsUplinkCollision( TimerTime_t txTimeOnAir );
+      |                                             ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:590:42: error: unknown type name 'TimerTime_t'
+  590 | void LoRaMacClassBSetRxBeaconTimingTime( TimerTime_t time );
+      |                                          ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:214:5: error: unknown type name 'TimerTime_t'
+  214 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:215:5: error: unknown type name 'TimerTime_t'
+  215 |     TimerTime_t AggregatedTimeOff;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:297:5: error: unknown type name 'TimerEvent_t'
+  297 |     TimerEvent_t TxDelayedTimer;
+      |     ^~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:301:5: error: unknown type name 'TimerEvent_t'
+  301 |     TimerEvent_t RxWindowTimer1;
+      |     ^~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:302:5: error: unknown type name 'TimerEvent_t'
+  302 |     TimerEvent_t RxWindowTimer2;
+      |     ^~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:328:5: error: unknown type name 'TimerEvent_t'
+  328 |     TimerEvent_t AckTimeoutTimer;
+      |     ^~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:357:5: error: unknown type name 'TimerTime_t'
+  357 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:395:5: error: unknown type name 'TimerTime_t'
+  395 |     TimerTime_t DutyCycleWaitTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:687:28: error: unknown type name 'TimerEvent_t'
+  687 | static void RxWindowSetup( TimerEvent_t* rxTimer, RxConfigParams_t* rxConfig );
+      |                            ^~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:864:5: error: unknown type name 'TimerTime_t'
+  864 |     TimerTime_t CurTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:872:5: error: unknown type name 'TimerTime_t'
+  872 |     TimerTime_t LastRxDone;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'OnRadioTxDone':
+lorawan/mac/LoRaMac.c:881:28: error: implicit declaration of function 'TimerGetCurrentTime' [-Werror=implicit-function-declaration]
+  881 |     TxDoneParams.CurTime = TimerGetCurrentTime( );
+      |                            ^~~~~~~~~~~~~~~~~~~
+In file included from lorawan/mac/LoRaMac.h:136,
+                 from lorawan/mac/region/Region.h:67,
+                 from lorawan/mac/LoRaMacAdr.c:37:
+./timer.h:31:14: error: unknown type name 'mp_obj_type_t'
+   31 | extern const mp_obj_type_t pyb_timer_type;
+      |              ^~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:882:28: error: implicit declaration of function 'SysTimeFromMs'; did you mean 'SysTimeToMs'? [-Werror=implicit-function-declaration]
+  882 |     MacCtx.LastTxSysTime = SysTimeFromMs( TxDoneParams.CurTime );
+      |                            ^~~~~~~~~~~~~
+      |                            SysTimeToMs
+lorawan/mac/LoRaMac.c:882:28: error: incompatible types when assigning to type 'SysTime_t' {aka 'struct SysTime_s'} from type 'int'
+lorawan/mac/LoRaMac.c: In function 'ProcessRadioTxDone':
+lorawan/mac/LoRaMac.c:941:5: error: unknown type name 'TimerTime_t'
+  941 |     TimerTime_t offset;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:960:5: error: implicit declaration of function 'TimerSetValue' [-Werror=implicit-function-declaration]
+  960 |     TimerSetValue( &MacCtx.RxWindowTimer1, rxWin1TimeVal );
+      |     ^~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:961:5: error: implicit declaration of function 'TimerStart' [-Werror=implicit-function-declaration]
+  961 |     TimerStart( &MacCtx.RxWindowTimer1 );
+      |     ^~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'ProcessRadioRxDone':
+lorawan/mac/LoRaMac.c:1070:9: error: implicit declaration of function 'TimerStop' [-Werror=implicit-function-declaration]
+ 1070 |         TimerStop( &MacCtx.RxWindowTimer2 );
+      |         ^~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'HandleRadioRxErrorTimeout':
+lorawan/mac/LoRaMac.c:1656:18: error: implicit declaration of function 'TimerExists' [-Werror=implicit-function-declaration]
+ 1656 |             if( !TimerExists( &MacCtx.RxWindowTimer2 ) )
+      |                  ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'ProcessTimerRxOnWindow1':
+lorawan/mac/LoRaMac.c:2123:5: error: implicit declaration of function 'RxWindowSetup' [-Werror=implicit-function-declaration]
+ 2123 |     RxWindowSetup( &MacCtx.RxWindowTimer1, &MacCtx.RxWindow1Config );
+      |     ^~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'ScheduleTx':
+lorawan/mac/LoRaMac.c:3241:14: error: implicit declaration of function 'RegionNextChannel'; did you mean 'RpRegionSetChannel'? [-Werror=implicit-function-declaration]
+ 3241 |     status = RegionNextChannel( MacCtx.NvmCtx->Region, &nextChan, &MacCtx.Channel, &MacCtx.DutyCycleWaitTime, &MacCtx.NvmCtx->AggregatedTimeOff );
+      |              ^~~~~~~~~~~~~~~~~
+      |              RpRegionSetChannel
+lorawan/mac/LoRaMac.c: At top level:
+lorawan/mac/LoRaMac.c:3564:28: error: unknown type name 'TimerEvent_t'
+ 3564 | static void RxWindowSetup( TimerEvent_t* rxTimer, RxConfigParams_t* rxConfig )
+      |                            ^~~~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'SendFrameOnChannel':
+lorawan/mac/LoRaMac.c:3752:5: error: implicit declaration of function 'RegionTxConfig'; did you mean 'RegionRxConfig'? [-Werror=implicit-function-declaration]
+ 3752 |     RegionTxConfig( MacCtx.NvmCtx->Region, &txConfig, &txPower, &MacCtx.TxTimeOnAir );
+      |     ^~~~~~~~~~~~~~
+      |     RegionRxConfig
+lorawan/mac/LoRaMac.c: In function 'LoRaMacInitialization':
+lorawan/mac/LoRaMac.c:4253:5: error: implicit declaration of function 'TimerInit'; did you mean 'timer_init0'? [-Werror=implicit-function-declaration]
+ 4253 |     TimerInit( &MacCtx.TxDelayedTimer, OnTxDelayedTimerEvent );
+      |     ^~~~~~~~~
+      |     timer_init0
+lorawan/mac/LoRaMac.c: In function 'LoRaMacMibGetRequestConfirm':
+lorawan/mac/LoRaMac.c:4753:37: error: conversion from 'float' to 'uint8_t' {aka 'unsigned char'} may change value [-Werror=float-conversion]
+ 4753 |             mibGet->Param.maxEirp = MacCtx.NvmCtx->MacParams.MaxEirp;
+      |                                     ^~~~~~
+lorawan/mac/LoRaMac.c: In function 'LoRaMacGetStackProcessTime':
+lorawan/mac/LoRaMac.c:6463:9: error: implicit declaration of function 'SX126xGetClockSelect' [-Werror=implicit-function-declaration]
+ 6463 |     if (SX126xGetClockSelect() == RADIO_CLOCK_TCXO_SEL)
+      |         ^~~~~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6463:35: error: 'RADIO_CLOCK_TCXO_SEL' undeclared (first use in this function)
+ 6463 |     if (SX126xGetClockSelect() == RADIO_CLOCK_TCXO_SEL)
+      |                                   ^~~~~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6463:35: note: each undeclared identifier is reported only once for each function it appears in
+lorawan/mac/LoRaMac.c:6465:32: error: 'RP_TCXO_STAB_TIME' undeclared (first use in this function)
+ 6465 |         retVal += ((uint32_t)((RP_TCXO_STAB_TIME * 15.625)/1000.0));
+      |                                ^~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'LoRaMacSetLowPower':
+In file included from lorawan/mac/LoRaMac.h:137:
+lorawan/system/systime.h:138:1: error: unknown type name 'TimerTime_t'
+  138 | TimerTime_t SysTimeToMs( SysTime_t sysTime );
+      | ^~~~~~~~~~~
+lorawan/system/systime.h:147:26: error: unknown type name 'TimerTime_t'
+  147 | SysTime_t SysTimeFromMs( TimerTime_t timeMs );
+      |                          ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6495:5: error: implicit declaration of function 'BoardDisableAllIrq' [-Werror=implicit-function-declaration]
+ 6495 |     BoardDisableAllIrq();  // same function used in SetLowPower()
+      |     ^~~~~~~~~~~~~~~~~~
+In file included from lorawan/radio/region/r_radio_region_api.h:98,
+                 from lorawan/radio/radio.h:39,
+                 from lorawan/mac/LoRaMac.h:138:
+lorawan/radio/region/r_radio_region.h:109:5: error: unknown type name 'TimerTime_t'
+  109 |     TimerTime_t         tsLastTx;                       //!< Timestamp of last transmission time (transmission start time).
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6533:9: error: implicit declaration of function 'SetLowPower' [-Werror=implicit-function-declaration]
+ 6533 |         SetLowPower();
+      |         ^~~~~~~~~~~
+In file included from lorawan/mac/LoRaMac.h:139:
+lorawan/mac/LoRaMacTypes.h:608:5: error: unknown type name 'TimerTime_t'
+  608 |     TimerTime_t LastJoinTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:612:5: error: unknown type name 'TimerTime_t'
+  612 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:616:5: error: unknown type name 'TimerTime_t'
+  616 |     TimerTime_t TimeOff;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:743:5: error: unknown type name 'TimerTime_t'
+  743 |     TimerTime_t DutyCycleWaitTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:907:5: error: unknown type name 'TimerTime_t'
+  907 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:1235:5: error: unknown type name 'TimerTime_t'
+ 1235 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:1253:5: error: unknown type name 'TimerTime_t'
+ 1253 |     TimerTime_t BeaconTimingDelay;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6537:5: error: implicit declaration of function 'BoardEnableAllIrq' [-Werror=implicit-function-declaration]
+ 6537 |     BoardEnableAllIrq();
+      |     ^~~~~~~~~~~~~~~~~
+In file included from lorawan/mac/region/Region.h:70:
+lorawan/mac/region/RegionCommon.h:209:5: error: unknown type name 'TimerTime_t'
+  209 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/RegionCommon.h:349:60: error: unknown type name 'TimerTime_t'
+  349 | void RegionCommonSetBandTxDone( bool joined, Band_t* band, TimerTime_t lastTxDone );
+      |                                                            ^~~~~~~~~~~
+lorawan/mac/region/RegionCommon.h:365:1: error: unknown type name 'TimerTime_t'
+  365 | TimerTime_t RegionCommonUpdateBandTimeOff( bool joined, bool dutyCycle, Band_t* bands, uint8_t nbBands );
+      | ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1021:5: error: unknown type name 'TimerTime_t'
+ 1021 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1377:5: error: unknown type name 'TimerTime_t'
+ 1377 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1388:5: error: unknown type name 'TimerTime_t'
+ 1388 |     TimerTime_t AggrTimeOff;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1392:5: error: unknown type name 'TimerTime_t'
+ 1392 |     TimerTime_t LastAggrTx;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1663:91: error: unknown type name 'TimerTime_t'
+ 1663 | bool RegionTxConfig( LoRaMacRegion_t region, TxConfigParams_t* txConfig, int8_t* txPower, TimerTime_t* txTimeOnAir );
+      |                                                                                           ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1766:112: error: unknown type name 'TimerTime_t'
+ 1766 | LoRaMacStatus_t RegionNextChannel( LoRaMacRegion_t region, NextChanParams_t* nextChanParams, uint8_t* channel, TimerTime_t* time, TimerTime_t* aggregatedTimeOff );
+      |                                                                                                                ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1766:131: error: unknown type name 'TimerTime_t'
+ 1766 | LoRaMacStatus_t RegionNextChannel( LoRaMacRegion_t region, NextChanParams_t* nextChanParams, uint8_t* channel, TimerTime_t* time, TimerTime_t* aggregatedTimeOff );
+      |                                                                                                                                   ^~~~~~~~~~~
+cc1.exe: all warnings being treated as errors
+CC lorawan/mac/LoRaMacClassB.c
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMacAdr.o] Error 1
+make: *** Waiting for unfinished jobs....
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMac.o] Error 1
+In file included from lorawan/mac/LoRaMacTypes.h:54,
+                 from lorawan/mac/LoRaMacCrypto.h:53,
+                 from lorawan/mac/secure-element.h:51,
+                 from lorawan/mac/LoRaMacClassB.c:28:
+./timer.h:31:14: error: unknown type name 'mp_obj_type_t'
+   31 | extern const mp_obj_type_t pyb_timer_type;
+      |              ^~~~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:608:5: error: unknown type name 'TimerTime_t'
+  608 |     TimerTime_t LastJoinTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:612:5: error: unknown type name 'TimerTime_t'
+  612 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacTypes.h:616:5: error: unknown type name 'TimerTime_t'
+  616 |     TimerTime_t TimeOff;
+      |     ^~~~~~~~~~~
+In file included from lorawan/mac/LoRaMac.h:137,
+                 from lorawan/mac/LoRaMacClassB.c:29:
+lorawan/system/systime.h:138:1: error: unknown type name 'TimerTime_t'
+  138 | TimerTime_t SysTimeToMs( SysTime_t sysTime );
+      | ^~~~~~~~~~~
+lorawan/system/systime.h:147:26: error: unknown type name 'TimerTime_t'
+  147 | SysTime_t SysTimeFromMs( TimerTime_t timeMs );
+      |                          ^~~~~~~~~~~
+In file included from lorawan/radio/region/r_radio_region_api.h:98,
+                 from lorawan/radio/radio.h:39,
+                 from lorawan/mac/LoRaMac.h:138:
+lorawan/radio/region/r_radio_region.h:109:5: error: unknown type name 'TimerTime_t'
+  109 |     TimerTime_t         tsLastTx;                       //!< Timestamp of last transmission time (transmission start time).
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:743:5: error: unknown type name 'TimerTime_t'
+  743 |     TimerTime_t DutyCycleWaitTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:907:5: error: unknown type name 'TimerTime_t'
+  907 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:1235:5: error: unknown type name 'TimerTime_t'
+ 1235 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMac.h:1253:5: error: unknown type name 'TimerTime_t'
+ 1253 |     TimerTime_t BeaconTimingDelay;
+      |     ^~~~~~~~~~~
+In file included from lorawan/mac/region/Region.h:70,
+                 from lorawan/mac/LoRaMac.h:2970:
+lorawan/mac/region/RegionCommon.h:209:5: error: unknown type name 'TimerTime_t'
+  209 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/RegionCommon.h:349:60: error: unknown type name 'TimerTime_t'
+  349 | void RegionCommonSetBandTxDone( bool joined, Band_t* band, TimerTime_t lastTxDone );
+      |                                                            ^~~~~~~~~~~
+lorawan/mac/region/RegionCommon.h:365:1: error: unknown type name 'TimerTime_t'
+  365 | TimerTime_t RegionCommonUpdateBandTimeOff( bool joined, bool dutyCycle, Band_t* bands, uint8_t nbBands );
+      | ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1021:5: error: unknown type name 'TimerTime_t'
+ 1021 |     TimerTime_t LastTxDoneTime;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1377:5: error: unknown type name 'TimerTime_t'
+ 1377 |     TimerTime_t TxTimeOnAir;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1388:5: error: unknown type name 'TimerTime_t'
+ 1388 |     TimerTime_t AggrTimeOff;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1392:5: error: unknown type name 'TimerTime_t'
+ 1392 |     TimerTime_t LastAggrTx;
+      |     ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1663:91: error: unknown type name 'TimerTime_t'
+ 1663 | bool RegionTxConfig( LoRaMacRegion_t region, TxConfigParams_t* txConfig, int8_t* txPower, TimerTime_t* txTimeOnAir );
+      |                                                                                           ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1766:112: error: unknown type name 'TimerTime_t'
+ 1766 | LoRaMacStatus_t RegionNextChannel( LoRaMacRegion_t region, NextChanParams_t* nextChanParams, uint8_t* channel, TimerTime_t* time, TimerTime_t* aggregatedTimeOff );
+      |                                                                                                                ^~~~~~~~~~~
+lorawan/mac/region/Region.h:1766:131: error: unknown type name 'TimerTime_t'
+ 1766 | LoRaMacStatus_t RegionNextChannel( LoRaMacRegion_t region, NextChanParams_t* nextChanParams, uint8_t* channel, TimerTime_t* time, TimerTime_t* aggregatedTimeOff );
+      |                                                                                                                                   ^~~~~~~~~~~
+In file included from lorawan/mac/LoRaMacClassB.c:30:
+lorawan/mac/LoRaMacClassB.h:212:5: error: unknown type name 'TimerTime_t'
+  212 |     TimerTime_t NextBeaconRxAdjusted;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:225:5: error: unknown type name 'TimerTime_t'
+  225 |     TimerTime_t BeaconTimingDelay;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:230:5: error: unknown type name 'TimerTime_t'
+  230 |     TimerTime_t LastSystimeSetTimeMs;
+      |     ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:520:93: error: unknown type name 'TimerTime_t'
+  520 | void LoRaMacClassBBeaconTimingAns( uint16_t beaconTimingDelay, uint8_t beaconTimingChannel, TimerTime_t lastRxDone );
+      |                                                                                             ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:543:1: error: unknown type name 'TimerTime_t'
+  543 | TimerTime_t LoRaMacClassBIsUplinkCollision( TimerTime_t txTimeOnAir );
+      | ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:543:45: error: unknown type name 'TimerTime_t'
+  543 | TimerTime_t LoRaMacClassBIsUplinkCollision( TimerTime_t txTimeOnAir );
+      |                                             ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.h:590:42: error: unknown type name 'TimerTime_t'
+  590 | void LoRaMacClassBSetRxBeaconTimingTime( TimerTime_t time );
+      |                                          ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.c:2211:93: error: unknown type name 'TimerTime_t'
+ 2211 | void LoRaMacClassBBeaconTimingAns( uint16_t beaconTimingDelay, uint8_t beaconTimingChannel, TimerTime_t lastRxDone )
+      |                                                                                             ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.c:2283:1: error: unknown type name 'TimerTime_t'
+ 2283 | TimerTime_t LoRaMacClassBIsUplinkCollision( TimerTime_t txTimeOnAir )
+      | ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.c:2283:45: error: unknown type name 'TimerTime_t'
+ 2283 | TimerTime_t LoRaMacClassBIsUplinkCollision( TimerTime_t txTimeOnAir )
+      |                                             ^~~~~~~~~~~
+lorawan/mac/LoRaMacClassB.c:2453:42: error: unknown type name 'TimerTime_t'
+ 2453 | void LoRaMacClassBSetRxBeaconTimingTime( TimerTime_t time )
+      |                                          ^~~~~~~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMacClassB.o] Error 1

@@ -1,0 +1,238 @@
+========================================================================
+  Сесия 2026-04-05 — Spectrum Analyzer / FFT верификация на VK_RA4M2
+========================================================================
+
+1. ОГЛЕДАЛЕН АРТЕФАКТ В FFT (РЕШЕН)
+-------------------------------------
+Проблем:
+  При 1 kHz вход от сигнал генератор на P001, FFT показваше:
+    - bin 7  (1206 Hz) — mag 18.2  (основен пик)
+    - bin 57 (9819 Hz) — mag 12.1  (ФАЛШИВ огледален пик)
+    - bin 8  (1378 Hz) — mag 9.8   (leakage)
+  Огледалният пик е при bin N/2 - k: 7 + 57 = 64 = N/2.
+
+Причина:
+  В moddsp.c, arm_rfft_fast_f32() се викаше IN-PLACE (input == output):
+    memcpy(dst, src, ...);
+    arm_rfft_fast_f32(&S, dst, dst, 0);   // BUG: dst е и вход и изход!
+  arm_rfft_fast_f32 вътрешно прави:
+    1) N/2-point complex FFT на входа (модифицира го)
+    2) Merge стъпка: чете от вход, пише в изход
+  При input==output, merge-ът чете вече презаписани данни → огледало.
+
+Решение (moddsp.c):
+  Добавен scratch буфер в dsp_fft_obj_t:
+    float32_t *scratch;   // нов член
+  В make_new:
+    self->scratch = m_new(float32_t, fft_len);
+  В run():
+    memcpy(self->scratch, src, self->fft_len * sizeof(float32_t));
+    arm_rfft_fast_f32(&self->S, self->scratch, dst, 0);  // input != output
+
+Резултат:
+  След rebuild и flash — огледалният пик при bin 57 ИЗЧЕЗНА.
+
+2. ИЗМЕРВАНЕ НА РЕАЛНА Fs
+---------------------------
+  Метод: 200 кадъра × 128 семпъла, измерване с time.ticks_ms()
+  Резултат:
+    Elapsed: 1160 ms
+    Fs_actual  = 22069.0 Hz  (configured: 22050 Hz)
+    bin_actual = 172.41 Hz   (configured: 172.27 Hz)
+  Извод: AGT таймерът е точен. PCLKB = 50 MHz, period = 1133.
+
+3. ПИКЪТ Е ПРИ BIN 7 ВМЕСТО BIN 6 ЗА 1 KHZ ВХОД
+---------------------------------------------------
+  С Fs=22069, bin 6 = 1034 Hz, bin 7 = 1207 Hz.
+  За 1000 Hz вход: 1000/172.41 = 5.80 → пикът трябва да е при bin 6.
+  Но данните показват bin 7. Възможни причини:
+    - Генераторът подава ~1200 Hz, не 1000 Hz
+    - Нужна е допълнителна верификация с известен сигнал
+  СТАТУС: НЕ Е РЕШЕН — нужен тест с известен хардуерен сигнал.
+
+4. ТЕСТ С TIMER TOGGLE НА P302
+--------------------------------
+  Идея: Timer(6) toggle-ва P302 на 1000 Hz → 500 Hz квадратна вълна.
+        Свързваме P302 → P001 и проверяваме FFT.
+
+  Грешки по пътя:
+    a) Timer(0) → ValueError: Timer doesn't exist
+       Решение: Timer(1)..Timer(6) са валидни на VK_RA4M2
+    b) pin.toggle() → AttributeError: 'Pin' object has no attribute 'toggle'
+       Решение: _tval = 1 - _tval; pin.value(_tval)
+    c) TOGGLE_MS → NameError (остатък от стар код)
+       Решение: премахнат от print()
+
+  СТАТУС: Timer(6) с callback и pin.value() — в процес на тест.
+
+5. ФАЙЛОВЕ МОДИФИЦИРАНИ ДНЕС
+------------------------------
+  ports/renesas-ra/moddsp.c
+    - Добавен scratch буфер в dsp_fft_obj_t
+    - run() ползва scratch за вход, dst за изход
+
+  ports/renesas-ra/boards/VK_RA4M2/examples/fft_print_test.py
+    - Печата всички 64 FFT бина (freq + magnitude + ASCII bar)
+    - Усредняване на 8 кадъра за стабилност
+    - Измерване на реална Fs (200 кадъра)
+    - Timer(6) toggle на P302 за верификация
+
+6. ХАРДУЕРНИ БЕЛЕЖКИ (VK_RA4M2)
+----------------------------------
+  CPU: RA4M2, кварц 16 MHz, ICLK = 100 MHz, PCLKB = 50 MHz
+  AGT таймери: Timer(1)..Timer(6), Timer(-1) = софтуерен, Timer(0) НЕ съществува
+  AudioADC резервира 1 AGT канал (обикновено канал 0 или 1)
+  Pin клас НЯМА .toggle() метод — ползвай .value(0/1)
+  ADC входове: P000, P001 потвърдени за AudioADC
+  WS2812 (NeoPixel): P112
+
+7. КЛЮЧОВИ ПАРАМЕТРИ НА FFT
+------------------------------
+  FFT_LEN = 128
+  Fs = 22050 Hz (реално ~22069 Hz)
+  Бинове: 65 (0=DC .. 64=Nyquist=11025 Hz)
+  bin_hz = Fs / FFT_LEN = 172.27 Hz (реално 172.41 Hz)
+  Hamming прозорец: предизчислен в dsp.FFT обекта
+  RFFT изход: 128 float32 пакетирани:
+    [DC_re, Nyq_re, Re1, Im1, Re2, Im2, ... Re63, Im63]
+
+8. CLOCK / TIMER РАЗСЛЕДВАНЕ (ТЕКУЩ СТАТУС)
+--------------------------------------------
+  Нов факт от потребителя:
+    - проблемът не е само в AGT; грешни са и софтуерните таймери Timer(-1)
+
+  Това прехвърля проблема от отделен AGT канал към общ timebase/clocking.
+
+  Потвърдено от source:
+    - ports/renesas-ra/ra/ra_init.c:
+        SysTick_Config(MICROPY_HW_MCU_SYSCLK / 1000);
+      => SysTick е вързан към compile-time константа, не към live register read.
+
+    - ports/renesas-ra/machine_timer.c:
+        Timer(-1) е soft timer и работи в милисекундната soft-timer инфраструктура.
+
+    - ports/renesas-ra/systick.c:
+        mp_hal_ticks_ms() връща uwTick, а SysTick_Handler() увеличава uwTick.
+
+    - ports/renesas-ra/modmachine.c:
+        machine.freq() връща SystemCoreClock.
+
+  Потвърдено от FSP/board config:
+    - mpconfigboard.h:
+        MICROPY_HW_MCU_SYSCLK = 100000000
+        MICROPY_HW_MCU_PCLK   = 50000000
+
+    - ra4m2/bsp_feature.h:
+        BSP_FEATURE_CGC_PLLCCR_TYPE = 1
+        BSP_FEATURE_CGC_HAS_CPUCLK  = 0
+
+    - ra_gen/bsp_clock_cfg.h:
+        BSP_CFG_XTAL_HZ    = 16000000
+        BSP_CFG_PLL_SOURCE = MAIN_OSC
+        BSP_CFG_PLL_DIV    = BSP_CLOCKS_PLL_DIV_4   /* comment says /2 */
+        BSP_CFG_PLL_MUL    = BSP_CLOCKS_PLL_MUL(25U,0U)
+        BSP_CFG_CLOCK_SOURCE = PLL
+        BSP_CFG_ICLK_DIV   = /2
+        BSP_CFG_PCLKB_DIV  = /4
+
+    - r_cgc_api.h:
+        CGC_PLL_DIV_4 = 3  => divider 4
+
+    - bsp_clocks.h / bsp_clocks.c за PLLCCR type 1:
+        PLL source clock = ((src * (mul + 1)) >> 1) / (div + 1)
+        SystemCoreClock  = source_clock >> ICK
+
+  Извод от source-only decode:
+    - XTAL 16 MHz, PLL mul x25, PLL div /4 => PLL source clock = 100 MHz
+    - ICLK divider /2 => SystemCoreClock = 50 MHz
+    - Това влиза в конфликт с mpconfigboard.h, който очаква 100 MHz.
+
+  ВАЖНО:
+    - Този source конфликт е реален, но знакът му НЕ съвпада с измерването 1.25 ms.
+    - Ако реалният core clock беше 50 MHz при SysTick_Config(100 MHz / 1000), таймингът щеше да е по-бавен, не по-бърз.
+    - Следователно само този конфликт НЕ обяснява 1.25 ms периода.
+
+  Оставащи хипотези, които изискват live runtime данни:
+    1) реалният clock tree в регистрите не съвпада със source config
+    2) изпълнява се различен/стар firmware image
+    3) има друг clock-init path извън вече прегледания
+
+  Опит за live проверка:
+    - mpremote connect COM3 ...
+    - резултат: FAILED
+    - причина: "failed to access COM3 (it may be in use by another program)"
+
+  Реален статус:
+    - boundary bug в AGT беше реален и вече не е водещата причина
+    - общ clock/timebase проблем е доказан като посока
+    - окончателната причина ОЩЕ НЕ Е доказана без live register read
+
+9. НОВ ДИАГНОСТИЧЕН СКРИПТ
+---------------------------
+  Добавен файл:
+    - ports/renesas-ra/boards/VK_RA4M2/examples/23_timing/18_clock_source_proof.py
+
+  Цел:
+    - чете live clock регистрите
+    - decode-ва дали 16 MHz кварцът се ползва директно или през PLL
+    - показва и SysTick configured core, за да хване timebase mismatch
+
+10. НОВ AGT5 / TIMER(6) ПРОФ СКРИПТ
+------------------------------------
+  Добавен файл:
+    - ports/renesas-ra/boards/VK_RA4M2/examples/23_timing/19_timer6_agt5_proof.py
+
+  Цел:
+    - конфигурира Timer(6) на 1000 Hz callback rate
+    - чете live AGT5 регистрите (AGTMR1/AGTMR2/AGTCR/AGT)
+    - използва live clock tree (80 MHz ICLK / 40 MHz PCLKB от предишния proof)
+    - decode-ва очакваната IRQ честота от raw setup
+    - мери реалната callback честота чрез DWT cycle counter, т.е. независимо от счупения SysTick
+
+  Полза:
+    - затваря спора дали Timer(6) реално върви на ~800 Hz, ~1000 Hz, ~1600 Hz или друго
+    - дава директна връзка между AGT5 raw setup и измерения период на P302
+
+11. РЕЗУЛТАТ ОТ LIVE AGT5 PROOF
+-------------------------------
+  Изход от 19_timer6_agt5_proof.py:
+    - Live clock tree:
+        PLL source  = MAIN_OSC (16 MHz кварц)
+        PLL output  = 160 MHz
+        ICLK        = 80 MHz
+        PCLKB       = 40 MHz
+
+    - Live AGT5 setup след Timer(6).init(freq=1000, hard=True):
+        AGTMR1 = 0x60  -> TCK = 6
+        AGTMR2 = 0x02  -> CKS = 2
+        AGT    = 0x0007
+        period = 8 counts
+        Timer.freq() getter = 1024.0 Hz
+
+  Decode:
+    - TCK = 6 означава AGTSCLK / 32k path, НЕ PCLKB path
+    - CKS = 2 => 32768 / 4 = 8192 Hz AGT tick
+    - period = 8 => IRQ = 8192 / 8 = 1024 Hz
+    - квадратна вълна на P302 = 512 Hz
+    - очакван период на P302 = 1.953125 ms
+
+  Критичен извод:
+    - live AGT5 НЕ е конфигуриран по patched PCLKB/2 branch
+    - вместо това върви по стария AGTSCLK branch
+    - това е директно доказателство, че текущо изпълняваният firmware/runtime path за Timer(6)
+      НЕ отразява поправката за freq >= 1000.0
+
+  Какво е доказано сега:
+    1) 16 MHz кварцът се ползва през PLL
+    2) системният clock runtime е 80/40 MHz, не 100/50 MHz
+    3) SysTick е конфигуриран за 100 MHz и затова soft timers са грешни
+    4) Timer(6) live остава в AGTSCLK path и не е минал към PCLKB/2 path
+
+  Какво остава отворено:
+    - защо наблюдаваното на осцилоскопа е 1.25 ms, след като isolated AGT5 proof дава 1.953125 ms
+    - най-вероятните обяснения са:
+        a) измерването 1.25 ms идва от различен script/state
+        b) друг код reconfigure-ва Timer(6) по време на FFT/audio теста
+        c) на платката не се изпълнява очакваният patched image
+
+========================================================================

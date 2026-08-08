@@ -70,8 +70,8 @@ def compute_uplink_mic(nwkskey, devaddr_le, fcnt32, direction, msg):
     return bytes(AES_CMAC().encode(nwkskey, cmac_input))[:4]
 
 
-# === 1. Init radio (T3 proven config + LoRaWAN sync + rxIq) ===
-sx = SX1262(spi_bus=1, clk="P111", mosi="P109", miso="P110",
+# === 1. Init radio (tx_cw proven config + LoRaWAN sync + rxIq) ===
+sx = SX1262(spi_bus=3, clk="P111", mosi="P109", miso="P110",
             cs="P206", irq="P015", rst="P001", gpio="P002")
 sx.begin(
     freq=868.1, bw=125.0, sf=7, cr=5,

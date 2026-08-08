@@ -1,0 +1,10 @@
+#ifndef R_SCI_B_I2C_CFG_H_H_
+#define R_SCI_B_I2C_CFG_H_H_
+#ifdef __cplusplus
+extern "C" {
+#endif
+#define SCI_B_I2C_CFG_H_PARAM_CHECKING_ENABLE (BSP_CFG_PARAM_CHECKING_ENABLE)
+#ifdef __cplusplus
+}
+#endif
+#endif

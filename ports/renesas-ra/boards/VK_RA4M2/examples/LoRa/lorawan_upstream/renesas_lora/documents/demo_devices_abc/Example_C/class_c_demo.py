@@ -314,7 +314,6 @@ def main():
     # MAC init ONCE — re-init in the loop tries to claim SPI again -> "SPI bus busy"
     mac = lorawan.Mac(region=lorawan.EU868)
     mac.lorawan_init()
-    mac.set_min_rx_symbols(24)
     mac.set_keys(DEVEUI, JOINEUI, APPKEY)
     mac.set_event_callback(_ev_cb)
 

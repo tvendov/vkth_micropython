@@ -1,0 +1,9 @@
+[ LICENSE ]
+
+- AES algorithm implementation (*1)
+  Please refer to (package top)/samples/project/src/system/peripherals/soft-se/aes.* for license details.
+  *1) http://www.gladman.me.uk/
+
+- CMAC algorithm implementation (*2)
+  Please refer to (package top)/samples/project/src/system/peripherals/soft-se/cmac.* for license details.
+  *2) http://www.cse.chalmers.se/research/group/dcs/masters/contikisec/

@@ -2,15 +2,15 @@
 #
 # Pin map: XIAO RA4M1 еквивалент → VK_RA4M2 чип-пинове.
 
-# Pin map (от потребителската схема на VK_RA4M2 ↔ Wio-SX1262):
+# Pin map (потвърдено от работещия demos/tx_cw/tx_cw_demo.py):
 #   LORA_DIO1   → P015
 #   LORA_RST    → P001
 #   LORA_BUSY   → P002
 #   LORA_NSS    → P206
 #   LORA_RF_SW1 → P100   (MUST drive HIGH за enable на RF switch — Seeed forum)
-#   SCK/MOSI/MISO → P111/P109/P110 (потвърдено loopback test)
+#   SCK/MOSI/MISO → P111/P109/P110 on SPI(3)
 
-SPI_BUS    = 1
+SPI_BUS    = 3
 PIN_SCK    = "P111"
 PIN_MOSI   = "P109"
 PIN_MISO   = "P110"

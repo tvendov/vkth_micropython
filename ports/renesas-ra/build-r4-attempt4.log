@@ -1,0 +1,16 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstr.i.last
+In file included from ./RA4M2_hal.h:33,
+                 from ./mpconfigboard_common.h:32,
+                 from ./mpconfigport.h:34,
+                 from ../../py/mpconfig.h:100,
+                 from ../../py/mpstate.h:31,
+                 from ../../py/runtime.h:29,
+                 from lorawan/glue/utilities.c:17:
+boards/VK_RA4M2/ra_gen/common_data.h:12:10: fatal error: r_sce.h: No such file or directory
+   12 | #include "r_sce.h"
+      |          ^~~~~~~~~
+compilation terminated.
+Command '['arm-none-eabi-gcc', '-E', '-DDEFAULT_DBG_CH=0', '-DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED', '-DCFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE', '-DBOARD_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED', '-DCFG_TUH_ENABLED=0', '-DCFG_TUSB_MCU=OPT_MCU_RAXXX', '-DBOARD_TUD_RHPORT=0', '-DMICROPY_VFS_FAT=1', '-DFFCONF_H="lib/oofatfs/ffconf.h"', '-DRA4M2', '-DRA_HAL_H=<RA4M2_hal.h>', '-DRA_CFG_H=<vk_ra4m2_conf.h>', '-DCFG_TUSB_MCU=OPT_MCU_RAXXX', '-Ilorawan', '-Ilorawan/glue', '-Ilorawan/mac', '-Ilorawan/mac/region', '-Ilorawan/radio', '-Ilorawan/radio/region', '-Ilorawan/soft_se', '-Ilorawan/system', '-imacros', 'boards/compiler_barrier.h', '-I.', '-Ifsp_cfg', '-I../..', '-Ibuild-VK_RA4M2-r4', '-I../../lib/cmsis/inc', '-I../../lib/fsp', '-I../../lib/fsp/ra/fsp/inc', '-I../../lib/fsp/ra/fsp/inc/api', '-I../../lib/fsp/ra/fsp/inc/instances', '-I../../lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Include', '-I../../lib/tinyusb/hw', '-I../../lib/tinyusb/src', '-I../../shared/tinyusb', '-Ilwip_inc', '-Ira', '-Iboards/VK_RA4M2/ra_gen', '-Iboards/VK_RA4M2/ra_cfg/driver', '-Iboards/VK_RA4M2/ra_cfg/fsp_cfg', '-Iboards/VK_RA4M2/ra_cfg/fsp_cfg/bsp', '-Idebug', '-Wall', '-Wpointer-arith', '-Werror', '-Wdouble-promotion', '-Wfloat-conversion', '-std=gnu99', '-nostdlib', '-mthumb', '-mfpu=fpv5-sp-d16', '-mfloat-abi=hard', '-mtune=cortex-m33', '-mcpu=cortex-m33', '-Os', '-DNDEBUG', '-Iboards/VK_RA4M2', '-DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT', '-fsingle-precision-constant', '-fdata-sections', '-ffunction-sections', '-g', '-DMICROPY_HW_ENABLE_LORA=0', '-DLORAWAN_BUILD_PHASE=4', '-DMICROPY_HW_LORA_STACK_RENESAS=1', '-DREGION_EU868', '-DRP_CPU_CLK=8', '-DUSE_FSP_FLASH', '-DMICROPY_HW_ENABLE_TOUCHPAD=1', '-DMICROPY_HW_ENABLE_DSP=0', '-DMICROPY_ROM_TEXT_COMPRESSION=1', '-DMICROPY_BOARD_BUILD_NAME="VK_RA4M2"', '-DNO_QSTR', 'lorawan/glue/utilities.c']' returned non-zero exit status 1.
+make: *** [../../py/mkrules.mk:137: build-VK_RA4M2-r4/genhdr/qstr.i.last] Error 1
+make: *** Deleting file 'build-VK_RA4M2-r4/genhdr/qstr.i.last'

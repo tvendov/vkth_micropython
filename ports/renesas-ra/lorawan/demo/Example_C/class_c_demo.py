@@ -196,8 +196,9 @@ def _build_payload(sensor, battery_mv=3300):
     flags |= 0x02 if _adr_enabled    else 0
     flags |= 0x04 if sensor_ok       else 0
     lat = min(65535, max(0, _last_dl_latency_ms))
-    return struct.pack("<hBHBBH",
-        temp_c100, hum_p2, battery_mv, flags, _dl_count, lat)
+    return struct.pack("<hBHBBHB",
+        temp_c100, hum_p2, battery_mv, flags, _dl_count, lat,
+        _uplink_interval_ms // 5000)
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +208,14 @@ def _dispatch_downlink(port, data, rgb):
     global _dl_count, _last_dl_latency_ms
     global _trigger_uplink, _uplink_interval_ms, _stop_flag, _user_rgb
 
-    if port == 22:
+    if port == 20:
+        cmd = data[0]
+        if cmd == 0x05 and len(data) >= 2:   # unified set_interval (units 5s)
+            secs = data[1] * 5
+            if secs >= 10:
+                _uplink_interval_ms = secs * 1000
+                print("RX port=20 cmd=set_interval(0x05) s=%d" % secs)
+    elif port == 22:
         cmd = data[0]
         if cmd == 0x01 and len(data) >= 4:   # rgb_set
             r, g, b = data[1], data[2], data[3]
@@ -443,3 +451,7 @@ def main():
         mac.nvm_store()
         print("force_rejoin — restarting")
         gc.collect()
+
+
+if __name__ == "__main__":
+    main()

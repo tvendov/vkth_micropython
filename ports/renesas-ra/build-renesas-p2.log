@@ -1,0 +1,27 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-renesas/genhdr/qstr.i.last
+GEN build-VK_RA4M2-renesas/genhdr/qstr.split
+GEN build-VK_RA4M2-renesas/genhdr/moduledefs.split
+GEN build-VK_RA4M2-renesas/genhdr/root_pointers.split
+GEN build-VK_RA4M2-renesas/genhdr/compressed.split
+GEN build-VK_RA4M2-renesas/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-renesas/genhdr/moduledefs.collected
+GEN build-VK_RA4M2-renesas/genhdr/root_pointers.collected
+GEN build-VK_RA4M2-renesas/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC lorawan/mod_lorawan.c
+CC lorawan/glue/timer_board.c
+CC lorawan/glue/dma_board.c
+CC lorawan/glue/nvm_board.c
+CC machine_touchpad.c
+CC build-VK_RA4M2-renesas/pins_VK_RA4M2.c
+CC build-VK_RA4M2-renesas/frozen_content.c
+LINK build-VK_RA4M2-renesas/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: warning: build-VK_RA4M2-renesas/firmware.elf has a LOAD segment with RWX permissions
+   text	   data	    bss	    dec	    hex	filename
+ 327940	      0	 129212	 457152	  6f9c0	build-VK_RA4M2-renesas/firmware.elf
+GEN build-VK_RA4M2-renesas/firmware.hex
+GEN build-VK_RA4M2-renesas/firmware.bin

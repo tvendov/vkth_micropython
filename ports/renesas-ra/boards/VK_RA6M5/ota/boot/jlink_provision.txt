@@ -1,0 +1,22 @@
+// JLink commander script — one-time OTA Option B provisioning for VK_RA6M5.
+// Erases internal code flash and writes:
+//   bootloader.hex  (304 B at 0x00000000)
+//   firmware.hex    (Slot A image at 0x00010000+)
+// Uses absolute paths so it works from any CWD.
+
+si SWD
+speed 4000
+device R7FA6M5BH
+connect
+halt
+
+erase
+loadfile C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA6M5\ota\boot\build\bootloader.hex
+loadfile C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\build-VK_RA6M5_slotA\firmware.hex
+
+verifybin C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA6M5\ota\boot\build\bootloader.bin 0x00000000
+verifybin C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\build-VK_RA6M5_slotA\firmware.bin 0x00010000
+
+r
+g
+exit

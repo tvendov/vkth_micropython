@@ -1,0 +1,656 @@
+                                                                                 Application Note
+
+RA2E1, RA2L1, RA0E1, RA0E2
+LoRa®-based Wireless Software Package
+Introduction
+This software package includes the following sample software and tools to evaluate the LoRa and LoRaWAN
+based wireless communication software for RA devices:
+•   Radio Driver supports LoRa/FSK modulation, packet Tx/Rx, CW, LBT and the regulatory function for
+    each region.
+•   RadioEvalApp is the evaluation tool for the radio functions. LPWA Studio is the GUI front end of
+    RadioEvalApp.
+•   Ping-pong is a simple application based on the Radio Driver.
+•   LPWA Power Estimator is a simple power estimation tool.
+•   LoRaWAN MAC is a protocol stack compliant with the LoRaWAN Specification 1.0.2, 1.0.3 and 1.0.4.
+•   LoRaSample is a sample application based on the LoRaWAN MAC (Class A/B/C).
+•   LoRaFuotaSample is a sample LoRaWAN FUOTA (Firmware Update Over The Air) application.
+•   LoRaSensorSample is a sample LoRaWAN Sensor Node application (external application).
+     Note:LoRaSensorSample is released as a separate RA2E1, RA2L1, RA0E1, RA0E2 LoRaWAN
+     Sensor Demo.
+•   LoRaWanPrivateLoRaComboSample is a sample application that connects LoRaWAN and Private
+    LoRa.
+•   PrivateLoRaSample is a sample application that enables private use of LoRa.
+
+
+
+     This software package.                                         LoRaSensorSample
+
+                                                           LoraWanPrivateLoRaComboSample
+        LPWA           LPWA Studio
+        Power         (Windows App)                        LoRaSample              PrivateLoRa
+       Estimator                                         LoRaFuotaSample             Sample
+      (Windows)                                                                      Sample
+                      RadioEvalApp      Ping-pong                    LoRaWAN MAC
+
+                                                     Radio Driver
+
+                                         FSP (Flexible Software Package) 6.2.0
+
+                                     FPB-RA2E1, EK-RA2L1, FPB-RA0E1, FPB-RA0E2
+                              + Semtech SX1261/SX1262 Shield + HS3001 Sensor (Optional)
+
+                   Figure 1. Sample Software and Tools in Current Software Package
+
+Note: LoRaSensorSample is released as a separate “RA2E1, RA2L1, RA0E1, RA0E2 LoRaWAN Sensor
+Demo”.
+
+
+
+Target Device
+RA2E1, RA2L1, RA0E1, RA0E2
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                  Page 1 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                                                       LoRa®-based Wireless Software Package
+Contents
+
+1.    Hardware Setup......................................................................................................................... 3
+1.1     Hardware Setup for FPB-RA2E1 Fast Prototyping Board ...................................................................... 4
+1.2     Hardware Setup for EK-RA2L1 Evaluation Kit for RA2L1 MCU Group .................................................. 5
+1.3     Hardware Setup for FPB-RA0E1 Fast Prototyping Board ...................................................................... 6
+1.4     Hardware Setup for FPB-RA0E2 Fast Prototyping Board ...................................................................... 7
+
+2.    Sample Application Software Setup .......................................................................................... 8
+2.1     Virtual COM Port Driver Setup ................................................................................................................ 8
+2.2     Software Setup to run Pre-compiled Sample Applications ..................................................................... 8
+2.3     Software Setup for Developing Software Based on the Sample Applications ........................................ 9
+
+3.    Utility Tools Setup for Windows® 10/11 ..................................................................................... 9
+
+4.    Resources Usage .................................................................................................................... 10
+4.1     Memory Resource Usage...................................................................................................................... 10
+4.2     Peripheral Resource Usage .................................................................................................................. 12
+
+Revision History .............................................................................................................................. 13
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                                                             Page 2 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                                 LoRa®-based Wireless Software Package
+1. Hardware Setup
+This software package supports the following hardware configurations:
+•   FPB-RA2E1 + Semtech SX1261/SX1262 Shield + Pmod USBUART + Sensor (Optional).
+•   EK-RA2L1 + Semtech SX1261/SX1262 Shield + Pmod USBUART + Sensor (Optional).
+•   FPB-RA0E1 + Semtech SX1261/SX1262 Shield + Pmod USBUART + Sensor (Optional).
+•   FPB-RA0E2 + Semtech SX1261/SX1262 Shield + Sensor (Optional).
+
+This configuration is provided to simply run the pre-compiled sample applications for RA2E1, RA2L1, RA0E1
+or RA0E2.
+For more detail, please refer to section 1.1, Hardware Setup for FPB-RA2E1 Fast Prototyping Board, section
+1.2, Hardware Setup for EK-RA2L1 Evaluation Kit for RA2L1 MCU Group, section 1.3, Hardware Setup for
+FPB-RA0E1 Fast Prototyping Board, or section 1.4, Hardware Setup for FPB-RA0E2 Fast Prototyping Board.
+
+
+References:
+For more details on the board, please refer to the following websites:
+•   FPB-RA2E1 Fast Prototyping Board (RTK7FPA2E1S00001BE) (https://www.renesas.com/ra/fpb-ra2e1)
+•   EK-RA2L1 Evaluation Kit for RA2L1 (RTK7EKA2L1S00001BE) (https://www.renesas.com/ra/ek-ra2l1)
+•   FPB-RA0E1 Fast Prototyping Board (RTK7FPA0E1S00001BJ) (https://www.renesas.com/ra/fpb-ra0e1)
+•   FPB-RA0E2 Fast Prototyping Board (RTK7FPA0E2S00001BJ) (https://www.renesas.com/ra/fpb-ra0e2)
+
+• Semtech SX1261 Shield (https://www.semtech.com/products/wireless-rf/lora-transceivers/sx1261)
+
+• Semtech SX1262 Shield (https://www.semtech.com/products/wireless-rf/lora-transceivers/sx1262)
+
+• Digilent Pmod USBUART (https://reference.digilentinc.com/reference/pmod/pmodusbuart/start)
+
+• Renesas HS3001 Humidity and Temperature Sensor Pmod Module (US082-HS3001EVZ)
+  https://www.renesas.com/us/en/products/sensor-products/humidity-sensors/us082-hs3001evz-relative-
+  humidity-sensor-pmod-board-renesas-quick-connect-iot
+
+
+Important: The use of wireless receivers and transmitters is restricted by international standards and
+           domestic regulations. Wireless receivers and transmitters must therefore be used in accordance
+           with the applicable laws and regulations of the country in which they are being used.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                     Page 3 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                                 LoRa®-based Wireless Software Package
+
+
+1.1       Hardware Setup for FPB-RA2E1 Fast Prototyping Board
+This configuration is provided to simply run the pre-compiled sample applications for FPB-RA2E1.
+
+
+
+
+                               Figure 2. FPB-RA2E1 Hardware Setup Example
+
+
+
+                                   I2C(Sensor)                                                     CN1
+                                                        Sub Clock
+                                   E3 Cut               E17 Cut                                    1-2
+                                   E4 Short             E19 Short                       1          Short :
+      PMOD1
+
+
+
+
+                                   E5 Short             E20 Short                       2          Program
+                                   E6 Cut               E21 Cut                         3
+                                                                                                   2-3
+                                                                                                   Short :
+                                                                                                   Free run
+
+
+
+                                  Figure 3. FPB-RA2E1 Configuration Pins
+Note 1:       When CN1 pin1-2 is shorted with jumper plug, you can download the sample software with flash
+              programmer. When CN1 pin2-3 is shorted, application will free-run after reset.
+Note 2:       When RA2E1 MCU is in Software Standby mode, all sample software uses the Sub Clock (XT1,2)
+              to reduce power consumption. To enable Sub Clock, some modifications (E17 Cut, E19 Short, E20
+              Short, E21 Cut) are required.
+Note 3:       All sample software uses PMOD2 as UART to communicate with the Terminal (for example,
+              TeraTerm) or LPWA Studio. USB-UART Serial conversion module (for example, Digilent Pmod
+              USBUART) is required on PMOD2.
+Note 4:       Optional HS3001 Sensor Module can be connected to the PMOD1, and additional modifications
+              (E3 Cut, E4 Short, E5 Short, E6 Cut) are required to enable I2C interface on the PMOD1.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                      Page 4 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                               LoRa®-based Wireless Software Package
+
+
+1.2   Hardware Setup for EK-RA2L1 Evaluation Kit for RA2L1 MCU Group
+This configuration is provided to simply run the pre-compiled sample applications for EK-RA2L1.
+
+
+
+
+                             Figure 4. EK-RA2L1 Hardware Setup Example
+
+
+
+
+                                 Figure 5. EK-RA2L1 Configuration Pins
+
+
+Note 1:   You can download the sample application software with Renesas Flash Programmer or e2 studio.
+          The sample application software will run after reset.
+Note 2:   When RA2L1 MCU is in Software Standby mode, all sample software uses the Sub Clock (XT1,2)
+          to reduce power consumption. To enable Sub Clock, some modifications (E9 Short, E10 Short, E8
+          Cut, E1 Cut) are required.
+Note 3:   All sample software uses PMOD2 as UART to communicate with the Terminal (for example,
+          TeraTerm) or LPWA Studio. USB-UART Serial conversion module (for example, Digilent Pmod
+          USBUART) is required on PMOD2.
+Note 4:   Optional HS3001 Sensor Module can be connected to the PMOD1, and additional modifications
+          (E20 Cut, E21 Cut, E18 Short, E19 Short) are required to enable I2C interface on the PMOD1.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                      Page 5 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                               LoRa®-based Wireless Software Package
+
+
+1.3   Hardware Setup for FPB-RA0E1 Fast Prototyping Board
+This configuration is provided to simply run the pre-compiled sample applications for FPB-RA0E1.
+
+
+
+
+                            Figure 6. FPB-RA0E1 Hardware Setup Example
+
+
+
+
+                                Figure 7. FPB-RA0E1 Configuration Pins
+
+
+Note 1:   You can download the sample application software with Renesas Flash Programmer or e2 studio.
+          The sample application software will run after reset.
+
+
+R11AN0596EJ0490 Rev.4.90                                                                      Page 6 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                               LoRa®-based Wireless Software Package
+Note 2:   To connect the interrupt signal (DIO1) of Semtech SX1261/SX1262 Shield to IRQ0 of RA0E1
+          MCU, some modifications are required (Cut between P101 of RA0E1 MCU and J5-6, Wire J5-2
+          and J5-6).
+Note 3:   When RA0E1 MCU is in Software Standby mode, all sample software uses the Sub Clock (XCIN,
+          XCOUT) to reduce power consumption. To enable Sub Clock, no modification is required.
+Note 4:   All sample software uses PMOD1 as UART to communicate with the Terminal (for example,
+          TeraTerm) or LPWA Studio. A USB-UART Serial conversion module (for example, Digilent Pmod
+          USBUART) is required on PMOD1, and additional modification (E29 Cut) is required.
+Note 5:   Optional HS3001 Sensor Module can be connected to the PMOD2, and additional modification
+          (E35 Cut) is required to enable I2C interface on the PMOD2.
+
+
+
+1.4   Hardware Setup for FPB-RA0E2 Fast Prototyping Board
+This configuration is provided to simply run the pre-compiled sample applications for FPB-RA0E2.
+
+
+
+
+                            Figure 8. FPB-RA0E2 Hardware Setup Example
+
+
+Note 1:   You can download the sample application software with Renesas Flash Programmer or e2 studio.
+          The sample application software will run after reset.
+Note 2:   When RA0E2 MCU is in Software Standby mode, all sample software uses the Sub Clock (XCIN,
+          XCOUT) to reduce power consumption. To enable Sub Clock, no modification is required.
+Note 3:   All sample software uses USB as UART to communicate with the Terminal (for example,
+          TeraTerm) or LPWA Studio.
+Note 4:   Optional HS3001 Sensor Module can be connected to the PMOD2.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                      Page 7 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                               LoRa®-based Wireless Software Package
+2. Sample Application Software Setup
+This software package includes the following sample applications.
+•  RadioEvalApp (Radio Evaluation Program with AT-command)
+•  ping-pong (simple application using radio driver)
+•  LoRaSample (LoRaWAN sample application with AT-command)
+•  LoRaFuotaSample (Firmware Update over LoRaWAN sample application with AT-command)
+•  PrivateLoRaSample (Private LoRa sample application with AT-command)
+•  LoRaWanPrivateLoRaComboSample (Combination of PrivateLoRa and LoRaWAN sample application
+   with AT-command)
+Note1: Pre-compiled sample application for the ping-pong is not provided.
+Note2: LoRaSensorSample is released as a separate RA2E1, RA2L1, RA0E1, RA0E2 LoRaWAN Sensor
+        Demo.
+Note3: LoRaFuotaSample does not support FPB-RA2E1 and FPB-RA0E1.
+Note4: LoRaWanPrivateLoRaComboSample does not support FPB-RA0E1.
+
+
+2.1   Virtual COM Port Driver Setup
+In case of FPB-RA2E1, EK-RA2L1 and FPB-RA0E1, virtual COM port driver needs to be installed as follows.
+1. Visit https://ftdichip.com/drivers/vcp-drivers/. Download setup executable for Windows.
+2. Unzip CDMxxxx_Setup.zip and run installer.
+
+
+2.2   Software Setup to run Pre-compiled Sample Applications
+1. Install the Renesas Flash Programmer V3.21.00 or later.
+2. (FPB-RA2E1 ONLY) Short CN1 pin1-2 with jumper plug.
+3. Download the sample application (.hex file) to the MCU with Renesas Flash Programmer.
+   A. Click File > Click New Project ..
+   ⎯ Microcontroller:Choose RA
+   ⎯ Project Name: any (for example, sample1)
+   ⎯ Project Folder: any (for example, C\Temp\rfp)
+   ⎯ Communication: Choose E2 emulator Lite (for FPB-RA2E1) or J-LINK (for EK-RA2L1, FPB-
+       RA0E1 or FPB-RA0E2) as Tool
+   B. Choose pre-compiled sample application file (for example, RadioEvalApp.hex).
+       Pre-compiled sample application files are located in
+       (package install top folder)\samples\project\e2stuido\{BOARD}\{APPS}\{APPS}.hex
+       {BOARD} : ra2e1fpb_sx126x, ra2l1ek_sx126x, ra0e1fpb_sx126x or
+                     ra0e2fpb_sx126x
+       {APPS} : RadioEvalApp, LoRaSample, LoRaFuotaSample, PrivateLoRa,
+                   LoraWanPrivateLoRaComboSample(, LoRaSensorSample).
+       Note1: LoRaFuotaSample does not support FPB-RA2E1, FPB-RA0E1 and FPB-RA0E2.
+       Note2: LoRaWanPrivateLoRaComboSample does not support FPB-RA0E1.
+   C. Click Start. If OK is shown, click File > Exit.
+4. (FPB-RA2E1 ONLY) Short CN1 pin2-3 with jumper plug and push reset button.
+5. Connect to the sample application with TeraTerm or Renesas LPWA Studio.
+   Serial settings: 115200 pbs, 8-bit, no parity, 1 stop bit, no flow control, CR+LF, local echo ON
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                     Page 8 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                                    LoRa®-based Wireless Software Package
+2.3     Software Setup for Developing Software Based on the Sample Applications
+1. Download and install the following Package from https://github.com/renesas/fsp/releases
+   Flexible Software Package (FSP) for Renesas RA MCU Family, version 6.2.0.
+
+2. Import project file with e2 studio.
+   Click File on Menu > select Import.
+   Click General > Select Existing Projects into workspace > Click Next.
+   Click Browse > Choose following project folder as root directory > click Finish
+     (package install top folder)\samples\project\e2studio\{BOARD}\{APPS}\
+         {BOARD} : ra2e1fpb_sx126x , ra2l1ek_sx126x, ra0e1fpb_sx126x or
+                       ra0e2fpb_sx126x
+         {APPS} : RadioEvalApp, ping-pong, LoRaSample, LoRaFuotaSample,
+                      PrivateLoRa, LoraWanPrivateLoRaComboSample (, LoRaSensorSample).
+   Note1: LoRaFuotaSample does not support FPB-RA2E1, FPB-RA0E1 and FPB-RA0E2.
+   Note2: LoRaWanPrivateLoRaComboSample does not support FPB-RA0E1.
+   Note3: “Copy projects into workspace” option should NOT be selected.
+
+
+
+
+3. Generate the source code regarding the FSP drivers and stacks.
+   Double click configuration.xml on the Project Explorer window.
+   Click Generate Project Content on the FSP Configuration window.
+
+
+4. Click Build Icon       > click Debug Icon       > click     button twice.
+
+
+
+3. Utility Tools Setup for Windows® 10/11
+•     Renesas LPWA Studio (Windows GUI frontend for RadioEvalApp)
+      Double-click the following windows installer:
+      (package install top folder)\samples\tools\RLPWAStudio\setup.exe
+      Note: If you use this tool with Wireshark, additional setup is required.
+            For more detail, please refer to the following User’s Manual:
+            Renesas LPWA Studio User’s Manual (R30UZ0095)
+• Renesas LPWA Power Estimator (Windows Excel application program)
+  Open the following spreadsheet:
+  (package install top folder)
+  \samples\tools\RLPWAPowerEstimator\RLPWAPowerEstimator.xlsx
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                     Page 9 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                                LoRa®-based Wireless Software Package
+4. Resources Usage
+4.1   Memory Resource Usage
+Toolchain: GCC ARM Embedded 13.2.1.arm-13-7
+Memory Size Unit: KiB (=1024Byte)
+ Application                FPB-RA2E1                               EK-RA2L1
+                            Optimization:       Optimization:       Optimization:       Optimization:
+                            -O2                 -Os                 -O2                 -Os
+                             ROM      RAM        ROM      RAM        ROM      RAM        ROM      RAM
+                             (KiB)    (KiB)      (KiB)    (KiB)      (KiB)    (KiB)      (KiB)    (KiB)
+ Radio Driver Only*1           22.3       1.8      18.8       1.8      22.5       1.8      19.0      1.8
+ Ping-pong*7                   24.9       4.9      20.9       4.9      25.2       4.9      21.2      4.9
+ RadioEvalApp*7                58.9       8.1      49.3       8.1      58.3       8.1      48.8      8.1
+ LoRaWAN MAC only*2            26.6       2.6      21.5       2.6      26.6       2.6      21.5      2.6
+ LoRaSample*2 *3 *7            83.3       9.5      67.9       9.5      83.6       9.5      68.1      9.5
+ LoRaFuotaSample*2 *4 *7      N/A      N/A        N/A      N/A        116.6     20.3       98.8     19.7
+ LoRaSensorSample*2 *5 *7      88.3       9.8      72.3       9.8      87.8       9.7      71.8      9.7
+ LoRaWanPrivateLoRaCo
+                              106.6     10.5       85.4      10.5    106.9      10.5      85.6     10.5
+ mboSample*2 *6 *7
+ PrivateLoRaSample*7           67.6      7.7       54.1       7.7      67.8      7.7      54.4       7.7
+
+ Application                FPB-RA0E1           FPB-RA0E2
+                            Optimization:       Optimization:       Optimization:
+                            -Os -flto           -O2                 -Os
+                             ROM      RAM        ROM      RAM        ROM      RAM
+                             (KiB)    (KiB)      (KiB)    (KiB)      (KiB)    (KiB)
+ Radio Driver Only*1           12.5       1.1      22.1       1.9      18.6       1.9
+ Ping-pong*7                   15.0       4.9      24.3       5.0      20.3       5.0
+ RadioEvalApp*7                41.8       8.0      56.9       8.2      47.3       8.2
+ LoRaWAN MAC only*2 *7         23.2       2.6      26.2       2.6      21.3       2.6
+ LoRaSample*2 *3 *7            53.5       8.7      81.7       9.4      66.1       9.3
+ LoRaFuotaSample*2 *4 *7      N/A      N/A        N/A      N/A        N/A      N/A
+ LoRaSensorSample*2 *5 *7      56.9       9.6      85.9       9.6      69.6       9.5
+ LoRaWanPrivateLoRaCo
+                              N/A      N/A        104.9      10.3      83.5      10.3
+ mboSample*2 *6 *7
+ PrivateLoRaSample*7           45.0       7.4      65.9       7.5      52.3       7.5
+
+Note 1:   ROM/RAM sizes include the FSP and the lower layer’s code required by Radio driver. An
+          additional memory are required when the regulatory function for each region is enabled by
+          RP_USE_RADIO_CFG_CHECK macro.
+          - Additional memory for RA2 and RA0E2 (Optimization -O2); (ROM) 4.1 KiB / (RAM) 0.2 KiB
+          - Additional memory for RA2 and RA0E2 (Optimization -Os); (ROM) 3.4 KiB / (RAM) 0.2 KiB
+          - Additional memory for RA0E1; (ROM) 2.9 KiB / (RAM) 0.2 KiB
+Note 2:   In case of RA2 and RA0E2, LoRaWAN V1.0.4, Class A/C, multicast and region EU868 are
+          enabled. An additional memory are required when Class B is enabled by
+          LORAMAC_CLASSB_ENABLED macro.
+          - Additional memory for RA2 and RA0E2 (Optimization -O2); (ROM) 9.2 KiB / (RAM) 0.4 KiB
+          - Additional memory for RA2 and RA0E2 (Optimization -Os); (ROM) 7.7 KiB / (RAM) 0.4 KiB
+           In case of RA0E1, LoRaWAN V1.0.4, Class A/C and region EU868 are enabled, and Class B and
+          multicast are not supported.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                   Page 10 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                           LoRa®-based Wireless Software Package
+Note 3:   ROM/RAM sizes include LoRaWAN MAC, Radio Driver, and the lower layer’s code required by
+          LoRaSample. An additional memory are required when Class B is enabled by
+          LORAMAC_CLASSB_ENABLED macro.
+          - Additional memory for RA2 and RA0E2 (Optimization -O2); (ROM) 11.0 KiB / (RAM) 0.4 KiB
+          - Additional memory for RA2 and RA0E2 (Optimization -Os); (ROM) 9.0 KiB / (RAM) 0.4 KiB
+Note 4:   ROM/RAM sizes include LoRaWAN MAC, Radio Driver, and the lower layer’s code required by
+          LoRaFuotaSample. An additional memory are required when Class B is enabled by
+          LORAMAC_CLASSB_ENABLED macro.
+          - Additional memory for RA2L1 (Optimization -O2); (ROM) 11.8 KiB / (RAM) 0.4 KiB
+          - Additional memory for RA2L1 (Optimization -Os); (ROM) 9.6 KiB / (RAM) 0.4 KiB
+Note 5:   ROM/RAM sizes include LoRaWAN MAC, Radio Driver, and the lower layer’s code required by
+          LoRaSensorSample. An additional memory are required when Class B is enabled by
+          LORAMAC_CLASSB_ENABLED macro.
+          - Additional memory for RA2 and RA0E2 (Optimization -O2); (ROM) 11.0 KiB / (RAM) 0.4 KiB
+          - Additional memory for RA2 and RA0E2 (Optimization -Os); (ROM) 9.0 KiB / (RAM) 0.4 KiB
+          LoRaSensorSample are not included in this package.
+Note 6:   ROM/RAM sizes include LoRaWAN MAC, Radio Driver, and the lower layer’s code required by
+          LoRaWanPrivateLoRaComboSample. An additional memory are required when Class B is enabled
+          by LORAMAC_CLASSB_ENABLED macro.
+          - Additional memory for RA2 and RA0E2 (Optimization -O2); (ROM) 11.0 KiB / (RAM) 0.4 KiB
+          - Additional memory for RA2 and RA0E2 (Optimization -Os); (ROM) 9.0 KiB / (RAM) 0.4 KiB
+Note 7:   Stack size (2.0KiB) and heap size (1.0KiB) are included in the RAM size.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                             Page 11 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                           LoRa®-based Wireless Software Package
+4.2   Peripheral Resource Usage
+ Resources       Function               FPB-RA2E1                   EK-RA2L1
+ Timer           Interval timer         AGT0                        AGT0
+                 Capture&Comp           AGT1                        AGT1
+ SX126x          CLK                    SCK0 (P102)                 SCK0 (P102)
+                 MISO                   MISO0 (P100)                MISO0 (P100)
+                 MOSI                   MOSI0 (P101)                MOSI0 (P101)
+                 ANTSW                  OUT (P403)                  OUT (P109)
+                 NSS                    OUT (P113)                  OUT (P113)
+                 DIO1                   IRQ5 (P302)                 IRQ4 (P111)
+                 BUSY                   IN (P104)                   IN (P400)
+                 XTAL_SEL               IN (P003)                   IN (P003)
+                 DEVICE_SEL             IN (P002)                   IN (P002)
+                 FREQ_SEL               IN (P001)                   IN (P001)
+                 NRESET                 OUT (P000)                  OUT (P000)
+ UART            Tx                     TxD9 (P109) PMOD2           TxD9 (P203) PMOD2
+                 Rx                     RxD9 (P110) PMOD2           RxD9 (P202) PMOD2
+ I2C (optional)  SCL                    SCL0 (P400) PMOD1           SCL2 (P301) PMOD1
+ for sensor      SDA                    SDA0 (P401) PMOD1           SDA2 (P302) PMOD1
+Note 1: Interrupt level: UART(0) > SPI(1) > SX126x(2), Timer(2) > I2C(3), FLASH(3).
+Note 2: AES engine of RA2E1 and RA2L1 is used for LoRaWAN MAC.
+
+
+ Resources       Function               FPB-RA0E1                   FPB-RA0E2
+ Timer           Interval timer         TML32                       TML32
+                 Capture&Comp           TAU02                       TAU02
+ SX126x          CLK                    SCK11 (P407)                SCK00 (P500)
+                 MISO                   SI11 (P212)                 SI00 (P502)
+                 MOSI                   SO11 (P213)                 SO00 (P501)
+                 ANTSW                  OUT (P109)                  OUT (P106)
+                 NSS                    OUT (P103)                  OUT (P115)
+                 DIO1                   IRQ3 (P208)                 IRQ5 (P201)
+                 BUSY                   IN (P201)                   IN (P409)
+                 XTAL_SEL               IN (P009)                   IN (P012)
+                 DEVICE_SEL             IN (P012)                   IN (P013)
+                 FREQ_SEL               IN (P013)                   IN (P014)
+                 NRESET                 OUT (P014)                  OUT (P015)
+ UART            Tx                     TxD0 (P101) PMOD1           TxDA0 (P101)
+                 Rx                     RxD0 (P100) PMOD1           RxDA0 (P100)
+  2
+ I C (optional)  SCL                    SCL20 (P112) PMOD2          SCLA1 (P400) PMOD2
+ for sensor      SDA                    SDA20 (P110) PMOD2          SDAA1 (P401) PMOD2
+Note 1: Interrupt level: UART(0) > SPI(1) > SX126x(2) , Timer(2) > I2C(3), FLASH(3).
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                                 Page 12 of 13
+Nov.28.25
+RA2E1, RA2L1, RA0E1, RA0E2                          LoRa®-based Wireless Software Package
+Revision History
+                           Description
+Rev.       Date            Page        Summary
+4.00       Aug. 29, 22     —           First version
+4.10       Nov. 29, 22     4           Added detailed build instructions.
+                           4           Update Memory Resource Usage
+4.20       Mar. 31, 23     All         Supports EK-RA2L1
+4.40       Dec. 22, 23     1            Added LoRaWanPrivateLoRaComboSample and
+                                        PrivateLoRaSample
+                           6            Changed supported IDEs and toolchains.
+                           7            Update Memory Resource Usage
+4.50       May.24.24       All          Supports FPB-RA0E1.
+                           1, 7         Update release package name of LoRaSensorSample.
+                           7            Changed version of FSP.
+                           9, 10        Update Resource Usage.
+4.70       Apr.18.25       All          Supports FPB-RA0E2.
+                           1, 8         Update release package name of LoRaSensorSample.
+                           9            Changed version of FSP.
+                           10, 11       Update Resource Usage.
+4.90       Nov.28.25       6            Update description of Note.4 in FPB-RA0E1.
+                           9            Changed version of FSP.
+                           10, 11       Update Resource Usage.
+
+
+
+
+R11AN0596EJ0490 Rev.4.90                                                          Page 13 of 13
+Nov.28.25
+General Precautions in the Handling of Microprocessing Unit and Microcontroller
+Unit Products
+The following usage notes are applicable to all Microprocessing unit and Microcontroller unit products from Renesas. For detailed usage notes on the
+products covered by this document, refer to the relevant sections of the document as well as any technical updates that have been issued for the products.
+
+1.   Precaution against Electrostatic Discharge (ESD)
+      A strong electrical field, when exposed to a CMOS device, can cause destruction of the gate oxide and ultimately degrade the device operation. Steps
+      must be taken to stop the generation of static electricity as much as possible, and quickly dissipate it when it occurs. Environmental control must be
+      adequate. When it is dry, a humidifier should be used. This is recommended to avoid using insulators that can easily build up static electricity.
+      Semiconductor devices must be stored and transported in an anti-static container, static shielding bag or conductive material. All test and
+      measurement tools including work benches and floors must be grounded. The operator must also be grounded using a wrist strap. Semiconductor
+      devices must not be touched with bare hands. Similar precautions must be taken for printed circuit boards with mounted semiconductor devices.
+2.   Processing at power-on
+      The state of the product is undefined at the time when power is supplied. The states of internal circuits in the LSI are indeterminate and the states of
+      register settings and pins are undefined at the time when power is supplied. In a finished product where the reset signal is applied to the external
+      reset pin, the states of pins are not guaranteed from the time when power is supplied until the reset process is completed. In a similar way, the states
+      of pins in a product that is reset by an on-chip power-on reset function are not guaranteed from the time when power is supplied until the power
+      reaches the level at which resetting is specified.
+3.   Input of signal during power-off state
+      Do not input signals or an I/O pull-up power supply while the device is powered off. The current injection that results from input of such a signal or I/O
+      pull-up power supply may cause malfunction and the abnormal current that passes in the device at this time may cause degradation of internal
+      elements. Follow the guideline for input signal during power-off state as described in your product documentation.
+4.   Handling of unused pins
+      Handle unused pins in accordance with the directions given under handling of unused pins in the manual. The input pins of CMOS products are
+      generally in the high-impedance state. In operation with an unused pin in the open-circuit state, extra electromagnetic noise is induced in the vicinity
+      of the LSI, an associated shoot-through current flows internally, and malfunctions occur due to the false recognition of the pin state as an input signal
+      become possible.
+5.   Clock signals
+      After applying a reset, only release the reset line after the operating clock signal becomes stable. When switching the clock signal during program
+      execution, wait until the target clock signal is stabilized. When the clock signal is generated with an external resonator or from an external oscillator
+      during a reset, ensure that the reset line is only released after full stabilization of the clock signal. Additionally, when switching to a clock signal
+      produced with an external resonator or by an external oscillator while program execution is in progress, wait until the target clock signal is stable.
+6.   Voltage application waveform at input pin
+      Waveform distortion due to input noise or a reflected wave may cause malfunction. If the input of the CMOS device stays in the area between VIL
+      (Max.) and VIH (Min.) due to noise, for example, the device may malfunction. Take care to prevent chattering noise from entering the device when the
+      input level is fixed, and also in the transition period when the input level passes through the area between VIL (Max.) and VIH (Min.).
+7.   Prohibition of access to reserved addresses
+      Access to reserved addresses is prohibited. The reserved addresses are provided for possible future expansion of functions. Do not access these
+      addresses as the correct operation of the LSI is not guaranteed.
+8.   Differences between products
+      Before changing from one product to another, for example to a product with a different part number, confirm that the change will not lead to problems.
+      The characteristics of a microprocessing unit or microcontroller unit products in the same group but having a different part number might differ in
+      terms of internal memory capacity, layout pattern, and other factors, which can affect the ranges of electrical characteristics, such as characteristic
+      values, operating margins, immunity to noise, and amount of radiated noise. When changing to a product with a different part number, implement a
+      system-evaluation test for the given product.
+Notice
+1.  Descriptions of circuits, software and other related information in this document are provided only to illustrate the operation of semiconductor products
+    and application examples. You are fully responsible for the incorporation or any other use of the circuits, software, and information in the design of your
+    product or system. Renesas Electronics disclaims any and all liability for any losses and damages incurred by you or third parties arising from the use
+    of these circuits, software, or information.
+2. Renesas Electronics hereby expressly disclaims any warranties against and liability for infringement or any other claims involving patents, copyrights,
+    or other intellectual property rights of third parties, by or arising from the use of Renesas Electronics products or technical information described in this
+    document, including but not limited to, the product data, drawings, charts, programs, algorithms, and application examples.
+3. No license, express, implied or otherwise, is granted hereby under any patents, copyrights or other intellectual property rights of Renesas Electronics
+    or others.
+4. You shall be responsible for determining what licenses are required from any third parties, and obtaining such licenses for the lawful import, export,
+    manufacture, sales, utilization, distribution or other disposal of any products incorporating Renesas Electronics products, if required.
+5. You shall not alter, modify, copy, or reverse engineer any Renesas Electronics product, whether in whole or in part. Renesas Electronics disclaims any
+    and all liability for any losses or damages incurred by you or third parties arising from such alteration, modification, copying or reverse engineering.
+6. Renesas Electronics products are classified according to the following two quality grades: “Standard” and “High Quality”. The intended applications for
+    each Renesas Electronics product depends on the product’s quality grade, as indicated below.
+        "Standard": Computers; office equipment; communications equipment; test and measurement equipment; audio and visual equipment; home
+                       electronic appliances; machine tools; personal electronic equipment; industrial robots; etc.
+        "High Quality": Transportation equipment (automobiles, trains, ships, etc.); traffic control (traffic lights); large-scale communication equipment; key
+                          financial terminal systems; safety control equipment; etc.
+    Unless expressly designated as a high reliability product or a product for harsh environments in a Renesas Electronics data sheet or other Renesas
+    Electronics document, Renesas Electronics products are not intended or authorized for use in products or systems that may pose a direct threat to
+    human life or bodily injury (artificial life support devices or systems; surgical implantations; etc.), or may cause serious property damage (space
+    system; undersea repeaters; nuclear power control systems; aircraft control systems; key plant systems; military equipment; etc.). Renesas Electronics
+    disclaims any and all liability for any damages or losses incurred by you or any third parties arising from the use of any Renesas Electronics product
+    that is inconsistent with any Renesas Electronics data sheet, user’s manual or other Renesas Electronics document.
+7. No semiconductor product is absolutely secure. Notwithstanding any security measures or features that may be implemented in Renesas Electronics
+    hardware or software products, Renesas Electronics shall have absolutely no liability arising out of any vulnerability or security breach, including but
+    not limited to any unauthorized access to or use of a Renesas Electronics product or a system that uses a Renesas Electronics product. RENESAS
+    ELECTRONICS DOES NOT WARRANT OR GUARANTEE THAT RENESAS ELECTRONICS PRODUCTS, OR ANY SYSTEMS CREATED USING
+    RENESAS ELECTRONICS PRODUCTS WILL BE INVULNERABLE OR FREE FROM CORRUPTION, ATTACK, VIRUSES, INTERFERENCE,
+    HACKING, DATA LOSS OR THEFT, OR OTHER SECURITY INTRUSION (“Vulnerability Issues”). RENESAS ELECTRONICS DISCLAIMS ANY AND
+    ALL RESPONSIBILITY OR LIABILITY ARISING FROM OR RELATED TO ANY VULNERABILITY ISSUES. FURTHERMORE, TO THE EXTENT
+    PERMITTED BY APPLICABLE LAW, RENESAS ELECTRONICS DISCLAIMS ANY AND ALL WARRANTIES, EXPRESS OR IMPLIED, WITH
+    RESPECT TO THIS DOCUMENT AND ANY RELATED OR ACCOMPANYING SOFTWARE OR HARDWARE, INCLUDING BUT NOT LIMITED TO
+    THE IMPLIED WARRANTIES OF MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+8. When using Renesas Electronics products, refer to the latest product information (data sheets, user’s manuals, application notes, “General Notes for
+    Handling and Using Semiconductor Devices” in the reliability handbook, etc.), and ensure that usage conditions are within the ranges specified by
+    Renesas Electronics with respect to maximum ratings, operating power supply voltage range, heat dissipation characteristics, installation, etc. Renesas
+    Electronics disclaims any and all liability for any malfunctions, failure or accident arising out of the use of Renesas Electronics products outside of such
+    specified ranges.
+9. Although Renesas Electronics endeavors to improve the quality and reliability of Renesas Electronics products, semiconductor products have specific
+    characteristics, such as the occurrence of failure at a certain rate and malfunctions under certain use conditions. Unless designated as a high reliability
+    product or a product for harsh environments in a Renesas Electronics data sheet or other Renesas Electronics document, Renesas Electronics
+    products are not subject to radiation resistance design. You are responsible for implementing safety measures to guard against the possibility of bodily
+    injury, injury or damage caused by fire, and/or danger to the public in the event of a failure or malfunction of Renesas Electronics products, such as
+    safety design for hardware and software, including but not limited to redundancy, fire control and malfunction prevention, appropriate treatment for
+    aging degradation or any other appropriate measures. Because the evaluation of microcomputer software alone is very difficult and impractical, you are
+    responsible for evaluating the safety of the final products or systems manufactured by you.
+10. Please contact a Renesas Electronics sales office for details as to environmental matters such as the environmental compatibility of each Renesas
+    Electronics product. You are responsible for carefully and sufficiently investigating applicable laws and regulations that regulate the inclusion or use of
+    controlled substances, including without limitation, the EU RoHS Directive, and using Renesas Electronics products in compliance with all these
+    applicable laws and regulations. Renesas Electronics disclaims any and all liability for damages or losses occurring as a result of your noncompliance
+    with applicable laws and regulations.
+11. Renesas Electronics products and technologies shall not be used for or incorporated into any products or systems whose manufacture, use, or sale is
+    prohibited under any applicable domestic or foreign laws or regulations. You shall comply with any applicable export control laws and regulations
+    promulgated and administered by the governments of any countries asserting jurisdiction over the parties or transactions.
+12. It is the responsibility of the buyer or distributor of Renesas Electronics products, or any other party who distributes, disposes of, or otherwise sells or
+    transfers the product to a third party, to notify such third party in advance of the contents and conditions set forth in this document.
+13. This document shall not be reprinted, reproduced or duplicated in any form, in whole or in part, without prior written consent of Renesas Electronics.
+14. Please contact a Renesas Electronics sales office if you have any questions regarding the information contained in this document or Renesas
+    Electronics products.
+(Note1)   “Renesas Electronics” as used in this document means Renesas Electronics Corporation and also includes its directly or indirectly controlled
+          subsidiaries.
+(Note2)   “Renesas Electronics product(s)” means any product developed or manufactured by or for Renesas Electronics.
+
+                                                                                                                                     (Rev.5.0-1 October 2020)
+
+
+ Corporate Headquarters                                                                 Contact information
+ TOYOSU FORESIA, 3-2-24 Toyosu,                                                         For further information on a product, technology, the most up-to-date
+ Koto-ku, Tokyo 135-0061, Japan                                                         version of a document, or your nearest sales office, please visit:
+ www.renesas.com                                                                        www.renesas.com/contact/.
+
+ Trademarks
+ Arm® and Cortex® are registered trademarks of Arm Limited. Semtech, the Semtech logo, LoRa, LoRaWAN and LoRa Alliance are registered trademarks
+ or service marks, or trademarks or service marks, of Semtech Corporation and/or its affiliates. Renesas and the Renesas logo are trademarks of Renesas
+ Electronics Corporation. All trademarks and registered trademarks are the property of their respective owners.
+
+
+                                                                                                 © 2023 Renesas Electronics Corporation. All rights reserved.
+

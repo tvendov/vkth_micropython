@@ -26,8 +26,8 @@ from LoRaWAN.MHDR import MHDR
 #BUSY = const(15)
 #RESET = const(2)
 
-# VK_RA4M2 + Wio-SX1262 Header Board (валидиран pin map от T1-T5 тестовете)
-SPI_BUS = 1
+# VK_RA4M2 + Wio-SX1262 Header Board (валидирано от demos/tx_cw/tx_cw_demo.py)
+SPI_BUS = 3
 CLK  = "P111"
 MOSI = "P109"
 MISO = "P110"

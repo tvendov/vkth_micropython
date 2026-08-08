@@ -81,3 +81,9 @@
 	path = lib/lv_bindings
 	url = https://github.com/Vekatech/lv_binding_micropython.git
 	branch = lvgl_v9.0.0
+[submodule "ports/renesas-ra/boards/VK_RA4M2/examples/arduino/ArduinoCore-renesas"]
+	path = ports/renesas-ra/boards/VK_RA4M2/examples/arduino/ArduinoCore-renesas
+	url = https://github.com/arduino/ArduinoCore-renesas.git
+[submodule "ports/renesas-ra/boards/VK_RA4M2/examples/arduino/Vekatech-Arduino"]
+	path = ports/renesas-ra/boards/VK_RA4M2/examples/arduino/Vekatech-Arduino
+	url = https://github.com/Vekatech/Arduino.git

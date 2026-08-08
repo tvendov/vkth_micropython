@@ -8,7 +8,7 @@ import time
 
 RF_SW = Pin("P100", Pin.OUT, value=1)
 
-sx = SX1262(spi_bus=1, clk="P111", mosi="P109", miso="P110",
+sx = SX1262(spi_bus=3, clk="P111", mosi="P109", miso="P110",
             cs="P206", irq="P015", rst="P001", gpio="P002")
 sx.begin(
     freq=868.1, bw=125.0, sf=7, cr=5,

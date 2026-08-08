@@ -1,0 +1,34 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+CC lorawan/mac/LoRaMac.c
+CC lorawan/mac/LoRaMacAdr.c
+CC lorawan/mac/LoRaMacClassB.c
+lorawan/mac/LoRaMac.c: In function 'LoRaMacMibGetRequestConfirm':
+lorawan/mac/LoRaMac.c:4753:37: error: conversion from 'float' to 'uint8_t' {aka 'unsigned char'} may change value [-Werror=float-conversion]
+ 4753 |             mibGet->Param.maxEirp = MacCtx.NvmCtx->MacParams.MaxEirp;
+      |                                     ^~~~~~
+lorawan/mac/LoRaMac.c: In function 'LoRaMacGetStackProcessTime':
+lorawan/mac/LoRaMac.c:6463:9: error: implicit declaration of function 'SX126xGetClockSelect' [-Werror=implicit-function-declaration]
+ 6463 |     if (SX126xGetClockSelect() == RADIO_CLOCK_TCXO_SEL)
+      |         ^~~~~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6463:35: error: 'RADIO_CLOCK_TCXO_SEL' undeclared (first use in this function)
+ 6463 |     if (SX126xGetClockSelect() == RADIO_CLOCK_TCXO_SEL)
+      |                                   ^~~~~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6463:35: note: each undeclared identifier is reported only once for each function it appears in
+lorawan/mac/LoRaMac.c:6465:32: error: 'RP_TCXO_STAB_TIME' undeclared (first use in this function)
+ 6465 |         retVal += ((uint32_t)((RP_TCXO_STAB_TIME * 15.625)/1000.0));
+      |                                ^~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c: In function 'LoRaMacSetLowPower':
+lorawan/mac/LoRaMac.c:6495:5: error: implicit declaration of function 'BoardDisableAllIrq' [-Werror=implicit-function-declaration]
+ 6495 |     BoardDisableAllIrq();  // same function used in SetLowPower()
+      |     ^~~~~~~~~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6533:9: error: implicit declaration of function 'SetLowPower' [-Werror=implicit-function-declaration]
+ 6533 |         SetLowPower();
+      |         ^~~~~~~~~~~
+lorawan/mac/LoRaMac.c:6537:5: error: implicit declaration of function 'BoardEnableAllIrq' [-Werror=implicit-function-declaration]
+ 6537 |     BoardEnableAllIrq();
+      |     ^~~~~~~~~~~~~~~~~
+cc1.exe: all warnings being treated as errors
+CC lorawan/mac/LoRaMacCommands.c
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMac.o] Error 1
+make: *** Waiting for unfinished jobs....

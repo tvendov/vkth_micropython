@@ -1,0 +1,76 @@
+# LoRaWAN Demo Devices Configuration
+# ===================================
+# Edit this file to add/modify devices, then run: python3 provision.py
+#
+# Field validation traps (DO NOT change these defaults):
+#   reg_params_revision: 'A'       (NOT 'RP002_1_0_3' — chirpstack rejects)
+#   class_b_params timeout field is plain "timeout" (NOT "class_b_timeout")
+#   class_c_params timeout field is plain "timeout" (NOT "class_c_timeout")
+#   mac_version: '1.0.4' (NOT 'LORAWAN_1_0_4')
+
+server:
+  host: 192.168.1.188
+  user: vkrz
+  pass: vkrzg2lc
+  hostkey: "SHA256:BMG0U+ohV23QgKDjh6WCIn9gbUvNyLeic44prvT9w2U"
+
+tenant_id: 1cfe244f-156a-4b17-afd6-bf563b7ca173
+application_id: afa9488a-a5e5-4ab7-b20d-185e807ad5ac
+
+defaults:
+  region: EU868
+  mac_version: "1.0.4"
+  reg_params_revision: A
+  adr_algorithm_id: default
+  rx1_delay: 1
+  device_status_req_interval: 86400
+  flush_queue_on_activate: false
+  allow_roaming: false
+  external_power_source: true
+  skip_fcnt_check: true     # demo convenience: avoid replay rejection on resets
+  join_eui: "0000000000000000"
+  supported_uplink_data_rates: [0, 1, 2, 3, 4, 5]
+
+devices:
+  - name: class-A-demo
+    profile_name: class-A-demo-profile
+    profile_description: "Class A demo VK_RA4M2 + WS2812 + AHT20"
+    description: "Class A demo device VK_RA4M2"
+    dev_eui: 70B3D57ED0070001
+    app_key: 9A7F263557E26259B7061BD6FC8EBA27
+    enabled_class: A
+    supports_class_b: false
+    supports_class_c: false
+    uplink_interval: 30
+    codec_file: codecs/codec_A.js
+
+  - name: class-B-demo
+    profile_name: class-B-demo-profile
+    profile_description: "Class B demo VK_RA4M2 + WS2812 + AHT20"
+    description: "Class B demo device VK_RA4M2 (simulation mode)"
+    dev_eui: 70B3D57ED0070002
+    app_key: 77185F9F7E441C8ADD52CD00B61673E3
+    enabled_class: A         # simulation mode (bridge 4.1.1 limitation)
+    supports_class_b: true
+    supports_class_c: false
+    class_b_params:
+      timeout: 60
+      ping_slot_period: 4
+      ping_slot_dr: 3
+      ping_slot_freq: 869525000
+    uplink_interval: 30
+    codec_file: codecs/codec_B.js
+
+  - name: class-C-demo
+    profile_name: class-C-demo-profile
+    profile_description: "Class C demo VK_RA4M2 + WS2812 + AHT20"
+    description: "Class C demo device VK_RA4M2"
+    dev_eui: 70B3D57ED0070003
+    app_key: 202CB141A5842931F99C0C1DDFE70D68
+    enabled_class: C
+    supports_class_b: false
+    supports_class_c: true
+    class_c_params:
+      timeout: 0
+    uplink_interval: 60
+    codec_file: codecs/codec_C.js

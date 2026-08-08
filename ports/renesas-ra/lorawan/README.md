@@ -1,94 +1,130 @@
-# renesas-ra LoRaWAN — C stack (Renesas) skeleton
+# renesas-ra LoRaWAN
 
-Този каталог съдържа MicroPython C-модул `lorawan`, който ще обвие
-**Renesas LoRa-based Wireless Software Package (LoRaMac-node fork)**
-като алтернатива на текущия pure-Python стек във
-`boards/VK_RA4M2/examples/LoRa/lorawan_upstream/`.
+Date: 2026-05-20
+Doc-Version: 1.0
+Status: Primary authority contract; implementation gaps are tracked explicitly.
 
-## FSP target — задължително 4.4.0 (без upgrade)
+Цел: създаване на LoRaWAN драйвер за MicroPython RA4M2.
 
-Този порт компилира срещу **FSP 4.4.0**, същата версия която MicroPython
-renesas-ra ползва за всички останали драйвери (`lib/fsp/ra/fsp/inc/fsp_version.h`).
-Renesas LoRa Software Package v4.90 е *генериран* срещу FSP 6.2.0, но ние
-**НЕ обновяваме FSP** в MicroPython дървото. Стратегията:
+## Authority
 
-1. Копираме като black-box само portable C код от LoRa пакета
-   (`mac/`, `mac/region/`, `radio/sx126x/`, `radio/region/`, `peripherals/soft-se/`)
-   — нито един от тези файлове не извиква FSP API директно, говори с
-   `glue/*-board.c` слой който ние пишем.
-2. **Изхвърляме** всичко FSP-version-specific от пакета:
-   `samples/project/src/boards/ra2*`, `system/uart.c`, `system/gpio.c`,
-   `system/spi.c`, `system/flash/cflash*`, `system/at/`.
-3. **Glue слоят** (`glue/`) е писан срещу FSP 4.4 API-та които вече се ползват
-   в порта — обвивки `ra_sci_spi.c`, `ra_timer.c`, `ra_dac.c`, `ra_storm_adc.c`,
-   `R_FLASH_HP` BGO. Никакви директни FSP calls в LoRa дървото освен през тях.
+Само документите в `ports/renesas-ra/lorawan/` са авторитетни.
 
-Това означава: ако някой ден FSP се обнови до 6.x, единственият код който
-може да се счупи е в `glue/` — а той е малък и изолиран.
+## Files
 
-## Build switch
+- `lorawan.mk` builds the LoRaWAN port files.
+- `mod_lorawan.c` exposes `lorawan.Mac()` to MicroPython.
+- `mac/LoRaMac.c` contains the imported LoRaWAN stack.
+- `radio/sx126x/radio.c` connects LoRaMac to the radio driver.
+- `boards/vk_ra4m2_sx126x/` contains the RA4M2 and SX126x board code.
 
-Един параметър избира кой LoRa стек се компилира. Дефинира се в
-`boards/<BOARD>/mpconfigboard.mk`:
+## VK_RA4M2 LoRa Pins
 
-```make
-MICROPY_HW_LORA_STACK = python    # (default ако MICROPY_HW_ENABLE_LORA=1)
-MICROPY_HW_LORA_STACK = renesas   # този C-модул
-MICROPY_HW_LORA_STACK = none      # без LoRa
+```text
++--------------------------+-----------------+----------+----------------------------------------------+
+| SIGNAL                   | MICROPYTHON PIN | RA PORT  | MEANING                                      |
++--------------------------+-----------------+----------+----------------------------------------------+
+| DIO1 radio interrupt     | P015            | P0_15    | SX126x interrupt request line.               |
+| radio reset              | P001            | P0_1     | SX126x reset line.                           |
+| radio busy               | P002            | P0_2     | SX126x busy status input.                    |
+| radio chip select        | P206            | P2_6     | SX126x Serial Peripheral Interface select.   |
+| radio-frequency switch 1 | P100            | P1_0     | RF switch enable; keep high while LoRa runs. |
+| SPI3 serial clock        | P111            | P1_11    | Serial Peripheral Interface clock.           |
+| SPI3 master input        | P110            | P1_10    | Radio-to-RA4M2 data line.                    |
+| SPI3 master output       | P109            | P1_9     | RA4M2-to-radio data line.                    |
++--------------------------+-----------------+----------+----------------------------------------------+
 ```
 
-| Стойност  | Какво се прави                                                                                             |
-|-----------|------------------------------------------------------------------------------------------------------------|
-| `python`  | Freeze на `_upstream/sx126x.py` + `LoRaWAN/*.py`, `modaes_cmac.c`, axTLS AES.                              |
-| `renesas` | Build на `lorawan/*.c` (Renesas LoRaMac + sx126x C драйвер + soft-se), expose `lorawan` Python модул.      |
-| `none`    | Нищо LoRa не се включва (~44 KB по-малко flash).                                                           |
+`DIO1` means digital input/output line 1 on the SX126x radio. `SPI3` means Serial Peripheral Interface instance 3 in MicroPython, implemented by RA SCI9 on this board.
 
-Backward-compat: ако `MICROPY_HW_LORA_STACK` не е зададен и
-`MICROPY_HW_ENABLE_LORA=1` → автоматично `python`. Ако и двете не са
-зададени → `none`.
+## SPI Ownership
 
-## Каталог
+The Python/MicroPython ownership pattern follows the proven `micropySX126X` constructor style:
 
-```
-lorawan/
-├── lorawan.mk           ← Makefile fragment, включва се само ако stack=renesas
-├── mod_lorawan.c        ← MicroPython binding (`lorawan.Mac` клас)
-├── mod_lorawan.h
-├── glue/
-│   ├── sx126x_board.c   ← SX126x SPI/GPIO/IRQ glue (RA4M2 SCI9 SPI3 + DTC)
-│   ├── sx126x_board.h
-│   ├── timer_board.c    ← AGT4 (MAC tick) + AGT5 (RX window) glue
-│   ├── timer_board.h
-│   ├── dma_board.c      ← DMAC7 резервация (опционален upgrade за burst SPI)
-│   ├── dma_board.h
-│   ├── nvm_board.c      ← R_FLASH_HP BGO write callback glue
-│   └── nvm_board.h
-├── mac/                 ← (празен) → копие на Renesas samples/project/src/mac/
-├── radio/               ← (празен) → копие на samples/project/src/radio/sx126x/
-├── soft_se/             ← (празен) → копие на peripherals/soft-se/
-└── system/              ← (празен) → копие на system/{delay,timer,systime,fifo}.c
+```python
+SPI_BUS  = 3
+PIN_SCK  = "P111"
+PIN_MOSI = "P109"
+PIN_MISO = "P110"
+PIN_CS   = "P206"
+PIN_RST  = "P001"
+PIN_BUSY = "P002"
+PIN_DIO1 = "P015"
+
+lora = LoRaWAN(
+    spi_bus=SPI_BUS,
+    clk=PIN_SCK,
+    mosi=PIN_MOSI,
+    miso=PIN_MISO,
+    cs=PIN_CS,
+    irq=PIN_DIO1,
+    rst=PIN_RST,
+    gpio_busy=PIN_BUSY,
+)
 ```
 
-## Hardware ресурси, резервирани от стека (на VK_RA4M2)
+The constructor creates/configures and owns `spi_bus`, `clk`, `mosi`, `miso`, `cs`, `irq`, `rst`, and `gpio_busy`. The LoRaWAN C board layer keeps only the lifetime references it needs and must not own, deinit, or privately reinitialize those resources.
 
-| Ресурс    | Употреба                                            | Източник на резервацията                  |
-|-----------|------------------------------------------------------|-------------------------------------------|
-| SPI3/SCI9 | SX126x command + payload                            | `mp_machine_spi(3)` ползва `ra_sci_spi`   |
-| DTC TX/RX | SCI9_TXI / SCI9_RXI (динамично, per-transfer)        | `ra_sci_spi.c` (без промяна)              |
-| AGT4      | LoRaMac 1 ms tick + RX1/RX2 window arming            | `glue/timer_board.c`                      |
-| AGT5      | TX timeout / retransmit / ACK timeout                | `glue/timer_board.c`                      |
-| DMAC7     | (опц.) burst SPI > 256 B, RX continuous              | `glue/dma_board.c`                        |
-| ICU pin IRQ | DIO1 (radio IRQ), BUSY (radio ready) — falling/rising | `glue/sx126x_board.c`                  |
-| Data flash | NVM persistence (DevNonce, FCnt, sessions)          | `glue/nvm_board.c` (R_FLASH_HP BGO)       |
+The LoRaWAN radio transfer path follows the Renesas/Semtech board shape: CS is asserted, opcode/address/data are shifted byte-by-byte through the constructor-owned MicroPython `machine.SPI` object, CS is released, and BUSY is polled where upstream waits. LoRaWAN does not own or call private SPI backend state directly.
 
-## Phase status
+While LoRaWAN is active, user Python code must not deinitialize the constructor-owned SPI resource and must not use another SPI owner on the same pins.
 
-- **Phase 0** — ✅ skeleton committed (this directory)
-- **Phase 1** — radio HAL (SX126x board glue + DIO1/BUSY IRQ)
-- **Phase 2** — timer service (AGT4/AGT5 + resumable Radio FSM)
-- **Phase 3** — LoRaMac compile + scheduler glue
-- **Phase 4** — OTAA join към TTN
-- **Phase 5** — Uplink/Downlink + ADR + DutyCycle
-- **Phase 6** — Cleanup + docs
+The target LoRaWAN SPI path is intentionally synchronous at the same boundary as the Renesas board layer. It does not add a separate async Radio/SPI layer.
 
-Виж пълния phase-plan по-долу в обсъждането на проекта.
+LoRaMac keeps a synchronous radio contract: `Radio.Rx(...)` and `Radio.Send(...)` must have meaningful results when they return. The VK_RA4M2 wrapper preserves that contract.
+
+## Runtime
+
+The runtime path is:
+
+`MicroPython -> LoRaWAN binding -> LoRaMac -> radio -> SX126x -> RA4M2 peripherals`
+
+Python creates and owns the timer object passed to the LoRaWAN constructor as `timer=...`. Timer expiry, `DIO1`, and `MacProcessNotify` enter LoRaWAN work through the foreground service path in `mod_lorawan.c`.
+
+If a foreground service step reaches radio SPI through LoRaMac, that SPI work completes before the call returns, matching the Renesas board-layer contract.
+
+Python receives events through `set_event_callback(callback)`. The binding uses MicroPython scheduled callback delivery. It does not expose a native `asyncio` Stream, Queue, or Event.
+
+`asyncio` user code may wrap that callback and read data with `recv()`, but it does not drive receive timing.
+
+Current limits: there is no `await mac.recv()`, no native `asyncio.Queue`, no native `asyncio.Event`, and no stream interface.
+
+Completion also requires visible counters for failed `mp_sched_schedule(...)` calls and callback/drop delivery.
+
+## Design Completion
+
+The driver design is complete when these parts exist in this order:
+
+```text
++-------+--------------------------------+----------------------------------------------+
+| ORDER | PART                           | PURPOSE                                      |
++-------+--------------------------------+----------------------------------------------+
+| 1     | LoRaMac state projection        | Report derived binding labels; do not       |
+|       |                                | duplicate `MacCtx.MacState`.                |
+| 2     | Radio/SPI transport             | Byte-by-byte Renesas/Semtech SPI semantics. |
+| 3     | LoRaMac synchronous boundary    | Return after required SPI/BUSY work is done. |
+| 4     | Schedule/drop counters          | Report failed scheduling/callback delivery.  |
+| 5     | asyncio wrapper                 | Wake async Python through                    |
+|       |                                | `asyncio.ThreadSafeFlag`.                    |
+| 6     | Optional queues                 | Add higher-level queue helpers later.        |
++-------+--------------------------------+----------------------------------------------+
+```
+
+`LoRaMac state projection` means `status()` derives labels from LoRaMac public
+APIs, callbacks, MIB values, binding flags, and transport flags. It is not a
+stored `lorawan_state_t` protocol FSM in `mod_lorawan.c`.
+
+`Optional queues` means Python-level helpers above the C binding; the current C binding does not add event or receive queues.
+
+`asyncio.ThreadSafeFlag` means the MicroPython asyncio object that can be set from callback context and awaited by an async task.
+
+## Authority Documents
+
+The LoRaWAN authority and status projection contract is in
+`LORAWAN_STATUS_PROJECTION_CONTRACT.md`.
+
+The send binding projection contract is in `LORAWAN_SEND_BINDING_PROJECTION_CONTRACT.md`.
+
+The 5-point implementation plan is in `LORAWAN_IMPLEMENTATION_PLAN_5_POINTS.md`.
+
+Current design limitations are in `LORAWAN_LIMITATIONS.md`.

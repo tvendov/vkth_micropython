@@ -1,0 +1,6 @@
+r
+h
+loadbin build-VK_RA4M2/firmware.bin 0x00000000
+r
+g
+q

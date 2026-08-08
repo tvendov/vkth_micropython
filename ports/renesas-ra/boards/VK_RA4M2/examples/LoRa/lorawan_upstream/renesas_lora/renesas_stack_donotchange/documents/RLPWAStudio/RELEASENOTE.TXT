@@ -1,0 +1,89 @@
+Renesas LPWA Studio Release Notes 
+                                                                         Aug. 21, 2025
+
+--------------------------------------------------------------------------------------
+[ NOTICE ]
+
+  This software is intended for evaluation purposes only, and you are not permitted
+  to use this software for any other purposes. You are not permitted to run this
+  software on your and/or your end-users' product and/or system. This software is
+  tentative and may be subject to change without any prior notice.
+
+--------------------------------------------------------------------------------------
+[ VERSION ]
+
+  - V4.80 (tool version V4.4.0.0)
+
+--------------------------------------------------------------------------------------
+[ CONTENTS ]
+
+  - Renesas LPWA Studio (Windows GUI front end application for RadioEvalApp)
+    [Installer]
+      (package top)/samples/tools/RLPWAStudio/setup.exe
+    [Plug-in for Wireshark]
+      (package top)/samples/tools/RLPWAStudio/loratap_over_udp.lua
+    [Sensor demo for influxDB/Grafana]
+      (package top)/samples/tools/RLPWAStudio/sensor_demo.py
+
+--------------------------------------------------------------------------------------
+[ Revision History ]
+  - V4.80
+    - Supports RL78/L23 Fast Prototyping Board with RadioEvalApp v4.80.
+    - Supports decoding Firmware Management Protocol, Multi Package Access and Certification Protocol Commands.
+
+  - V4.70
+    - Supports RA0E2 Fast Prototyping Board.
+    - Updated Renesas LPWA Studio User's Manual. The version of the GUI front-end program
+      is V4.3.0.0, which is same as the previous one.
+
+  - V4.50
+    - Supports RA0E1 Fast Prototyping Board with RadioEvalApp v4.50.
+    - Updated Renesas LPWA Studio User's Manual. The version of the GUI front-end program
+      is V4.3.0.0, which is same as the previous one.
+
+  - V4.30
+    - Supports RL78/G22 Fast Prototyping Board with RadioEvalApp v4.30.
+    - Code signing certificate has been renewed (Expiration date: 5/25/2024).
+
+  - V4.20
+    - Supports RadioEvalApp v4.20
+    - Built-In LoRaWAN decoder supports LoRaWAN v1.0.4 and FUOTA v1.0.0/v2.0.0
+    - Add "Clip" button to save the LoRaWAN decode frame to the JSON file.
+    - UDP packets from Semtech packet forwarder can now be captured.
+    - The default UDP port for receiving has been changed to 0.0.0.0:1700.
+    - Fixed following bugs.
+      - In Implicit Header Type mode, SNIFFER's Rx Packet Length field was being ignored.
+      - FOpts were not decoded when FOpts and FPort were present and FRMPayload was empty.
+      - An exception was raised when receiving a UDP packet with empty data.
+
+  - V4.10
+    - Supported RadioEvalApp v4.10
+    - No functional changes.
+
+  - V4.0.0.1
+    - Supported RadioEvalApp v4.00 and FPB-RA2E1.
+    - Updated a expiration date of the Code Signing Certification.
+    - Add new button to enable LoRaWAN protocol decoder.
+    - Fixed a bug that caused a crash when receiving incorrect data.
+
+  - V3.0.0.4
+    - Supported RadioEvalApp v3.10 and RL78/G23-128p Fast Prototyping Board.
+    - Changed AT-commands timeout to 5 seconds for waiting the sensor measurment time. 
+
+  - V3.0.0.3
+    - Fixed a bug that caused double quote characters to be ignored in user data transmission mode.
+    - Fixed a bug that caused lower-case AT commands to be ignored when loading command scripts.
+    - Supported the Code Signing Certification (Digital Signature) to avoid smart screen warning.
+
+  - V3.0.0.0
+    - Supports Radio Evaluation Program V3.0
+    - Supports RL78/G23-64p Fast Prototyping Board
+    - Fixed a resolution issue in the sensor data visualization window. 
+
+[ Limitation ]
+  - None.
+
+[ Known issue ]
+  - None.
+
+--------------------------------------------------------------------------------------

@@ -15,7 +15,7 @@ gateway. Регионалният профил е **EU868** (Европа, 863�
 -----------
 
 VK_RA4M2 няма вграден радиочип, затова LoRa се добавя чрез външен модул на
-**Semtech SX1262**, окачен на ``SPI(1)`` + 4 GPIO линии. На ниво софтуер
+**Semtech SX1262**, окачен на ``SPI(3)`` + GPIO линии. На ниво софтуер
 поддържаме **две алтернативни Python библиотеки** — по избор на потребителя:
 
 .. list-table::
@@ -301,7 +301,7 @@ Bring-up: проверка на хардуера
 
     # micropySX126X е локално патчнат (sx126x.py) да използва SoftSPI вместо
     # hardware SPI(1) — виж TEST_PLAN [D2].
-    lora = SX1262(spi_bus=1,
+    lora = SX1262(spi_bus=3,
                   clk="P111", mosi="P109", miso="P110",
                   cs="P206", irq="P015", rst="P001", gpio="P002")
 
@@ -439,9 +439,9 @@ Python пакет ``lorawan/`` върху същия PHY.
     from lorawan.mac import LoRaWAN
 
     lw = LoRaWAN(
-        spi_bus=1,
+        spi_bus=3,
         sck="P111", mosi="P109", miso="P110",
-        cs="P006", irq="P000", rst="P001", busy="P002",
+        cs="P206", irq="P015", rst="P001", busy="P002",
         tcxo_voltage=1.8,
         dev_eui  = b"\x00\x11\x22\x33\x44\x55\x66\x77",
         join_eui = b"\x00\x00\x00\x00\x00\x00\x00\x00",
@@ -580,8 +580,8 @@ LoRaWAN MAC слоят следи time-on-air per канал и блокира T
    * - SenseCAP отказва Join след reboot
      - Frame counter не се пази в Data Flash → resyncнете през ``FCnt
        Reset`` бутона в SenseCAP Console
-   * - Конфликт с ADC примера
-     - ``P000``..``P002`` и ``P006`` са заети от LoRa — спрете ADC
+   * - Конфликт с ADC/друг GPIO пример
+     - ``P001``, ``P002``, ``P015``, ``P100``, ``P206`` и SPI(3) pins са заети от LoRa — спрете ADC/GPIO
        примера
 
 Препратки

@@ -1,0 +1,14 @@
+usb 1120000056
+device R7FA4M2AD
+si SWD
+speed 4000
+connect
+r
+h
+loadbin C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA4M2\examples\arduino\build\arduino-renesas-bootloader-v8-dfuse-uploadfix-pid0369.bin 0x00000000
+verifybin C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA4M2\examples\arduino\build\arduino-renesas-bootloader-v8-dfuse-uploadfix-pid0369.bin 0x00000000
+mem32 0x00000000 8
+mem32 0x00010000 8
+r
+g
+q

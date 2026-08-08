@@ -64,32 +64,29 @@ LoRaWAN MAC: `MHDR`, `DevAddr`, `FCnt`, MIC по AES-CMAC, payload крипти�
 Използваме **същите чип-пинове на RA4M1**, които Seeed XIAO RA4M1 извежда
 на XIAO header-а. RA4M1 и RA4M2 споделят port mux-а в долните портове,
 така че всички тези пинове съществуват и на VK_RA4M2 (виж `pins.csv`).
-SPI каналът съвпада с **SPI(1)** на VK_RA4M2 (P111/P110/P109).
+Работещият `demos/tx_cw/tx_cw_demo.py` използва **SPI(3)** на VK_RA4M2
+(P111/P110/P109).
 
 CS пинът се дърпа на Pin.OUT, а не на хардуерния SSL — драйверът чете
 `BUSY` между транзакциите.
 
 | Wio-SX1262 | XIAO label | RA4M1/RA4M2 пин | Конфигурация на VK_RA4M2  |
 |------------|------------|------------------|---------------------------|
-| SCK        | D8 / SCK   | **P111**         | SPI(1) RSPCK              |
-| MOSI       | D10 / MOSI | **P109**         | SPI(1) MOSI               |
-| MISO       | D9 / MISO  | **P110**         | SPI(1) MISO               |
-| NSS (CS)   | D4 / SDA   | **P006**         | `Pin.OUT`, init `1`       |
+| SCK        | D8 / SCK   | **P111**         | SPI(3) SCK                |
+| MOSI       | D10 / MOSI | **P109**         | SPI(3) MOSI               |
+| MISO       | D9 / MISO  | **P110**         | SPI(3) MISO               |
+| NSS (CS)   | —          | **P206**         | `Pin.OUT`, init `1`       |
 | RESET      | D2 / A2    | **P001**         | `Pin.OUT`, init `1`       |
 | BUSY       | D3 / A3    | **P002**         | `Pin.IN`                  |
-| DIO1 (IRQ) | D1 / A1    | **P000**         | `Pin.IN` + `IRQ_RISING` (IRQ0 канал) |
-| DIO2/RXEN  | D5 / SCL   | P100             | **не свързваме** — управлява се от SX1262 |
+| DIO1 (IRQ) | —          | **P015**         | `Pin.IN` + rising IRQ     |
+| RF_SW      | —          | **P100**         | drive HIGH                |
 | 3V3        | 3V3        | 3V3 рейл         | стабилен (≥150 mA peak)   |
 | GND        | GND        | GND              | обща маса                 |
 
 Бележки:
-- **IRQ-capable пинове:** P000=IRQ0, P001=IRQ1, P002=IRQ2 — DIO1 на P000
-  използва EXTI канал IRQ0 без конфликти.
-- **ADC отнемане:** P000–P002 и P006 се използват като ADC входове в
-  стандартния VK_RA4M2 пример. Докато LoRa тече, тези ADC канали не са
-  достъпни.
-- **P100 е и SPI(0) MISO** — затова не свързваме XIAO D5 към VK_RA4M2; и
-  без това DIO2 е чисто вътрешен RF-switch сигнал на модула.
+- Старата карта `NSS=P006`, `DIO1=P000` е от ранни artifacts и не е
+  authority за текущата платка.
+- `P100` е RF switch enable и трябва да се държи HIGH.
 - **VK_RA4M2 = QFP100** (повече пинове от XIAO RA4M1 LQFP64), така че
   XIAO header-ът никога не може да се запоява директно — свързваме с
   жички (Dupont) към изведените пинове на VK_RA4M2.
@@ -226,7 +223,7 @@ Sync word **критично**: за LoRaWAN е `0x34` (`SX126X_SYNC_WORD_PUBLIC
 | Heap fragmentation при `import sx1262` | Frozen modules в Phase A.3 (`manifest.py` → `freeze(...)`) |
 | Frame counter reset след reboot → SenseCAP refuse | Pers. в data flash след всеки uplink (RMW safe) |
 | `cryptolib` AES-128 ECB не е вграден в build-а | Проверка в `mpconfigport.h`: `MICROPY_PY_UCRYPTOLIB = 1` |
-| Конфликт P000..P002, P006 с ADC примери | Документация: при LoRa примерите тези ADC канали са изключени |
+| Конфликт с LoRa pins | Документация: P001/P002/P015/P100/P206 и SPI(3) pins са заети от LoRa |
 
 ## 7. Препратки
 

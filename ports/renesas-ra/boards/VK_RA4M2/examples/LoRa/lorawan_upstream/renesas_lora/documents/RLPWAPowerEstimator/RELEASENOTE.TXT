@@ -1,0 +1,67 @@
+Renesas LPWA Power Estimator Release Notes 
+                                                                         Aug. 21, 2025
+
+--------------------------------------------------------------------------------------
+[ NOTICE ]
+
+  This software is intended for evaluation purposes only, and you are not permitted
+  to use this software for any other purposes. You are not permitted to run this
+  software on your and/or your end-users' product and/or system. This software is
+  tentative and may be subject to change without any prior notice.
+
+--------------------------------------------------------------------------------------
+[ VERSION ]
+
+  - V4.80
+
+--------------------------------------------------------------------------------------
+[ CONTENTS ]
+
+  - Renesas LPWA Power Estimator (Microsoft Windows Excel application)
+
+--------------------------------------------------------------------------------------
+[ Revision History ]
+  - V4.80 
+    - New features
+      - Supports RL78/L23(R7F100LPL)
+
+  - V4.70
+    - New features
+      - Supports RA0E2(R7FA0E2094CFM)
+ 
+  - V4.50
+    - New features
+    - Supports RA0E1(R7FA0E1073CFJ)
+
+  - V4.30
+    - New features
+      - Supports RL78/G22(R7F102GGE)
+
+  - V4.20
+    - New features
+      - Supports RA2L1(R7FA2L1ABxxFP)
+
+  - V4.00
+    - New features
+      - Supported RA2E1(R7FA2E1A9xxFM)
+
+  - V3.10
+    - New features
+      - Supports RL78/G23 128pin 768KB (R7F100GSN)
+
+  - V3.00
+    - New features
+      - Supports RL78/G23(R7F100GLG)
+
+[ Limitation ]
+  - Supply voltage is currently supported only 3.0[V].
+  - Operating temperature is currently supported only at 25 degrees Celsius.
+  - It is conceivable that the modulation method, RF parameters (SF, CR etc.) are
+    influenced, but it is not taken into consideration at present.
+  - In actual devices, the current during transmission increases with
+    the decrease of the power supply voltage, but it is not considered at present.
+
+[ Known issue ]
+  - None.
+
+--------------------------------------------------------------------------------------

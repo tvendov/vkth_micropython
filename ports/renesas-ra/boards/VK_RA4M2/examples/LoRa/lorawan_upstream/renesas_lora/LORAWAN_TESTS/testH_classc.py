@@ -14,7 +14,6 @@ spi = SPI(3, baudrate=8000000, polarity=0, phase=0,
 
 mac = lorawan.Mac(region=lorawan.EU868)
 mac.lorawan_init()
-mac.set_min_rx_symbols(24)
 
 print("class before:", mac.get_class())
 st = mac.set_class('C')

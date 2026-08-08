@@ -1,0 +1,50 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.collected
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.collected
+GEN build-VK_RA4M2-r4/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC lorawan/glue/utilities.c
+CC lorawan/mac/LoRaMac.c
+CC lorawan/mac/LoRaMacClassB.c
+In file included from lorawan/radio/sx126x.h:39,
+                 from lorawan/glue/sx126x-board.h:27,
+                 from lorawan/glue/board.h:39,
+                 from lorawan/mac/LoRaMac.c:39:
+lorawan/system/gpio.h:44:13: error: expected identifier before ',' token
+   44 |     MCU_PINS,
+      |             ^
+CC lorawan/mac/LoRaMacCommands.c
+In file included from lorawan/radio/sx126x.h:39,
+                 from lorawan/glue/sx126x-board.h:27,
+                 from lorawan/glue/board.h:39,
+                 from lorawan/mac/LoRaMacClassB.c:25:
+lorawan/system/gpio.h:44:13: error: expected identifier before ',' token
+   44 |     MCU_PINS,
+      |             ^
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMac.o] Error 1
+make: *** Waiting for unfinished jobs....
+In file included from lorawan/radio/sx126x.h:39,
+                 from lorawan/glue/sx126x-board.h:27,
+                 from lorawan/glue/board.h:39,
+                 from lorawan/glue/utilities.c:20:
+lorawan/system/gpio.h:44:13: error: expected identifier before ',' token
+   44 |     MCU_PINS,
+      |             ^
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/glue/utilities.o] Error 1
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMacClassB.o] Error 1
+In file included from lorawan/radio/sx126x.h:39,
+                 from lorawan/glue/sx126x-board.h:27,
+                 from lorawan/glue/board.h:39,
+                 from lorawan/mac/LoRaMacCommands.c:25:
+lorawan/system/gpio.h:44:13: error: expected identifier before ',' token
+   44 |     MCU_PINS,
+      |             ^
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/mac/LoRaMacCommands.o] Error 1

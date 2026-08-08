@@ -1,0 +1,23 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstr.i.last
+GEN build-VK_RA4M2-r4/genhdr/qstr.split
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.split
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.split
+GEN build-VK_RA4M2-r4/genhdr/compressed.split
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.collected
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.collected
+GEN build-VK_RA4M2-r4/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC lorawan/glue/sx126x_board.c
+CC lorawan/glue/utilities.c
+LINK build-VK_RA4M2-r4/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: warning: build-VK_RA4M2-r4/firmware.elf has a LOAD segment with RWX permissions
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA4M2-r4/lorawan/glue/utilities.o: in function `srand1':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/lorawan/glue/utilities.c:136:(.text.srand1+0x0): undefined reference to `srand'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA4M2-r4/lorawan/glue/utilities.o: in function `randr':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/lorawan/glue/utilities.c:140:(.text.randr+0x6): undefined reference to `rand'
+make: *** [Makefile:606: build-VK_RA4M2-r4/firmware.elf] Error 1

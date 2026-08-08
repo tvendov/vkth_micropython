@@ -1,0 +1,148 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+mkdir -p build-VK_RA4M2-r4/genhdr
+mkdir -p build-VK_RA4M2-r4/boards/VK_RA4M2/ra_gen/
+mkdir -p build-VK_RA4M2-r4/drivers/bus/
+mkdir -p build-VK_RA4M2-r4/drivers/dht/
+mkdir -p build-VK_RA4M2-r4/drivers/memory/
+mkdir -p build-VK_RA4M2-r4/extmod/
+mkdir -p build-VK_RA4M2-r4/extmod/mbedtls/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Source/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/bsp/mcu/all/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_adc/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_ctsu/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_dmac/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_dtc/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_flash_hp/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_ioport/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//primitive/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//private/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//public/
+mkdir -p build-VK_RA4M2-r4/lib/fsp/ra/fsp/src/r_sci_uart/
+mkdir -p build-VK_RA4M2-r4/lib/libm/
+mkdir -p build-VK_RA4M2-r4/lib/oofatfs/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/cdc/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/dfu/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/hid/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/midi/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/msc/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/usbtmc/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/class/vendor/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/common/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/device/
+mkdir -p build-VK_RA4M2-r4/lib/tinyusb/src/portable/renesas/rusb2/
+mkdir -p build-VK_RA4M2-r4/lorawan/
+mkdir -p build-VK_RA4M2-r4/lorawan/glue/
+mkdir -p build-VK_RA4M2-r4/lorawan/mac/
+mkdir -p build-VK_RA4M2-r4/lorawan/mac/region/
+mkdir -p build-VK_RA4M2-r4/lorawan/radio/
+mkdir -p build-VK_RA4M2-r4/lorawan/radio/region/
+mkdir -p build-VK_RA4M2-r4/lorawan/soft_se/
+mkdir -p build-VK_RA4M2-r4/lorawan/system/
+mkdir -p build-VK_RA4M2-r4/py/
+mkdir -p build-VK_RA4M2-r4/ra/
+mkdir -p build-VK_RA4M2-r4/shared/libc/
+mkdir -p build-VK_RA4M2-r4/shared/netutils/
+mkdir -p build-VK_RA4M2-r4/shared/readline/
+mkdir -p build-VK_RA4M2-r4/shared/runtime/
+mkdir -p build-VK_RA4M2-r4/shared/timeutils/
+mkdir -p build-VK_RA4M2-r4/shared/tinyusb/
+GEN build-VK_RA4M2-r4/genhdr/pins.h
+GEN build-VK_RA4M2-r4/genhdr/mpversion.h
+GEN build-VK_RA4M2-r4/genhdr/qstr.i.last
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMacCrypto.h:53,
+                 from lorawan/mac/secure-element.h:51,
+                 from lorawan/soft_se/soft-se.c:21:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+lorawan/system/systime.c:26:10: fatal error: timer-board.h: No such file or directory
+   26 | #include "timer-board.h"
+      |          ^~~~~~~~~~~~~~~
+compilation terminated.
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMac.h:139,
+                 from lorawan/mac/region/Region.h:67,
+                 from lorawan/mac/LoRaMac.c:41:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMac.h:139,
+                 from lorawan/mac/region/Region.h:67,
+                 from lorawan/mac/LoRaMacAdr.c:37:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMacCrypto.h:53,
+                 from lorawan/mac/secure-element.h:51,
+                 from lorawan/mac/LoRaMacClassB.c:28:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMacCommands.h:49,
+                 from lorawan/mac/LoRaMacCommands.c:27:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMac.h:139,
+                 from lorawan/mac/LoRaMacConfirmQueue.c:30:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMacCrypto.h:53,
+                 from lorawan/mac/secure-element.h:51,
+                 from lorawan/mac/LoRaMacCrypto.c:42:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMac.h:139,
+                 from lorawan/mac/LoRaMacParser.c:25:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMac.h:139,
+                 from lorawan/mac/LoRaMacSerializer.c:25:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/LoRaMac.h:139,
+                 from lorawan/mac/region/Region.c:35:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/region/RegionCommon.h:49,
+                 from lorawan/mac/region/RegionCommon.c:38:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/mac/LoRaMacTypes.h:42,
+                 from lorawan/mac/region/RegionCommon.h:49,
+                 from lorawan/mac/region/RegionEU868.c:37:
+lorawan/mac/LoRaMacConfig.h:76:10: error: #error "RP_CPU_CLK should be set to 8."
+   76 |         #error "RP_CPU_CLK should be set to 8."
+      |          ^~~~~
+In file included from lorawan/radio/sx126x.h:39,
+                 from lorawan/radio/radio.c:29:
+lorawan/system/gpio.h:36:10: fatal error: pinName-board.h: No such file or directory
+   36 | #include "pinName-board.h"
+      |          ^~~~~~~~~~~~~~~~~
+compilation terminated.
+In file included from lorawan/radio/sx126x.h:39,
+                 from lorawan/radio/sx126x.c:34:
+lorawan/system/gpio.h:36:10: fatal error: pinName-board.h: No such file or directory
+   36 | #include "pinName-board.h"
+      |          ^~~~~~~~~~~~~~~~~
+compilation terminated.
+Command '['arm-none-eabi-gcc', '-E', '-DDEFAULT_DBG_CH=0', '-DCFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED', '-DCFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE', '-DBOARD_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED', '-DCFG_TUH_ENABLED=0', '-DCFG_TUSB_MCU=OPT_MCU_RAXXX', '-DBOARD_TUD_RHPORT=0', '-DMICROPY_VFS_FAT=1', '-DFFCONF_H="lib/oofatfs/ffconf.h"', '-DRA4M2', '-DRA_HAL_H=<RA4M2_hal.h>', '-DRA_CFG_H=<vk_ra4m2_conf.h>', '-DCFG_TUSB_MCU=OPT_MCU_RAXXX', '-imacros', 'boards/compiler_barrier.h', '-I.', '-Ifsp_cfg', '-I../..', '-Ibuild-VK_RA4M2-r4', '-I../../lib/cmsis/inc', '-I../../lib/fsp', '-I../../lib/fsp/ra/fsp/inc', '-I../../lib/fsp/ra/fsp/inc/api', '-I../../lib/fsp/ra/fsp/inc/instances', '-I../../lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Include', '-I../../lib/tinyusb/hw', '-I../../lib/tinyusb/src', '-I../../shared/tinyusb', '-Ilwip_inc', '-Ira', '-Iboards/VK_RA4M2/ra_gen', '-Iboards/VK_RA4M2/ra_cfg/driver', '-Iboards/VK_RA4M2/ra_cfg/fsp_cfg', '-Iboards/VK_RA4M2/ra_cfg/fsp_cfg/bsp', '-Idebug', '-Ilorawan', '-Ilorawan/glue', '-Ilorawan/mac', '-Ilorawan/mac/region', '-Ilorawan/radio', '-Ilorawan/radio/region', '-Ilorawan/soft_se', '-Ilorawan/system', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//inc', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//inc/api', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//private/inc', '-I../../lib/fsp/ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9//inc/instances', '-Wall', '-Wpointer-arith', '-Werror', '-Wdouble-promotion', '-Wfloat-conversion', '-std=gnu99', '-nostdlib', '-mthumb', '-mfpu=fpv5-sp-d16', '-mfloat-abi=hard', '-mtune=cortex-m33', '-mcpu=cortex-m33', '-Os', '-DNDEBUG', '-Iboards/VK_RA4M2', '-DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT', '-fsingle-precision-constant', '-fdata-sections', '-ffunction-sections', '-g', '-DMICROPY_HW_ENABLE_LORA=0', '-DLORAWAN_BUILD_PHASE=4', '-DMICROPY_HW_LORA_STACK_RENESAS=1', '-DREGION_EU868', '-DUSE_FSP_FLASH', '-DMICROPY_HW_ENABLE_TOUCHPAD=1', '-DMICROPY_HW_ENABLE_DSP=0', '-DMICROPY_ROM_TEXT_COMPRESSION=1', '-DMICROPY_BOARD_BUILD_NAME="VK_RA4M2"', '-DNO_QSTR', 'lorawan/glue/timer_board.c', 'lorawan/glue/dma_board.c', 'lorawan/glue/nvm_board.c', 'lorawan/glue/utilities.c', 'lorawan/mac/LoRaMac.c', 'lorawan/mac/LoRaMacAdr.c', 'lorawan/mac/LoRaMacClassB.c', 'lorawan/mac/LoRaMacCommands.c', 'lorawan/mac/LoRaMacConfirmQueue.c', 'lorawan/mac/LoRaMacCrypto.c', 'lorawan/mac/LoRaMacDebug.c', 'lorawan/mac/LoRaMacParser.c', 'lorawan/mac/LoRaMacSerializer.c', 'lorawan/mac/region/Region.c', 'lorawan/mac/region/RegionCommon.c', 'lorawan/mac/region/RegionEU868.c', 'lorawan/radio/radio.c', 'lorawan/radio/sx126x.c']' returned non-zero exit status 1.
+make: *** [../../py/mkrules.mk:137: build-VK_RA4M2-r4/genhdr/qstr.i.last] Error 1
+make: *** Deleting file 'build-VK_RA4M2-r4/genhdr/qstr.i.last'

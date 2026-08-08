@@ -7,27 +7,27 @@
 # Файлове за копиране в /flash/lib/ :
 #   _sx126x.py, sx126x.py, sx1262.py
 #
-# Свързване (XIAO RA4M1 еквивалент → VK_RA4M2):
+# Свързване — потвърдено от работещия demos/tx_cw/tx_cw_demo.py:
 #   D8  SCK   -> P111
 #   D10 MOSI  -> P109
 #   D9  MISO  -> P110
-#   D4  NSS   -> P006
+#   NSS       -> P206
 #   D2  RESET -> P001
 #   D3  BUSY  -> P002
-#   D1  DIO1  -> P000  (IRQ0 канал)
-#   D5  DIO2  -> не се свързва (вътрешен RF switch)
+#   DIO1      -> P015
+#   RF_SW     -> P100  (drive HIGH)
 
 from sx1262 import SX1262
 
-# Pin map за VK_RA4M2 (XIAO RA4M1 еквивалент)
-SPI_BUS  = 1
+# Pin map за VK_RA4M2 + Wio-SX1262, aligned with demos/tx_cw.
+SPI_BUS  = 3
 PIN_SCK  = "P111"
 PIN_MOSI = "P109"
 PIN_MISO = "P110"
-PIN_CS   = "P006"
+PIN_CS   = "P206"
 PIN_RST  = "P001"
 PIN_BUSY = "P002"
-PIN_DIO1 = "P000"
+PIN_DIO1 = "P015"
 
 # micropySX126X конструира SPI вътрешно от подадените пин-имена
 lora = SX1262(

@@ -11,7 +11,8 @@ function decodeUplink(input) {
         flags: {
             confirmed:  (b[5] & 0x01) !== 0,
             adr:        (b[5] & 0x02) !== 0,
-            sensor_ok:  (b[5] & 0x04) !== 0
+            sensor_ok:  (b[5] & 0x04) !== 0,
+            p109:       (b[5] & 0x08) !== 0
         }
     };
     // v2: bytes 6-7 = end-side downlink quality (last RX)
@@ -30,5 +31,7 @@ function encodeDownlink(input) {
         return { bytes: [0x02], fPort: 20 };
     if (d.command === "led_test")
         return { bytes: [0x03, d.count || 3], fPort: 20 };
+    if (d.command === "set_p109")
+        return { bytes: [0x04, d.value ? 1 : 0], fPort: 20 };
     return { errors: ["unknown command"] };
 }

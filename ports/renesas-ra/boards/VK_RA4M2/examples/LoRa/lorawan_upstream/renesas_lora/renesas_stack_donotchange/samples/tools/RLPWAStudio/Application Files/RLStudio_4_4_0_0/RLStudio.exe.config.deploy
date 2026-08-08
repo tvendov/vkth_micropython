@@ -1,0 +1,238 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+    <configSections>
+        <sectionGroup name="userSettings" type="System.Configuration.UserSettingsGroup, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+            <section name="RLStudio.Properties.Settings" type="System.Configuration.ClientSettingsSection, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" allowExeDefinition="MachineToLocalUser" requirePermission="false" />
+        </sectionGroup>
+    </configSections>
+    <startup> 
+        <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8" />
+    </startup>
+    <userSettings>
+        <RLStudio.Properties.Settings>
+            <setting name="AppLeft" serializeAs="String">
+                <value>200</value>
+            </setting>
+            <setting name="AppTop" serializeAs="String">
+                <value>100</value>
+            </setting>
+            <setting name="AppWidth" serializeAs="String">
+                <value>800</value>
+            </setting>
+            <setting name="AppHeight" serializeAs="String">
+                <value>540</value>
+            </setting>
+            <setting name="AppFontFamily" serializeAs="String">
+                <value>Impact</value>
+            </setting>
+            <setting name="AppFontSize" serializeAs="String">
+                <value>14</value>
+            </setting>
+            <setting name="RfModemType1" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="RfFrequency1" serializeAs="String">
+                <value>923000000</value>
+            </setting>
+            <setting name="LoraBandWidth1" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="LoraDataRate1" serializeAs="String">
+                <value>7</value>
+            </setting>
+            <setting name="LoraCodingRate1" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="LoraPreambleLen" serializeAs="String">
+                <value>8</value>
+            </setting>
+            <setting name="LoraCrcType" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="FskFdev1" serializeAs="String">
+                <value>25000</value>
+            </setting>
+            <setting name="FskDataRate1" serializeAs="String">
+                <value>50000</value>
+            </setting>
+            <setting name="FskBandWidth1" serializeAs="String">
+                <value>58600</value>
+            </setting>
+            <setting name="FskPreambleLen" serializeAs="String">
+                <value>5</value>
+            </setting>
+            <setting name="FskCrcType" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="AppRssiVisualizer" serializeAs="String">
+                <value>True</value>
+            </setting>
+            <setting name="LoraHeaderType" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="FskPacketType" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="RfTxPower" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="RfTxRepeat" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="RfTxInterval" serializeAs="String">
+                <value>1000</value>
+            </setting>
+            <setting name="RfTxDataLen" serializeAs="String">
+                <value>16</value>
+            </setting>
+            <setting name="RfTxLbtEnable" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="RfTxLbtThreshold" serializeAs="String">
+                <value>-80</value>
+            </setting>
+            <setting name="RfTxLbtDuration" serializeAs="String">
+                <value>5</value>
+            </setting>
+            <setting name="LoraInvertIQ1" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="AppRxMode" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="AppSaFreqBegin" serializeAs="String">
+                <value>922000000</value>
+            </setting>
+            <setting name="AppSaFreqEnd" serializeAs="String">
+                <value>924000000</value>
+            </setting>
+            <setting name="AppSaFreqStep" serializeAs="String">
+                <value>100000</value>
+            </setting>
+            <setting name="AppSaScanInterval" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="AppPowerMode1" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="AppSaMapLimit" serializeAs="String">
+                <value>10</value>
+            </setting>
+            <setting name="LoraSyncWord" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="AppUdpTxAddress" serializeAs="String">
+                <value>127.0.0.1</value>
+            </setting>
+            <setting name="AppUdpTxPort" serializeAs="String">
+                <value>54321</value>
+            </setting>
+            <setting name="AppDevEui1" serializeAs="String">
+                <value>0123456789ABCDEF</value>
+            </setting>
+            <setting name="CcaBandWidth" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="UIAppSKey" serializeAs="String">
+                <value>00000000000000000000000000000000</value>
+            </setting>
+            <setting name="UINwkSKey" serializeAs="String">
+                <value>00000000000000000000000000000000</value>
+            </setting>
+            <setting name="UIAppKey" serializeAs="String">
+                <value>00000000000000000000000000000000</value>
+            </setting>
+            <setting name="AppPowerMode2" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="AppDevEui2" serializeAs="String">
+                <value>0123456789ABCDEF</value>
+            </setting>
+            <setting name="RfFrequency2" serializeAs="String">
+                <value>923000000</value>
+            </setting>
+            <setting name="LoraBandWidth2" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="LoraDataRate2" serializeAs="String">
+                <value>7</value>
+            </setting>
+            <setting name="LoraCodingRate2" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="LoraInvertIQ2" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="RfModemType2" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="FskFdev2" serializeAs="String">
+                <value>25000</value>
+            </setting>
+            <setting name="FskDataRate2" serializeAs="String">
+                <value>50000</value>
+            </setting>
+            <setting name="FskBandWidth2" serializeAs="String">
+                <value>58600</value>
+            </setting>
+            <setting name="RfRxGainBoostEnable" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="AppDebug" serializeAs="String">
+                <value>False</value>
+            </setting>
+            <setting name="AppUdpRxAddress" serializeAs="String">
+                <value>0.0.0.0</value>
+            </setting>
+            <setting name="AppUdpRxPort" serializeAs="String">
+                <value>1700</value>
+            </setting>
+            <setting name="AppUdpTxFormat" serializeAs="String">
+                <value>0</value>
+            </setting>
+            <setting name="AppSaMapMaxScan" serializeAs="String">
+                <value>200</value>
+            </setting>
+            <setting name="AppSaMapMaxRssi" serializeAs="String">
+                <value>-30</value>
+            </setting>
+            <setting name="AppSensorVisualizer" serializeAs="String">
+                <value>False</value>
+            </setting>
+            <setting name="AppLWDecoder" serializeAs="String">
+                <value>False</value>
+            </setting>
+            <setting name="UIGenAppKey" serializeAs="String">
+                <value>00000000000000000000000000000000</value>
+            </setting>
+            <setting name="UIFuotaClockVersion" serializeAs="String">
+                <value>100</value>
+            </setting>
+            <setting name="UIFuotaMulticastVersion" serializeAs="String">
+                <value>100</value>
+            </setting>
+            <setting name="UIFuotaFragmentVersion" serializeAs="String">
+                <value>100</value>
+            </setting>
+            <setting name="RfRxDataLen" serializeAs="String">
+                <value>16</value>
+            </setting>
+        </RLStudio.Properties.Settings>
+    </userSettings>
+  <runtime>
+    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
+      <dependentAssembly>
+        <assemblyIdentity name="LiveCharts" publicKeyToken="0bc1f845d1ebb8df" culture="neutral" />
+        <bindingRedirect oldVersion="0.0.0.0-0.9.7.0" newVersion="0.9.7.0" />
+      </dependentAssembly>
+      <dependentAssembly>
+        <assemblyIdentity name="System.Buffers" publicKeyToken="cc7b13ffcd2ddd51" culture="neutral" />
+        <bindingRedirect oldVersion="0.0.0.0-4.0.3.0" newVersion="4.0.3.0" />
+      </dependentAssembly>
+      <dependentAssembly>
+        <assemblyIdentity name="System.Runtime.CompilerServices.Unsafe" publicKeyToken="b03f5f7f11d50a3a" culture="neutral" />
+        <bindingRedirect oldVersion="0.0.0.0-6.0.0.0" newVersion="6.0.0.0" />
+      </dependentAssembly>
+    </assemblyBinding>
+  </runtime>
+</configuration>

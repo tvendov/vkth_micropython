@@ -1,0 +1,47 @@
+TOP ?= $(TINYUSB_ROOT)
+BOARD ?= vk_ra4m2
+
+# Use this from the root of arduino/arduino-renesas-bootloader:
+#   make -f Makefile.vk_ra4m2
+
+include $(TOP)/examples/build_system/make/make.mk
+
+INC += \
+  src \
+  $(TOP)/hw \
+
+EXAMPLE_SOURCE += $(wildcard src/*.c)
+
+# The local MicroPython VK_RA4M2 FSP output uses r_flash_hp.
+FSP_SOURCE += $(TOP)/hw/mcu/renesas/fsp/ra/fsp/src/r_flash_hp/r_flash_hp.c
+FSP_SOURCE += $(TOP)/hw/mcu/renesas/fsp/ra/fsp/src/r_gpt/r_gpt.c
+
+SRC_C += $(addprefix $(CURRENT_PATH)/, $(EXAMPLE_SOURCE))
+SRC_C += $(FSP_SOURCE)
+
+CFLAGS += -Os -flto
+CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += --warn-no-undef
+CFLAGS += -DFLASH_HP_CFG_CODE_FLASH_PROGRAMMING_ENABLE
+CFLAGS += -DFLASH_HP_CFG_DATA_FLASH_PROGRAMMING_ENABLE
+CFLAGS += -DUSB_PID=0x0369
+CFLAGS += -DUSB_VID=0x2341
+CFLAGS += -DBOARD_NAME=\"VK_RA4M2\"
+CFLAGS += -DDFU_LOADER
+CFLAGS += -DOVERRIDE_VECTOR_TABLE=1
+CFLAGS += -DSKETCH_FLASH_OFFSET=0x00010000
+CFLAGS += -DCODE_FLASH_DESCRIPTOR=\"@CodeFlash\ /0x00000000/8*8Ka,15*32Kg\"
+
+# LED1 is P204 in the MicroPython board pins.csv.
+# Keep PWM conservative; change these after validating the exact GPT function on P204.
+CFLAGS += -DLED_FADE_GPIO=BSP_IO_PORT_02_PIN_04
+CFLAGS += -DLED_FADE_PWM_OUT_A=1
+CFLAGS += -DLED_FADE_PWM_OUT_B=0
+CFLAGS += -DLED_FADE_PWM_CHANNEL=0
+CFLAGS += -DLED_TIMER_SOURCE_DIV=2
+
+LDFLAGS += -Wl,--gc-sections -flto
+
+include $(TOP)/examples/build_system/make/rules.mk
+
+LD_FILE = $(FAMILY_PATH)/linker/gcc/$(MCU_VARIANT).ld

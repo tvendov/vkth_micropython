@@ -36,3 +36,4 @@ user.props
 # Local generated artefacts for the VK_RA4M2 docs bundle
 /ports/renesas-ra/boards/VK_RA4M2/examples/BOOK_BG.generated.pdf
 /ports/renesas-ra/boards/VK_RA4M2/examples/html_project/.doctrees/
+secrets_local.py

@@ -1,0 +1,22 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstr.i.last
+GEN build-VK_RA4M2-r4/genhdr/qstr.split
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.split
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.split
+GEN build-VK_RA4M2-r4/genhdr/compressed.split
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.collected
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.collected
+GEN build-VK_RA4M2-r4/genhdr/compressed.collected
+QSTR not updated
+Module registrations not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC ra/ra_sci_spi.c
+CC lorawan/glue/sx126x_board.c
+LINK build-VK_RA4M2-r4/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: warning: build-VK_RA4M2-r4/firmware.elf has a LOAD segment with RWX permissions
+   text	   data	    bss	    dec	    hex	filename
+ 359656	      0	 129148	 488804	  77564	build-VK_RA4M2-r4/firmware.elf
+GEN build-VK_RA4M2-r4/firmware.hex
+GEN build-VK_RA4M2-r4/firmware.bin

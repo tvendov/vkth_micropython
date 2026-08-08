@@ -1,0 +1,82 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.collected
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.collected
+GEN build-VK_RA4M2-r4/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC lorawan/glue/utilities.c
+CC lorawan/mac/LoRaMac.c
+CC lorawan/mac/LoRaMacClassB.c
+CC lorawan/mac/LoRaMacCommands.c
+CC lorawan/mac/LoRaMacConfirmQueue.c
+CC lorawan/mac/LoRaMacCrypto.c
+CC lorawan/mac/LoRaMacDebug.c
+CC lorawan/mac/LoRaMacParser.c
+CC lorawan/mac/LoRaMacSerializer.c
+CC lorawan/mac/region/Region.c
+CC lorawan/mac/region/RegionCommon.c
+CC lorawan/mac/region/RegionEU868.c
+CC lorawan/radio/radio.c
+CC lorawan/radio/sx126x.c
+lorawan/radio/radio.c: In function 'RadioIsChannelFree':
+lorawan/radio/radio.c:822:31: error: 'RP_CCA_TIMER_MAX_TIME_MS' undeclared (first use in this function)
+  822 |     if( maxCarrierSenseTime > RP_CCA_TIMER_MAX_TIME_MS ) // Guard For Timer Max(Parameter Error)
+      |                               ^~~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:822:31: note: each undeclared identifier is reported only once for each function it appears in
+lorawan/radio/radio.c:879:23: error: implicit declaration of function 'RpMcuCcaGetCurrentCount' [-Werror=implicit-function-declaration]
+  879 |         currentTime = RpMcuCcaGetCurrentCount();
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:880:16: error: implicit declaration of function 'RpMcuCcaDiffTime' [-Werror=implicit-function-declaration]
+  880 |         while( RpMcuCcaDiffTime( currentTime ) < 1 ); // (RA2) min 244us, max 488us  (RA0) min 4us, max 37us
+      |                ^~~~~~~~~~~~~~~~
+lorawan/radio/radio.c: In function 'RadioTimeOnAir':
+lorawan/radio/radio.c:1441:73: error: 'RP_TOA_OFFSET_FSK_7KBPS' undeclared (first use in this function)
+ 1441 |                 (SX126x.ModulationParams.Params.Gfsk.BitRate >= 7000) ? RP_TOA_OFFSET_FSK_7KBPS :
+      |                                                                         ^~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:1442:73: error: 'RP_TOA_OFFSET_FSK_3KBPS' undeclared (first use in this function)
+ 1442 |                 (SX126x.ModulationParams.Params.Gfsk.BitRate >= 3000) ? RP_TOA_OFFSET_FSK_3KBPS :
+      |                                                                         ^~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:1443:73: error: 'RP_TOA_OFFSET_FSK_2KBPS' undeclared (first use in this function)
+ 1443 |                 (SX126x.ModulationParams.Params.Gfsk.BitRate >= 2000) ? RP_TOA_OFFSET_FSK_2KBPS :
+      |                                                                         ^~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:1444:73: error: 'RP_TOA_OFFSET_FSK_1KBPS' undeclared (first use in this function)
+ 1444 |                 (SX126x.ModulationParams.Params.Gfsk.BitRate >= 1000) ? RP_TOA_OFFSET_FSK_1KBPS :
+      |                                                                         ^~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:1445:17: error: 'RP_TOA_OFFSET_FSK_600BPS' undeclared (first use in this function)
+ 1445 |                 RP_TOA_OFFSET_FSK_600BPS;
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c:1458:24: error: 'RP_TOA_OFFSET_LORA' undeclared (first use in this function)
+ 1458 |             airTime += RP_TOA_OFFSET_LORA;
+      |                        ^~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c: In function 'RadioOnDioIrq':
+lorawan/radio/radio.c:1788:5: error: implicit declaration of function 'BoardRadioIrqPreprocess'; did you mean 'RadioIrqProcess'? [-Werror=implicit-function-declaration]
+ 1788 |     BoardRadioIrqPreprocess( );
+      |     ^~~~~~~~~~~~~~~~~~~~~~~
+      |     RadioIrqProcess
+lorawan/radio/radio.c: In function 'RadioEd':
+lorawan/radio/radio.c:2004:18: error: 'RP_CCA_TIMER_MAX_TIME_MS' undeclared (first use in this function)
+ 2004 |     if( edTime > RP_CCA_TIMER_MAX_TIME_MS)    // Guard For Timer Max(Parameter Error)
+      |                  ^~~~~~~~~~~~~~~~~~~~~~~~
+lorawan/radio/radio.c: In function 'RadioInitPib':
+lorawan/radio/radio.c:2390:33: error: 'RP_XTAL_XTA_TRIM' undeclared (first use in this function); did you mean 'PIB_XTAL_XTA_TRIM'?
+ 2390 |         PibValues.xtalXtaTrim = RP_XTAL_XTA_TRIM;
+      |                                 ^~~~~~~~~~~~~~~~
+      |                                 PIB_XTAL_XTA_TRIM
+lorawan/radio/radio.c:2391:33: error: 'RP_XTAL_XTB_TRIM' undeclared (first use in this function); did you mean 'PIB_XTAL_XTB_TRIM'?
+ 2391 |         PibValues.xtalXtbTrim = RP_XTAL_XTB_TRIM;
+      |                                 ^~~~~~~~~~~~~~~~
+      |                                 PIB_XTAL_XTB_TRIM
+cc1.exe: all warnings being treated as errors
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/radio/radio.o] Error 1
+make: *** Waiting for unfinished jobs....
+lorawan/radio/sx126x.c: In function 'SX126xSetTxParams':
+lorawan/radio/sx126x.c:604:9: error: 'RADIO_LOPOWER_SEL' undeclared (first use in this function)
+  604 |     if( RADIO_LOPOWER_SEL == SX126xGetPaSelect() )
+      |         ^~~~~~~~~~~~~~~~~
+lorawan/radio/sx126x.c:604:9: note: each undeclared identifier is reported only once for each function it appears in
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/radio/sx126x.o] Error 1

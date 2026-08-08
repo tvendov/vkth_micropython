@@ -2146,3 +2146,612 @@ Grafana ADR panel за Class A → захранен. След всеки сле�
 ### Чакам:
 - Operator Ctrl-R reload + Stop + Run на patched `class_a_demo.py` в Thonny → fCnt #2 нататък ще покаже истински dl_rssi/dl_snr в `demo.uplinks`.
 - След това всичките 4 Grafana panel (UL RSSI, UL SNR, DL RSSI, DL SNR) ще са пълни за Class A.
+
+---
+
+## MSG 2026-05-27 from=master to=slave subject=device-a-p109-control-add
+
+Добави GPIO P109 control в Device A демо stack. P109 = output pin на VK_RA4M2 (Port 1, Pin 09). Текущо състояние да се вижда в Grafana; ON/OFF да се задава от Grafana.
+
+### Дизайн (backward-compatible v3 frame)
+
+**Frame**: остава 8-byte `<hBHBbb` (UL fPort 10). Само се добавя нов flag bit:
+- `flags bit 3 (0x08)` = P109.value() at sample time
+- старите bits 0/1/2 (confirmed/adr/sensor_ok) — без промяна
+
+**Downlink cmd 0x04** на fPort 20:
+- `[0x04, 0x00]` → P109.value(0)
+- `[0x04, 0x01]` → P109.value(1)
+
+### Действия
+
+**1. `lorawan/demo/Example_A/class_a_demo.py`** (3 промени):
+
+a) Глобална + init в `main()` след OLED/AHT20:
+```python
+_p109 = None  # global
+
+def main():
+    global _p109
+    ...
+    _p109 = Pin("P109", Pin.OUT, value=0)
+    print("P109 init=0")
+```
+
+b) В `_build_payload(...)` flags update:
+```python
+flags |= 0x04 if sensor_ok else 0
+flags |= 0x08 if (_p109 is not None and _p109.value()) else 0
+```
+
+c) В `_dispatch_downlink(port, data, rgb)` добави cmd 0x04:
+```python
+elif cmd == 0x04 and len(data) >= 2:
+    val = 1 if data[1] else 0
+    if _p109 is not None:
+        _p109.value(val)
+    print("RX port=20 cmd=set_p109 val=%d" % val)
+```
+
+d) В `_render(oled)` (по желание) — покажи P109 на ред 16 заедно с UL/DL.
+
+**2. `lorawan/demo/provision/codecs/codec_A.js`** (2 промени):
+
+a) `decodeUplink` — добави в `flags`:
+```js
+flags: {
+    confirmed:  (b[5] & 0x01) !== 0,
+    adr:        (b[5] & 0x02) !== 0,
+    sensor_ok:  (b[5] & 0x04) !== 0,
+    p109:       (b[5] & 0x08) !== 0
+}
+```
+
+b) `encodeDownlink` — добави преди `unknown command`:
+```js
+if (d.command === "set_p109")
+    return { bytes: [0x04, d.value ? 1 : 0], fPort: 20 };
+```
+
+**3. ChirpStack reload codec** — Web UI Device Profile → Codec → paste new `codec_A.js`. Document command in slave reply.
+
+**4. Server-side control endpoint** на ChirpStack-host (192.168.2.130):
+
+Създай `/opt/demo/p109_ctl.py` като малък HTTP listener на :8081. Inserts в `device_queue_item` (auto-pickup при следващ UL — Class A scheduler).
+
+```python
+#!/usr/bin/env python3
+# /opt/demo/p109_ctl.py — usage: GET /p109?value=0|1
+import psycopg2, base64, uuid
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse, parse_qs
+
+DEVEUI = "70b3d57ed0070001"
+DSN = "host=localhost dbname=chirpstack user=chirpstack password=chirpstack"
+
+class H(BaseHTTPRequestHandler):
+    def _send(self, code, body):
+        self.send_response(code); self.send_header("Access-Control-Allow-Origin","*")
+        self.send_header("Content-Type","text/plain"); self.end_headers()
+        self.wfile.write(body.encode())
+    def do_GET(self):
+        q = parse_qs(urlparse(self.path).query)
+        v = q.get("value", ["0"])[0]
+        if v not in ("0","1"):
+            return self._send(400, "value must be 0 or 1")
+        payload = bytes([0x04, int(v)])
+        try:
+            db = psycopg2.connect(DSN); db.autocommit=True
+            with db.cursor() as cur:
+                cur.execute("""INSERT INTO device_queue_item
+                    (id, dev_eui, created_at, f_port, confirmed, data, is_encrypted)
+                    VALUES (%s, decode(%s,'hex'), NOW(), 20, false, decode(%s,'hex'), false)""",
+                    (str(uuid.uuid4()), DEVEUI, payload.hex()))
+            self._send(200, "queued p109=%s" % v)
+        except Exception as e:
+            self._send(500, str(e))
+    def log_message(self, *a): pass
+
+HTTPServer(("0.0.0.0", 8081), H).serve_forever()
+```
+
+Setup:
+```bash
+sudo cp p109_ctl.py /opt/demo/p109_ctl.py
+sudo chmod +x /opt/demo/p109_ctl.py
+sudo tee /etc/systemd/system/p109-ctl.service <<UNIT
+[Unit]
+Description=Device-A P109 GPIO control HTTP endpoint
+After=postgresql.service
+[Service]
+ExecStart=/usr/bin/python3 /opt/demo/p109_ctl.py
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable --now p109-ctl
+```
+
+Test:
+```bash
+curl http://192.168.2.130:8081/p109?value=1   # → "queued p109=1"
+curl http://192.168.2.130:8081/p109?value=0   # → "queued p109=0"
+```
+
+**5. Grafana panel** в съществуващия Device A dashboard:
+
+a) **Stat panel "P109 status"**:
+- Query: `SELECT ts AS time, (flags & 8) > 0 AS p109 FROM demo.uplinks WHERE deveui='70B3D57ED0070001' ORDER BY ts DESC LIMIT 1`
+- Value mappings: `true` → "ON" (green), `false` → "OFF" (red)
+- Stat type: "Last value"
+
+b) **Text panel HTML buttons** (no extra plugin needed, HTML mode ON):
+```html
+<div style="display:flex;gap:10px;">
+  <a href="http://192.168.2.130:8081/p109?value=1" target="_blank"
+     style="padding:10px 20px;background:#4caf50;color:#fff;border-radius:4px;text-decoration:none;">P109 ON</a>
+  <a href="http://192.168.2.130:8081/p109?value=0" target="_blank"
+     style="padding:10px 20px;background:#f44336;color:#fff;border-radius:4px;text-decoration:none;">P109 OFF</a>
+</div>
+<p style="margin-top:8px;color:#888;font-size:0.9em;">Команда се изпълнява при следващия Class A uplink (≤30 s).</p>
+```
+
+### Тестов план
+
+1. Build/flash не е нужен — само Python промени. Restart Device A демо.
+2. Hard JLink reset RSetType 2 преди rerun.
+3. Mpremote run `class_a_demo.py`. Join → 2-3 UL → потвърди че `flags & 8 = 0` в `demo.uplinks`.
+4. `curl http://192.168.2.130:8081/p109?value=1` → следващ UL `flags & 8 = 8`. Измери P109 с DMM/scope.
+5. `curl ...value=0` → flags назад на 0. P109 = 0V.
+6. Grafana panel Stat поне 5s след всеки UL — да съвпада.
+
+### Constraints / правила
+
+- **Без C промени** — само Python + server-side scripts. Стекът E SERTIFICIRAN.
+- P109 трябва да е свободен на VK_RA4M2 — провери `pins.csv` няма конфликт с SPI/I2C/MAC. Ако P109 е заявен другаде, докладвай.
+- Default state = 0 (LOW) при boot. Persistence през reboot НЕ е изискване сега.
+- Credentials in plain (DSN, DEVEUI 70B3D57ED0070001, AppKey 9A7F263557E26259B7061BD6FC8EBA27, SSH vkrz/vkrzg2lc).
+
+### Очакван reply
+
+`subject=device-a-p109-control-done` с:
+- diff на `class_a_demo.py` и `codec_A.js`
+- status на p109-ctl.service (`systemctl status`)
+- curl-test изход (queued p109=0/1)
+- първия UL фрейм със `flags & 8 = 8` from `demo.uplinks`
+- линк/screenshot на Grafana Stat panel
+- pin conflict report (yes/no)
+
+---
+
+## MSG 2026-05-27 from=master to=slave subject=device-a-p109-oled-on-off addendum=device-a-p109-control-add
+
+Допълнение към P109 спецификацията — OLED render да показва **"ON"** или **"OFF"** (не "P109").
+
+### Промяна в `_render(oled)` на `class_a_demo.py`
+
+Замени реда `"R%4d S%3d i%3d"` (line 154) с разделение: RSSI/SNR на ред 24, а на ред 16 добави P109 state.
+
+Препоръчителен layout (4 реда × 8 px = 32 px height):
+```
+y= 0: "STATE     A"           ← _state + class
+y= 8: "T 23.4 H 50.5%"        ← AHT20
+y=16: "UL 123 DL  5 ON"       ← UL/DL counters + P109 state
+y=24: "R-105 S-08 i 30"       ← RSSI/SNR/interval
+```
+
+Patch (replace lines 152-155 в `_render`):
+```python
+p109_txt = "ON " if (_p109 is not None and _p109.value()) else "OFF"
+fb.text("UL%3d DL%3d %s" % (_ul_total, _dl_total, p109_txt), 0, 16, 1)
+fb.text("R%4d S%3d i%3d" % (_last_rx_rssi, _last_rx_snr, _uplink_interval_s),
+        0, 24, 1)
+```
+
+Note: 128-px wide OLED, 6-px font → ~21 chars per ред. `"UL999 DL999 OFF"` = 15 chars ✅ fits.
+
+### Тестов план (add to existing)
+
+7. След join + първи UL — OLED ред 16 показва "OFF" (default).
+8. `curl http://192.168.2.130:8081/p109?value=1` → следващ UL → OLED → "ON ".
+9. `curl ...value=0` → OLED → "OFF" обратно.
+
+Reply add: фото/screenshot на OLED при ON и при OFF.
+
+---
+
+## MSG 2026-05-27 from=master to=slave subject=device-a-p109-virtual-only addendum=device-a-p109-control-add
+
+**ОТМЯНА на физически пин.** P109 е SPI(3) — заето. За сега го правим **virtual state** само: ON/OFF се пази в global flag, показва се на OLED, репортира се в `flags bit 3`. Без `machine.Pin`. Свободен пин ще намерим по-късно.
+
+### Промени спрямо оригиналния spec
+
+**1. `class_a_demo.py`** — БЕЗ `Pin("P109", ...)`:
+
+a) Замени global `_p109 = None` с:
+```python
+_relay_state = 0   # virtual ON/OFF flag set by DL cmd 0x04
+```
+
+b) В `main()` — премахни `_p109 = Pin(...)`. Нищо за init.
+
+c) `_build_payload(...)` — замени P109 ред с:
+```python
+flags |= 0x08 if _relay_state else 0
+```
+
+d) `_dispatch_downlink(...)` cmd 0x04:
+```python
+elif cmd == 0x04 and len(data) >= 2:
+    global _relay_state
+    _relay_state = 1 if data[1] else 0
+    print("RX port=20 cmd=set_relay val=%d" % _relay_state)
+```
+
+e) `_render(oled)` — OLED показва ON/OFF (patch от предишния MSG, но с `_relay_state`):
+```python
+relay_txt = "ON " if _relay_state else "OFF"
+fb.text("UL%3d DL%3d %s" % (_ul_total, _dl_total, relay_txt), 0, 16, 1)
+```
+
+**2. `codec_A.js`** — БЕЗ промяна спрямо предишния spec. `flags.p109` decode + `set_p109` encode остават (име на полето е виртуално). Алтернативно преименувай в `relay` за яснота — кажи какво избираш.
+
+**3. Server p109-ctl.service** — БЕЗ промяна. Същият endpoint `/p109?value=0|1` работи; той само пуска DL команда в queue, device я приема и обновява `_relay_state`.
+
+**4. Grafana** — БЕЗ промяна. Stat panel `(flags & 8) > 0` показва virtual state.
+
+### Тестов план (опростен — без DMM)
+
+1. Restart `class_a_demo.py`. Първи UL → `flags & 8 = 0`, OLED ред 16 → "OFF".
+2. `curl http://192.168.2.130:8081/p109?value=1` → следващ UL → `flags & 8 = 8`, OLED → "ON".
+3. `curl ...value=0` → `flags & 8 = 0` отново, OLED → "OFF".
+4. Grafana Stat panel update ≤5s след всеки UL.
+
+### Reply
+
+`subject=device-a-p109-control-done` с:
+- diff на `class_a_demo.py` и `codec_A.js`
+- p109-ctl.service status
+- UL serialization sequence (3-4 фрейма през ON/OFF/ON cycle от DB)
+- OLED фото при ON и при OFF
+- (НЕ е нужно pin conflict report — няма физически пин)
+
+### Open question за по-късно
+
+Когато операторът укаже свободен пин (вероятно P304/P305/P306/P408+), добавяме `Pin(name, Pin.OUT)` и mirror `_relay_state` на хардуера. Текущата virtual версия е "step 1".
+
+---
+
+## MSG 2026-05-27 from=master to=slave subject=device-a-p109-use-p103 addendum=device-a-p109-virtual-only
+
+**Финален вариант — използваме P103 като физически GPIO + OLED показва ON/OFF.**
+
+### Промени спрямо `device-a-p109-virtual-only`
+
+**1. `class_a_demo.py`** — върни физическия пин, но на **P103** (НЕ P109):
+
+a) Global:
+```python
+_relay = None         # machine.Pin object on P103
+_relay_state = 0      # cached value for OLED/payload (also = _relay.value())
+```
+
+b) В `main()` след OLED/AHT20 init:
+```python
+global _relay
+_relay = Pin("P103", Pin.OUT, value=0)
+print("P103 relay init=0")
+```
+
+c) `_build_payload(...)`:
+```python
+flags |= 0x08 if _relay_state else 0
+```
+
+d) `_dispatch_downlink(...)` cmd 0x04:
+```python
+elif cmd == 0x04 and len(data) >= 2:
+    global _relay_state
+    val = 1 if data[1] else 0
+    _relay_state = val
+    if _relay is not None:
+        _relay.value(val)
+    print("RX port=20 cmd=set_relay P103=%d" % val)
+```
+
+e) `_render(oled)` — патчът от предишния MSG остава, ON/OFF на ред 16.
+
+**2. Проверка за конфликт** — P103 трябва да е свободен. Слейв да:
+- `grep -n "P103" lorawan/demo/Example_A/class_a_demo.py` (текущ файл — нула очаквания преди патча)
+- `grep -rn "P103" ports/renesas-ra/boards/VK_RA4M2/ ports/renesas-ra/lorawan/` за external pin maps
+- Ако P103 е заявен от SPI(3)/UART/I2C alt-func в pinmux — спри и докладвай.
+
+**3. codec_A.js**, **p109-ctl.service**, **Grafana panel** — БЕЗ промяна спрямо предишния spec. (Endpoint URL пътя `/p109` остава за simplicity; етикетът в DL e cmd 0x04, не пин-специфичен.)
+
+### Тестов план
+
+1. JLink RSetType 2 reset → Stop Thonny → mpremote run.
+2. Join + 2 UL → `flags & 8 = 0`, OLED "OFF". DMM на P103 → 0V.
+3. `curl http://192.168.2.130:8081/p109?value=1` → следващ UL → `flags & 8 = 8`, OLED "ON ", DMM на P103 → ~3.3V.
+4. `curl ...value=0` → DMM → 0V, OLED "OFF".
+5. Grafana Stat panel mirror state ≤5s след UL.
+
+### Reply
+
+`subject=device-a-p103-control-done` (преименуван за яснота) с:
+- diff на `class_a_demo.py`
+- pin conflict report (yes/no, grep output)
+- DMM измерване на P103 при ON и при OFF
+- OLED фото ON/OFF
+- 3-4 UL frame sequence от `demo.uplinks` с oscilliating `flags & 8`
+
+---
+
+## MSG 2026-05-28 from=master to=slave subject=device-a-relay-fast-confirm-uplink
+
+**Проблем:** платката прилага relay команда мигновено (OLED/P103), но Grafana изостава ~30 s. Root cause: Stat panel чете `flags & 8` от `demo.uplinks`, а този флаг пътува чак на СЛЕДВАЩИЯ scheduled uplink след прилагане на DL. Class A говори само на 30 s → потвърждението се връща един интервал по-късно.
+
+**Fix:** при relay DL (cmd 0x04) форсирай confirming uplink веднага (DC-safe), вместо да чакаш 30 s таймера. Това сваля Grafana lag от ~30 s на ~3-4 s.
+
+### Промени в `lorawan/demo/Example_A/class_a_demo.py`
+
+**1. Нов global** (до `_relay_state` ~line 131-132):
+```python
+_force_uplink      = False  # set by relay DL → triggers immediate confirming UL
+```
+
+**2. `_dispatch_downlink` cmd 0x04** (line 196-201) — добави `_force_uplink`:
+```python
+elif cmd == 0x04 and len(data) >= 2:          # set_relay → P103 + flag
+    global _relay_state, _force_uplink
+    _relay_state = 1 if data[1] else 0
+    if _relay_pin is not None:
+        _relay_pin.value(_relay_state)
+    _force_uplink = True                       # ← confirm new state ASAP
+    print("RX port=20 cmd=set_relay val=%d (force UL)" % _relay_state)
+```
+
+**3. Главен цикъл** — добави `_force_uplink` в глобалите на `main()` и промени `due` логиката (line 317):
+
+a) В `main()` global декларацията (line 205-206) добави `_force_uplink`:
+```python
+global _temp_c100, _hum_p2, _last_rx_rssi, _last_rx_snr, _relay_pin, _force_uplink
+```
+
+b) Замени line 317:
+```python
+due = time.ticks_diff(time.ticks_ms(), last_uplink_t) >= _uplink_interval_s * 1000
+```
+с:
+```python
+# DC-safe forced UL: relay-confirm fires early but keeps >=3 s spacing
+# (EU868 1% duty cycle — back-to-back UL on same channel would be rejected;
+#  3 s lets LoRaMac pick a free channel).
+forced = _force_uplink and \
+    time.ticks_diff(time.ticks_ms(), last_uplink_t) >= 3000
+due = forced or \
+    time.ticks_diff(time.ticks_ms(), last_uplink_t) >= _uplink_interval_s * 1000
+```
+
+c) Веднага след `if due:` (нов ред 318) изчисти флага:
+```python
+if due:
+    _force_uplink = False
+    _state = "TX"
+    ...
+```
+
+### Защо 3 s guard
+DL пристига в RX1/RX2 (~1-2 s след предишния UL). Незабавен UL би бил ~2 s след предишния → същия sub-band може да е DC-restricted. 3 s + LoRaMac channel-hop = безопасно. Ако пак върне DUTY_CYCLE — `_force_uplink` остава False (вече изчистен), но следващият редовен UL пак ще носи верния флаг, така че не блокираме.
+
+### Тестов план
+1. JLink RSetType 2 → Stop Thonny → mpremote run.
+2. Join → 1-2 UL → бележи времето.
+3. Grafana slider → ON. Засечи:
+   - кога OLED/P103 стане ON (очаквано: следващ DL прозорец, ≤30 s)
+   - кога Grafana Stat стане зелено (очаквано сега: ~3-4 s СЛЕД OLED, не ~30 s)
+4. Повтори OFF.
+5. Потвърди в `demo.uplinks`: след forced UL, intervалът между него и предишния е >=3 s (виж `ts` колоната), няма DUTY_CYCLE грешки в REPL.
+
+### Reply
+`subject=device-a-relay-fast-confirm-done` с:
+- diff (3 hunk-а)
+- REPL лог: timestamp на DL apply vs timestamp на forced UL (Δ)
+- `demo.uplinks` редове около ON/OFF цикъл с `ts` (докажи <5 s board→Grafana)
+- има ли DUTY_CYCLE rejection в лога (yes/no)
+
+### Constraint
+- Само `class_a_demo.py` (demo Python). БЕЗ vendor stack промени. Стекът E SERTIFICIRAN.
+- Credentials plain: DEVEUI 70B3D57ED0070001, AppKey 9A7F263557E26259B7061BD6FC8EBA27, JoinEUI 0000000000000000.
+
+---
+
+## MSG 2026-05-28 from=master to=slave subject=device-a-oled-show-wake-interval
+
+Малка промяна на OLED — да се показва ясно на колко секунди се буди/рапортува устройството (`_uplink_interval_s`).
+
+### Текущо
+Ред 4 (`_render`, ~line 157): `fb.text("R%4d S%3d i%3d" % (_last_rx_rssi, _last_rx_snr, _uplink_interval_s), 0, 24, 1)` → показва криптично `i 30`.
+
+### Искане
+Покажи интервала ясно като `<N>s`. Пример layout (21 chars/line @ 6px font, 128px):
+```
+y=24:  R-105 S-08  30s
+```
+
+Замени реда:
+```python
+fb.text("R%4d S%3d %2ds" % (_last_rx_rssi, _last_rx_snr, _uplink_interval_s), 0, 24, 1)
+```
+(`%2ds` вместо `i%3d` — спестява 1 char, добавя 's' суфикс за яснота. `30s` = "будя се на 30 секунди".)
+
+Ако предпочиташ по-явно с думичка и има място на друг ред — алтернатива на ред 3 (`UL.. DL.. ON`):
+вече е пълен, така че `30s` на ред 4 е най-чисто.
+
+### Защо
+Демо публиката трябва да вижда device wake cadence (30 s) за да го съпостави с Grafana (refresh 5 s). `_uplink_interval_s` се обновява live при `set_interval` DL (cmd 0x01), така че дисплеят винаги показва актуалния интервал.
+
+### Constraint
+- Само `class_a_demo.py` `_render()`. Едноредова промяна. БЕЗ vendor stack.
+- Комбинирай с pending `device-a-relay-fast-confirm-uplink` ако още не е merge-нат.
+
+### Reply
+`subject=device-a-oled-wake-interval-done` + OLED фото показващо `30s` на ред 4.
+
+---
+
+## MSG 2026-05-28 from=master to=slave subject=device-a-c-unified-interval-protocol
+
+Operator иска **per-device задаване на uplink интервал от Grafana, стъпки от 5 s**, унифицирано за A и C. Сегашните протоколи са несъвместими (A: fPort20 cmd0x01 стъпки 10s; C: fPort23 cmd0x01 минути). Унифицираме.
+
+### Единен протокол (set + feedback)
+
+- **Set:** fPort **20**, нов **cmd 0x05**, 1 байт = `seconds/5`. → `_interval = data[1]*5` (s). Диапазон 10–1275 s, стъпка 5 s.
+- **Feedback:** append **1 байт** `interval_s/5` в КРАЯ на uplink payload-а (A и C). Така Grafana чете реалния активен интервал.
+
+### `class_a_demo.py`
+
+**1. `_dispatch_downlink` — добави cmd 0x05** (до съществуващите 0x01–0x04):
+```python
+elif cmd == 0x05 and len(data) >= 2:          # unified set_interval (units of 5s)
+    secs = data[1] * 5
+    if secs >= 10:
+        global _uplink_interval_s
+        _uplink_interval_s = secs
+        print("RX port=20 cmd=set_interval(0x05) s=%d" % secs)
+```
+(Запази стария 0x01 за back-compat или махни — твой избор, но 0x05 е каноничният.)
+
+**2. `_build_payload` — append interval байт.** Сегашно: `struct.pack("<hBHBbb", temp, hum, batt, flags, rssi, snr)` (8B). Ново (9B):
+```python
+return struct.pack("<hBHBbbB",
+    temp_c100, hum_p2, battery_mv, flags, _last_rx_rssi, _last_rx_snr,
+    _uplink_interval_s // 5)
+```
+
+### `class_c_demo.py`
+
+**1. `_dispatch_downlink` — добави cmd 0x05 на fPort 20** (C сега ползва fPort 23 за config; добави 0x05 handler на 20 за унификация):
+```python
+elif cmd == 0x05 and len(data) >= 2:          # unified set_interval (units of 5s)
+    secs = data[1] * 5
+    if secs >= 10:
+        global _uplink_interval_ms
+        _uplink_interval_ms = secs * 1000
+        print("RX port=20 cmd=set_interval(0x05) s=%d" % secs)
+```
+(Внимание: C проверява fPort в `_dispatch_downlink` — увери се cmd 0x05 се рутира при port==20, не само 22/23.)
+
+**2. C uplink payload — append interval байт.** Сегашно 11B (`<hBHB`+rssi+snr+dl_count+lat_u16). Ново 12B: append `_uplink_interval_ms//5000` (= seconds/5) като последен `B`. Покажи точния `struct.pack` ред който ползваш.
+
+### OLED (и за двете)
+- A: вече подадено в `device-a-oled-show-wake-interval` (покажи `30s`). С новия live `_uplink_interval_s` дисплеят ще отразява зададената стойност.
+- C: ако има OLED interval ред — също да показва `_uplink_interval_ms//1000` като `Ns`.
+
+### Тестов план
+1. JLink RSetType 2 → run A demo.
+2. Потвърди uplink payload е 9 байта (A) — провери `len` в REPL print.
+3. От REPL (или изчакай master да пусне Grafana endpoint) queue cmd 0x05: напр. seconds=15 → `[0x05, 3]`. Очаквано: следващ wake на 15 s, OLED `15s`, uplink байт[8]=3.
+4. Повтори за C (12 байта payload, fPort 20 cmd 0x05).
+5. Без DUTY_CYCLE при 10–15 s? Докладвай (SF7/DR5 е близо до DC под).
+
+### Constraint
+- Само demo Python (`class_a_demo.py`, `class_c_demo.py`). БЕЗ vendor stack. Стекът E SERTIFICIRAN.
+- Payload промяната ще счупи bridge/codec докато master не ги ъпдейтне — координирай: master прави bridge+codec+DB column паралелно. Кажи кога board е готов.
+
+### Reply
+`subject=device-a-c-unified-interval-done` с:
+- diff на двата файла (dispatch + payload pack редове)
+- REPL: A payload len=9, C len=12; byte стойност на interval полето
+- тест: set 15s → wake на 15s, OLED `15s`, без DC rejection (yes/no)
+
+---
+
+## MSG 2026-05-29 from=master to=slave subject=data-flash-strategy-arch-confirm
+
+### Какво искам
+Прекарай долната DATA_FLASH стратегия през **architect-mpy-ra** и върни потвърждение / възражения. Пълният документ: `boards/VK_RA4M2/examples/27_storage/DATA_FLASH.md`. Това е дизайн за ревю, **не** заявка за имплементация още.
+
+### Контекст (потвърден с оператора)
+- Устройството **спи дълбоко (Software Standby), буди се от RTC, RAM се запазва** (resume, не reset). Затова броячите оцеляват sleep без флаш.
+- Демо pipeline: device → gateway → ChirpStack → MQTT → mqtt_bridge → DB → Grafana.
+
+### Адресна карта (data flash 8 KB, 64 B erase, 4 B write)
+| Регион | Блок(ове) | Адреси | Размер |
+|---|---|---|---|
+| CRED | 0 | `0x40100000–0x4010003F` | 64 B |
+| NVM_A | 1–32 | `0x40100040–0x4010083F` | 2048 B |
+| NVM_B | 33–64 | `0x40100840–0x4010103F` | 2048 B |
+| NONCE | 65–66 | `0x40101040–0x401010BF` | 128 B |
+| CONFIG | 67 | `0x401010C0–0x401010FF` | 64 B |
+| APP | 68–127 | `0x40101100–0x40101FFF` | 3840 B |
+
+### Стратегия за брояча (за потвърждение)
+1. **uplink → `FCntUp++` само в RAM. Нула флаш.** Sleep/wake пази RAM.
+2. **Запис 1×/24 ч, ПРЕЗ PYTHON.** C само сериализира: `mac.nvm_blob()` (MibGet) / `mac.nvm_restore_blob()` (MibSet) / `mac.advance_fcnt(N)`. Python пише банка+CONFIG през region-aware `dataflash` (ping-pong, `valid_magic` последно).
+3. **Cold boot:** Python чете банка → `nvm_restore_blob` → `FCntUp += N`, `N = 86400 / interval_s`.
+4. **Ограничение:** `N < 16384` (MAX_FCNT_GAP, EU868) → интервал ≥ ~6 s.
+5. **Износване:** 1 запис/ден → ~500+ години.
+
+### CRED v2 — Python-only
+- 44 B record, version `0x02`, ново поле **`device_number`** (uint32 BE @ `0x40100026`), CRC над 0..41.
+- Пише се от `provision_credentials.py` (`dataflash.region("CRED")`), чете се от `read_credentials.py` → `mac.set_keys(...)`.
+- **C credential reader `dflash_load_credentials()` ПРЕМАХНАТ** (dead code, противоречеше на „Python владее CRED"). `crc16_ccitt` също махнат от `dflash_lwnvm.c`.
+- `interval_s` идва от Grafana по downlink, пази се в CONFIG. `device_number` влиза в uplink payload-а за Grafana.
+
+### Въпроси за архитекта
+1. Region-aware `dataflash` (default=APP, `region(name)` за привилегированите) — приемлив ли е като единствен flash-writer, при положение че твърд guard срещу „друг Python код" няма?
+2. C↔Python blob контракт (`nvm_blob`/`nvm_restore_blob`/`advance_fcnt`) — достатъчен ли е, или липсва нещо за коректен MibGet/MibSet цикъл?
+3. `advance_fcnt(N)` — къде да модифицира FCntUp безопасно (crypto context vs MIB), за да не разсинхронизира стека?
+4. Сляп +1 ден margin vs RTC-базиран (`elapsed/interval`) — кой да заложим?
+5. Преоразмеряване NVM банки 4032 B → 2048 B — има ли риск blob да прелее (текущ ~1.35 KB)?
+
+### Reply
+`subject=data-flash-strategy-arch-confirm-done` с: вердикт на архитекта (OK / промени), отговори по 5-те въпроса, и всякакви пропуснати ръбове (cache coherency, power-loss прозорец, GC roots при Python-писане).
+
+---
+
+## MSG 2026-05-29 from=master to=slave subject=q4-override-advance-N_MAX
+
+Получих arch ревюто (`data-flash-strategy-arch-confirm-done`) — Q1/Q2/Q3/Q5 приети както са дадени, ще влязат. **Но Q4 е override-нат от оператора — има дефект.**
+
+### Дефект в Q4 (`N = ceil(elapsed / interval_current)`)
+`interval_s` се сменя от Grafana по време на работа (диапазон 10–1275 s). Ако в незаписания прозорец интервалът е бил **10 s**, после сменен на **360 s**, и cold boot стане след смяната → `elapsed / 360` дава ~36× по-малко от реално пратените кадри (които са били на 10 s). → FCntUp изостава под последно видяното → **мрежата дропва uplink-ите**. RTC-elapsed с текущия интервал е грешен примитив.
+
+### Коригиран Q4 — адвансвай МАКСИМУМА (фиксиран)
+```
+N_MAX = 86400 / MIN_INTERVAL_S      # цял ден при НАЙ-БЪРЗИЯ позволен интервал
+FCntUp += N_MAX                      # винаги, независимо от текущия interval_s
+```
+- `MIN_INTERVAL_S = 10 s` (долна Grafana граница) → `N_MAX = 8640`.
+- Прозорец ≤ 24 ч (пишем 1×/ден) → реалните кадри ≤ `N_MAX` винаги → гарантирано отгоре.
+- **Не чете RTC/elapsed/interval_current** → имунен към смяна на интервала.
+- Цена: ~8640 изгорени FCnt/reset (32-бит → ~500k reset-а) — пренебрежимо.
+- **Cap:** `N_MAX ≥ 16384` (MAX_FCNT_GAP) → **re-join** вместо advance. При MIN=10 s, 8640 < 16384 → OK.
+- `last_write_ts` в CONFIG остава само за диагностика; margin-ът НЕ зависи от него.
+
+`advance_fcnt(N_MAX)` пак през crypto setter, пак СЛЕД `nvm_restore_blob` (Q3 остава непокътнат).
+
+### Тест (ключовият сценарий)
+provision+join → ръчен запис (`F0`) → uplink-и на 10 s → **смени на 360 s** → още uplink-и → **hard reset** → очаквай `FCntUp == F0 + 8640` (НЕ `F0 + elapsed/360`).
+
+### Reply
+`subject=q4-override-acked` — потвърди че разбираш N_MAX (фиксиран max, не elapsed), и че го закачаш заедно с Q2/Q3 при green-light. `DATA_FLASH.md` вече е обновен с тази версия.
+
+---
+
+## MSG 2026-05-29 from=master to=slave subject=df-base-confirmed-and-sync
+
+### 1. Base адрес — потвърден, ти беше прав
+Проверих datasheet-а на диска (`boards/VK_RA4M2/examples/r01uh0892ej0140-ra4m2.txt`, ред 4965): data flash = **`0x0800_0000 – 0x0800_1FFF`** (8 KB). `0x40100000` се среща 0 пъти; `0x407F_C000` е само FACI/FLAD control регистрите. Потвърдено и от BSP (`ra4m2/bsp_feature.h` → `0x08000000U`) и board linker. Твоят fix на `DF_BASE` е верен. **Грешката беше моя** (приложих RA4M1-ерата адрес). `DATA_FLASH.md` + `dflash_lwnvm.h`/`nvm_board.c` коментари — обновени на 0x08000000.
+
+### 2. Sync разминаване — `dflash_load_credentials`
+Докладва, че `dflash_load_credentials()` / `crc16_ccitt()` **все още присъстват** в `dflash_lwnvm.c`. Но аз вече ги **премахнах** (на master копието): `dflash_lwnvm.c` + `.h` — функцията и `crc16_ccitt` ги няма, заменени с коментар „CRED е Python-only". Grep на master: 0 референции.
+→ **Значи билдваш на копие без моето премахване.** Изясни: кой `dflash_lwnvm.c` е каноничен? Ако твоят HIL билд още има функцията, тя е dead (boot restore е независим през MIB_NVM_CTXS), но трябва да я махнем за да съвпаднем. Потвърди дали да pull-неш моето премахване или вече си го направил независимо.
+
+### 3. Дребно — коментар в `dataflash_partition.h`
+Твоят `DF_BASE` е верен (0x08000000), но ASCII картата в шапката (редове 8, 14–19) още изписва `0x40100000-...`. Подвеждащо до правилния define. Оправи коментара на 0x0800xxxx когато пипаш файла (define-ите са ок, само текстът).
+
+### Reply
+`subject=df-base-sync-done` с: (а) кой `dflash_lwnvm.c` state е каноничен и дали `dflash_load_credentials` е махнат при теб; (б) резултат от DF-5 margin теста (очаквано `F0 + 8640` след reset).

@@ -1,0 +1,68 @@
+"RA2E1, RA2L1, RA0E1, RA0E2 LoRa-based Wireless Software Package" Release Notes 
+                                                                         Nov. 28, 2025
+
+--------------------------------------------------------------------------------------
+[ LICENSE ]
+
+  By using this software, you agree to the terms and conditions described in
+  LICENSE.TXT and/or LICENSE_RENESAS.TXT in each directory.
+
+--------------------------------------------------------------------------------------
+[ VERSION ]
+
+  4.90
+
+[ What's new in V4.90 ]
+
+  - Software Development Tools:
+    + Updated supported version of software development tools
+      + e2 studio 2025-10 with FSP6.2.0
+  - Fixed some issues of LoRaFuotaSample (Firmware Update over LoRaWAN sample application).
+    + For details, please refer to the release note in
+        (package top)\documents\LoRaWAN\RELEASENOTE.TXT
+
+[ CONTENTS ]
+
+  This software package contains the following software.
+
+    - LoRaWAN(R) Stack and Sample Application
+      + LoRaWAN Protocol Stack
+        + source code, documents
+      + LoRaSample (LoRaWAN sample application with AT-command)
+        + source code, binary, documents
+      + LoRaFuotaSample (Firmware Update over LoRaWAN sample application with AT-command)
+        + source code, binary, documents
+
+    - Private LoRa Stack and Sample Application
+      + Private LoRa Stack
+        + source code, documents
+      + Private LoRa Sample Application with AT-command
+        + source code, binary, documents
+      + LoRaWAN(R) and Private LoRa Combination Sample Application with AT-command
+        + source code, binary, documents
+
+    - LoRa(R) Radio Driver, Sample Applications
+      + Radio Driver for LoRa
+        + source code, API specification
+      + RadioEvalApp (Radio Evaluation Program with AT-command)
+        + source code, binary, documents
+      + ping-pong (Simple Sample Application using Radio Driver)
+        + source code, no binary, no documents
+
+    - Evaluation Tools
+      + Renesas LPWA Studio (Windows GUI front end for RadioEvalApp)
+        + executable binary, documents, script for Wireshark
+      + Renesas LPWA Power Estimator (Windows Excel Application Program)
+        + excel work sheet, documents
+
+  For more detail, please refer to each release note for the software located in
+  (package top)\documents\(software)\RELEASENOTE.TXT
+
+[ Development Tools ]
+
+  - e2 studio 2025-10 with FSP6.2.0
+
+[ Getting Started ]
+
+  Please refer to the following Application Note.
+  (package top)\documents\r11an0596ej0490-ra-lora.pdf

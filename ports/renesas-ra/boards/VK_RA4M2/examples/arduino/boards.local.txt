@@ -1,0 +1,46 @@
+##############################################################
+vk_ra4m2.name=VK_RA4M2
+vk_ra4m2.build.core=arduino
+vk_ra4m2.build.crossprefix=arm-none-eabi-
+vk_ra4m2.build.compiler_path={runtime.tools.arm-none-eabi-gcc-7-2017q4.path}/bin/
+vk_ra4m2.build.variant=VK_RA4M2
+vk_ra4m2.build.mcu=cortex-m33
+vk_ra4m2.build.architecture=cortex-m33
+vk_ra4m2.build.fpu=-mfpu=fpv5-sp-d16
+vk_ra4m2.build.float-abi=-mfloat-abi=hard
+vk_ra4m2.build.board=VK_RA4M2
+vk_ra4m2.build.defines=-DF_CPU=100000000 -DARDUINO_VK_RA4M2
+vk_ra4m2.vid.0=0x2341
+vk_ra4m2.pid.0=0x0052
+vk_ra4m2.vid.1=0x2341
+vk_ra4m2.pid.1=0x0369
+vk_ra4m2.upload_port.0.vid=0x2341
+vk_ra4m2.upload_port.0.pid=0x0052
+vk_ra4m2.upload_port.1.vid=0x2341
+vk_ra4m2.upload_port.1.pid=0x0369
+vk_ra4m2.compiler.fsp.defines={build.variant.path}/defines.txt
+vk_ra4m2.compiler.fsp.ldflags={build.variant.path}/ldflags.txt
+vk_ra4m2.compiler.fsp.cflags=-mthumb "@{compiler.fsp.defines}"
+vk_ra4m2.compiler.fsp.cxxflags=-mthumb "@{compiler.fsp.defines}"
+vk_ra4m2.compiler.tinyusb.cflags=-DCFG_TUSB_MCU=OPT_MCU_RAXXX
+vk_ra4m2.compiler.tinyusb.cxxflags=-DCFG_TUSB_MCU=OPT_MCU_RAXXX
+vk_ra4m2.compiler.fsp.includes={build.variant.path}/includes.txt
+vk_ra4m2.compiler.fsp.extra_ldflags=--specs=nano.specs -lstdc++ -lsupc++ -lm -lc -lgcc -lnosys
+vk_ra4m2.compiler.fsp="{build.variant.path}/libs/libfsp.a"
+vk_ra4m2.upload.tool=dfu-util
+vk_ra4m2.upload.tool.default=dfu-util
+vk_ra4m2.upload.protocol=
+vk_ra4m2.upload.transport=
+vk_ra4m2.upload.vid=0x2341
+vk_ra4m2.upload.pid=0x0369
+vk_ra4m2.upload.address=0x00010000
+vk_ra4m2.upload.interface=0
+vk_ra4m2.upload.use_1200bps_touch=false
+vk_ra4m2.upload.wait_for_upload_port=false
+vk_ra4m2.upload.native_usb=true
+vk_ra4m2.upload.maximum_size=393216
+vk_ra4m2.upload.maximum_data_size=131072
+vk_ra4m2.debug.server.openocd.scripts.0=interface/{programmer.protocol}.cfg
+vk_ra4m2.debug.server.openocd.scripts.1={programmer.transport_script}
+vk_ra4m2.debug.server.openocd.scripts.2={runtime.platform.path}/debugger/R7FA4M2AC.cfg
+vk_ra4m2.debug.svd_file={runtime.platform.path}/svd/R7FA4M2AC.svd

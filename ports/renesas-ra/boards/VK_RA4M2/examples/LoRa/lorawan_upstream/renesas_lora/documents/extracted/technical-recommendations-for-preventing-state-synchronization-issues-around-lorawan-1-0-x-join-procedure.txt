@@ -1,0 +1,443 @@
+1
+2    Technical Recommendations for Preventing State Synchronization Issues
+3    around LoRaWAN™ 1.0.x Join Procedure
+4
+5    Copyright © 2018 LoRa Alliance, Inc. All rights reserved.
+
+
+6
+
+ 7   NOTICE OF USE AND DISCLOSURE
+ 8   Copyright © LoRa Alliance, Inc. (2017). All Rights Reserved.
+ 9
+10   The information within this document is the property of the LoRa Alliance (“The Alliance”) and its use and
+11   disclosure are subject to LoRa Alliance Corporate Bylaws, Intellectual Property Rights (IPR) Policy and
+12   Membership Agreements.
+13
+14   Elements of LoRa Alliance specifications may be subject to third party intellectual property rights, including
+15   without limitation, patent, copyright or trademark rights (such a third party may or may not be a member of LoRa
+16   Alliance). The Alliance is not responsible and shall not be held responsible in any manner for identifying or failing
+17   to identify any or all such third party intellectual property rights.
+18
+19   This document and the information contained herein are provided on an “AS IS” basis and THE ALLIANCE
+20   DISCLAIMS ALL WARRANTIES EXPRESS OR IMPLIED, INCLUDING BUT NOTLIMITED TO (A) ANY
+21   WARRANTY THAT THE USE OF THE INFORMATION HEREINWILL NOT INFRINGE ANY RIGHTS OF THIRD
+22   PARTIES (INCLUDING WITHOUTLIMITATION ANY INTELLECTUAL PROPERTY RIGHTS INCLUDING
+23   PATENT, COPYRIGHT OR TRADEMARK RIGHTS) OR (B) ANY IMPLIED WARRANTIES OF
+24   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE OR NONINFRINGEMENT.
+25
+26   IN NO EVENT WILL THE ALLIANCE BE LIABLE FOR ANY LOSS OF PROFITS, LOSS OF BUSINESS, LOSS
+27   OF USE OF DATA, INTERRUPTION OFBUSINESS, OR FOR ANY OTHER DIRECT, INDIRECT, SPECIAL OR
+28   EXEMPLARY, INCIDENTIAL, PUNITIVE OR CONSEQUENTIAL DAMAGES OF ANY KIND, IN CONTRACT OR
+29   IN TORT, IN CONNECTION WITH THIS DOCUMENT OR THE INFORMATION CONTAINED HEREIN, EVEN IF
+30   ADVISED OF THE POSSIBILITY OF SUCH LOSS OR DAMAGE.
+31
+32
+33   The above notice and this paragraph must be included on all copies of this document that are made.
+34
+35   LoRa Alliance, Inc.
+36   3855 SW 153rd Drive
+37   Beaverton, OR 97007
+38   Note: All Company, brand and product names may be trademarks that are the sole property of their respective
+39   owners.
+40
+41
+42
+43
+44
+45
+46
+
+47
+
+
+
+
+      ©2017 LoRa™ Alliance                               Page 1 of 12               The authors reserve the right to change
+                                                                                         specifications without notice.
+                                                             Technical Recommendation
+
+
+
+
+1
+2
+
+3          Technical Recommendations for
+4      Preventing State Synchronization Issues
+ 5     around LoRaWAN™ 1.0.x Join Procedure
+ 6
+ 7   Authored by the LoRa Alliance Technical Committee
+ 8
+ 9   Chairs:
+10   N.SORNIN (Semtech), A.YEGIN (Actility)
+11
+12   Editor:
+13   A.YEGIN (Actility)
+14
+15   Contributors:
+16   A.YEGIN (Actility), J.DELCLEF (ST Microelectronics), M.LE GOURRIEREC (Sagemcom)
+17
+18   Version: 1.0.0
+19   Date: August 2018
+20   Status: Final version
+21
+22
+23
+24
+25
+
+
+
+
+      ©2018 LoRa™ Alliance                Page 2 of 12      The authors reserve the right to change
+                                                                 specifications without notice.
+                                                                                                       Technical Recommendation
+
+
+ 1   Contents
+ 2   1     Introduction ....................................................................................................................... 4
+ 3   2     Conventions ...................................................................................................................... 5
+ 4   3     Issues................................................................................................................................ 6
+ 5   4     Remedies .......................................................................................................................... 8
+ 6   Glossary ................................................................................................................................... 10
+ 7   Bibliography ............................................................................................................................. 11
+ 8     References ........................................................................................................................... 11
+ 9   NOTICE OF USE AND DISCLOSURE ................................................................................... 12
+10
+
+
+
+
+      ©2018 LoRa™ Alliance                                          Page 3 of 12                     The authors reserve the right to change
+                                                                                                          specifications without notice.
+                                                                     Technical Recommendation
+
+
+ 1   1 Introduction
+ 2
+ 3   This document describes potential End-device and network synchronization issues related to
+ 4   the LoRaWAN 1.0.x [LW10, LW102] Join (Activation) Procedure, and suggests how they can
+ 5   be overcome for a given deployment by implementing additional behavior on the end-points.
+ 6   Some of these issues could be leveraged by an adversary to prevent a target End-device
+ 7   from joining the network, unless they are addressed by the recommended solutions in this
+ 8   document.
+ 9
+10   The additional behavior recommended in this document is compatible with the LoRaWAN
+11   1.0.x specification, therefore no change is required at the MAC layer. However, some of the
+12   remedies include additional behavior both at the End-device and the Join Server, which are
+13   expected to be configured synchronously. No in-band mechanism is defined to ensure such
+14   synchronization, except for defining the configuration attributes for the proposed behaviors.
+15   Careful configuration of both sides are the End-device and Join Server administrator’s
+16   responsibility.
+17
+18   The identified issues do not exist for LoRaWAN 1.1 specification [LW11] as the proceeding
+19   remedies are already integral part of that specification.
+20
+
+
+
+
+      ©2018 LoRa™ Alliance                    Page 4 of 12          The authors reserve the right to change
+                                                                         specifications without notice.
+                                                         Technical Recommendation
+
+
+1   2 Conventions
+2
+3   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
+4   "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+5   interpreted as described in RFC 2119.
+6
+
+
+
+
+    ©2018 LoRa™ Alliance              Page 5 of 12      The authors reserve the right to change
+                                                             specifications without notice.
+                                                                      Technical Recommendation
+
+
+ 1   3 Issues
+ 2
+ 3   Following issues are identified as stemming from LoRaWAN 1.0.x specification:
+ 4
+ 5   Issue #1: Join-accept replays
+ 6
+ 7   The End-device sends a variance in the Join-request, namely DevNonce, but this value is
+ 8   not used in generation of the Join-accept frame. As such, the End-device has no way of
+ 9   knowing whether the received Join-accept is generated in response to the last Join-request
+10   it sent or not.
+11
+12   Unless the End-device keeps track of all Join-accept frames received in the past, it may be
+13   subjected to a replay attack. It is not always practical for an End-device to keep track of all
+14   Join-accept frames received in the past. Under this circumstance, an adversary can
+15   eavesdrop over the air for a while and collect Join-accept frames sent to an End-device.
+16   When the adversary replays one of those Join-accept frames to the End-device in response
+17   to a Join-request generated by the End-device, the End-device may accept this replay (e.g.,
+18   due to actual Join-accept frame being absent or having lower signal strength). Such an End-
+19   device would fall out of synch with the network due to using session keys generated with an
+20   incorrect AppNonce.
+21
+22
+23   Issue #2: Join-request replay protection challenges
+24
+25   In order to detect Join-request replays, the network is expected to keep track of history of
+26   (pseudo-random) DevNonce values used by a given End-device.
+27
+28   Unless the network keeps track of all DevNonce values ever used by an End-device, it is
+29   subject to Join-request replay attacks by an adversary that can track more Join-request
+30   frames than the network.
+31
+32   Keeping track of all used DevNonces is not practical. Furthermore, the more DevNonce
+33   values the network tracks, the higher the chance that a new Join-request will fail due to
+34   increased chances of colliding with an already used value when the DevNonce is generated
+35   randomly.
+36
+37   The LoRaWAN 1.0.x spec does not allow the Network Server to roll over to the new security
+38   context until the first uplink frame using the new context is received from the End-device
+39   following transmission of a Join-accept. But there is a possibility that this new frame is
+40   delayed (because the End-device has not received the Join-accept frame, or the uplink
+41   frame is lost, or the Join-request was really a replay coming from an adversary). The
+42   network needs to process new Join-requests that arrive even before a first uplink frame is
+43   sent by the End-device following the last Join-accept. This would either require the network
+44   to keep track of multiple but still a finite set of pending context, or force the network to
+45   invalidate previous pending context (the one still awaiting first uplink frame). That
+46   invalidation can be source of problem when the invalidated context was generated by an
+47   authentic Join-request and the later Join-request was a replay. This can keep the victim
+48   End-device out of the network.
+49
+50
+51
+52
+
+      ©2018 LoRa™ Alliance                     Page 6 of 12          The authors reserve the right to change
+                                                                          specifications without notice.
+                                                                  Technical Recommendation
+
+
+ 1
+ 2
+ 3   Issue #3: Need for rapid security context switch for Class C
+ 4
+ 5   An End-device in Class C mode may have a downlink frame queued in the network at any
+ 6   time. If the network has sent a Join-accept to the End-device but has not received the
+ 7   associated first uplink frame which confirms the receipt of the Join-accept, the network
+ 8   would not know which security context to use when sending a Class C downlink frame to the
+ 9   End-device since it does not know if Join-accept was received by the End-device.
+10
+11
+12   Note that these issues do not exist in LoRaWAN 1.1 deployments as the remedies described
+13   in the next section are already integral part of that newer specification.
+
+
+
+
+      ©2018 LoRa™ Alliance                  Page 7 of 12         The authors reserve the right to change
+                                                                      specifications without notice.
+                                                                      Technical Recommendation
+
+
+ 1   4 Remedies
+ 2
+ 3   Following remedies are recommended for addressing the issues identified in the previous
+ 4   section.
+ 5
+ 6   Remedy #1: Preventing Join-accept replays
+ 7
+ 8   Remedy #1, Part 1 – Join Server Behavior:
+ 9
+10          The Join Server SHALL provide the AppNonce as a device specific counter value
+11          (that never repeats itself) and that is incremented with every Join-accept message.
+12
+13   Remedy #1, Part 2 – End-device Behavior:
+14
+15          The device is expected to be aware of this behavior of its Join Server and SHALL
+16          keep track of the AppNonce value used in the last successfully processed Join-
+17          Accept (corresponding to the last successful key derivation). The device SHALL
+18          accept the Join-accept only if the MIC field is correct and the AppNonce is strictly
+19          greater than the recorded one. In that case the new AppNonce value replaces the
+20          previously stored one.
+21
+22          If the device is susceptible of being power cycled the AppNonce SHALL be persistent
+23          (stored in a non-volatile memory).
+24
+25   For a complete implementation of this remedy, it is expected that Part 1 is implemented by
+26   the Join Server before Part 2 is implemented by the End-device. It is RECOMMENDED that
+27   the Join Servers implement Part 1 as soon as possible independent of the availability of Part
+28   2 implementations on the End-devices.
+29
+30   Recommended name for Join Server attribute to indicate implementation of this remedy is
+31   AppNonceCounter. When set to True, that means the Join Server is using counter-based
+32   AppNonce value.
+33
+34   Remedy #2: Simple and robust Join-request replay protection
+35
+36   Remedy #2, Part 1 – End-device Behavior:
+37
+38          The End-device SHALL use a DevNonce value that is based on a counter starting at
+39          0 when the End-device is initially powered up and incremented with every Join-
+40          request. A DevNonce value SHALL NOT be reused for a given AppEUI value. If the
+41          end-device can be power-cycled then DevNonce SHALL be persistent (stored in a
+42          non-volatile memory). Resetting DevNonce without changing AppEUI will cause the
+43          network to discard the Join-requests of the device.
+44
+45          If there is a possibility that the End-device may need to generate more than 65,536
+46          Join-requests in its lifetime, then the End-device SHALL be configured with multiple
+47          AppEUIs, and the End-device SHALL switch to another AppEUI upon consuming the
+48          whole DevNonce space of a given AppEUI.
+49
+50   Remedy #2, Part 2 – Join Server Behavior
+51
+
+
+      ©2018 LoRa™ Alliance                    Page 8 of 12           The authors reserve the right to change
+                                                                          specifications without notice.
+                                                                     Technical Recommendation
+
+
+ 1          The Join Server is expected to be aware of this behavior of its End-devices and keep
+ 2          track of the last DevNonce value used by the End-device for the given AppEUI, and
+ 3          ignore Join-requests if DevNonce is not incremented.
+ 4
+ 5          The JS SHALL keep incrementing the AppNonce monotonically according to
+ 6          Remedy #1 Part 1 even after switching the AppEUIs. This is because the
+ 7          NwkSKey/AppSKey derivation formulas take AppKey, NetID, DevNonce, and
+ 8          AppNonce into account, where AppKey and NetID have fixed values across Join
+ 9          procedures, and DevNonce can repeat itself in between Joins with different AppEUIs.
+10          Ensuring uniqueness on AppNonce ensures distinct NwkSKey/AppSKeys across
+11          Join procedures. The JS SHALL NOT reuse the same AppNonce value with the End-
+12          device, an assumption that we can take given the size of that value (24bits yields
+13          more than 16 million Join procedures).
+14
+15   For a complete implementation of this remedy, it is expected that Part 1 is implemented by
+16   the End-device before Part 2 is implemented by the Join Server. It is RECOMMENDED that
+17   the End-devices implement Part 1 as soon as possible independent of the availability of Part
+18   2 implementations on the Join Servers.
+19
+20   Recommended name for End-device attribute to indicate implementation of this remedy is
+21   DevNonceCounter. When set to True, that means the End-device is using counter-based
+22   DevNonce value.
+23
+24   Remedy #3: Rapid key confirmation
+25
+26   The End-device that expects to receive Class C downlink frames SHALL send a confirmed
+27   uplink frame or a frame that requires an acknowledgement as soon as possible after
+28   receiving a valid Join-accept frame. The End-device SHALL continue to send such frames
+29   until it receives the first downlink from the network (while respecting duty cycles, if
+30   applicable, and retransmission timers). If the End-device does not receive an
+31   acknowledgement within the first ADR_ACK_LIMIT uplinks, then it SHALL revert to the Join
+32   state (i.e., sending another Join-request immediately or at a later point in time).
+33
+34   Even when the window of uncertainty is narrowed down for an End-device implementing this
+35   remedy, there is still a possibility that the Network Server has a downlink frame to send but
+36   the first uplink frame is not received. Whether the network opportunistically transmits the
+37   downlink frame or waits for the first uplink is an implementation/deployment decision.
+38
+39   If the network decides to transmit the downlink, it SHALL use the active/confirmed security
+40   context if Remedy #2 is not used, because there is a chance that the Join-request might be
+41   a replay sent by an adversary. The network SHALL use the pending context for an End-
+42   device using Remedy #2 when it decides to transmit the downlink frame before it receives
+43   the first uplink frame, as there is no chance of a replay.
+44
+45
+46
+47
+48
+
+
+
+
+      ©2018 LoRa™ Alliance                    Page 9 of 12          The authors reserve the right to change
+                                                                         specifications without notice.
+                                                            Technical Recommendation
+
+
+ 1   Glossary
+ 2
+ 3   ABP        Activation by Personalization
+ 4   ADR        Adaptive Data Rate
+ 5   API        Application Programming Interface
+ 6   AS         Application Server
+ 7   DNS        Domain Name Server
+ 8   ED         End-device
+ 9   fNS        Forwarding Network Server
+10   GW         LoRa Gateway
+11   HTTP       HyperText Transfer Protocol
+12   hNS        Home Network Server
+13   IP         Internet Protocol
+14   JS         Join Server
+15   JSON       JavaScript Object Notation
+16   KEK        Key Encryption Key
+17   LoRa™      Long Range modulation technique
+18   LoRaWAN™   Long Range network protocol
+19   MAC        Medium Access Control
+20   MIC        Message Integrity Code
+21   NAPTR      Naming Authority Pointer
+22   NS         Network Server
+23   OTA        Over-the-Air
+24   RF         Radio Frequency
+25   RSSI       Received Signal Strength Indicator
+26   SF         Spreading Factor
+27   SIP        Session Initiation Protocol
+28   SNR        Signal-to-Noise Ratio
+29   sNS        Serving Network Server
+30
+
+
+
+
+     ©2018 LoRa™ Alliance                  Page 10 of 12   The authors reserve the right to change
+                                                                specifications without notice.
+                                                                Technical Recommendation
+
+
+1   Bibliography
+
+2   References
+3
+4   [LW10] LoRaWAN Specification, Version 1.0, LoRa Alliance, January 2015.
+5   [LW102] LoRaWAN Specification, Version 1.0.2, LoRa Alliance, July 2016.
+6   [LW11] LoRaWAN Specification, Version 1.1, LoRa Alliance, October 2017.
+
+
+
+
+     ©2018 LoRa™ Alliance                Page 11 of 12         The authors reserve the right to change
+                                                                    specifications without notice.
+                                                                                     Technical Recommendation
+
+
+1    NOTICE OF USE AND DISCLOSURE
+ 2   Copyright © LoRa Alliance, Inc. (2018). All Rights Reserved.
+ 3   The information within this document is the property of the LoRa Alliance (“The Alliance”) and its use and disclosure
+ 4   are subject to LoRa Alliance Corporate Bylaws, Intellectual Property Rights (IPR) Policy and Membership
+ 5   Agreements.
+ 6   Elements of LoRa Alliance specifications may be subject to third party intellectual property rights, including without
+ 7   limitation, patent, copyright or trademark rights (such a third party may or may not be a member of LoRa Alliance).
+ 8   The Alliance is not responsible and SHALL not be held responsible in any manner for identifying or failing to identify
+ 9   any or all such third party intellectual property rights.
+10   This document and the information contained herein are provided on an “AS IS” basis and THE ALLIANCE
+11   DISCLAIMS ALL WARRANTIES EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO (A) ANY
+12   WARRANTY THAT THE USE OF THE INFORMATION HEREIN WILL NOT INFRINGE ANY RIGHTS OF THIRD
+13   PARTIES (INCLUDING WITHOUT LIMITATION ANY INTELLECTUAL PROPERTY RIGHTS INCLUDING
+14   PATENT, COPYRIGHT OR TRADEMARK RIGHTS) OR (B) ANY IMPLIED WARRANTIES OF
+15   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE OR NONINFRINGEMENT.
+16   IN NO EVENT WILL THE ALLIANCE BE LIABLE FOR ANY LOSS OF PROFITS, LOSS OF BUSINESS, LOSS
+17   OF USE OF DATA, INTERRUPTION OFBUSINESS, OR FOR ANY OTHER DIRECT, INDIRECT, SPECIAL OR
+18   EXEMPLARY, INCIDENTIAL, PUNITIVE OR CONSEQUENTIAL DAMAGES OF ANY KIND, IN CONTRACT OR
+19   IN TORT, IN CONNECTION WITH THIS DOCUMENT OR THE INFORMATION CONTAINED HEREIN, EVEN IF
+20   ADVISED OF THE POSSIBILITY OF SUCH LOSS OR DAMAGE.
+21   The above notice and this paragraph must be included on all copies of this document that are made.
+22   LoRa Alliance, Inc.
+23   3855 SW 153rd Drive
+24   Beaverton, OR 97007
+25   Note: All Company, brand and product names may be trademarks that are the sole property of their respective
+26   owners.
+
+
+
+
+      ©2018 LoRa™ Alliance                              Page 12 of 12               The authors reserve the right to change
+                                                                                         specifications without notice.
+

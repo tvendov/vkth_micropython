@@ -1,0 +1,73 @@
+RA2E1, RA2L1, RA0E1, RA0E2 LoRa-based Radio Driver Release Notes
+                                                                         Nov. 28, 2025
+
+--------------------------------------------------------------------------------------
+[ VERSION ]
+
+  - V4.90
+
+--------------------------------------------------------------------------------------
+[ CONTENTS ]
+
+  - Radio Driver:
+    [source codes]
+      (package top)/samples/project/src/radio
+
+  - ping-pong (simple application using Radio Driver):
+    [source codes]
+      (package top)/samples/project/src/apps/ping-pong
+      (package top)/samples/project/src/radio, system, boards
+    [project file]
+      (package top)/samples/project/(IDE)/(BOARD)/ping-pong
+
+      NOTE: Above "IDE" and "BOARD" are following,
+        IDE=e2studio:
+            e2 studio 2025-10 with FSP6.2.0
+        BOARD=ra2e1fpb_sx126x:
+            RA2E1 Fast Prototyping Board and Semtech SX1261/SX1262 shield.
+        BOARD=ra2l1ek_sx126x:
+            Evaluation Kit for RA2L1 MCU Group and Semtech SX1261/SX1262 shield.
+        BOARD=ra0e1fpb_sx126x:
+            RA0E1 Fast Prototyping Board and Semtech SX1261/SX1262 shield. 
+        BOARD=ra0e2fpb_sx126x:
+            RA0E2 Fast Prototyping Board and Semtech SX1261/SX1262 shield. 
+
+--------------------------------------------------------------------------------------
+[ Development Tools ]
+  - e2 studio 2025-10 with FSP6.2.0
+
+--------------------------------------------------------------------------------------
+[ Revision History ]
+  - V4.90
+    - Updated supported version of software development tools.
+      + e2 studio 2025-10 with FSP6.2.0
+
+  - V4.70
+    - Supports FPB-RA0E2.
+    - Updated supported version of software development tools.
+
+  - V4.50
+    - Supports FPB-RA0E1.
+    - Updated supported version of software development tools.
+
+  - V4.40
+    - Added support functions for regional radio regulations
+    - Updated supported version of software development tools
+
+  - V4.20
+    - Supports EK-RA2L1
+    - FSP 4.3.0 is required to build.
+
+  - V4.10
+    - Updated Application Notes ( No functional changes ).
+
+  - V4.00
+    - First release for FPB-RA2E1.
+
+[ Limitation ]
+  - None.
+
+[ Known issue ]
+  - None.
+
+--------------------------------------------------------------------------------------

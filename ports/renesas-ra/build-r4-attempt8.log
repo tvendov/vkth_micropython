@@ -1,0 +1,38 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA4M2-r4/genhdr/qstr.i.last
+GEN build-VK_RA4M2-r4/genhdr/qstr.split
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.split
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.split
+GEN build-VK_RA4M2-r4/genhdr/compressed.split
+GEN build-VK_RA4M2-r4/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2-r4/genhdr/moduledefs.collected
+GEN build-VK_RA4M2-r4/genhdr/root_pointers.collected
+GEN build-VK_RA4M2-r4/genhdr/compressed.collected
+Module registrations not updated
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC lorawan/glue/utilities.c
+CC lorawan/mac/LoRaMac.c
+CC lorawan/mac/LoRaMacClassB.c
+CC lorawan/mac/LoRaMacCommands.c
+CC lorawan/mac/region/RegionCommon.c
+CC lorawan/radio/radio.c
+CC lorawan/radio/sx126x.c
+CC lorawan/radio/region/r_radio_region.c
+CC lorawan/soft_se/aes.c
+CC lorawan/soft_se/cmac.c
+CC lorawan/soft_se/soft-se.c
+CC lorawan/system/fifo.c
+CC lorawan/system/systime.c
+CC machine_touchpad.c
+lorawan/system/systime.c: In function 'SysTimeSet':
+lorawan/system/systime.c:111:28: error: implicit declaration of function 'RtcGetCalendarTime'; did you mean 'RtcGetElapsedAlarmTime'? [-Werror=implicit-function-declaration]
+  111 |     calendarTime.Seconds = RtcGetCalendarTime( ( uint16_t* )&calendarTime.SubSeconds );
+      |                            ^~~~~~~~~~~~~~~~~~
+      |                            RtcGetElapsedAlarmTime
+cc1.exe: all warnings being treated as errors
+CC ../../lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Source/startup.c
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2-r4/lorawan/system/systime.o] Error 1
+make: *** Waiting for unfinished jobs....

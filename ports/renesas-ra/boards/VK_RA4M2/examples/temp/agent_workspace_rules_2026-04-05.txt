@@ -1,0 +1,7 @@
+Правило за тази работа, потвърдено на 2026-04-05:
+
+1. Забрави напълно `C:\msys64\` - този път вече не се ползва.
+2. Работи само под `C:\msys_64\`.
+3. Никога не гледай и не включвай в анализ/summary:
+   - `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA4M2\__edge_cdp`
+   - `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA4M2\__edge_profile_copy`

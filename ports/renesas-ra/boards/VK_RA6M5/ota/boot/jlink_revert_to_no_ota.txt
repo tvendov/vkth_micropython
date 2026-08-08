@@ -1,0 +1,17 @@
+// JLink commander script — revert from OTA Option B to single-image setup.
+// Re-flashes the original USE_OTA=1 firmware at 0x00000000 (built without
+// the slotA/slotB linkers — i.e. the regular build-VK_RA6M5/firmware.hex).
+// Uses absolute paths.
+
+si SWD
+speed 4000
+device R7FA6M5BH
+connect
+halt
+
+erase
+loadfile C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\build-VK_RA6M5\firmware.hex
+
+r
+g
+exit

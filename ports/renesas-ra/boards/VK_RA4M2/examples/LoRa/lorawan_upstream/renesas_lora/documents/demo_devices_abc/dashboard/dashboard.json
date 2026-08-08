@@ -1,0 +1,587 @@
+{
+  "uid": "lorawan-demo",
+  "title": "LoRaWAN Class A/B/C Live Demo",
+  "tags": ["lorawan", "demo"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "2s",
+  "time": { "from": "now-2h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1, "type": "row", "title": "Devices status",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 10, "type": "stat", "title": "Class A — 70B3D57ED0070001",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "rssi" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "snr" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "temp" }, "properties": [
+              { "id": "unit", "value": "celsius" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" }}
+          ]},
+          { "matcher": { "id": "byName", "options": "humidity" }, "properties": [{ "id": "unit", "value": "percent" }] },
+          { "matcher": { "id": "byName", "options": "battery" }, "properties": [{ "id": "unit", "value": "mvolt" }] }
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT fcnt, rssi, snr, dr, temp_c100/100.0 AS temp, hum_p2/2.0 AS humidity, battery_mv AS battery FROM demo.uplinks WHERE deveui='70B3D57ED0070001' ORDER BY ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 11, "type": "stat", "title": "Class B — 70B3D57ED0070002",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "rssi" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "snr" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "temp" }, "properties": [
+              { "id": "unit", "value": "celsius" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" }}
+          ]},
+          { "matcher": { "id": "byName", "options": "humidity" }, "properties": [{ "id": "unit", "value": "percent" }] },
+          { "matcher": { "id": "byName", "options": "battery" }, "properties": [{ "id": "unit", "value": "mvolt" }] }
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT fcnt, rssi, snr, dr, temp_c100/100.0 AS temp, hum_p2/2.0 AS humidity, battery_mv AS battery FROM demo.uplinks WHERE deveui='70B3D57ED0070002' ORDER BY ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 12, "type": "stat", "title": "Class C — 70B3D57ED0070003",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "rssi" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "snr" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "temp" }, "properties": [
+              { "id": "unit", "value": "celsius" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" }}
+          ]},
+          { "matcher": { "id": "byName", "options": "humidity" }, "properties": [{ "id": "unit", "value": "percent" }] },
+          { "matcher": { "id": "byName", "options": "battery" }, "properties": [{ "id": "unit", "value": "mvolt" }] }
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT fcnt, rssi, snr, dr, temp_c100/100.0 AS temp, hum_p2/2.0 AS humidity, battery_mv AS battery FROM demo.uplinks WHERE deveui='70B3D57ED0070003' ORDER BY ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+
+    {
+      "id": 2, "type": "row", "title": "Link health (uplink + downlink + TX power)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 }
+    },
+    {
+      "id": 60, "type": "stat",
+      "title": "★ Class C — uplink @ gateway (gateway HEARS board)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 9 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "RSSI uplink" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "SNR uplink" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "Frequency" }, "properties": [
+              { "id": "unit", "value": "hertz" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" }}
+          ]}
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT rssi AS \"RSSI uplink\", snr AS \"SNR uplink\", channel_freq AS \"Frequency\" FROM demo.uplinks WHERE deveui='70B3D57ED0070003' ORDER BY ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 61, "type": "stat",
+      "title": "★ Class C — downlink @ board (board HEARS gateway)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 9 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "DL RSSI" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "DL SNR" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "Margin (DevStatus)" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 0 },
+                  { "color": "yellow", "value": 5 },
+                  { "color": "green", "value": 10 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "Current DR" }, "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" }}
+          ]}
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT u.dl_rssi AS \"DL RSSI\", u.dl_snr AS \"DL SNR\", d.margin AS \"Margin (DevStatus)\", d.dr AS \"Current DR\" FROM demo.uplinks u JOIN device d ON encode(d.dev_eui,'hex') = lower(u.deveui) WHERE u.deveui='70B3D57ED0070003' ORDER BY u.ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 62, "type": "stat",
+      "title": "★ Class C — TX power (board → gateway)",
+      "datasource": "loki",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 9 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "orange", "value": 7 }
+          ]}
+        }
+      },
+      "targets": [{
+        "refId": "A", "datasource": "loki",
+        "expr": "{job=\"chirpstack\"} |= \"LinkADRReq acknowledged\" |= \"70b3d57ed0070003\" | regexp \"tx_power_index=(?P<tx_power>\\\\d+)\" | unwrap tx_power",
+        "queryType": "instant",
+        "maxLines": 1
+      }]
+    },
+
+    {
+      "id": 3, "type": "row", "title": "Trends",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }
+    },
+    {
+      "id": 20, "type": "timeseries", "title": "RSSI per device (uplink)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "fieldConfig": {
+        "defaults": { "unit": "dBm", "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6 } }
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["last", "min", "mean"] } },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "time_series",
+        "rawSql": "SELECT ts AS time, ('Class ' || class) AS metric, rssi AS value FROM demo.uplinks WHERE $__timeFilter(ts) ORDER BY ts",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "DR per device",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "fieldConfig": {
+        "defaults": { "min": 0, "max": 5, "custom": { "lineWidth": 2, "showPoints": "always" } }
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "time_series",
+        "rawSql": "SELECT ts AS time, ('Class ' || class) AS metric, dr AS value FROM demo.uplinks WHERE $__timeFilter(ts) ORDER BY ts",
+        "rawQuery": true
+      }]
+    },
+
+    {
+      "id": 4, "type": "row", "title": "Class C wow + traffic stats",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 }
+    },
+    {
+      "id": 30, "type": "stat",
+      "title": "★ Last Class C downlink latency",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 26 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name" },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 700 },
+            { "color": "red", "value": 1500 }
+        ]}}
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT last_dl_lat_ms FROM demo.uplinks WHERE class='C' AND last_dl_lat_ms IS NOT NULL AND last_dl_lat_ms > 0 ORDER BY ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 31, "type": "stat",
+      "title": "Total uplinks / class",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 26 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": true }, "orientation": "horizontal", "colorMode": "value", "textMode": "value_and_name" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } } },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT class, COUNT(*) AS uplinks FROM demo.uplinks GROUP BY class ORDER BY class",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 32, "type": "barchart",
+      "title": "Channel hopping (8 EU868 channels)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 26 },
+      "options": { "orientation": "horizontal", "showValue": "auto", "stacking": "none" },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT to_char(channel_freq / 1000000.0, 'FM999.9') || ' MHz' AS channel, COUNT(*) AS uplinks FROM demo.uplinks WHERE channel_freq IS NOT NULL AND $__timeFilter(ts) GROUP BY channel_freq ORDER BY channel_freq",
+        "rawQuery": true
+      }]
+    },
+
+    {
+      "id": 5, "type": "row", "title": "Live events + logs",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }
+    },
+    {
+      "id": 40, "type": "table",
+      "title": "Last 30 events (decoded MQTT)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 33 },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "ts", "desc": true }] },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT ts, deveui, etype, summary FROM demo.events ORDER BY ts DESC LIMIT 30",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 41, "type": "logs",
+      "title": "★ Live ChirpStack server logs",
+      "datasource": "loki",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 33 },
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false,
+        "wrapLogMessage": true, "prettifyLogMessage": false,
+        "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending"
+      },
+      "targets": [{
+        "refId": "A", "datasource": "loki",
+        "expr": "{job=\"chirpstack\"} != \"Metrics saved\" != \"event/stats\" != \"TenantService\"",
+        "queryType": "range", "maxLines": 200
+      }]
+    },
+    {
+      "id": 50, "type": "logs",
+      "title": "Important events: JoinRequest / MIC / ADR / DevStatus",
+      "datasource": "loki",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
+      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [{
+        "refId": "A", "datasource": "loki",
+        "expr": "{job=\"chirpstack\", unit=\"chirpstack.service\"} |~ \"(?i)join_request|f_type=|MIC|Invalid|Error|ADRReq|DevStatus|tx_power\"",
+        "queryType": "range", "maxLines": 100
+      }]
+    },
+
+    {
+      "id": 7, "type": "row", "title": "Link health — Class A (mirror of Class C row)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 51 }
+    },
+    {
+      "id": 80, "type": "stat",
+      "title": "★ Class A — uplink @ gateway (gateway HEARS board)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 52 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "RSSI uplink" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "SNR uplink" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "Frequency" }, "properties": [
+              { "id": "unit", "value": "hertz" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" }}
+          ]}
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT rssi AS \"RSSI uplink\", snr AS \"SNR uplink\", channel_freq AS \"Frequency\" FROM demo.uplinks WHERE deveui='70B3D57ED0070001' ORDER BY ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 81, "type": "stat",
+      "title": "★ Class A — downlink @ board (board HEARS gateway)",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 52 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "DL RSSI" }, "properties": [
+              { "id": "unit", "value": "dBm" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": -120 },
+                  { "color": "yellow", "value": -110 },
+                  { "color": "green", "value": -100 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "DL SNR" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": -10 },
+                  { "color": "green", "value": 0 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "Margin (DevStatus)" }, "properties": [
+              { "id": "unit", "value": "dB" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 0 },
+                  { "color": "yellow", "value": 5 },
+                  { "color": "green", "value": 10 }
+              ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "Current DR" }, "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" }}
+          ]}
+        ]
+      },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "table",
+        "rawSql": "SELECT u.dl_rssi AS \"DL RSSI\", u.dl_snr AS \"DL SNR\", d.margin AS \"Margin (DevStatus)\", d.dr AS \"Current DR\" FROM demo.uplinks u JOIN device d ON encode(d.dev_eui,'hex') = lower(u.deveui) WHERE u.deveui='70B3D57ED0070001' ORDER BY u.ts DESC LIMIT 1",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 82, "type": "stat",
+      "title": "★ Class A — TX power (board → gateway)",
+      "datasource": "loki",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 52 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto", "textMode": "value_and_name", "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "orange", "value": 7 }
+          ]}
+        }
+      },
+      "targets": [{
+        "refId": "A", "datasource": "loki",
+        "expr": "{job=\"chirpstack\"} |= \"LinkADRReq acknowledged\" |= \"70b3d57ed0070001\" | regexp \"tx_power_index=(?P<tx_power>\\\\d+)\" | unwrap tx_power",
+        "queryType": "instant",
+        "maxLines": 1
+      }]
+    },
+
+    {
+      "id": 6, "type": "row", "title": "Link quality — RSSI / SNR (server side vs device side, A + C)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 59 }
+    },
+    {
+      "id": 70, "type": "timeseries",
+      "title": "Server-side RSSI (gateway hears device, uplink) — A vs C",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
+      "fieldConfig": {
+        "defaults": { "unit": "dBm", "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6 } }
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["last", "min", "mean"] } },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "time_series",
+        "rawSql": "SELECT ts AS time, ('Class ' || class || ' (' || substring(deveui from 14) || ')') AS metric, rssi AS value FROM demo.uplinks WHERE deveui IN ('70B3D57ED0070001','70B3D57ED0070003') AND rssi IS NOT NULL AND $__timeFilter(ts) ORDER BY ts",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 71, "type": "timeseries",
+      "title": "Server-side SNR (gateway hears device, uplink) — A vs C",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 60 },
+      "fieldConfig": {
+        "defaults": { "unit": "dB", "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6 } }
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["last", "min", "mean"] } },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "time_series",
+        "rawSql": "SELECT ts AS time, ('Class ' || class || ' (' || substring(deveui from 14) || ')') AS metric, snr AS value FROM demo.uplinks WHERE deveui IN ('70B3D57ED0070001','70B3D57ED0070003') AND snr IS NOT NULL AND $__timeFilter(ts) ORDER BY ts",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 72, "type": "timeseries",
+      "title": "Device-side RSSI (board hears gateway, downlink) — A vs C",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
+      "fieldConfig": {
+        "defaults": { "unit": "dBm", "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6 } }
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["last", "min", "mean"] } },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "time_series",
+        "rawSql": "SELECT ts AS time, ('Class ' || class || ' (' || substring(deveui from 14) || ')') AS metric, dl_rssi AS value FROM demo.uplinks WHERE deveui IN ('70B3D57ED0070001','70B3D57ED0070003') AND dl_rssi IS NOT NULL AND dl_rssi <> 0 AND $__timeFilter(ts) ORDER BY ts",
+        "rawQuery": true
+      }]
+    },
+    {
+      "id": 73, "type": "timeseries",
+      "title": "Device-side SNR (board hears gateway, downlink) — A vs C",
+      "datasource": "chirpstack-pg",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 68 },
+      "fieldConfig": {
+        "defaults": { "unit": "dB", "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6 } }
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["last", "min", "mean"] } },
+      "targets": [{
+        "refId": "A", "datasource": "chirpstack-pg", "format": "time_series",
+        "rawSql": "SELECT ts AS time, ('Class ' || class || ' (' || substring(deveui from 14) || ')') AS metric, dl_snr AS value FROM demo.uplinks WHERE deveui IN ('70B3D57ED0070001','70B3D57ED0070003') AND dl_snr IS NOT NULL AND dl_snr <> 0 AND $__timeFilter(ts) ORDER BY ts",
+        "rawQuery": true
+      }]
+    }
+  ]
+}

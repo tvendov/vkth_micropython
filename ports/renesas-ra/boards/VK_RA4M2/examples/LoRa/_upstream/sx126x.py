@@ -41,7 +41,6 @@ class SX126X:
         self._irq = irq
         if implementation.name == 'micropython':
           # VK_RA4M2:
-          #   spi_bus=1 → HW SPI(1) RSPI на P108/P111/P110/P109 — има firmware bug;
           #   spi_bus=3 → HW SPI(3) SCI9 simple-SPI на P109/P110/P111
           #              с 16-stage FIFO + dual DTC, ~21 Mbps, CPU idle (WFI).
           # Същите физически пинове като SoftSPI варианта — само backend се сменя.
