@@ -12,7 +12,14 @@
 #include "hal_data.h"   // pulls in bsp_api.h → R_BSP_FlashCache{Enable,Disable}, BSP_FEATURE_*
 
 #include "ra_utils.h"
+
+#ifndef MICROPY_HW_DATAFLASH_PARTITIONED
+#define MICROPY_HW_DATAFLASH_PARTITIONED (0)
+#endif
+
+#if MICROPY_HW_DATAFLASH_PARTITIONED
 #include "lorawan/system/flash/dataflash_partition.h"
+#endif
 
 // FCACHE invalidation after data-flash erase/write.
 //
@@ -43,10 +50,11 @@ typedef struct {
     uint32_t write_size;
 } dataflash_info_t;
 
+#if MICROPY_HW_DATAFLASH_PARTITIONED
 // Region-scoped view object returned by dataflash.region(name). Carries an
 // absolute (start,size) window into data flash; all read/write/erase offsets
 // are relative to `start` and bounds-checked against `size`. The default
-// (un-scoped) module functions use the APP window via dataflash_app_window().
+// (un-scoped) module functions use the APP partition.
 typedef struct _dataflash_view_obj_t {
     mp_obj_base_t base;
     uint32_t start;
@@ -55,13 +63,7 @@ typedef struct _dataflash_view_obj_t {
 } dataflash_view_obj_t;
 
 static const mp_obj_type_t dataflash_view_type;
-
-// Resolve absolute window for the un-scoped `dataflash` module: APP region only.
-// A bare dataflash.write(0, ...) lands at DF_APP_START, never CRED/NVM/NONCE/CONFIG.
-static void dataflash_app_window(uint32_t *start, uint32_t *size) {
-    *start = DF_APP_START;
-    *size = DF_APP_SIZE;
-}
+#endif
 
 static void dataflash_wait_idle_raise(uint32_t timeout_ms) {
     uint32_t t0 = mp_hal_ticks_ms();
@@ -122,11 +124,35 @@ static void dataflash_get_info_raise(dataflash_info_t * out) {
     out->write_size = b->block_size_write;
 }
 
+#if MICROPY_HW_DATAFLASH_PARTITIONED
+static void dataflash_validate_partition_raise(const dataflash_info_t *df) {
+    if ((df->start != DF_BASE) || (df->size < DF_TOTAL_SIZE)
+        || (df->erase_block_size != DF_ERASE_BLOCK)
+        || (df->write_size != DF_WRITE_UNIT)) {
+        mp_raise_OSError(MP_ENODEV);
+    }
+}
+#endif
+
+// The partitioned VK_RA4M2 build exposes APP as the default window. Other
+// boards expose the complete data flash region reported by the FSP driver.
+static void dataflash_default_window(uint32_t *start, uint32_t *size) {
+    dataflash_info_t df;
+    dataflash_get_info_raise(&df);
+#if MICROPY_HW_DATAFLASH_PARTITIONED
+    dataflash_validate_partition_raise(&df);
+    *start = df.start + DF_APP_OFFSET;
+    *size = DF_APP_SIZE;
+#else
+    *start = df.start;
+    *size = df.size;
+#endif
+}
+
 // ---- Window-aware workers ------------------------------------------------
 //
 // Each takes an absolute (win_start, win_size) data-flash window. Offsets are
-// relative to win_start and bounds-checked against win_size. The default
-// `dataflash` functions pass the APP window; the region view passes its own.
+// relative to win_start and bounds-checked against win_size.
 
 static mp_obj_t dataflash_size_win(uint32_t win_start, uint32_t win_size) {
     (void) win_start;
@@ -159,6 +185,7 @@ static mp_obj_t dataflash_read_win(uint32_t win_start, uint32_t win_size,
     return mp_obj_new_bytes(src, len);
 }
 
+#if MICROPY_HW_DATAFLASH_PARTITIONED
 // Read into a caller-provided writable buffer (zero alloc). Returns the byte
 // count read (== min(len(buf), win_size - off)). Used by the demo NVM restore
 // hot path to avoid allocating a fresh bytes for the ~1.4 KB blob.
@@ -183,14 +210,13 @@ static mp_obj_t dataflash_readinto_win(uint32_t win_start, uint32_t win_size,
     memcpy(bufinfo.buf, src, len);
     return mp_obj_new_int_from_uint(len);
 }
+#endif
 
 static mp_obj_t dataflash_erase_win(uint32_t win_start, uint32_t win_size) {
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
 
-    // Region windows are 64-byte aligned by construction (dataflash_partition.h),
-    // but assert it so a future map edit that breaks alignment fails loud.
-    if ((win_start & (df.erase_block_size - 1U)) != 0U
+    if ((win_start % df.erase_block_size) != 0U
         || (win_size % df.erase_block_size) != 0U) {
         mp_raise_OSError(MP_EIO);
     }
@@ -223,7 +249,8 @@ static mp_obj_t dataflash_erase_block_win(uint32_t win_start, uint32_t win_size,
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
 
-    if ((win_size % df.erase_block_size) != 0U) {
+    if ((win_start % df.erase_block_size) != 0U
+        || (win_size % df.erase_block_size) != 0U) {
         mp_raise_OSError(MP_EIO);
     }
     uint32_t blocks = win_size / df.erase_block_size;
@@ -259,12 +286,6 @@ static mp_obj_t dataflash_is_blank_win(uint32_t win_start, uint32_t win_size,
 
     if (off > win_size || len > (win_size - off)) {
         mp_raise_ValueError(MP_ERROR_TEXT("out of range"));
-    }
-
-    // Per r_flash_hp.c r_flash_hp_write_bc_parameter_checking(): data flash blankCheck
-    // requires 4-byte aligned address and length that is a multiple of 4.
-    if (((off & 3U) != 0U) || ((len & 3U) != 0U)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("alignment: offset and length must be 4-byte aligned"));
     }
 
     flash_result_t result = FLASH_RESULT_BLANK;
@@ -389,11 +410,11 @@ static mp_obj_t dataflash_write_win(uint32_t win_start, uint32_t win_size,
     return mp_obj_new_int_from_uint(len);
 }
 
-// ---- Default module functions (APP window only) --------------------------
+// ---- Default module functions --------------------------------------------
 
 static mp_obj_t dataflash_size(void) {
     uint32_t s, n;
-    dataflash_app_window(&s, &n);
+    dataflash_default_window(&s, &n);
     return dataflash_size_win(s, n);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_size_obj, dataflash_size);
@@ -410,39 +431,40 @@ static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_write_size_obj, dataflash_write_size)
 
 static mp_obj_t dataflash_read(mp_obj_t off_in, mp_obj_t len_in) {
     uint32_t s, n;
-    dataflash_app_window(&s, &n);
+    dataflash_default_window(&s, &n);
     return dataflash_read_win(s, n, off_in, len_in);
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_read_obj, dataflash_read);
 
 static mp_obj_t dataflash_write(mp_obj_t off_in, mp_obj_t buf_in) {
     uint32_t s, n;
-    dataflash_app_window(&s, &n);
+    dataflash_default_window(&s, &n);
     return dataflash_write_win(s, n, off_in, buf_in);
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_write_obj, dataflash_write);
 
 static mp_obj_t dataflash_erase(void) {
     uint32_t s, n;
-    dataflash_app_window(&s, &n);
+    dataflash_default_window(&s, &n);
     return dataflash_erase_win(s, n);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_erase_obj, dataflash_erase);
 
 static mp_obj_t dataflash_erase_block(mp_obj_t index_in) {
     uint32_t s, n;
-    dataflash_app_window(&s, &n);
+    dataflash_default_window(&s, &n);
     return dataflash_erase_block_win(s, n, index_in);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_erase_block_obj, dataflash_erase_block);
 
 static mp_obj_t dataflash_is_blank(mp_obj_t off_in, mp_obj_t len_in) {
     uint32_t s, n;
-    dataflash_app_window(&s, &n);
+    dataflash_default_window(&s, &n);
     return dataflash_is_blank_win(s, n, off_in, len_in);
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_is_blank_obj, dataflash_is_blank);
 
+#if MICROPY_HW_DATAFLASH_PARTITIONED
 // ---- Region view object --------------------------------------------------
 
 static mp_obj_t dataflash_view_size(mp_obj_t self_in) {
@@ -529,10 +551,13 @@ static MP_DEFINE_CONST_OBJ_TYPE(
 
 static mp_obj_t dataflash_region(mp_obj_t name_in) {
     const char *name = mp_obj_str_get_str(name_in);
+    dataflash_info_t df;
+    dataflash_get_info_raise(&df);
+    dataflash_validate_partition_raise(&df);
     for (size_t i = 0; i < DF_REGION_COUNT; i++) {
         if (strcmp(name, df_partition_map[i].name) == 0) {
             dataflash_view_obj_t *view = mp_obj_malloc(dataflash_view_obj_t, &dataflash_view_type);
-            view->start = df_partition_map[i].start;
+            view->start = df.start + df_partition_map[i].offset;
             view->size = df_partition_map[i].size;
             view->name = df_partition_map[i].name;
             return MP_OBJ_FROM_PTR(view);
@@ -541,6 +566,7 @@ static mp_obj_t dataflash_region(mp_obj_t name_in) {
     mp_raise_ValueError(MP_ERROR_TEXT("unknown region"));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_region_obj, dataflash_region);
+#endif
 
 static const mp_rom_map_elem_t dataflash_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),      MP_ROM_QSTR(MP_QSTR_dataflash) },
@@ -552,7 +578,9 @@ static const mp_rom_map_elem_t dataflash_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_erase),         MP_ROM_PTR(&dataflash_erase_obj) },
     { MP_ROM_QSTR(MP_QSTR_erase_block),   MP_ROM_PTR(&dataflash_erase_block_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_blank),      MP_ROM_PTR(&dataflash_is_blank_obj) },
+#if MICROPY_HW_DATAFLASH_PARTITIONED
     { MP_ROM_QSTR(MP_QSTR_region),        MP_ROM_PTR(&dataflash_region_obj) },
+#endif
 };
 static MP_DEFINE_CONST_DICT(dataflash_module_globals, dataflash_module_globals_table);
 

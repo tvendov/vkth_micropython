@@ -30,6 +30,7 @@
 #include "py/mphal.h"
 
 #include "dflash_lwnvm.h"
+#include "dataflash_partition.h"
 
 #if defined(MICROPY_HW_LORA_STACK_RENESAS) && MICROPY_HW_LORA_STACK_RENESAS
 
@@ -140,25 +141,14 @@ bool dflash_init(void) {
         return false;
     }
 
-    /* IMPORTANT: preserve existing Data Flash layout used by the
-       legacy `lorawan_app.py` Python stack:
-         Block 0 (offset 0..63):    "LWCR" credentials record (40 B)
-                                     written ONCE per board by
-                                     provision_credentials.py.
-         Block 1 (offset 64..127):  session-state wear-leveled log
-                                     (DevNonce / FCntUp / FCntDn).
-       Our LoRaMac NVM ping-pong banks live AFTER these reserved
-       blocks so credentials and legacy state survive a renesas-stack
-       firmware. */
-    const uint32_t LEGACY_RESERVED_BLOCKS = 2;
-    uint32_t reserved = LEGACY_RESERVED_BLOCKS * b->block_size;
-    if (size <= reserved + 2 * b->block_size) {
-        return false;  /* DF too small to host both legacy + 2 banks */
-    }
-    uint32_t available = size - reserved;
-    uint32_t bank_blocks = (available / b->block_size) / 2u;
-    uint32_t bank_size = bank_blocks * b->block_size;
-    if (bank_size < (DFLASH_HEADER_SIZE + b->block_size)) {
+    if ((start != DF_BASE) || (size < DF_TOTAL_SIZE)
+        || (b->block_size != DF_ERASE_BLOCK)
+        || (b->block_size_write != DF_WRITE_UNIT)
+        || (DF_NVM_A_SIZE != DF_NVM_B_SIZE)
+        || ((DF_NVM_A_OFFSET % b->block_size) != 0U)
+        || ((DF_NVM_B_OFFSET % b->block_size) != 0U)
+        || ((DF_NVM_A_SIZE % b->block_size) != 0U)
+        || (DF_NVM_A_SIZE < (DFLASH_HEADER_SIZE + b->block_size))) {
         return false;
     }
 
@@ -166,10 +156,10 @@ bool dflash_init(void) {
     s_df.df_size          = size;
     s_df.erase_block_size = b->block_size;
     s_df.write_size       = b->block_size_write;
-    s_df.bank_size        = bank_size;
-    s_df.bank_blocks      = bank_blocks;
-    s_df.bank_a_addr      = start + reserved;
-    s_df.bank_b_addr      = start + reserved + bank_size;
+    s_df.bank_size        = DF_NVM_A_SIZE;
+    s_df.bank_blocks      = DF_NVM_A_SIZE / b->block_size;
+    s_df.bank_a_addr      = start + DF_NVM_A_OFFSET;
+    s_df.bank_b_addr      = start + DF_NVM_B_OFFSET;
     s_df.initialized      = true;
     return true;
 }

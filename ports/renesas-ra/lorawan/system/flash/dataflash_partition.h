@@ -31,33 +31,36 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "bsp_api.h"
 
-/* Runtime AHB address of data flash on this board/FSP config. The RA4M2 HW
-   manual lists 0x40100000, but this board's FSP `g_flash0` infoGet (and the
-   linker DATA_FLASH region) place data flash at 0x08000000 — verified by
-   reading the live LWCR record there. Region addresses below MUST match the
-   FSP-resolved base or read/write hit dead address space (returns 0x00). */
-#define DF_BASE              (0x08000000u)
+/* Keep physical addressing tied to the selected FSP MCU configuration. */
+#define DF_BASE              ((uint32_t) BSP_FEATURE_FLASH_DATA_FLASH_START)
 #define DF_TOTAL_SIZE        (8192u)
 #define DF_ERASE_BLOCK       (64u)
 #define DF_WRITE_UNIT        (4u)
 
-#define DF_CRED_START        (DF_BASE + 0x0000u)   /* block 0 */
+#define DF_CRED_OFFSET       (0x0000u)
+#define DF_CRED_START        (DF_BASE + DF_CRED_OFFSET)   /* block 0 */
 #define DF_CRED_SIZE         (64u)
 
-#define DF_NVM_A_START       (DF_BASE + 0x0040u)   /* blocks 1-32 */
+#define DF_NVM_A_OFFSET      (0x0040u)
+#define DF_NVM_A_START       (DF_BASE + DF_NVM_A_OFFSET)  /* blocks 1-32 */
 #define DF_NVM_A_SIZE        (2048u)
 
-#define DF_NVM_B_START       (DF_BASE + 0x0840u)   /* blocks 33-64 */
+#define DF_NVM_B_OFFSET      (0x0840u)
+#define DF_NVM_B_START       (DF_BASE + DF_NVM_B_OFFSET)  /* blocks 33-64 */
 #define DF_NVM_B_SIZE        (2048u)
 
-#define DF_NONCE_START       (DF_BASE + 0x1040u)   /* blocks 65-66 */
+#define DF_NONCE_OFFSET      (0x1040u)
+#define DF_NONCE_START       (DF_BASE + DF_NONCE_OFFSET)  /* blocks 65-66 */
 #define DF_NONCE_SIZE        (128u)
 
-#define DF_CONFIG_START      (DF_BASE + 0x10C0u)   /* block 67 */
+#define DF_CONFIG_OFFSET     (0x10C0u)
+#define DF_CONFIG_START      (DF_BASE + DF_CONFIG_OFFSET) /* block 67 */
 #define DF_CONFIG_SIZE       (64u)
 
-#define DF_APP_START         (DF_BASE + 0x1100u)   /* blocks 68-127 */
+#define DF_APP_OFFSET        (0x1100u)
+#define DF_APP_START         (DF_BASE + DF_APP_OFFSET)    /* blocks 68-127 */
 #define DF_APP_SIZE          (3840u)
 
 typedef enum {
@@ -72,7 +75,7 @@ typedef enum {
 
 typedef struct {
     const char *name;
-    uint32_t    start;   /* absolute data-flash address */
+    uint32_t    offset;  /* offset from the FSP-reported data flash base */
     uint32_t    size;    /* bytes */
 } df_region_t;
 
@@ -80,12 +83,12 @@ typedef struct {
    translation unit that needs the map gets its own copy in flash; the
    table is tiny (6 entries) and avoids an extra .c file in the build. */
 static const df_region_t df_partition_map[DF_REGION_COUNT] = {
-    { "CRED",   DF_CRED_START,   DF_CRED_SIZE   },
-    { "NVM_A",  DF_NVM_A_START,  DF_NVM_A_SIZE  },
-    { "NVM_B",  DF_NVM_B_START,  DF_NVM_B_SIZE  },
-    { "NONCE",  DF_NONCE_START,  DF_NONCE_SIZE  },
-    { "CONFIG", DF_CONFIG_START, DF_CONFIG_SIZE },
-    { "APP",    DF_APP_START,    DF_APP_SIZE    },
+    { "CRED",   DF_CRED_OFFSET,   DF_CRED_SIZE   },
+    { "NVM_A",  DF_NVM_A_OFFSET,  DF_NVM_A_SIZE  },
+    { "NVM_B",  DF_NVM_B_OFFSET,  DF_NVM_B_SIZE  },
+    { "NONCE",  DF_NONCE_OFFSET,  DF_NONCE_SIZE  },
+    { "CONFIG", DF_CONFIG_OFFSET, DF_CONFIG_SIZE },
+    { "APP",    DF_APP_OFFSET,    DF_APP_SIZE    },
 };
 
 #endif /* LORAWAN_SYSTEM_FLASH_DATAFLASH_PARTITION_H */

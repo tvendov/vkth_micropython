@@ -13,6 +13,7 @@ MICROPY_HW_ENABLE_DSP = 0
 # and the SCE9 AES wrapper (ra/ra_sce_aes.c) replaces lib/axtls/crypto/aes.c
 # at the AES_set_key/AES_encrypt/AES_decrypt API boundary.
 MICROPY_HW_ENABLE_RNG = 1
+CFLAGS += -DMICROPY_HW_DATAFLASH_PARTITIONED=1
 # LoRa/LoRaWAN — single selector switch.
 #   MICROPY_HW_LORA_STACK = python   → frozen Python micropySX126X + LoRaWAN
 #                                       + modaes_cmac.c + axTLS AES backend.
