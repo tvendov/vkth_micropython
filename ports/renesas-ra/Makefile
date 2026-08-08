@@ -525,29 +525,38 @@ endif
 MICROPY_HW_ENABLE_DSP ?= 0
 CFLAGS += -DMICROPY_HW_ENABLE_DSP=$(MICROPY_HW_ENABLE_DSP)
 ifeq ($(MICROPY_HW_ENABLE_DSP),1)
-CMSIS_DSP_DIR = $(TOP)/lib/cmsis-dsp
-CFLAGS += -DARM_MATH_CM33 -DARM_DSP_ATTRIBUTE= -DDISABLEFLOAT16
+CMSIS_DSP_PATH = lib/cmsis-dsp
+CMSIS_DSP_DIR = $(TOP)/$(CMSIS_DSP_PATH)
+GIT_SUBMODULES += lib/cmsis-dsp
+ifeq ($(MCU_SERIES),m33)
+CMSIS_DSP_CORE = ARM_MATH_CM33
+else ifeq ($(MCU_SERIES),m4)
+CMSIS_DSP_CORE = ARM_MATH_CM4
+else
+$(error CMSIS-DSP is not configured for MCU_SERIES=$(MCU_SERIES))
+endif
+CFLAGS += -D$(CMSIS_DSP_CORE) -DARM_DSP_ATTRIBUTE= -DDISABLEFLOAT16
 INC += -I$(CMSIS_DSP_DIR)/Include
 INC += -I$(CMSIS_DSP_DIR)/PrivateInclude
 SRC_C += moddsp.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_fir_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_fir_init_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_biquad_cascade_df1_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/FilteringFunctions/arm_biquad_cascade_df1_init_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/StatisticsFunctions/arm_rms_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/StatisticsFunctions/arm_power_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_biquad_cascade_df1_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_biquad_cascade_df1_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/StatisticsFunctions/arm_rms_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/StatisticsFunctions/arm_power_f32.c
 # FFT (real forward, float32)
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_rfft_fast_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_rfft_fast_init_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_cfft_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_cfft_init_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_cfft_radix8_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_bitreversal.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/TransformFunctions/arm_bitreversal2.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/ComplexMathFunctions/arm_cmplx_mag_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/BasicMathFunctions/arm_mult_f32.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/CommonTables/arm_common_tables.c
-DSP_SRC_C += $(CMSIS_DSP_DIR)/Source/CommonTables/arm_const_structs.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_rfft_fast_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_rfft_fast_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_cfft_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_cfft_init_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_cfft_radix8_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_bitreversal.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/TransformFunctions/arm_bitreversal2.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/ComplexMathFunctions/arm_cmplx_mag_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/BasicMathFunctions/arm_mult_f32.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/CommonTables/arm_common_tables.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/CommonTables/arm_const_structs.c
 SRC_C += $(DSP_SRC_C)
 endif
 

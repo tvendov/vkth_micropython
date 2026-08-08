@@ -24,7 +24,7 @@
  * THE SOFTWARE.
  */
 
-// DSP module for Renesas RA (Cortex-M33 with FPU).
+// DSP module for Renesas RA Cortex-M4/M33 parts with FPU.
 // Wraps ARM CMSIS-DSP float32 functions:
 //   dsp.FIRFilter  — arm_fir_f32      (windowed-sinc FIR)
 //   dsp.IIRFilter  — arm_biquad_cascade_df1_f32  (SOS biquad IIR)
@@ -44,9 +44,10 @@
 #include "py/objarray.h"
 #include "py/binary.h"
 
-#ifndef ARM_MATH_CM33
-#define ARM_MATH_CM33
-#endif
+// Board pin aliases collide with CMSIS-DSP PID structure field names.
+#undef A0
+#undef A1
+#undef A2
 #include "arm_math.h"
 
 // ---------------------------------------------------------------------------
@@ -551,4 +552,3 @@ const mp_obj_module_t mp_module_dsp = {
 MP_REGISTER_MODULE(MP_QSTR_dsp, mp_module_dsp);
 
 #endif // MICROPY_HW_ENABLE_DSP
-
