@@ -336,6 +336,11 @@ void ra_agt_timer_clear_all_reservations(void) {
 }
 
 bool ra_agt_timer_is_reserved(uint32_t ch) {
+    #ifdef MICROPY_HW_AGT_RESERVED_MASK
+    if ((MICROPY_HW_AGT_RESERVED_MASK >> ch) & 1U) {
+        return true;
+    }
+    #endif
     return ch < AGT_CH_SIZE && agt_reserved[ch];
 }
 

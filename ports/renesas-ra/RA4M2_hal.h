@@ -53,7 +53,7 @@
 #define RA_PRI_SPI      (8)
 #define RA_PRI_I2C      (8)
 #define RA_PRI_TIMX     (13)
-#define RA_PRI_EXTINT   (14)
+#define RA_PRI_EXTINT   (4)
 #define RA_PRI_PENDSV   (15)
 #define RA_PRI_RTC_WKUP (15)
 

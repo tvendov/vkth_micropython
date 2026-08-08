@@ -31,6 +31,7 @@
 #include "py/objfun.h"
 #include "py/runtime.h"
 #include "py/gc.h"
+#include "py/mperrno.h"
 #include "shared/runtime/mpirq.h"
 #include "timer.h"
 #include "pin.h"
@@ -72,6 +73,7 @@ typedef struct _pyb_timer_obj_t {
     uint8_t tim_id;
     mp_obj_t callback;
     bool ishard;
+    uint8_t clock_source;  /* ra_agt_clock_source_t; only consulted on low-freq AGT branches */
     #if defined(TIMER_CHANNEL)
     pyb_timer_channel_obj_t *channel;
     #endif
@@ -101,6 +103,14 @@ void timer_deinit(void) {
     // Internal drivers (e.g. WS2812) will re-reserve on next init.
     ra_agt_timer_clear_all_reservations();
     ra_dmac_clear_all_reservations();
+}
+
+uint8_t machine_timer_get_agt_channel(mp_obj_t self_in) {
+    if (!mp_obj_is_type(self_in, &pyb_timer_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("Timer is not AGT-backed"));
+    }
+    pyb_timer_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return (uint8_t)(self->tim_id - 1);
 }
 
 #if defined(TIMER_CHANNEL)
@@ -235,7 +245,7 @@ static void pyb_timer_print(const mp_print_t *print, mp_obj_t self_in, mp_print_
 ///              called directly from the timer IRQ with the timer id as its
 ///              single argument
 static mp_obj_t pyb_timer_init_helper(pyb_timer_obj_t *self, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    enum { ARG_mode, ARG_freq, ARG_period, ARG_callback, ARG_hard, ARG_fast };
+    enum { ARG_mode, ARG_freq, ARG_period, ARG_callback, ARG_hard, ARG_fast, ARG_source };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_mode,         MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_INT(2)} },
         { MP_QSTR_freq,         MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
@@ -243,6 +253,7 @@ static mp_obj_t pyb_timer_init_helper(pyb_timer_obj_t *self, size_t n_args, cons
         { MP_QSTR_callback,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
         { MP_QSTR_hard,         MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = true} },
         { MP_QSTR_fast,         MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_source,       MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
     };
     // parse args
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -268,6 +279,28 @@ static mp_obj_t pyb_timer_init_helper(pyb_timer_obj_t *self, size_t n_args, cons
         if (fast_entry == NULL) {
             mp_raise_TypeError(MP_ERROR_TEXT("fast IRQ requires @micropython.asm_thumb handler"));
         }
+    }
+
+    /* Decode `source=` kwarg into the AGT clock-source preference stored on
+     * self. PCLKB branches ignore this; only the <1000 Hz path consults it. */
+    if (args[ARG_source].u_obj != mp_const_none) {
+        if (!mp_obj_is_str(args[ARG_source].u_obj)) {
+            mp_raise_TypeError(MP_ERROR_TEXT("source must be 'sosc' or 'loco'"));
+        }
+        qstr src = mp_obj_str_get_qstr(args[ARG_source].u_obj);
+        if (src == MP_QSTR_sosc) {
+            #if !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
+            mp_raise_OSError(MP_EINVAL);
+            #else
+            self->clock_source = RA_AGT_CLOCK_SOSC;
+            #endif
+        } else if (src == MP_QSTR_loco) {
+            self->clock_source = RA_AGT_CLOCK_LOCO;
+        } else {
+            mp_raise_ValueError(MP_ERROR_TEXT("source must be 'sosc' or 'loco'"));
+        }
+    } else {
+        self->clock_source = RA_AGT_CLOCK_DEFAULT;
     }
 
     // init TIM
@@ -590,7 +623,9 @@ static mp_obj_t pyb_timer_freq(size_t n_args, const mp_obj_t *args) {
             mp_raise_ValueError(MP_ERROR_TEXT("freq must not be 0"));
         }
         ra_agt_timer_stop(ch);
-        ra_agt_timer_set_freq(ch, freq);
+        if (!ra_agt_timer_set_freq_ex(ch, freq, (ra_agt_clock_source_t)self->clock_source)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("freq out of range or source unavailable"));
+        }
         ra_agt_timer_start(ch);
         return mp_const_none;
     }

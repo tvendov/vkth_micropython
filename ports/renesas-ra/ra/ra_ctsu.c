@@ -38,17 +38,25 @@
  * ============================================================ */
 
 /* CTSU1 drive frequency target:
- * For RA4M2 we want ~0.5 MHz drive for all TS.
+ * Current RA4M2 configuration uses ~1 MHz drive for all TS.
  * Using the CTSU1 drive clock path (per CTSU1 block diagram):
  *   f_drive = PCLKB / (2^CTSU_CFG_PCLK_DIVISION) / (2 * (sdpa + 1))
- * With PCLKB=25 MHz and CTSU_CFG_PCLK_DIVISION=0:
- *   sdpa=24 -> divisor=2*(24+1)=50 -> f_drive=25 MHz/50=0.5 MHz.
+ * With PCLKB=50 MHz and CTSU_CFG_PCLK_DIVISION=0:
+ *   sdpa=24 -> divisor=2*(24+1)=50 -> f_drive=50 MHz/50=1 MHz.
  */
 #if defined(BSP_MCU_GROUP_RA4M2)
 #define RA_CTSU_SDPA_DEFAULT  (24U)
 #else
 #define RA_CTSU_SDPA_DEFAULT  (0x1FU)
 #endif
+
+#define RA_CTSU_ICOG_DEFAULT       (1U)    // 66%
+#define RA_CTSU_RICOA_DEFAULT      (0x0FU)
+#define RA_CTSU_PRMODE_DEFAULT     (2U)    // 62 base pulses
+#define RA_CTSU_PRRATIO_DEFAULT    (3U)
+#define RA_CTSU_SST_DEFAULT        (0x10U)
+#define RA_CTSU_ATUNE1_DEFAULT     (0U)
+#define RA_CTSU_CTSUCLK_DIV_DEFAULT (1U)
 
 /* CTSU-capable TS channels (MUST be strictly ascending)
  *
@@ -223,6 +231,19 @@ static uint32_t g_num_active_channels = 0;
 static volatile bool g_scan_in_progress = false;
 static bool          g_cache_valid = false;
 static uint16_t      g_last_data[RA_CTSU_MAX_CHANNELS];
+static ra_ctsu_counts_t g_last_counts[RA_CTSU_MAX_CHANNELS];
+static ra_ctsu_cap_element_cfg_t g_cap_elements[RA_CTSU_MAX_CHANNELS];
+static ra_ctsu_cap_global_cfg_t g_cap_global_cfg = {
+    .ctsuclk_div = RA_CTSU_CTSUCLK_DIV_DEFAULT,
+    .prmode = RA_CTSU_PRMODE_DEFAULT,
+    .prratio = RA_CTSU_PRRATIO_DEFAULT,
+    .atune1 = RA_CTSU_ATUNE1_DEFAULT,
+    .noise_reduction = true,
+    .auto_offset = true,
+};
+static uint8_t g_cap_sst = RA_CTSU_SST_DEFAULT;
+static bool g_cap_meter_mode = false;
+static uint32_t g_cap_config_generation = 0;
 
 // Контекст за CTSU callback (подава се през ctsu_cfg_t.p_context)
 // Цел: да НЕ разчитаме на глобални променливи вътре в callback-а, ако има подаден контекст.
@@ -292,6 +313,239 @@ static void ctsu_init_element_defaults(ctsu_element_cfg_t *element) {
     element->so = 0x100;
     element->snum = 7;
     element->sdpa = RA_CTSU_SDPA_DEFAULT;
+}
+
+static void ctsu_init_cap_element_defaults(ra_ctsu_cap_element_cfg_t *cfg) {
+    cfg->sdpa = RA_CTSU_SDPA_DEFAULT;
+    cfg->snum = 7;
+    cfg->icog = RA_CTSU_ICOG_DEFAULT;
+    cfg->so = 0x100;
+    cfg->ssdiv = CTSU_SSDIV_4000;
+    cfg->auto_ssdiv = false;
+}
+
+static void ctsu_invalidate_metrology_state(void) {
+    g_cap_config_generation++;
+}
+
+static int ctsu_clock_div_to_bits(uint8_t div, uint8_t *bits_out) {
+    if (bits_out == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+    switch (div) {
+        case 1:
+            *bits_out = 0;
+            return 0;
+        case 2:
+            *bits_out = 1;
+            return 0;
+        case 4:
+            *bits_out = 2;
+            return 0;
+        default:
+            return RA_CTSU_ERR_INVALID_ARG;
+    }
+}
+
+static uint32_t ctsu_get_pclkb_hz(void) {
+    return R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_PCLKB);
+}
+
+static uint32_t ctsu_get_ctsuclk_hz(void) {
+    uint32_t pclkb_hz = ctsu_get_pclkb_hz();
+    uint8_t div = g_cap_global_cfg.ctsuclk_div;
+    if (div == 0) {
+        div = RA_CTSU_CTSUCLK_DIV_DEFAULT;
+    }
+    return pclkb_hz / div;
+}
+
+static uint32_t ctsu_get_base_hz(uint8_t sdpa) {
+    return ctsu_get_ctsuclk_hz() / (2U * ((uint32_t)sdpa + 1U));
+}
+
+static ctsu_ssdiv_t ctsu_auto_ssdiv_from_base_hz(uint32_t base_hz) {
+    if (base_hz >= 4000000U) {
+        return CTSU_SSDIV_4000;
+    } else if (base_hz >= 2000000U) {
+        return CTSU_SSDIV_2000;
+    } else if (base_hz >= 1330000U) {
+        return CTSU_SSDIV_1330;
+    } else if (base_hz >= 1000000U) {
+        return CTSU_SSDIV_1000;
+    } else if (base_hz >= 800000U) {
+        return CTSU_SSDIV_0800;
+    } else if (base_hz >= 670000U) {
+        return CTSU_SSDIV_0670;
+    } else if (base_hz >= 570000U) {
+        return CTSU_SSDIV_0570;
+    } else if (base_hz >= 500000U) {
+        return CTSU_SSDIV_0500;
+    } else if (base_hz >= 440000U) {
+        return CTSU_SSDIV_0440;
+    } else if (base_hz >= 400000U) {
+        return CTSU_SSDIV_0400;
+    } else if (base_hz >= 360000U) {
+        return CTSU_SSDIV_0360;
+    } else if (base_hz >= 330000U) {
+        return CTSU_SSDIV_0330;
+    } else if (base_hz >= 310000U) {
+        return CTSU_SSDIV_0310;
+    } else if (base_hz >= 290000U) {
+        return CTSU_SSDIV_0290;
+    } else if (base_hz >= 270000U) {
+        return CTSU_SSDIV_0270;
+    } else {
+        return CTSU_SSDIV_0000;
+    }
+}
+
+static uint16_t ctsu_base_pulses_from_prmode(uint8_t prmode) {
+    switch (prmode) {
+        case 0:
+            return 510U;
+        case 1:
+            return 126U;
+        case 2:
+            return 62U;
+        default:
+            return 0U;
+    }
+}
+
+static void ctsu_sync_element_cfg(uint32_t index) {
+    if (index >= g_num_active_channels) {
+        return;
+    }
+
+    g_elements[index].so = g_cap_elements[index].so;
+    g_elements[index].snum = g_cap_elements[index].snum;
+    g_elements[index].sdpa = g_cap_elements[index].sdpa;
+    g_elements[index].ssdiv = g_cap_elements[index].auto_ssdiv ?
+        ctsu_auto_ssdiv_from_base_hz(ctsu_get_base_hz(g_cap_elements[index].sdpa)) :
+        (ctsu_ssdiv_t)g_cap_elements[index].ssdiv;
+}
+
+static void ctsu_capture_raw_counts_from_ctrl(void) {
+    if (g_ctsu_ctrl.p_self_raw == NULL) {
+        return;
+    }
+
+    bool status_overflow = (R_CTSU->CTSUST_b.CTSUSOVF != 0U) || (R_CTSU->CTSUST_b.CTSUROVF != 0U);
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        g_last_counts[i].sen = g_ctsu_ctrl.p_self_raw[i].sen;
+        g_last_counts[i].ref = g_ctsu_ctrl.p_self_raw[i].ref;
+        g_last_counts[i].event = (uint32_t)g_last_event;
+        g_last_counts[i].err = g_last_fsp_err;
+        g_last_counts[i].overflow =
+            (g_last_counts[i].sen == 0xFFFFU) ||
+            (g_last_counts[i].ref == 0xFFFFU) ||
+            status_overflow;
+    }
+}
+
+static void ctsu_apply_runtime_ctsuwr(uint32_t index) {
+    if (index >= g_num_active_channels) {
+        return;
+    }
+
+    ctsu_sync_element_cfg(index);
+
+    if (g_ctsu_ctrl.p_ctsuwr == NULL) {
+        return;
+    }
+
+#if (BSP_FEATURE_CTSU_VERSION == 1)
+    g_ctsu_ctrl.p_ctsuwr[index].ctsussc = (uint16_t)(g_elements[index].ssdiv << 8);
+    g_ctsu_ctrl.p_ctsuwr[index].ctsuso0 =
+        (uint16_t)(((uint16_t)g_elements[index].snum << 10) | g_elements[index].so);
+    g_ctsu_ctrl.p_ctsuwr[index].ctsuso1 =
+        (uint16_t)(((uint16_t)g_cap_elements[index].icog << 13) |
+                   ((uint16_t)g_elements[index].sdpa << 8) |
+                   RA_CTSU_RICOA_DEFAULT);
+#endif
+}
+
+static void ctsu_apply_all_runtime_ctsuwr(void) {
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        ctsu_apply_runtime_ctsuwr(i);
+    }
+}
+
+static void ctsu_sync_offsets_from_ctsuwr(void) {
+    if (g_ctsu_ctrl.p_ctsuwr == NULL) {
+        return;
+    }
+
+    const uint16_t so_mask = 0x03FFU;
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+#if (BSP_FEATURE_CTSU_VERSION == 1)
+        uint16_t so = (uint16_t)(g_ctsu_ctrl.p_ctsuwr[i].ctsuso0 & so_mask);
+#else
+        uint16_t so = (uint16_t)(g_ctsu_ctrl.p_ctsuwr[i].ctsuso & so_mask);
+#endif
+        g_elements[i].so = so;
+        g_cap_elements[i].so = so;
+    }
+}
+
+static int ctsu_apply_runtime_global_registers(void) {
+    uint8_t clock_bits = 0;
+    int rc = ctsu_clock_div_to_bits(g_cap_global_cfg.ctsuclk_div, &clock_bits);
+    if (rc < 0) {
+        return rc;
+    }
+
+    g_ctsu_cfg.atune1 = g_cap_global_cfg.atune1 ? CTSU_ATUNE1_HIGH : CTSU_ATUNE1_NORMAL;
+    g_ctsu_ctrl.ctsucr1 &= (uint8_t)~(1U << 3);
+    g_ctsu_ctrl.ctsucr1 |= (uint8_t)((g_cap_global_cfg.atune1 & 0x01U) << 3);
+
+    if (!g_ready) {
+        return 0;
+    }
+
+    uint8_t ctsucr1 = R_CTSU->CTSUCR1;
+    ctsucr1 &= (uint8_t)~(0x03U << 4);
+    ctsucr1 |= (uint8_t)(clock_bits << 4);
+    R_CTSU->CTSUCR1 = ctsucr1;
+
+    R_CTSU->CTSUSDPRS =
+        (uint8_t)(((!g_cap_global_cfg.noise_reduction ? 1U : 0U) << 6) |
+                  ((g_cap_global_cfg.prmode & 0x03U) << 4) |
+                  (g_cap_global_cfg.prratio & 0x0FU));
+    R_CTSU->CTSUSST = g_cap_sst;
+    return 0;
+}
+
+static int ctsu_drain_pending_scan(void) {
+    if (!g_scan_in_progress) {
+        return 0;
+    }
+
+    uint32_t timeout = 500;
+    while (!g_scan_done && timeout--) {
+        R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+    }
+
+    if (!g_scan_done) {
+        g_scan_in_progress = false;
+        g_last_fsp_err = FSP_ERR_TIMEOUT;
+        return RA_CTSU_ERR_BUSY;
+    }
+
+    uint16_t data[RA_CTSU_MAX_CHANNELS];
+    g_last_fsp_err = FSP_SUCCESS;
+    fsp_err_t err = R_CTSU_DataGet(&g_ctsu_ctrl, data);
+    g_scan_in_progress = false;
+    if (err != FSP_SUCCESS) {
+        g_last_fsp_err = err;
+        return RA_CTSU_ERR_SCAN_FAILED;
+    }
+
+    memcpy(g_last_data, data, sizeof(uint16_t) * g_num_active_channels);
+    g_cache_valid = true;
+    ctsu_capture_raw_counts_from_ctrl();
+    return 0;
 }
 
 static bool ctsu_channel_is_supported(uint8_t ts_channel) {
@@ -385,6 +639,9 @@ static int ctsu_open_current_config(void) {
     ctsu_validate_config();
     ctsu_prepare_pins();
     memset(&g_ctsu_cfg, 0, sizeof(g_ctsu_cfg));
+    for (uint32_t i = 0; i < g_num_active_channels; i++) {
+        ctsu_sync_element_cfg(i);
+    }
 
     uint8_t chac[5] = {0};
     for (uint32_t i = 0; i < g_num_active_channels; i++) {
@@ -395,7 +652,7 @@ static int ctsu_open_current_config(void) {
     g_ctsu_cfg.cap = CTSU_CAP_SOFTWARE;
     g_ctsu_cfg.md = CTSU_MODE_SELF_MULTI_SCAN;
     g_ctsu_cfg.txvsel = CTSU_TXVSEL_VCC;
-    g_ctsu_cfg.atune1 = CTSU_ATUNE1_NORMAL;
+    g_ctsu_cfg.atune1 = g_cap_global_cfg.atune1 ? CTSU_ATUNE1_HIGH : CTSU_ATUNE1_NORMAL;
     g_ctsu_cfg.ctsuchac0 = chac[0];
     g_ctsu_cfg.ctsuchac1 = chac[1];
     g_ctsu_cfg.ctsuchac2 = chac[2];
@@ -421,10 +678,17 @@ static int ctsu_open_current_config(void) {
     g_scan_in_progress = false;
     g_cache_valid = false;
     memset(g_last_data, 0, sizeof(g_last_data));
+    memset(g_last_counts, 0, sizeof(g_last_counts));
     g_ready = true;
 
-    ra_ctsu_offset_result_t ot_res;
-    (void)ra_ctsu_offset_tune(32, &ot_res);
+    (void)ctsu_apply_runtime_global_registers();
+    ctsu_apply_all_runtime_ctsuwr();
+
+    if (g_cap_global_cfg.auto_offset && !g_cap_meter_mode) {
+        ra_ctsu_offset_result_t ot_res;
+        (void)ra_ctsu_offset_tune(32, &ot_res);
+        ctsu_sync_offsets_from_ctsuwr();
+    }
     return 0;
 }
 
@@ -513,6 +777,7 @@ int ra_ctsu_scan_collect(void) {
     }
 
     g_cache_valid = true;
+    ctsu_capture_raw_counts_from_ctrl();
     return 0;
 }
 
@@ -534,6 +799,190 @@ int32_t ra_ctsu_read_cached(uint8_t ts_channel) {
     }
 
     return (int32_t)g_last_data[(uint8_t)index];
+}
+
+int ra_ctsu_read_counts(uint8_t ts_channel, ra_ctsu_counts_t * out) {
+    if (out == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+    if (!g_ready) {
+        return RA_CTSU_ERR_NOT_INITIALIZED;
+    }
+
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index < 0) {
+        return RA_CTSU_ERR_NOT_CONFIGURED;
+    }
+
+    int rc = ctsu_drain_pending_scan();
+    if (rc < 0) {
+        return rc;
+    }
+
+    rc = ra_ctsu_scan_start();
+    if (rc < 0) {
+        return rc;
+    }
+
+    uint32_t timeout = 500;
+    while (!g_scan_done && timeout--) {
+        R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+    }
+
+    if (!g_scan_done) {
+        g_scan_in_progress = false;
+        g_last_fsp_err = FSP_ERR_TIMEOUT;
+        return RA_CTSU_ERR_BUSY;
+    }
+
+    uint16_t data[RA_CTSU_MAX_CHANNELS];
+    g_last_fsp_err = FSP_SUCCESS;
+    fsp_err_t err = R_CTSU_DataGet(&g_ctsu_ctrl, data);
+    g_scan_in_progress = false;
+    if (err != FSP_SUCCESS) {
+        g_last_fsp_err = err;
+        return RA_CTSU_ERR_SCAN_FAILED;
+    }
+
+    memcpy(g_last_data, data, sizeof(uint16_t) * g_num_active_channels);
+    g_cache_valid = true;
+    ctsu_capture_raw_counts_from_ctrl();
+    *out = g_last_counts[(uint8_t)index];
+    return 0;
+}
+
+int ra_ctsu_get_cap_element(uint8_t ts_channel, ra_ctsu_cap_element_cfg_t * cfg) {
+    if (cfg == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index < 0) {
+        return RA_CTSU_ERR_NOT_CONFIGURED;
+    }
+
+    *cfg = g_cap_elements[(uint8_t)index];
+    return 0;
+}
+
+int ra_ctsu_set_cap_element(uint8_t ts_channel, ra_ctsu_cap_element_cfg_t const * cfg) {
+    if (cfg == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+    if (ts_channel >= RA_CTSU_TS_CHANNEL_COUNT) {
+        return RA_CTSU_ERR_TS_OUT_OF_RANGE;
+    }
+    if (cfg->sdpa > 31U || cfg->snum > 63U || cfg->icog > 3U || cfg->so > 1023U || cfg->ssdiv > 15U) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index < 0) {
+        return RA_CTSU_ERR_NOT_CONFIGURED;
+    }
+
+    int rc = ctsu_drain_pending_scan();
+    if (rc < 0) {
+        return rc;
+    }
+
+    g_cap_meter_mode = true;
+    g_cap_elements[(uint8_t)index] = *cfg;
+    ctsu_apply_runtime_ctsuwr((uint32_t)(uint8_t)index);
+    g_cache_valid = false;
+    ctsu_invalidate_metrology_state();
+    return 0;
+}
+
+int ra_ctsu_get_cap_global(ra_ctsu_cap_global_cfg_t * cfg) {
+    if (cfg == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    *cfg = g_cap_global_cfg;
+    return 0;
+}
+
+int ra_ctsu_set_cap_sst_debug(uint8_t sst) {
+    int rc = ctsu_drain_pending_scan();
+    if (rc < 0) {
+        return rc;
+    }
+
+    g_cap_sst = sst;
+    if (g_ready) {
+        R_CTSU->CTSUSST = g_cap_sst;
+    }
+    g_cache_valid = false;
+    ctsu_invalidate_metrology_state();
+    return 0;
+}
+
+uint8_t ra_ctsu_get_cap_sst_debug(void) {
+    return g_cap_sst;
+}
+
+int ra_ctsu_set_cap_global(ra_ctsu_cap_global_cfg_t const * cfg) {
+    if (cfg == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+    if ((cfg->ctsuclk_div != 1U && cfg->ctsuclk_div != 2U && cfg->ctsuclk_div != 4U) ||
+        cfg->prmode > 2U ||
+        cfg->prratio > 15U ||
+        cfg->atune1 > 1U) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    int rc = ctsu_drain_pending_scan();
+    if (rc < 0) {
+        return rc;
+    }
+
+    g_cap_meter_mode = true;
+    g_cap_global_cfg = *cfg;
+    rc = ctsu_apply_runtime_global_registers();
+    if (rc < 0) {
+        return rc;
+    }
+    ctsu_apply_all_runtime_ctsuwr();
+    g_cache_valid = false;
+    ctsu_invalidate_metrology_state();
+    return 0;
+}
+
+int ra_ctsu_get_timing(uint8_t ts_channel, ra_ctsu_timing_t * out) {
+    if (out == NULL) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    int8_t index = ra_ctsu_channel_to_index(ts_channel);
+    if (index < 0) {
+        return RA_CTSU_ERR_NOT_CONFIGURED;
+    }
+
+    ra_ctsu_cap_element_cfg_t const * elem = &g_cap_elements[(uint8_t)index];
+    uint16_t base_pulses = ctsu_base_pulses_from_prmode(g_cap_global_cfg.prmode);
+    if (base_pulses == 0U) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    memset(out, 0, sizeof(*out));
+    out->pclkb_hz = ctsu_get_pclkb_hz();
+    out->ctsuclk_hz = ctsu_get_ctsuclk_hz();
+    out->base_hz = ctsu_get_base_hz(elem->sdpa);
+    if (out->base_hz == 0U) {
+        return RA_CTSU_ERR_INVALID_ARG;
+    }
+
+    out->base_cycle_ns = 1000000000UL / out->base_hz;
+    out->base_pulses = base_pulses;
+    out->measurement_pulses = (uint16_t)(base_pulses * g_cap_global_cfg.prratio + 1U);
+    out->groups = (uint16_t)(elem->snum + 1U);
+    out->group_ns =
+        (uint32_t)(((uint64_t)(out->measurement_pulses + base_pulses - 2U) * (uint64_t)out->base_cycle_ns) / 4ULL);
+    out->gate_ns = out->group_ns * (uint32_t)out->groups;
+    out->stabilize_ns = (uint32_t)g_cap_sst * out->base_cycle_ns;
+    return 0;
 }
 
 // Опростено четене на капацитивна стойност по индекс (0, 1, 2...)
@@ -593,6 +1042,7 @@ int32_t ra_ctsu_read_simple(uint8_t index)
             g_last_fsp_err = FSP_SUCCESS;
             memcpy(g_last_data, data, sizeof(uint16_t) * g_num_active_channels);
             g_cache_valid = true;
+            ctsu_capture_raw_counts_from_ctrl();
             break;
         }
 
@@ -660,6 +1110,8 @@ void ra_ctsu_deinit(void) {
     g_ready = false;
     g_scan_in_progress = false;
     g_cache_valid = false;
+    memset(g_last_data, 0, sizeof(g_last_data));
+    memset(g_last_counts, 0, sizeof(g_last_counts));
 }
 
 // Заглушка за channel_config - конфигуриране на канал с праг
@@ -688,14 +1140,18 @@ int ra_ctsu_channel_config(uint8_t ts_channel, uint16_t threshold) {
         g_active_ts_channels[insert_at] = g_active_ts_channels[insert_at - 1];
         g_active_thresholds[insert_at] = g_active_thresholds[insert_at - 1];
         g_elements[insert_at] = g_elements[insert_at - 1];
+        g_cap_elements[insert_at] = g_cap_elements[insert_at - 1];
         g_last_data[insert_at] = g_last_data[insert_at - 1];
+        g_last_counts[insert_at] = g_last_counts[insert_at - 1];
         insert_at--;
     }
 
     g_active_ts_channels[insert_at] = ts_channel;
     g_active_thresholds[insert_at] = threshold;
     ctsu_init_element_defaults(&g_elements[insert_at]);
+    ctsu_init_cap_element_defaults(&g_cap_elements[insert_at]);
     g_last_data[insert_at] = 0;
+    memset(&g_last_counts[insert_at], 0, sizeof(g_last_counts[insert_at]));
     g_num_active_channels++;
     g_cache_valid = false;
 
@@ -706,7 +1162,9 @@ int ra_ctsu_channel_config(uint8_t ts_channel, uint16_t threshold) {
             g_active_ts_channels[insert_at] = g_active_ts_channels[insert_at + 1];
             g_active_thresholds[insert_at] = g_active_thresholds[insert_at + 1];
             g_elements[insert_at] = g_elements[insert_at + 1];
+            g_cap_elements[insert_at] = g_cap_elements[insert_at + 1];
             g_last_data[insert_at] = g_last_data[insert_at + 1];
+            g_last_counts[insert_at] = g_last_counts[insert_at + 1];
             insert_at++;
         }
         if (was_ready) {
@@ -788,6 +1246,8 @@ int ra_ctsu_get_offsets(uint8_t * ts_channels, uint16_t * so_values, uint32_t ma
 #else
         so_values[i] = (uint16_t)(g_ctsu_ctrl.p_ctsuwr[i].ctsuso0 & so_mask);
 #endif
+        g_elements[i].so = so_values[i];
+        g_cap_elements[i].so = so_values[i];
     }
 
     return 0;
@@ -831,6 +1291,7 @@ int ra_ctsu_set_offset(uint8_t ts_channel, uint16_t so_value)
 
     // Keep g_elements consistent too (used during init/open).
     g_elements[elem_index].so = so_value;
+    g_cap_elements[elem_index].so = so_value;
 
 #if (BSP_FEATURE_CTSU_VERSION == 2)
     // For multi-frequency scans, p_ctsuwr is laid out per element * CTSU_CFG_NUM_SUMULTI.
@@ -937,11 +1398,13 @@ int ra_ctsu_offset_tune(uint32_t max_scans, ra_ctsu_offset_result_t * p_result)
             continue;
         }
 
+        ctsu_sync_offsets_from_ctsuwr();
         return 0;
     }
 
 	    // If we reached max_scans without completion, keep the *real* FSP status
 	    // (typically FSP_ERR_CTSU_INCOMPLETE_TUNING=6002) for diagnostics.
+    ctsu_sync_offsets_from_ctsuwr();
     return 0;
 }
 
@@ -1047,6 +1510,8 @@ restore_normal_mode:
 
     // Изчакваме 1ms за стабилизиране на хардуера след смяна на режима
     R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
+    (void)ctsu_apply_runtime_global_registers();
+    ctsu_apply_all_runtime_ctsuwr();
 
     return 0;
 }

@@ -500,6 +500,191 @@ static mp_obj_t ra_touchpad_set_offset(mp_obj_t self_in, mp_obj_t so_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(ra_touchpad_set_offset_obj, ra_touchpad_set_offset);
 
+// read_counts() - return raw (sen, ref) CTSU counters for metrology mode.
+static mp_obj_t ra_touchpad_read_counts(mp_obj_t self_in) {
+    machine_touchpad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    ra_ctsu_counts_t counts;
+    int rc = ra_ctsu_read_counts(self->channel, &counts);
+    if (rc < 0) {
+        int fsp_err = (int)ra_ctsu_last_fsp_err();
+        unsigned int ev = (unsigned int)ra_ctsu_last_event();
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU read_counts error: %d (fsp=%d ev=0x%x)"), rc, fsp_err, ev);
+    }
+
+    touchpad_last_sample_ms = mp_hal_ticks_ms();
+    touchpad_last_sample_valid = true;
+    mp_obj_t items[2] = {
+        mp_obj_new_int_from_uint(counts.sen),
+        mp_obj_new_int_from_uint(counts.ref),
+    };
+    return mp_obj_new_tuple(2, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_read_counts_obj, ra_touchpad_read_counts);
+
+// timing() - expose the derived CTSU timing model for this element.
+static mp_obj_t ra_touchpad_timing(mp_obj_t self_in) {
+    machine_touchpad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    ra_ctsu_timing_t timing;
+    int rc = ra_ctsu_get_timing(self->channel, &timing);
+    if (rc < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU timing error: %d"), rc);
+    }
+
+    mp_obj_dict_t *d = mp_obj_new_dict(10);
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_pclkb_hz), mp_obj_new_int_from_uint(timing.pclkb_hz));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_ctsuclk_hz), mp_obj_new_int_from_uint(timing.ctsuclk_hz));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_base_hz), mp_obj_new_int_from_uint(timing.base_hz));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_base_cycle_ns), mp_obj_new_int_from_uint(timing.base_cycle_ns));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_base_pulses), mp_obj_new_int_from_uint(timing.base_pulses));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_measurement_pulses), mp_obj_new_int_from_uint(timing.measurement_pulses));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_groups), mp_obj_new_int_from_uint(timing.groups));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_group_ns), mp_obj_new_int_from_uint(timing.group_ns));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_gate_ns), mp_obj_new_int_from_uint(timing.gate_ns));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_stabilize_ns), mp_obj_new_int_from_uint(timing.stabilize_ns));
+    return MP_OBJ_FROM_PTR(d);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ra_touchpad_timing_obj, ra_touchpad_timing);
+
+// cap_config(...) - per-channel CTSU metrology configuration.
+static mp_obj_t ra_touchpad_cap_config(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
+    machine_touchpad_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+
+    enum {
+        ARG_sdpa,
+        ARG_snum,
+        ARG_icog,
+        ARG_so,
+        ARG_ssdiv,
+        ARG_auto_ssdiv,
+    };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_sdpa, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_snum, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_icog, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_so, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_ssdiv, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_auto_ssdiv, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = true} },
+    };
+    mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, parsed);
+
+    bool ssdiv_given = parsed[ARG_ssdiv].u_obj != mp_const_none;
+    if (ssdiv_given && parsed[ARG_auto_ssdiv].u_bool) {
+        mp_raise_ValueError(MP_ERROR_TEXT("ssdiv requires auto_ssdiv=False"));
+    }
+
+    ra_ctsu_cap_element_cfg_t cfg;
+    int rc = ra_ctsu_get_cap_element(self->channel, &cfg);
+    if (rc < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU cap_config get error: %d"), rc);
+    }
+
+    if (parsed[ARG_sdpa].u_obj != mp_const_none) {
+        cfg.sdpa = (uint8_t)mp_obj_get_int(parsed[ARG_sdpa].u_obj);
+    }
+    if (parsed[ARG_snum].u_obj != mp_const_none) {
+        cfg.snum = (uint8_t)mp_obj_get_int(parsed[ARG_snum].u_obj);
+    }
+    if (parsed[ARG_icog].u_obj != mp_const_none) {
+        cfg.icog = (uint8_t)mp_obj_get_int(parsed[ARG_icog].u_obj);
+    }
+    if (parsed[ARG_so].u_obj != mp_const_none) {
+        cfg.so = (uint16_t)mp_obj_get_int(parsed[ARG_so].u_obj);
+    }
+    if (ssdiv_given) {
+        cfg.ssdiv = (uint8_t)mp_obj_get_int(parsed[ARG_ssdiv].u_obj);
+    }
+    cfg.auto_ssdiv = parsed[ARG_auto_ssdiv].u_bool;
+
+    rc = ra_ctsu_set_cap_element(self->channel, &cfg);
+    if (rc < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU cap_config set error: %d"), rc);
+    }
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(ra_touchpad_cap_config_obj, 1, ra_touchpad_cap_config);
+
+// cap_global_config(...) - shared CTSU engine configuration for metrology mode.
+static mp_obj_t ra_touchpad_cap_global_config(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
+    (void)args[0];
+
+    enum {
+        ARG_ctsuclk_div,
+        ARG_prmode,
+        ARG_prratio,
+        ARG_atune1,
+        ARG_noise,
+        ARG_auto_offset,
+        ARG__sst_debug,
+    };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_ctsuclk_div, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_prmode, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_prratio, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_atune1, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_noise, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_auto_offset, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR__sst_debug, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+    };
+    mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, parsed);
+
+    ra_ctsu_cap_global_cfg_t cfg;
+    int rc = ra_ctsu_get_cap_global(&cfg);
+    if (rc < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU cap_global_config get error: %d"), rc);
+    }
+
+    if (parsed[ARG_ctsuclk_div].u_obj != mp_const_none) {
+        cfg.ctsuclk_div = (uint8_t)mp_obj_get_int(parsed[ARG_ctsuclk_div].u_obj);
+    }
+    if (parsed[ARG_prmode].u_obj != mp_const_none) {
+        cfg.prmode = (uint8_t)mp_obj_get_int(parsed[ARG_prmode].u_obj);
+    }
+    if (parsed[ARG_prratio].u_obj != mp_const_none) {
+        cfg.prratio = (uint8_t)mp_obj_get_int(parsed[ARG_prratio].u_obj);
+    }
+    if (parsed[ARG_atune1].u_obj != mp_const_none) {
+        cfg.atune1 = (uint8_t)mp_obj_get_int(parsed[ARG_atune1].u_obj);
+    }
+    if (parsed[ARG_noise].u_obj != mp_const_none) {
+        cfg.noise_reduction = mp_obj_is_true(parsed[ARG_noise].u_obj);
+    }
+    if (parsed[ARG_auto_offset].u_obj != mp_const_none) {
+        cfg.auto_offset = mp_obj_is_true(parsed[ARG_auto_offset].u_obj);
+    }
+
+    rc = ra_ctsu_set_cap_global(&cfg);
+    if (rc < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("CTSU cap_global_config set error: %d"), rc);
+    }
+
+    if (parsed[ARG__sst_debug].u_obj != mp_const_none) {
+        mp_int_t sst = mp_obj_get_int(parsed[ARG__sst_debug].u_obj);
+        if (sst < 0 || sst > 255) {
+            mp_raise_ValueError(MP_ERROR_TEXT("_sst_debug must be 0..255"));
+        }
+        rc = ra_ctsu_set_cap_sst_debug((uint8_t)sst);
+        if (rc < 0) {
+            mp_raise_msg_varg(&mp_type_OSError,
+                MP_ERROR_TEXT("CTSU _sst_debug error: %d"), rc);
+        }
+    }
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(ra_touchpad_cap_global_config_obj, 1, ra_touchpad_cap_global_config);
+static MP_DEFINE_CONST_CLASSMETHOD_OBJ(ra_touchpad_cap_global_config_classmethod_obj, MP_ROM_PTR(&ra_touchpad_cap_global_config_obj));
+
 // Таблица с локални методи на TouchPad класа
 static const mp_rom_map_elem_t ra_touchpad_locals_dict_table[] = {
     // sample_rate([hz]) - get/set global cooperative sampling rate in full scans/sec
@@ -516,6 +701,8 @@ static const mp_rom_map_elem_t ra_touchpad_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_age_ms), MP_ROM_PTR(&ra_touchpad_age_ms_obj) },
     // read() - чете необработена CTSU стойност
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&ra_touchpad_read_obj) },
+    // read_counts() - връща raw (sen, ref) counters за metrology mode
+    { MP_ROM_QSTR(MP_QSTR_read_counts), MP_ROM_PTR(&ra_touchpad_read_counts_obj) },
     // read_cached() - чете последната кеширана CTSU стойност без нов scan
     { MP_ROM_QSTR(MP_QSTR_read_cached), MP_ROM_PTR(&ra_touchpad_read_cached_obj) },
     // read_value() - връща (count, value, last_error) от едно и също измерване
@@ -532,7 +719,12 @@ static const mp_rom_map_elem_t ra_touchpad_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_offset_tune), MP_ROM_PTR(&ra_touchpad_offset_tune_obj) },
     // offsets() - връща списък от (ts_channel, so_offset) за всички активни канали
     { MP_ROM_QSTR(MP_QSTR_offsets), MP_ROM_PTR(&ra_touchpad_offsets_obj) },
-
+    // timing() - връща derived CTSU timing dictionary за този елемент
+    { MP_ROM_QSTR(MP_QSTR_timing), MP_ROM_PTR(&ra_touchpad_timing_obj) },
+    // cap_config(...) - per-channel metrology knobs
+    { MP_ROM_QSTR(MP_QSTR_cap_config), MP_ROM_PTR(&ra_touchpad_cap_config_obj) },
+    // cap_global_config(...) - shared CTSU engine knobs
+    { MP_ROM_QSTR(MP_QSTR_cap_global_config), MP_ROM_PTR(&ra_touchpad_cap_global_config_classmethod_obj) },
     // set_offset(so) - ръчно задава SO offset (0..1023) за този канал
     { MP_ROM_QSTR(MP_QSTR_set_offset), MP_ROM_PTR(&ra_touchpad_set_offset_obj) },
 };

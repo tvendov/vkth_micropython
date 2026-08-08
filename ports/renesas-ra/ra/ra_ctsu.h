@@ -111,6 +111,72 @@ int32_t ra_ctsu_read_cached(uint8_t ts_channel);
 // Returns true when at least one cached multi-scan result is available.
 bool ra_ctsu_cached_ready(void);
 
+// ---------------------------------------------------------------------------
+// Capacitance-meter API (raw CTSU metrology path)
+// ---------------------------------------------------------------------------
+typedef struct {
+    uint16_t  sen;        // Raw CTSUSC sensor counter
+    uint16_t  ref;        // Raw CTSURC reference counter
+    uint32_t  event;      // Last CTSU callback event
+    fsp_err_t err;        // Last FSP status from the underlying scan/data-get path
+    bool      overflow;   // Sensor/ref overflow from counters and/or CTSUST flags
+} ra_ctsu_counts_t;
+
+typedef struct {
+    uint8_t  sdpa;        // CTSUSDPA[4:0]
+    uint8_t  snum;        // CTSUSNUM[5:0]
+    uint8_t  icog;        // CTSUICOG[1:0]
+    uint16_t so;          // CTSUSO[9:0]
+    uint8_t  ssdiv;       // CTSUSSDIV[3:0]
+    bool     auto_ssdiv;  // Auto-derive ssdiv from base clock if true
+} ra_ctsu_cap_element_cfg_t;
+
+typedef struct {
+    uint8_t ctsuclk_div;     // 1, 2, or 4 => PCLKB, PCLKB/2, PCLKB/4
+    uint8_t prmode;          // 0=510, 1=126, 2=62 base pulses
+    uint8_t prratio;         // 0..15
+    uint8_t atune1;          // 0 normal, 1 high-current
+    bool    noise_reduction; // true => CTSUSOFF=0
+    bool    auto_offset;     // Touch-mode offset tuning policy; metrology APIs do not tune implicitly
+} ra_ctsu_cap_global_cfg_t;
+
+typedef struct {
+    uint32_t pclkb_hz;
+    uint32_t ctsuclk_hz;
+    uint32_t base_hz;
+    uint32_t base_cycle_ns;
+    uint16_t base_pulses;
+    uint16_t measurement_pulses;
+    uint16_t groups;
+    uint32_t group_ns;
+    uint32_t gate_ns;
+    uint32_t stabilize_ns;
+} ra_ctsu_timing_t;
+
+// Read the latest raw sensor/reference snapshot for one configured TS channel.
+// This runs a normal blocking scan and returns the raw counters captured by FSP
+// at the CTSURD moment. It does not perform touch thresholding or implicit tuning.
+int ra_ctsu_read_counts(uint8_t ts_channel, ra_ctsu_counts_t * out);
+
+// Return the current capacitance-meter element configuration for one TS channel.
+int ra_ctsu_get_cap_element(uint8_t ts_channel, ra_ctsu_cap_element_cfg_t * cfg);
+
+// Update the per-channel capacitance-meter settings for one TS channel.
+int ra_ctsu_set_cap_element(uint8_t ts_channel, ra_ctsu_cap_element_cfg_t const * cfg);
+
+// Return the global/shared CTSU engine settings used by cap-meter mode.
+int ra_ctsu_get_cap_global(ra_ctsu_cap_global_cfg_t * cfg);
+
+// Update the global/shared CTSU engine settings used by cap-meter mode.
+int ra_ctsu_set_cap_global(ra_ctsu_cap_global_cfg_t const * cfg);
+
+// Debug-only escape hatch for CTSUSST. Normal operation should keep this at 0x10.
+int ra_ctsu_set_cap_sst_debug(uint8_t sst);
+uint8_t ra_ctsu_get_cap_sst_debug(void);
+
+// Compute the current timing model for one configured TS channel.
+int ra_ctsu_get_timing(uint8_t ts_channel, ra_ctsu_timing_t * out);
+
 // Check if touch is detected (count > threshold)
 // ts_channel: CTSU TS pin number
 // Returns 1 if touched, 0 if not, negative on error

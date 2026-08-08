@@ -68,6 +68,32 @@ void timer_board_deinit(void);
 void RadioSetPublicNetwork(bool enable);
 
 #include "LoRaMac.h"
+#include "LoRaMacCrypto.h"   /* LoRaMacCrypto{Get,Set}UplinkFCnt (L354-355) */
+
+/* NVM blob format version. Prepended to the byte stream produced by
+   mac.nvm_blob() so a future LoRaMac context-layout change can be detected
+   and rejected on mac.nvm_restore_blob(). Bump when the packed context set
+   or ordering changes.
+   v2: self-describing — version(1) + 7×uint16 LE context sizes(14) +
+   concatenated contexts. Restore slices using the EMBEDDED sizes, not a live
+   MibGet, so a cold-boot (fresh/unjoined) layout no longer mis-slices a blob
+   that was packed while joined (the v1 bug: live sizes != save-time sizes). */
+#define LORAWAN_NVM_BLOB_VERSION   (0x02u)
+#define LORAWAN_NVM_BLOB_NCTX      (7u)
+#define LORAWAN_NVM_BLOB_HDR       (1u + LORAWAN_NVM_BLOB_NCTX * 2u)  /* 15 B */
+
+/* Persistent-state dirty flag. Set from the NvmContextChange callback (may
+   run in foreground pump context, never in a hard ISR — see
+   mac_nvm_context_change below). Polled/cleared from the Python thread via
+   mac.nvm_dirty() / mac.nvm_clear_dirty(). The blocking flash path
+   (NvmDataMgmtStore) is reached ONLY from the Python thread via
+   mac.nvm_store(); this flag never triggers a flash write on its own. */
+static volatile bool s_nvm_dirty = false;
+
+/* Set true after a successful mac.nvm_restore_blob() in this boot. Guards
+   mac.advance_fcnt(): advancing the uplink FCnt before the restored context
+   is MibSet would be clobbered by the restore (restore THEN advance). */
+static bool s_restored = false;
 
 // ---- Pin defaults (mpconfigboard.h-compatible literals) -----------------
 //
@@ -699,10 +725,18 @@ static uint8_t mac_get_battery_level(void) {
 
 static void mac_nvm_context_change(uint32_t notifyMibFlags) {
     (void)notifyMibFlags;
-    /* LoRaMac flagged a persistent-state change (DevNonce,
-       FCnt, session keys, ...). Snapshot the contexts into RAM-backed
-       NVM; the call sequence stays the same. */
-    (void)NvmDataMgmtStore();
+    /* LoRaMac flags a persistent-state change (DevNonce, FCnt, session
+       keys, ...) on essentially every uplink (FCntUp increments). We do
+       NOT auto-persist here: a data-flash erase+write per uplink wears the
+       flash and blocks the foreground for tens of ms (skewing the uplink
+       cadence).
+
+       INVARIANT: this callback only sets a dirty flag — never reaches the
+       blocking flash path. NvmDataMgmtStore() (the data-flash erase+write)
+       is reached EXCLUSIVELY from the Python thread via mac.nvm_store().
+       Python polls mac.nvm_dirty() and decides when to snapshot. This keeps
+       all flash I/O off the LoRaMac/pump path and out of any ISR context. */
+    s_nvm_dirty = true;
 }
 
 /* MacProcessNotify requests foreground LoRaMac service, but does NOT schedule
@@ -1392,10 +1426,233 @@ static mp_obj_t lorawan_mac_nvm_factory_reset(mp_obj_t self_in) {
     __atomic_store_n(&s_lorawan_last_rx_rssi_dbm,    0,  __ATOMIC_RELAXED);
     __atomic_store_n(&s_lorawan_last_rx_snr_db,      0,  __ATOMIC_RELAXED);
     __atomic_store_n(&s_lorawan_last_rx_stats_valid, 0u, __ATOMIC_RELAXED);
+    s_restored = false;
+    s_nvm_dirty = false;
     return mp_obj_new_bool(NvmDataMgmtFactoryReset());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_factory_reset_obj,
     lorawan_mac_nvm_factory_reset);
+
+/* Blob persistence API (data-flash partition refactor).
+ *
+ * mac.nvm_blob() packs the 7 LoRaMac module contexts (same field order as
+ * nvm_board.c NvmDataMgmtStore) behind a 1-byte format version. The Python
+ * writer lands the result in the NVM_A/NVM_B partition. mac.nvm_restore_blob()
+ * is the inverse; mac.advance_fcnt() bumps the single authoritative uplink
+ * counter post-restore. */
+
+/* Static packing scratch. 1 version byte + 7 contexts. Sized for the EU868
+   context set (measured ~1350 B in nvm_board.c) with margin; the ≤2048
+   assert below (NVM_A/NVM_B partition size) fails loud before any overflow. */
+#define LORAWAN_NVM_BLOB_MAX   (2048u)
+static uint8_t s_nvm_blob[LORAWAN_NVM_BLOB_MAX] __attribute__((aligned(4)));
+
+/* Pack the v2 self-describing NVM blob into `dst` (capacity `cap`) and return
+   the packed length. Shared by mac.nvm_blob() (copies dst→fresh bytes) and
+   mac.nvm_blob_into() (dst is the caller's pre-allocated buffer — zero alloc).
+   Raises on MIB failure or capacity overflow. */
+static size_t lorawan_nvm_pack(uint8_t *dst, size_t cap) {
+    MibRequestConfirm_t mib;
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NVM_CTXS;
+    if (LoRaMacMibGetRequestConfirm(&mib) != LORAMAC_STATUS_OK) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("MIB_NVM_CTXS get failed"));
+    }
+    LoRaMacCtxs_t *ctx = mib.Param.Contexts;
+    if (ctx == NULL) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("no NVM contexts"));
+    }
+
+    /* Same context order as nvm_board.c NvmDataMgmtStore():
+       MAC, REGION, CRYPTO, SECURE_ELEMENT, COMMANDS, CLASS_B, CONFIRM_QUEUE.
+       Each is a raw blob; sizes are recovered on restore from the embedded
+       v2 header (LoRaMac fills the *Size fields on the get). */
+    const struct { const void *p; size_t n; } parts[] = {
+        { ctx->MacNvmCtx,           ctx->MacNvmCtxSize },
+        { ctx->RegionNvmCtx,        ctx->RegionNvmCtxSize },
+        { ctx->CryptoNvmCtx,        ctx->CryptoNvmCtxSize },
+        { ctx->SecureElementNvmCtx, ctx->SecureElementNvmCtxSize },
+        { ctx->CommandsNvmCtx,      ctx->CommandsNvmCtxSize },
+        { ctx->ClassBNvmCtx,        ctx->ClassBNvmCtxSize },
+        { ctx->ConfirmQueueNvmCtx,  ctx->ConfirmQueueNvmCtxSize },
+    };
+
+    /* v2 self-describing header: version(1) + 7×uint16 LE context sizes(14).
+       Restore reads these EMBEDDED sizes, so it never depends on the live
+       (possibly cold-boot) context layout. Sizes are written for all 7
+       contexts (0 for absent ones) to keep the header fixed-width. */
+    if (cap < LORAWAN_NVM_BLOB_HDR) {
+        mp_raise_ValueError(MP_ERROR_TEXT("nvm buffer too small"));
+    }
+    size_t off = 0;
+    dst[off++] = LORAWAN_NVM_BLOB_VERSION;
+    for (size_t i = 0; i < MP_ARRAY_SIZE(parts); i++) {
+        uint16_t n = (uint16_t)parts[i].n;
+        dst[off++] = (uint8_t)(n & 0xFF);
+        dst[off++] = (uint8_t)((n >> 8) & 0xFF);
+    }
+    for (size_t i = 0; i < MP_ARRAY_SIZE(parts); i++) {
+        if (parts[i].p == NULL || parts[i].n == 0) {
+            continue;
+        }
+        /* Fail loud rather than truncate: a blob that won't round-trip is
+           worse than a clear error. */
+        if (off + parts[i].n > cap) {
+            mp_raise_msg(&mp_type_OSError,
+                MP_ERROR_TEXT("nvm blob exceeds buffer"));
+        }
+        memcpy(dst + off, parts[i].p, parts[i].n);
+        off += parts[i].n;
+    }
+    return off;
+}
+
+static mp_obj_t lorawan_mac_nvm_blob(mp_obj_t self_in) {
+    (void)self_in;
+    size_t off = lorawan_nvm_pack(s_nvm_blob, LORAWAN_NVM_BLOB_MAX);
+    /* Fresh bytes copy — never a view into the static buffer (GC-safe). */
+    return mp_obj_new_bytes(s_nvm_blob, off);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_blob_obj,
+    lorawan_mac_nvm_blob);
+
+/* mac.nvm_blob_into(buf) -> int. Packs the same v2 self-describing blob
+   directly into the caller's writable buffer (bytearray / writable memoryview)
+   and returns the packed length. Zero heap allocation — the demo's hot-path
+   NVM save uses this against a module-scope pre-allocated buffer to avoid the
+   simultaneous blob+pad allocation peak that triggered a MemoryError. */
+static mp_obj_t lorawan_mac_nvm_blob_into(mp_obj_t self_in, mp_obj_t buf_in) {
+    (void)self_in;
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_WRITE);
+    size_t off = lorawan_nvm_pack((uint8_t *)bufinfo.buf, bufinfo.len);
+    return mp_obj_new_int_from_uint(off);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_nvm_blob_into_obj,
+    lorawan_mac_nvm_blob_into);
+
+static mp_obj_t lorawan_mac_nvm_restore_blob(mp_obj_t self_in, mp_obj_t buf_in) {
+    lorawan_mac_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len < 1) {
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
+    const uint8_t *src = (const uint8_t *) bufinfo.buf;
+    if (src[0] != LORAWAN_NVM_BLOB_VERSION) {
+        /* Version mismatch — do NOT MibSet a blob we can't interpret. */
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
+
+    if (bufinfo.len < LORAWAN_NVM_BLOB_HDR) {
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
+    /* Read the embedded per-context sizes (7×uint16 LE after version byte).
+       These are the SAVE-time sizes — slicing with them is independent of the
+       live (possibly cold-boot/unjoined) context layout. */
+    uint16_t sizes[LORAWAN_NVM_BLOB_NCTX];
+    size_t sum = 0;
+    for (size_t i = 0; i < LORAWAN_NVM_BLOB_NCTX; i++) {
+        sizes[i] = (uint16_t)(src[1 + i * 2] | (src[1 + i * 2 + 1] << 8));
+        sum += sizes[i];
+    }
+    size_t payload = bufinfo.len - LORAWAN_NVM_BLOB_HDR;
+    if (sum != payload || payload > LORAWAN_NVM_BLOB_MAX) {
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
+    /* Copy contexts (after the 15-byte header) into the static buffer
+       immediately — nothing async retains the Python pointer (GC-safe). */
+    memcpy(s_nvm_blob, src + LORAWAN_NVM_BLOB_HDR, payload);
+
+    /* Slice the static blob into the 7 contexts using the EMBEDDED sizes
+       (same order as the pack in mac.nvm_blob()). */
+    LoRaMacCtxs_t blob;
+    memset(&blob, 0, sizeof(blob));
+    size_t off = 0;
+    #define _SLICE(P, N, SZ)                                      \
+        do {                                                      \
+            if ((SZ) != 0) {                                      \
+                (P) = s_nvm_blob + off;                           \
+                (N) = (SZ);                                       \
+                off += (SZ);                                      \
+            }                                                     \
+        } while (0)
+    _SLICE(blob.MacNvmCtx,           blob.MacNvmCtxSize,           sizes[0]);
+    _SLICE(blob.RegionNvmCtx,        blob.RegionNvmCtxSize,        sizes[1]);
+    _SLICE(blob.CryptoNvmCtx,        blob.CryptoNvmCtxSize,        sizes[2]);
+    _SLICE(blob.SecureElementNvmCtx, blob.SecureElementNvmCtxSize, sizes[3]);
+    _SLICE(blob.CommandsNvmCtx,      blob.CommandsNvmCtxSize,      sizes[4]);
+    _SLICE(blob.ClassBNvmCtx,        blob.ClassBNvmCtxSize,        sizes[5]);
+    _SLICE(blob.ConfirmQueueNvmCtx,  blob.ConfirmQueueNvmCtxSize,  sizes[6]);
+    #undef _SLICE
+
+    MibRequestConfirm_t mib;
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NVM_CTXS;
+    mib.Param.Contexts = &blob;
+    /* MIB_NVM_CTXS -> RestoreCtxs() requires MacState == LORAMAC_STOPPED
+       (LoRaMac.c). lorawan_init() leaves the MAC IDLE (it calls LoRaMacStart),
+       so bracket the restore with Stop/Start. At restore time (before any
+       join/uplink) no TX is running, so Stop is clean; we only re-Start if we
+       actually stopped, to avoid forcing a state change we didn't own. */
+    bool _re_start = (LoRaMacStop() == LORAMAC_STATUS_OK);
+    LoRaMacStatus_t _set = LoRaMacMibSetRequestConfirm(&mib);
+    if (_re_start) {
+        (void)LoRaMacStart();
+    }
+    if (_set != LORAMAC_STATUS_OK) {
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
+
+    s_restored = true;
+
+    int status = 0;   /* 0 = keys-only; 1 = joined (activation present) */
+    memset(&mib, 0, sizeof(mib));
+    mib.Type = MIB_NETWORK_ACTIVATION;
+    if (LoRaMacMibGetRequestConfirm(&mib) == LORAMAC_STATUS_OK) {
+        bool joined = (mib.Param.NetworkActivation != ACTIVATION_TYPE_NONE);
+        self->joined = joined;
+        status = joined ? 1 : 0;
+    }
+    return MP_OBJ_NEW_SMALL_INT(status);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_nvm_restore_blob_obj,
+    lorawan_mac_nvm_restore_blob);
+
+static mp_obj_t lorawan_mac_advance_fcnt(mp_obj_t self_in, mp_obj_t n_in) {
+    (void)self_in;
+    if (!s_restored) {
+        /* Advancing before restore would be clobbered by the restore MibSet.
+           Caller must restore THEN advance. */
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
+    uint32_t n = (uint32_t) mp_obj_get_int_truncated(n_in);
+    uint32_t cur = LoRaMacCryptoGetUplinkFCnt();
+    uint32_t next = cur + n;
+    LoRaMacCryptoSetUplinkFCnt(next);
+    s_nvm_dirty = true;
+    return mp_obj_new_int_from_uint(next);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(lorawan_mac_advance_fcnt_obj,
+    lorawan_mac_advance_fcnt);
+
+static mp_obj_t lorawan_mac_nvm_dirty(mp_obj_t self_in) {
+    (void)self_in;
+    return mp_obj_new_bool(s_nvm_dirty);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_dirty_obj,
+    lorawan_mac_nvm_dirty);
+
+static mp_obj_t lorawan_mac_nvm_clear_dirty(mp_obj_t self_in) {
+    (void)self_in;
+    s_nvm_dirty = false;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(lorawan_mac_nvm_clear_dirty_obj,
+    lorawan_mac_nvm_clear_dirty);
 
 /* Uplink + downlink.
  *
@@ -1544,6 +1801,12 @@ static const mp_rom_map_elem_t lorawan_mac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
     { MP_ROM_QSTR(MP_QSTR_nvm_restore),        MP_ROM_PTR(&lorawan_mac_nvm_restore_obj) },
     { MP_ROM_QSTR(MP_QSTR_nvm_factory_reset),  MP_ROM_PTR(&lorawan_mac_nvm_factory_reset_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nvm_blob),           MP_ROM_PTR(&lorawan_mac_nvm_blob_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nvm_blob_into),      MP_ROM_PTR(&lorawan_mac_nvm_blob_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nvm_restore_blob),   MP_ROM_PTR(&lorawan_mac_nvm_restore_blob_obj) },
+    { MP_ROM_QSTR(MP_QSTR_advance_fcnt),       MP_ROM_PTR(&lorawan_mac_advance_fcnt_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nvm_dirty),          MP_ROM_PTR(&lorawan_mac_nvm_dirty_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nvm_clear_dirty),    MP_ROM_PTR(&lorawan_mac_nvm_clear_dirty_obj) },
     { MP_ROM_QSTR(MP_QSTR_send),               MP_ROM_PTR(&lorawan_mac_send_obj) },
     { MP_ROM_QSTR(MP_QSTR_recv),               MP_ROM_PTR(&lorawan_mac_recv_obj) },
     { MP_ROM_QSTR(MP_QSTR_last_rx_stats),      MP_ROM_PTR(&lorawan_mac_last_rx_stats_obj) },

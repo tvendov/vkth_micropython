@@ -70,6 +70,12 @@ def preprocess():
         cpus = multiprocessing.cpu_count()
     except NotImplementedError:
         cpus = 1
+    cpu_cap = os.environ.get("MAKEQSTRDEFS_MAX_CPUS")
+    if cpu_cap:
+        try:
+            cpus = max(1, min(cpus, int(cpu_cap)))
+        except ValueError:
+            pass
     p = multiprocessing.dummy.Pool(cpus)
     with open(args.output[0], "wb") as out_file:
         for flags, sources in (

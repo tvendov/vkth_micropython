@@ -36,6 +36,15 @@ Q(/sd/lib)
 // For os.sep
 Q(/)
 
+// For machine.ADC vref selection.
+Q(vref)
+Q(avcc)
+Q(external)
+Q(internal)
+Q(REF_AVCC)
+Q(REF_EXTERNAL)
+Q(REF_INTERNAL)
+
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
 Q(MSC+HID)

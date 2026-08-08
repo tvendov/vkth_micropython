@@ -28,6 +28,7 @@
 #include <stdio.h>
 
 #include "py/runtime.h"
+#include "py/mperrno.h"
 #include "extmod/modmachine.h"
 #include "shared/timeutils/timeutils.h"
 #include "extint.h"
@@ -66,6 +67,15 @@ static uint32_t rtc_startup_tick;
 static bool rtc_need_init_finalise = false;
 static uint32_t rtc_wakeup_param;
 
+/* Active RTC clock source as last selected by either the board default
+ * (MICROPY_HW_RTC_SOURCE) or an RTC(source='sosc'|'loco') ctor call.
+ * Values match ra_rtc_init()'s `source` arg: 0 = SOSC sub-clock, 1 = LOCO. */
+#if (MICROPY_HW_RTC_SOURCE == 1)
+static uint8_t rtc_clock_source = 1;
+#else
+static uint8_t rtc_clock_source = 0;
+#endif
+
 static void rtc_calendar_config(void) {
     ra_rtc_t tm;
     tm.year = RTC_INIT_YEAR - 2000;
@@ -101,14 +111,10 @@ void rtc_get_date(RTC_DateTypeDef *date) {
 }
 
 void rtc_init_start(bool force_init) {
-    /* Configure RTC prescaler and RTC data registers */
-    #if (MICROPY_HW_RTC_SOURCE == 1)
-    // clock source is LOCO
-    ra_rtc_init(1);
-    #else
-    // clock source is subclock
-    ra_rtc_init(0);
-    #endif
+    /* Configure RTC prescaler and RTC data registers.
+     * Source defaults to MICROPY_HW_RTC_SOURCE; runtime override via
+     * machine.RTC(source='sosc'|'loco') updates rtc_clock_source and re-inits. */
+    ra_rtc_init(rtc_clock_source);
     rtc_need_init_finalise = false;
 
     if (!force_init) {
@@ -157,11 +163,48 @@ typedef struct _machine_rtc_obj_t {
 
 static const machine_rtc_obj_t machine_rtc_obj = {{&machine_rtc_type}};
 
-/// \classmethod \constructor()
-/// Create an RTC object.
+/// \classmethod \constructor(source=None)
+/// Create an RTC object.  Optional kwarg `source='sosc'` or `source='loco'`
+/// selects the RTC clock source at runtime:
+///   - 'sosc' = external 32.768 kHz sub-clock crystal (±20–50 ppm).
+///              Only valid when MICROPY_HW_SUBCLK_POPULATED == 1.
+///   - 'loco' = internal low-speed RC oscillator (±15%).
+/// If omitted, the RTC is initialised against the board default
+/// (MICROPY_HW_RTC_SOURCE).
 static mp_obj_t machine_rtc_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
-    // check arguments
-    mp_arg_check_num(n_args, n_kw, 0, 0, false);
+    enum { ARG_source };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_source, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+    };
+    mp_arg_val_t vals[MP_ARRAY_SIZE(allowed_args)];
+    mp_map_t kw_args;
+    mp_map_init_fixed_table(&kw_args, n_kw, args + n_args);
+    mp_arg_parse_all(n_args, args, &kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, vals);
+
+    if (vals[ARG_source].u_obj != mp_const_none) {
+        if (!mp_obj_is_str(vals[ARG_source].u_obj)) {
+            mp_raise_TypeError(MP_ERROR_TEXT("source must be 'sosc' or 'loco'"));
+        }
+        qstr src = mp_obj_str_get_qstr(vals[ARG_source].u_obj);
+        uint8_t new_src;
+        if (src == MP_QSTR_sosc) {
+            #if !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
+            mp_raise_OSError(MP_EINVAL);
+            #else
+            new_src = 0;  /* ra_rtc_init() source code 0 = sub-clock */
+            #endif
+        } else if (src == MP_QSTR_loco) {
+            new_src = 1;
+        } else {
+            mp_raise_ValueError(MP_ERROR_TEXT("source must be 'sosc' or 'loco'"));
+        }
+        if (new_src != rtc_clock_source) {
+            rtc_clock_source = new_src;
+            /* Re-initialise the RTC against the new clock; ra_rtc_init() is
+             * a no-op when source already matches and START is set. */
+            rtc_init_start(false);
+        }
+    }
 
     // return constant object
     return MP_OBJ_FROM_PTR(&machine_rtc_obj);

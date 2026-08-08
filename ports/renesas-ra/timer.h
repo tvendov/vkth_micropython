@@ -33,4 +33,8 @@ extern const mp_obj_type_t pyb_timer_type;
 void timer_init0(void);
 void timer_deinit(void);
 
+// Returns AGT hardware channel index (0..5) backing the given machine.Timer
+// object. Raises TypeError if the object is not a hardware (AGT) Timer.
+uint8_t machine_timer_get_agt_channel(mp_obj_t self_in);
+
 #endif // MICROPY_INCLUDED_RA_TIMER_H

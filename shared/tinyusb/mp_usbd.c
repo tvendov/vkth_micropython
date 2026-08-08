@@ -32,13 +32,25 @@
 
 #if !MICROPY_HW_ENABLE_USB_RUNTIME_DEVICE
 
+static volatile bool in_usbd_task = false;
+
 void mp_usbd_task(void) {
+    if (in_usbd_task) {
+        // Outer caller (CDC tx loop OR scheduler callback) is already servicing
+        // tud_task_ext(); a second entry corrupts TinyUSB state. Silent skip is
+        // safe: the outer caller will drain pending events before returning.
+        return;
+    }
+    in_usbd_task = true;
     tud_task_ext(0, false);
+    in_usbd_task = false;
 }
 
 void mp_usbd_task_callback(mp_sched_node_t *node) {
     (void)node;
-    mp_usbd_task();
+    if (!in_usbd_task) {
+        mp_usbd_task();
+    }
 }
 
 #endif // !MICROPY_HW_ENABLE_USB_RUNTIME_DEVICE

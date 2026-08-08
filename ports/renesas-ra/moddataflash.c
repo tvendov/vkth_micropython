@@ -12,6 +12,7 @@
 #include "hal_data.h"   // pulls in bsp_api.h → R_BSP_FlashCache{Enable,Disable}, BSP_FEATURE_*
 
 #include "ra_utils.h"
+#include "lorawan/system/flash/dataflash_partition.h"
 
 // FCACHE invalidation after data-flash erase/write.
 //
@@ -41,6 +42,26 @@ typedef struct {
     uint32_t erase_block_size;
     uint32_t write_size;
 } dataflash_info_t;
+
+// Region-scoped view object returned by dataflash.region(name). Carries an
+// absolute (start,size) window into data flash; all read/write/erase offsets
+// are relative to `start` and bounds-checked against `size`. The default
+// (un-scoped) module functions use the APP window via dataflash_app_window().
+typedef struct _dataflash_view_obj_t {
+    mp_obj_base_t base;
+    uint32_t start;
+    uint32_t size;
+    const char *name;
+} dataflash_view_obj_t;
+
+static const mp_obj_type_t dataflash_view_type;
+
+// Resolve absolute window for the un-scoped `dataflash` module: APP region only.
+// A bare dataflash.write(0, ...) lands at DF_APP_START, never CRED/NVM/NONCE/CONFIG.
+static void dataflash_app_window(uint32_t *start, uint32_t *size) {
+    *start = DF_APP_START;
+    *size = DF_APP_SIZE;
+}
 
 static void dataflash_wait_idle_raise(uint32_t timeout_ms) {
     uint32_t t0 = mp_hal_ticks_ms();
@@ -101,58 +122,85 @@ static void dataflash_get_info_raise(dataflash_info_t * out) {
     out->write_size = b->block_size_write;
 }
 
-static mp_obj_t dataflash_size(void) {
-    dataflash_info_t df;
-    dataflash_get_info_raise(&df);
-    return mp_obj_new_int_from_uint(df.size);
-}
-static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_size_obj, dataflash_size);
+// ---- Window-aware workers ------------------------------------------------
+//
+// Each takes an absolute (win_start, win_size) data-flash window. Offsets are
+// relative to win_start and bounds-checked against win_size. The default
+// `dataflash` functions pass the APP window; the region view passes its own.
 
-static mp_obj_t dataflash_block_size(void) {
+static mp_obj_t dataflash_size_win(uint32_t win_start, uint32_t win_size) {
+    (void) win_start;
+    return mp_obj_new_int_from_uint(win_size);
+}
+
+static mp_obj_t dataflash_block_size_win(void) {
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
     return mp_obj_new_int_from_uint(df.erase_block_size);
 }
-static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_block_size_obj, dataflash_block_size);
 
-static mp_obj_t dataflash_write_size(void) {
+static mp_obj_t dataflash_write_size_win(void) {
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
     return mp_obj_new_int_from_uint(df.write_size);
 }
-static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_write_size_obj, dataflash_write_size);
 
-static mp_obj_t dataflash_read(mp_obj_t off_in, mp_obj_t len_in) {
-    dataflash_info_t df;
-    dataflash_get_info_raise(&df);
-
+static mp_obj_t dataflash_read_win(uint32_t win_start, uint32_t win_size,
+    mp_obj_t off_in, mp_obj_t len_in) {
     size_t off = (size_t) mp_obj_get_int(off_in);
     size_t len = (size_t) mp_obj_get_int(len_in);
-    if (off > df.size || len > (df.size - off)) {
+    if (off > win_size || len > (win_size - off)) {
         mp_raise_ValueError(MP_ERROR_TEXT("out of range"));
     }
 
     // Flush any stale FCACHE lines before reading DF via AHB pointer.
     dataflash_fcache_sync();
-    const uint8_t * src = (const uint8_t *) (df.start + (uint32_t) off);
+    const uint8_t * src = (const uint8_t *) (win_start + (uint32_t) off);
     return mp_obj_new_bytes(src, len);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_read_obj, dataflash_read);
 
-static mp_obj_t dataflash_erase(void) {
+// Read into a caller-provided writable buffer (zero alloc). Returns the byte
+// count read (== min(len(buf), win_size - off)). Used by the demo NVM restore
+// hot path to avoid allocating a fresh bytes for the ~1.4 KB blob.
+static mp_obj_t dataflash_readinto_win(uint32_t win_start, uint32_t win_size,
+    mp_obj_t off_in, mp_obj_t buf_in) {
+    size_t off = (size_t) mp_obj_get_int(off_in);
+
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_WRITE);
+    size_t len = bufinfo.len;
+
+    if (off > win_size) {
+        mp_raise_ValueError(MP_ERROR_TEXT("out of range"));
+    }
+    if (len > (win_size - off)) {
+        len = win_size - off;
+    }
+
+    // Flush any stale FCACHE lines before reading DF via AHB pointer.
+    dataflash_fcache_sync();
+    const uint8_t * src = (const uint8_t *) (win_start + (uint32_t) off);
+    memcpy(bufinfo.buf, src, len);
+    return mp_obj_new_int_from_uint(len);
+}
+
+static mp_obj_t dataflash_erase_win(uint32_t win_start, uint32_t win_size) {
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
 
-    if ((df.size % df.erase_block_size) != 0U) {
+    // Region windows are 64-byte aligned by construction (dataflash_partition.h),
+    // but assert it so a future map edit that breaks alignment fails loud.
+    if ((win_start & (df.erase_block_size - 1U)) != 0U
+        || (win_size % df.erase_block_size) != 0U) {
         mp_raise_OSError(MP_EIO);
     }
-    uint32_t blocks = df.size / df.erase_block_size;
+    uint32_t blocks = win_size / df.erase_block_size;
     if (blocks == 0U) {
         mp_raise_OSError(MP_ENODEV);
     }
 
     uint32_t state = ra_disable_irq();
-    fsp_err_t err = g_flash0.p_api->erase(g_flash0.p_ctrl, df.start, blocks);
+    fsp_err_t err = g_flash0.p_api->erase(g_flash0.p_ctrl, win_start, blocks);
     ra_enable_irq(state);
 
     if (err != FSP_SUCCESS) {
@@ -164,27 +212,27 @@ static mp_obj_t dataflash_erase(void) {
     // RA4M2 DF erase: ~4 ms per 64-byte block; 8 blocks max = ~32 ms total.
     dataflash_wait_idle_raise(500U + blocks * 20U);
     for (uint32_t i = 0; i < blocks; i++) {
-        dataflash_blankcheck_raise(df.start + i * df.erase_block_size, df.erase_block_size);
+        dataflash_blankcheck_raise(win_start + i * df.erase_block_size, df.erase_block_size);
     }
     dataflash_fcache_sync();
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_erase_obj, dataflash_erase);
 
-static mp_obj_t dataflash_erase_block(mp_obj_t index_in) {
+static mp_obj_t dataflash_erase_block_win(uint32_t win_start, uint32_t win_size,
+    mp_obj_t index_in) {
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
 
-    if ((df.size % df.erase_block_size) != 0U) {
+    if ((win_size % df.erase_block_size) != 0U) {
         mp_raise_OSError(MP_EIO);
     }
-    uint32_t blocks = df.size / df.erase_block_size;
+    uint32_t blocks = win_size / df.erase_block_size;
     uint32_t index = (uint32_t) mp_obj_get_int(index_in);
     if (index >= blocks) {
         mp_raise_ValueError(MP_ERROR_TEXT("block out of range"));
     }
 
-    uint32_t addr = df.start + index * df.erase_block_size;
+    uint32_t addr = win_start + index * df.erase_block_size;
     uint32_t state = ra_disable_irq();
     fsp_err_t err = g_flash0.p_api->erase(g_flash0.p_ctrl, addr, 1);
     ra_enable_irq(state);
@@ -199,12 +247,9 @@ static mp_obj_t dataflash_erase_block(mp_obj_t index_in) {
     dataflash_fcache_sync();
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_erase_block_obj, dataflash_erase_block);
 
-static mp_obj_t dataflash_is_blank(mp_obj_t off_in, mp_obj_t len_in) {
-    dataflash_info_t df;
-    dataflash_get_info_raise(&df);
-
+static mp_obj_t dataflash_is_blank_win(uint32_t win_start, uint32_t win_size,
+    mp_obj_t off_in, mp_obj_t len_in) {
     uint32_t off = (uint32_t) mp_obj_get_int(off_in);
     uint32_t len = (uint32_t) mp_obj_get_int(len_in);
 
@@ -212,7 +257,7 @@ static mp_obj_t dataflash_is_blank(mp_obj_t off_in, mp_obj_t len_in) {
         return mp_const_true;
     }
 
-    if (off > df.size || len > (df.size - off)) {
+    if (off > win_size || len > (win_size - off)) {
         mp_raise_ValueError(MP_ERROR_TEXT("out of range"));
     }
 
@@ -223,7 +268,7 @@ static mp_obj_t dataflash_is_blank(mp_obj_t off_in, mp_obj_t len_in) {
     }
 
     flash_result_t result = FLASH_RESULT_BLANK;
-    fsp_err_t err = g_flash0.p_api->blankCheck(g_flash0.p_ctrl, df.start + off, len, &result);
+    fsp_err_t err = g_flash0.p_api->blankCheck(g_flash0.p_ctrl, win_start + off, len, &result);
     if (err != FSP_SUCCESS) {
         mp_raise_OSError(MP_EIO);
     }
@@ -233,9 +278,9 @@ static mp_obj_t dataflash_is_blank(mp_obj_t off_in, mp_obj_t len_in) {
     }
     return mp_obj_new_bool(result == FLASH_RESULT_BLANK);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_is_blank_obj, dataflash_is_blank);
 
-static mp_obj_t dataflash_write(mp_obj_t off_in, mp_obj_t buf_in) {
+static mp_obj_t dataflash_write_win(uint32_t win_start, uint32_t win_size,
+    mp_obj_t off_in, mp_obj_t buf_in) {
     dataflash_info_t df;
     dataflash_get_info_raise(&df);
 
@@ -245,12 +290,12 @@ static mp_obj_t dataflash_write(mp_obj_t off_in, mp_obj_t buf_in) {
     mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
     size_t len = bufinfo.len;
 
-    if (off > df.size || len > (df.size - off)) {
+    if (off > win_size || len > (win_size - off)) {
         mp_raise_ValueError(MP_ERROR_TEXT("out of range"));
     }
 
     const uint8_t * src_user = (const uint8_t *) bufinfo.buf;
-    uint32_t dst_start = df.start + (uint32_t) off;
+    uint32_t dst_start = win_start + (uint32_t) off;
     uint32_t dst_end = dst_start + (uint32_t) len;
 
     uint32_t w = df.write_size;
@@ -343,7 +388,159 @@ static mp_obj_t dataflash_write(mp_obj_t off_in, mp_obj_t buf_in) {
 
     return mp_obj_new_int_from_uint(len);
 }
+
+// ---- Default module functions (APP window only) --------------------------
+
+static mp_obj_t dataflash_size(void) {
+    uint32_t s, n;
+    dataflash_app_window(&s, &n);
+    return dataflash_size_win(s, n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_size_obj, dataflash_size);
+
+static mp_obj_t dataflash_block_size(void) {
+    return dataflash_block_size_win();
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_block_size_obj, dataflash_block_size);
+
+static mp_obj_t dataflash_write_size(void) {
+    return dataflash_write_size_win();
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_write_size_obj, dataflash_write_size);
+
+static mp_obj_t dataflash_read(mp_obj_t off_in, mp_obj_t len_in) {
+    uint32_t s, n;
+    dataflash_app_window(&s, &n);
+    return dataflash_read_win(s, n, off_in, len_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_read_obj, dataflash_read);
+
+static mp_obj_t dataflash_write(mp_obj_t off_in, mp_obj_t buf_in) {
+    uint32_t s, n;
+    dataflash_app_window(&s, &n);
+    return dataflash_write_win(s, n, off_in, buf_in);
+}
 static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_write_obj, dataflash_write);
+
+static mp_obj_t dataflash_erase(void) {
+    uint32_t s, n;
+    dataflash_app_window(&s, &n);
+    return dataflash_erase_win(s, n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(dataflash_erase_obj, dataflash_erase);
+
+static mp_obj_t dataflash_erase_block(mp_obj_t index_in) {
+    uint32_t s, n;
+    dataflash_app_window(&s, &n);
+    return dataflash_erase_block_win(s, n, index_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_erase_block_obj, dataflash_erase_block);
+
+static mp_obj_t dataflash_is_blank(mp_obj_t off_in, mp_obj_t len_in) {
+    uint32_t s, n;
+    dataflash_app_window(&s, &n);
+    return dataflash_is_blank_win(s, n, off_in, len_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_is_blank_obj, dataflash_is_blank);
+
+// ---- Region view object --------------------------------------------------
+
+static mp_obj_t dataflash_view_size(mp_obj_t self_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_size_win(self->start, self->size);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_view_size_obj, dataflash_view_size);
+
+static mp_obj_t dataflash_view_block_size(mp_obj_t self_in) {
+    (void) self_in;
+    return dataflash_block_size_win();
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_view_block_size_obj, dataflash_view_block_size);
+
+static mp_obj_t dataflash_view_write_size(mp_obj_t self_in) {
+    (void) self_in;
+    return dataflash_write_size_win();
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_view_write_size_obj, dataflash_view_write_size);
+
+static mp_obj_t dataflash_view_read(mp_obj_t self_in, mp_obj_t off_in, mp_obj_t len_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_read_win(self->start, self->size, off_in, len_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(dataflash_view_read_obj, dataflash_view_read);
+
+static mp_obj_t dataflash_view_readinto(mp_obj_t self_in, mp_obj_t off_in, mp_obj_t buf_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_readinto_win(self->start, self->size, off_in, buf_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(dataflash_view_readinto_obj, dataflash_view_readinto);
+
+static mp_obj_t dataflash_view_write(mp_obj_t self_in, mp_obj_t off_in, mp_obj_t buf_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_write_win(self->start, self->size, off_in, buf_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(dataflash_view_write_obj, dataflash_view_write);
+
+static mp_obj_t dataflash_view_erase(mp_obj_t self_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_erase_win(self->start, self->size);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_view_erase_obj, dataflash_view_erase);
+
+static mp_obj_t dataflash_view_erase_block(mp_obj_t self_in, mp_obj_t index_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_erase_block_win(self->start, self->size, index_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(dataflash_view_erase_block_obj, dataflash_view_erase_block);
+
+static mp_obj_t dataflash_view_is_blank(mp_obj_t self_in, mp_obj_t off_in, mp_obj_t len_in) {
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return dataflash_is_blank_win(self->start, self->size, off_in, len_in);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(dataflash_view_is_blank_obj, dataflash_view_is_blank);
+
+static void dataflash_view_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+    (void) kind;
+    dataflash_view_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_printf(print, "dataflash.region('%s', start=0x%08x, size=%u)",
+        self->name, (unsigned int) self->start, (unsigned int) self->size);
+}
+
+static const mp_rom_map_elem_t dataflash_view_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_size),        MP_ROM_PTR(&dataflash_view_size_obj) },
+    { MP_ROM_QSTR(MP_QSTR_block_size),  MP_ROM_PTR(&dataflash_view_block_size_obj) },
+    { MP_ROM_QSTR(MP_QSTR_write_size),  MP_ROM_PTR(&dataflash_view_write_size_obj) },
+    { MP_ROM_QSTR(MP_QSTR_read),        MP_ROM_PTR(&dataflash_view_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_readinto),    MP_ROM_PTR(&dataflash_view_readinto_obj) },
+    { MP_ROM_QSTR(MP_QSTR_write),       MP_ROM_PTR(&dataflash_view_write_obj) },
+    { MP_ROM_QSTR(MP_QSTR_erase),       MP_ROM_PTR(&dataflash_view_erase_obj) },
+    { MP_ROM_QSTR(MP_QSTR_erase_block), MP_ROM_PTR(&dataflash_view_erase_block_obj) },
+    { MP_ROM_QSTR(MP_QSTR_is_blank),    MP_ROM_PTR(&dataflash_view_is_blank_obj) },
+};
+static MP_DEFINE_CONST_DICT(dataflash_view_locals_dict, dataflash_view_locals_dict_table);
+
+static MP_DEFINE_CONST_OBJ_TYPE(
+    dataflash_view_type,
+    MP_QSTR_DataFlashRegion,
+    MP_TYPE_FLAG_NONE,
+    print, dataflash_view_print,
+    locals_dict, &dataflash_view_locals_dict
+);
+
+static mp_obj_t dataflash_region(mp_obj_t name_in) {
+    const char *name = mp_obj_str_get_str(name_in);
+    for (size_t i = 0; i < DF_REGION_COUNT; i++) {
+        if (strcmp(name, df_partition_map[i].name) == 0) {
+            dataflash_view_obj_t *view = mp_obj_malloc(dataflash_view_obj_t, &dataflash_view_type);
+            view->start = df_partition_map[i].start;
+            view->size = df_partition_map[i].size;
+            view->name = df_partition_map[i].name;
+            return MP_OBJ_FROM_PTR(view);
+        }
+    }
+    mp_raise_ValueError(MP_ERROR_TEXT("unknown region"));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(dataflash_region_obj, dataflash_region);
 
 static const mp_rom_map_elem_t dataflash_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),      MP_ROM_QSTR(MP_QSTR_dataflash) },
@@ -355,6 +552,7 @@ static const mp_rom_map_elem_t dataflash_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_erase),         MP_ROM_PTR(&dataflash_erase_obj) },
     { MP_ROM_QSTR(MP_QSTR_erase_block),   MP_ROM_PTR(&dataflash_erase_block_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_blank),      MP_ROM_PTR(&dataflash_is_blank_obj) },
+    { MP_ROM_QSTR(MP_QSTR_region),        MP_ROM_PTR(&dataflash_region_obj) },
 };
 static MP_DEFINE_CONST_DICT(dataflash_module_globals, dataflash_module_globals_table);
 
