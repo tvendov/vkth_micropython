@@ -62,6 +62,10 @@ void board_init(void);
 #define MICROPY_HW_I2C1_SCL         (pin_P205)
 #define MICROPY_HW_I2C1_SDA         (pin_P206)
 
+// SCI3 Simple IIC. P408 also has the board's optional PWM6B function.
+#define MICROPY_HW_SCI_I2C3_SCL     (pin_P408)
+#define MICROPY_HW_SCI_I2C3_SDA     (pin_P409)
+
 
 // SPI
 #define MICROPY_HW_SPI0_SSL         (pin_P301) // D10
@@ -108,5 +112,4 @@ void board_init(void);
 #define MICROPY_HW_LED_ON(pin)      mp_hal_pin_high(pin)
 #define MICROPY_HW_LED_OFF(pin)     mp_hal_pin_low(pin)
 #define MICROPY_HW_LED_TOGGLE(pin)  mp_hal_pin_toggle(pin)
-
 

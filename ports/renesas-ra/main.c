@@ -79,6 +79,9 @@
 #if MICROPY_PY_MACHINE_DAC
 void dac_deinit_all(void);
 #endif
+#if MICROPY_PY_MACHINE_I2C
+void machine_i2c_deinit_all(void);
+#endif
 
 #if MICROPY_PY_THREAD
 static pyb_thread_t pyb_thread_main;
@@ -457,6 +460,9 @@ soft_reset_exit:
     soft_timer_deinit();
     timer_deinit();
     uart_deinit_all();
+    #if MICROPY_PY_MACHINE_I2C
+    machine_i2c_deinit_all();
+    #endif
     #if MICROPY_PY_MACHINE_DAC
     dac_deinit_all();
     #endif

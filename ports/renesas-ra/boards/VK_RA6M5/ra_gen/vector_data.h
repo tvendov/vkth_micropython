@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (48)
+#define VECTOR_DATA_IRQ_COUNT    (56)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -139,6 +139,22 @@ void ctsu_end_isr(void);
 #define CTSU_READ_IRQn          ((IRQn_Type)46)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
 #define VECTOR_NUMBER_CTSU_END ((IRQn_Type)47)  /* CTSU END (CTSU measurement end interrupt) */
 #define CTSU_END_IRQn          ((IRQn_Type)47)  /* CTSU END (CTSU measurement end interrupt) */
+#define VECTOR_NUMBER_IIC1_RXI ((IRQn_Type)48)  /* IIC1 RXI (Receive data full) */
+#define IIC1_RXI_IRQn          ((IRQn_Type)48)  /* IIC1 RXI (Receive data full) */
+#define VECTOR_NUMBER_IIC1_TXI ((IRQn_Type)49)  /* IIC1 TXI (Transmit data empty) */
+#define IIC1_TXI_IRQn          ((IRQn_Type)49)  /* IIC1 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_IIC1_TEI ((IRQn_Type)50)  /* IIC1 TEI (Transmit end) */
+#define IIC1_TEI_IRQn          ((IRQn_Type)50)  /* IIC1 TEI (Transmit end) */
+#define VECTOR_NUMBER_IIC1_ERI ((IRQn_Type)51)  /* IIC1 ERI (Transfer error) */
+#define IIC1_ERI_IRQn          ((IRQn_Type)51)  /* IIC1 ERI (Transfer error) */
+#define VECTOR_NUMBER_SCI3_RXI ((IRQn_Type)52)  /* SCI3 RXI (Received data full) */
+#define SCI3_RXI_IRQn          ((IRQn_Type)52)  /* SCI3 RXI (Received data full) */
+#define VECTOR_NUMBER_SCI3_TXI ((IRQn_Type)53)  /* SCI3 TXI (Transmit data empty) */
+#define SCI3_TXI_IRQn          ((IRQn_Type)53)  /* SCI3 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_SCI3_TEI ((IRQn_Type)54)  /* SCI3 TEI (Transmit end) */
+#define SCI3_TEI_IRQn          ((IRQn_Type)54)  /* SCI3 TEI (Transmit end) */
+#define VECTOR_NUMBER_SCI3_ERI ((IRQn_Type)55)  /* SCI3 ERI (Receive error) */
+#define SCI3_ERI_IRQn          ((IRQn_Type)55)  /* SCI3 ERI (Receive error) */
 #ifdef __cplusplus
 }
 #endif

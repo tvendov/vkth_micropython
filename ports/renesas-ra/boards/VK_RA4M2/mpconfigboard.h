@@ -120,6 +120,10 @@
 #define MICROPY_HW_I2C1_SCL         (pin_P205)
 #define MICROPY_HW_I2C1_SDA         (pin_P206)
 
+// SCI2 Simple IIC. Shares SCI2 and these pins with UART2.
+#define MICROPY_HW_SCI_I2C2_SCL     (pin_P301)
+#define MICROPY_HW_SCI_I2C2_SDA     (pin_P302)
+
 // I2CTarget: IIC0 and IIC1 interrupt vectors are registered (IRQ 32-39).
 #define MICROPY_PY_MACHINE_I2C_TARGET_MAX   (2)
 

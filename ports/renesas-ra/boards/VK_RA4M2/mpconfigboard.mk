@@ -7,6 +7,7 @@ MICROPY_VFS_LFS2 = 0
 MICROPY_VFS_FAT = 1
 USE_FSP_LPM = 1                          # enable r_lpm.c -> machine.lightsleep/deepsleep work
 MICROPY_HW_ENABLE_TOUCHPAD = 1
+MICROPY_HW_ENABLE_SCI_I2C = 1
 MICROPY_HW_ENABLE_DSP = 0
 # Hardware AES via SCE9 instead of software axTLS.
 # MICROPY_HW_ENABLE_RNG=1 pulls in the r_sce_*.c FSP files (Makefile guard)

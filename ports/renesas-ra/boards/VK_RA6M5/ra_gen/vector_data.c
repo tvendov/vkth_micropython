@@ -56,6 +56,14 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [45] = ctsu_write_isr,         /* CTSU WRITE (CTSU write request interrupt) */
     [46] = ctsu_read_isr,         /* CTSU READ (CTSU measurement data transfer request interrupt) */
     [47] = ctsu_end_isr,         /* CTSU END (CTSU measurement end interrupt) */
+    [48] = iic_master_rxi_isr,         /* IIC1 RXI (Receive data full) */
+    [49] = iic_master_txi_isr,         /* IIC1 TXI (Transmit data empty) */
+    [50] = iic_master_tei_isr,         /* IIC1 TEI (Transmit end) */
+    [51] = iic_master_eri_isr,         /* IIC1 ERI (Transfer error) */
+    [52] = sci_uart_rxi_isr,         /* SCI3 RXI (Received data full) */
+    [53] = sci_uart_txi_isr,         /* SCI3 TXI (Transmit data empty) */
+    [54] = sci_uart_tei_isr,         /* SCI3 TEI (Transmit end) */
+    [55] = sci_uart_eri_isr,         /* SCI3 ERI (Receive error) */
 
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
@@ -108,5 +116,13 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [45] = BSP_PRV_IELS_ENUM(EVENT_CTSU_WRITE),         /* CTSU WRITE (CTSU write request interrupt) */
     [46] = BSP_PRV_IELS_ENUM(EVENT_CTSU_READ),         /* CTSU READ (CTSU measurement data transfer request interrupt) */
     [47] = BSP_PRV_IELS_ENUM(EVENT_CTSU_END),         /* CTSU END (CTSU measurement end interrupt) */
+    [48] = BSP_PRV_IELS_ENUM(EVENT_IIC1_RXI),         /* IIC1 RXI (Receive data full) */
+    [49] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TXI),         /* IIC1 TXI (Transmit data empty) */
+    [50] = BSP_PRV_IELS_ENUM(EVENT_IIC1_TEI),         /* IIC1 TEI (Transmit end) */
+    [51] = BSP_PRV_IELS_ENUM(EVENT_IIC1_ERI),         /* IIC1 ERI (Transfer error) */
+    [52] = BSP_PRV_IELS_ENUM(EVENT_SCI3_RXI),         /* SCI3 RXI (Received data full) */
+    [53] = BSP_PRV_IELS_ENUM(EVENT_SCI3_TXI),         /* SCI3 TXI (Transmit data empty) */
+    [54] = BSP_PRV_IELS_ENUM(EVENT_SCI3_TEI),         /* SCI3 TEI (Transmit end) */
+    [55] = BSP_PRV_IELS_ENUM(EVENT_SCI3_ERI),         /* SCI3 ERI (Receive error) */
 };
 #endif

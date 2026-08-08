@@ -178,8 +178,12 @@ static const IRQn_Type idx_to_teirq[] = {
 };
 
 static const IRQn_Type idx_to_erirq[] = {
+    #if defined(VECTOR_NUMBER_SCI0_RXI)
     #if defined(VECTOR_NUMBER_SCI0_ERI)
     VECTOR_NUMBER_SCI0_ERI,
+    #else
+    FSP_INVALID_VECTOR,
+    #endif
     #endif
     #if defined(VECTOR_NUMBER_SCI1_ERI)
     VECTOR_NUMBER_SCI1_ERI,
@@ -1226,6 +1230,57 @@ bool ra_sci_find_tx_ch_af(uint32_t pin, uint32_t *ch, uint32_t *af) {
     return ra_af_find_ch_af((ra_af_pin_t *)&ra_sci_tx_pins, SCI_TX_PINS_SIZE, pin, ch, af);
 }
 
+bool ra_sci_find_rx_ch_af(uint32_t pin, uint32_t *ch, uint32_t *af) {
+    return ra_af_find_ch_af((ra_af_pin_t *)&ra_sci_rx_pins, SCI_RX_PINS_SIZE, pin, ch, af);
+}
+
+bool ra_sci_channel_available(uint32_t ch) {
+    switch (ch) {
+        #if defined(VECTOR_NUMBER_SCI0_RXI) && defined(VECTOR_NUMBER_SCI0_TXI) && defined(VECTOR_NUMBER_SCI0_TEI) && defined(VECTOR_NUMBER_SCI0_ERI)
+        case 0:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI1_RXI) && defined(VECTOR_NUMBER_SCI1_TXI) && defined(VECTOR_NUMBER_SCI1_TEI) && defined(VECTOR_NUMBER_SCI1_ERI)
+        case 1:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI2_RXI) && defined(VECTOR_NUMBER_SCI2_TXI) && defined(VECTOR_NUMBER_SCI2_TEI) && defined(VECTOR_NUMBER_SCI2_ERI)
+        case 2:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI3_RXI) && defined(VECTOR_NUMBER_SCI3_TXI) && defined(VECTOR_NUMBER_SCI3_TEI) && defined(VECTOR_NUMBER_SCI3_ERI)
+        case 3:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI4_RXI) && defined(VECTOR_NUMBER_SCI4_TXI) && defined(VECTOR_NUMBER_SCI4_TEI) && defined(VECTOR_NUMBER_SCI4_ERI)
+        case 4:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI5_RXI) && defined(VECTOR_NUMBER_SCI5_TXI) && defined(VECTOR_NUMBER_SCI5_TEI) && defined(VECTOR_NUMBER_SCI5_ERI)
+        case 5:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI6_RXI) && defined(VECTOR_NUMBER_SCI6_TXI) && defined(VECTOR_NUMBER_SCI6_TEI) && defined(VECTOR_NUMBER_SCI6_ERI)
+        case 6:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI7_RXI) && defined(VECTOR_NUMBER_SCI7_TXI) && defined(VECTOR_NUMBER_SCI7_TEI) && defined(VECTOR_NUMBER_SCI7_ERI)
+        case 7:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI8_RXI) && defined(VECTOR_NUMBER_SCI8_TXI) && defined(VECTOR_NUMBER_SCI8_TEI) && defined(VECTOR_NUMBER_SCI8_ERI)
+        case 8:
+            return true;
+        #endif
+        #if defined(VECTOR_NUMBER_SCI9_RXI) && defined(VECTOR_NUMBER_SCI9_TXI) && defined(VECTOR_NUMBER_SCI9_TEI) && defined(VECTOR_NUMBER_SCI9_ERI)
+        case 9:
+            return true;
+        #endif
+        default:
+            return false;
+    }
+}
+
 static void ra_sci_tx_set_pin(uint32_t pin) {
     bool find = false;
     uint32_t ch;
@@ -1256,11 +1311,11 @@ static void ra_sci_cts_set_pin(uint32_t pin) {
     }
 }
 
-static void ra_sci_module_start(uint32_t ch) {
+void ra_sci_module_start(uint32_t ch) {
     ra_mstpcrb_start(sci_module_mask[ch_to_idx[ch]]);
 }
 
-static void ra_sci_module_stop(uint32_t ch) {
+void ra_sci_module_stop(uint32_t ch) {
     ra_mstpcrb_stop(sci_module_mask[ch_to_idx[ch]]);
 }
 
@@ -1304,24 +1359,39 @@ void ra_sci_clear_rxi_callback(uint32_t ch) {
     sci_rxi_cb_owner[idx] = RA_SCI_OWNER_NONE;
 }
 
-static void ra_sci_irq_disable(uint32_t ch) {
-    uint32_t idx = ch_to_idx[ch];
-    R_BSP_IrqDisable(idx_to_rxirq[idx]);
-    R_BSP_IrqDisable(idx_to_txirq[idx]);
-    R_BSP_IrqDisable(idx_to_teirq[idx]);
-    R_BSP_IrqDisable(idx_to_erirq[idx]);
-    R_BSP_IrqStatusClear(idx_to_rxirq[idx]);
-    R_BSP_IrqStatusClear(idx_to_txirq[idx]);
-    R_BSP_IrqStatusClear(idx_to_teirq[idx]);
-    R_BSP_IrqStatusClear(idx_to_erirq[idx]);
+static void ra_sci_irq_disable_one(IRQn_Type irq) {
+    if (irq >= 0) {
+        R_BSP_IrqDisable(irq);
+        R_BSP_IrqStatusClear(irq);
+    }
 }
 
-static void ra_sci_irq_enable(uint32_t ch) {
+static void ra_sci_irq_enable_one(IRQn_Type irq) {
+    if (irq >= 0) {
+        R_BSP_IrqEnable(irq);
+    }
+}
+
+static void ra_sci_irq_priority_one(IRQn_Type irq, uint32_t ipl) {
+    if (irq >= 0) {
+        R_BSP_IrqCfg(irq, ipl, (void *)NULL);
+    }
+}
+
+void ra_sci_irq_disable(uint32_t ch) {
     uint32_t idx = ch_to_idx[ch];
-    R_BSP_IrqEnable(idx_to_rxirq[idx]);
-    R_BSP_IrqEnable(idx_to_txirq[idx]);
-    R_BSP_IrqEnable(idx_to_teirq[idx]);
-    R_BSP_IrqEnable(idx_to_erirq[idx]);
+    ra_sci_irq_disable_one(idx_to_rxirq[idx]);
+    ra_sci_irq_disable_one(idx_to_txirq[idx]);
+    ra_sci_irq_disable_one(idx_to_teirq[idx]);
+    ra_sci_irq_disable_one(idx_to_erirq[idx]);
+}
+
+void ra_sci_irq_enable(uint32_t ch) {
+    uint32_t idx = ch_to_idx[ch];
+    ra_sci_irq_enable_one(idx_to_rxirq[idx]);
+    ra_sci_irq_enable_one(idx_to_txirq[idx]);
+    ra_sci_irq_enable_one(idx_to_teirq[idx]);
+    ra_sci_irq_enable_one(idx_to_erirq[idx]);
 }
 
 void ra_sci_rxirq_disable(uint32_t ch) {
@@ -1360,12 +1430,12 @@ void ra_sci_owner_release(uint32_t ch, uint32_t owner) {
     ra_enable_irq(state);
 }
 
-static void ra_sci_irq_priority(uint32_t ch, uint32_t ipl) {
+void ra_sci_irq_priority(uint32_t ch, uint32_t ipl) {
     uint32_t idx = ch_to_idx[ch];
-    R_BSP_IrqCfg(idx_to_rxirq[idx], ipl, (void *)NULL);
-    R_BSP_IrqCfg(idx_to_txirq[idx], ipl, (void *)NULL);
-    R_BSP_IrqCfg(idx_to_teirq[idx], ipl, (void *)NULL);
-    R_BSP_IrqCfg(idx_to_erirq[idx], ipl, (void *)NULL);
+    ra_sci_irq_priority_one(idx_to_rxirq[idx], ipl);
+    ra_sci_irq_priority_one(idx_to_txirq[idx], ipl);
+    ra_sci_irq_priority_one(idx_to_teirq[idx], ipl);
+    ra_sci_irq_priority_one(idx_to_erirq[idx], ipl);
 }
 
 static void ra_sci_isr_rx(uint32_t ch) {

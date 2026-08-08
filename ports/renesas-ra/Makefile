@@ -29,6 +29,7 @@ USE_FSP_SDHI ?= 0
 USE_FSP_ETH ?= 0
 USE_FSP_LCD ?= 0
 USE_FSP_CAM ?= 0
+MICROPY_HW_ENABLE_SCI_I2C ?= 0
 FSP_BOARD_NAME ?= $(shell echo $(BOARD) | tr '[:upper:]' '[:lower:]')
 
 # qstr definitions (must come before including py.mk)
@@ -506,6 +507,11 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_utils.c \
 	)
 
+endif
+
+CFLAGS += -DMICROPY_HW_ENABLE_SCI_I2C=$(MICROPY_HW_ENABLE_SCI_I2C)
+ifeq ($(MICROPY_HW_ENABLE_SCI_I2C),1)
+HAL_SRC_C += ra/ra_sci_i2c.c
 endif
 
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M2 RA6M3 RA6M5))

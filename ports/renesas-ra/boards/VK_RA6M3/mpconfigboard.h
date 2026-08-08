@@ -51,6 +51,10 @@
 #define MICROPY_HW_I2C1_SCL         (pin_P205)
 #define MICROPY_HW_I2C1_SDA         (pin_P206)
 
+// SCI2 Simple IIC on the D3/D4 header pins.
+#define MICROPY_HW_SCI_I2C2_SCL     (pin_P113)
+#define MICROPY_HW_SCI_I2C2_SDA     (pin_P112)
+
 // SPI
 #define MICROPY_HW_SPI1_SSL         (pin_P301) // D10
 #define MICROPY_HW_SPI1_RSPCK       (pin_P204) // D13

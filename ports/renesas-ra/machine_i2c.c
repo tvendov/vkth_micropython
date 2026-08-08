@@ -34,16 +34,25 @@
 #include "extmod/modmachine.h"
 
 #include "ra_i2c.h"
+#if MICROPY_HW_ENABLE_SCI_I2C
+#include "ra_sci_i2c.h"
+#endif
 
 #if MICROPY_PY_MACHINE_I2C
 
 #define DEFAULT_I2C_FREQ (400000)
 #define DEFAULT_I2C_TIMEOUT (1000)
 
+typedef enum {
+    MACHINE_I2C_BACKEND_RIIC = 0,
+    MACHINE_I2C_BACKEND_SCI,
+} machine_i2c_backend_t;
+
 typedef struct _machine_i2c_obj_t {
     mp_obj_base_t base;
     R_IIC0_Type *i2c_inst;
     uint8_t i2c_id;
+    uint8_t backend;
     mp_hal_pin_obj_t scl;
     mp_hal_pin_obj_t sda;
     uint32_t freq;
@@ -51,13 +60,43 @@ typedef struct _machine_i2c_obj_t {
 
 static machine_i2c_obj_t machine_i2c_obj[] = {
     #if defined(MICROPY_HW_I2C0_SCL)
-    {{&machine_i2c_type}, R_IIC0, 0, MICROPY_HW_I2C0_SCL, MICROPY_HW_I2C0_SDA, 0},
+    {{&machine_i2c_type}, R_IIC0, 0, MACHINE_I2C_BACKEND_RIIC, MICROPY_HW_I2C0_SCL, MICROPY_HW_I2C0_SDA, 0},
     #endif
     #if defined(MICROPY_HW_I2C1_SCL)
-    {{&machine_i2c_type}, R_IIC1, 1, MICROPY_HW_I2C1_SCL, MICROPY_HW_I2C1_SDA, 0},
+    {{&machine_i2c_type}, R_IIC1, 1, MACHINE_I2C_BACKEND_RIIC, MICROPY_HW_I2C1_SCL, MICROPY_HW_I2C1_SDA, 0},
     #endif
     #if defined(MICROPY_HW_I2C2_SCL)
-    {{&machine_i2c_type}, R_IIC2, 2, MICROPY_HW_I2C2_SCL, MICROPY_HW_I2C2_SDA, 0},
+    {{&machine_i2c_type}, R_IIC2, 2, MACHINE_I2C_BACKEND_RIIC, MICROPY_HW_I2C2_SCL, MICROPY_HW_I2C2_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C0_SCL)
+    {{&machine_i2c_type}, NULL, 0, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C0_SCL, MICROPY_HW_SCI_I2C0_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C1_SCL)
+    {{&machine_i2c_type}, NULL, 1, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C1_SCL, MICROPY_HW_SCI_I2C1_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C2_SCL)
+    {{&machine_i2c_type}, NULL, 2, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C2_SCL, MICROPY_HW_SCI_I2C2_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C3_SCL)
+    {{&machine_i2c_type}, NULL, 3, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C3_SCL, MICROPY_HW_SCI_I2C3_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C4_SCL)
+    {{&machine_i2c_type}, NULL, 4, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C4_SCL, MICROPY_HW_SCI_I2C4_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C5_SCL)
+    {{&machine_i2c_type}, NULL, 5, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C5_SCL, MICROPY_HW_SCI_I2C5_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C6_SCL)
+    {{&machine_i2c_type}, NULL, 6, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C6_SCL, MICROPY_HW_SCI_I2C6_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C7_SCL)
+    {{&machine_i2c_type}, NULL, 7, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C7_SCL, MICROPY_HW_SCI_I2C7_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C8_SCL)
+    {{&machine_i2c_type}, NULL, 8, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C8_SCL, MICROPY_HW_SCI_I2C8_SDA, 0},
+    #endif
+    #if MICROPY_HW_ENABLE_SCI_I2C && defined(MICROPY_HW_SCI_I2C9_SCL)
+    {{&machine_i2c_type}, NULL, 9, MACHINE_I2C_BACKEND_SCI, MICROPY_HW_SCI_I2C9_SCL, MICROPY_HW_SCI_I2C9_SDA, 0},
     #endif
 };
 
@@ -65,6 +104,18 @@ static int i2c_read(machine_i2c_obj_t *self, uint16_t addr, uint8_t *dest, size_
 static int i2c_write(machine_i2c_obj_t *self, uint16_t addr, const uint8_t *src, size_t len, bool stop);
 
 static int i2c_read(machine_i2c_obj_t *self, uint16_t addr, uint8_t *dest, size_t len, bool stop) {
+    #if MICROPY_HW_ENABLE_SCI_I2C
+    if (self->backend == MACHINE_I2C_BACKEND_SCI) {
+        int result = ra_sci_i2c_read(self->i2c_id, addr, dest, len, stop, DEFAULT_I2C_TIMEOUT);
+        if (result == RA_SCI_I2C_NACK) {
+            return -MP_ENODEV;
+        }
+        if (result == RA_SCI_I2C_TIMEOUT) {
+            return -MP_ETIMEDOUT;
+        }
+        return result < 0 ? -MP_EIO : result;
+    }
+    #endif
     bool flag;
     xaction_t action;
     xaction_unit_t unit;
@@ -75,6 +126,18 @@ static int i2c_read(machine_i2c_obj_t *self, uint16_t addr, uint8_t *dest, size_
 }
 
 static int i2c_write(machine_i2c_obj_t *self, uint16_t addr, const uint8_t *src, size_t len, bool stop) {
+    #if MICROPY_HW_ENABLE_SCI_I2C
+    if (self->backend == MACHINE_I2C_BACKEND_SCI) {
+        int result = ra_sci_i2c_write(self->i2c_id, addr, src, len, stop, DEFAULT_I2C_TIMEOUT);
+        if (result == RA_SCI_I2C_NACK) {
+            return -MP_ENODEV;
+        }
+        if (result == RA_SCI_I2C_TIMEOUT) {
+            return -MP_ETIMEDOUT;
+        }
+        return result < 0 ? -MP_EIO : result;
+    }
+    #endif
     bool flag;
     xaction_t action;
     xaction_unit_t unit;
@@ -92,9 +155,69 @@ static void machine_i2c_print(const mp_print_t *print, mp_obj_t self_in, mp_prin
         self->i2c_id, self->freq, self->scl->name, self->sda->name);
 }
 
-static void  machine_i2c_init(mp_obj_base_t *obj, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    mp_raise_NotImplementedError(MP_ERROR_TEXT("init is not supported."));
-    return;
+static bool machine_i2c_validate_pins(machine_i2c_obj_t *self, mp_hal_pin_obj_t scl, mp_hal_pin_obj_t sda) {
+    #if MICROPY_HW_ENABLE_SCI_I2C
+    if (self->backend == MACHINE_I2C_BACKEND_SCI) {
+        uint32_t ch;
+        return ra_sci_i2c_find_pins(sda->pin, scl->pin, &ch) && ch == self->i2c_id;
+    }
+    #endif
+    uint8_t riic_ch;
+    return ra_i2c_find_af_ch(scl->pin, sda->pin, &riic_ch) && riic_ch == self->i2c_id;
+}
+
+static void machine_i2c_start_backend(machine_i2c_obj_t *self, uint32_t freq) {
+    if (freq == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid frequency"));
+    }
+    #if MICROPY_HW_ENABLE_SCI_I2C
+    if (self->backend == MACHINE_I2C_BACKEND_SCI) {
+        if (freq > RA_SCI_I2C_MAX_FREQ) {
+            mp_raise_ValueError(MP_ERROR_TEXT("SCI I2C frequency must be <= 400000"));
+        }
+        if (!ra_sci_i2c_init(self->i2c_id, self->sda->pin, self->scl->pin, freq)) {
+            self->freq = 0;
+            mp_raise_OSError(MP_EBUSY);
+        }
+    } else
+    #endif
+    {
+        ra_i2c_init(self->i2c_inst, self->scl->pin, self->sda->pin, freq);
+    }
+    self->freq = freq;
+}
+
+static void machine_i2c_init(mp_obj_base_t *obj, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_i2c_obj_t *self = (machine_i2c_obj_t *)obj;
+    enum { ARG_freq, ARG_scl, ARG_sda };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_freq, MP_ARG_INT, {.u_int = -1} },
+        { MP_QSTR_scl, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_sda, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    bool have_scl = args[ARG_scl].u_obj != MP_OBJ_NULL;
+    bool have_sda = args[ARG_sda].u_obj != MP_OBJ_NULL;
+    if (have_scl != have_sda) {
+        mp_raise_ValueError(MP_ERROR_TEXT("both scl and sda must be specified"));
+    }
+    if (have_scl) {
+        mp_hal_pin_obj_t scl = mp_hal_get_pin_obj(args[ARG_scl].u_obj);
+        mp_hal_pin_obj_t sda = mp_hal_get_pin_obj(args[ARG_sda].u_obj);
+        if (!machine_i2c_validate_pins(self, scl, sda)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("bad SCL/SDA pin"));
+        }
+        self->scl = scl;
+        self->sda = sda;
+    }
+
+    mp_int_t freq = args[ARG_freq].u_int;
+    if (freq < 0) {
+        freq = self->freq == 0 ? DEFAULT_I2C_FREQ : self->freq;
+    }
+    machine_i2c_start_backend(self, (uint32_t)freq);
 }
 
 static mp_obj_t machine_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -136,9 +259,7 @@ static mp_obj_t machine_i2c_make_new(const mp_obj_type_t *type, size_t n_args, s
         mp_hal_pin_obj_t scl = mp_hal_get_pin_obj(args[ARG_scl].u_obj);
         mp_hal_pin_obj_t sda = mp_hal_get_pin_obj(args[ARG_sda].u_obj);
 
-        // Validate pins for the selected I2C channel.
-        uint8_t ch;
-        if (!ra_i2c_find_af_ch(scl->pin, sda->pin, &ch) || ch != i2c_id) {
+        if (!machine_i2c_validate_pins(self, scl, sda)) {
             mp_raise_ValueError(MP_ERROR_TEXT("bad SCL/SDA pin"));
         }
 
@@ -147,10 +268,30 @@ static mp_obj_t machine_i2c_make_new(const mp_obj_type_t *type, size_t n_args, s
     }
 
     if (n_args > 1 || n_kw > 0 || self->freq == 0) {
-        self->freq = args[ARG_freq].u_int;
-        ra_i2c_init(self->i2c_inst, self->scl->pin, self->sda->pin, self->freq);
+        if (args[ARG_freq].u_int <= 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid frequency"));
+        }
+        machine_i2c_start_backend(self, (uint32_t)args[ARG_freq].u_int);
     }
     return MP_OBJ_FROM_PTR(self);
+}
+
+void machine_i2c_deinit_all(void) {
+    for (size_t i = 0; i < MP_ARRAY_SIZE(machine_i2c_obj); ++i) {
+        machine_i2c_obj_t *self = &machine_i2c_obj[i];
+        if (self->freq == 0) {
+            continue;
+        }
+        #if MICROPY_HW_ENABLE_SCI_I2C
+        if (self->backend == MACHINE_I2C_BACKEND_SCI) {
+            ra_sci_i2c_deinit(self->i2c_id);
+        } else
+        #endif
+        {
+            ra_i2c_deinit(self->i2c_inst);
+        }
+        self->freq = 0;
+    }
 }
 
 static int machine_i2c_transfer_single(mp_obj_base_t *self_in, uint16_t addr, size_t len, uint8_t *buf, unsigned int flags) {
