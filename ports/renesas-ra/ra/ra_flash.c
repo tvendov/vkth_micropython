@@ -34,6 +34,10 @@
 #define USE_FSP_FLASH
 #endif
 
+#ifndef MICROPY_HW_ENABLE_DATA_FLASH
+#define MICROPY_HW_ENABLE_DATA_FLASH (!MICROPY_HW_HAS_QSPI_FLASH)
+#endif
+
 #if defined(USE_FSP_FLASH)
 
 #if defined(__GNUC__)
@@ -411,11 +415,12 @@ bool internal_flash_init(void) {
     err = R_QSPI_Open(&g_qspi0_ctrl, &g_qspi0_cfg);
     if (err == FSP_SUCCESS) {
         R_QSPI_QuadEnable(&g_qspi0_ctrl);
-        return true;
     } else {
         return false;
     }
-    #else
+    #endif
+
+    #if MICROPY_HW_ENABLE_DATA_FLASH
     #if defined(RA4M1) | defined(RA4M3) | defined(RA4W1)
     err = R_FLASH_LP_Open(&g_flash0_ctrl, &g_flash0_cfg);
     #elif defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
@@ -429,6 +434,8 @@ bool internal_flash_init(void) {
         return false;
     }
     #endif
+
+    return true;
 }
 
 #else

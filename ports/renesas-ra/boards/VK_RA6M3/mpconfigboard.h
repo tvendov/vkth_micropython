@@ -45,6 +45,7 @@ void machine_lcd_lvgl_soft_reset(void);
 #define MICROPY_HW_ENABLE_UART_REPL (1)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
 #define MICROPY_HW_HAS_QSPI_FLASH   (1)
+#define MICROPY_HW_ENABLE_DATA_FLASH (1)
 #define MICROPY_HW_HAS_SDHI_CARD    (1)
 
 // board config
