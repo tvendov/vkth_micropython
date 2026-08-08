@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (49)
+#define VECTOR_DATA_IRQ_COUNT    (52)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -45,6 +45,9 @@ void usbhs_interrupt_handler(void);
 void usbhs_d0fifo_handler(void);
 void usbhs_d1fifo_handler(void);
 void adc_scan_end_isr(void);
+void ctsu_write_isr(void);
+void ctsu_read_isr(void);
+void ctsu_end_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI7_RXI ((IRQn_Type)0)  /* SCI7 RXI (Received data full) */
@@ -145,6 +148,12 @@ void adc_scan_end_isr(void);
 #define USBHS_FIFO_1_IRQn          ((IRQn_Type)47)  /* USBHS FIFO 1 (DMA transfer request 1) */
 #define VECTOR_NUMBER_ADC0_SCAN_END ((IRQn_Type)48)  /* ADC0 SCAN END (A/D scan end interrupt) */
 #define ADC0_SCAN_END_IRQn          ((IRQn_Type)48)  /* ADC0 SCAN END (A/D scan end interrupt) */
+#define VECTOR_NUMBER_CTSU_WRITE ((IRQn_Type)49)  /* CTSU WRITE (CTSU write request interrupt) */
+#define CTSU_WRITE_IRQn          ((IRQn_Type)49)  /* CTSU WRITE (CTSU write request interrupt) */
+#define VECTOR_NUMBER_CTSU_READ ((IRQn_Type)50)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
+#define CTSU_READ_IRQn          ((IRQn_Type)50)  /* CTSU READ (CTSU measurement data transfer request interrupt) */
+#define VECTOR_NUMBER_CTSU_END ((IRQn_Type)51)  /* CTSU END (CTSU measurement end interrupt) */
+#define CTSU_END_IRQn          ((IRQn_Type)51)  /* CTSU END (CTSU measurement end interrupt) */
 #ifdef __cplusplus
 }
 #endif

@@ -1,8 +1,8 @@
 /*
  * Production-safe CTSU driver (FSP 4.4)
  * Производствено-безопасен CTSU драйвер (FSP версия 4.4)
- * Target: RA4W1 / RA4M2
- * Целеви микроконтролери: RA4W1 / RA4M2
+ * Target: RA4W1 / RA4M2 / RA6M3 / RA6M5
+ * Целеви микроконтролери: RA4W1 / RA4M2 / RA6M3 / RA6M5
  * Use case: MicroPython binding
  * Предназначение: Свързване с MicroPython
  *
@@ -44,8 +44,10 @@
  * With PCLKB=50 MHz and CTSU_CFG_PCLK_DIVISION=0:
  *   sdpa=24 -> divisor=2*(24+1)=50 -> f_drive=50 MHz/50=1 MHz.
  */
-#if defined(BSP_MCU_GROUP_RA4M2)
+#if defined(BSP_MCU_GROUP_RA4M2) || defined(BSP_MCU_GROUP_RA6M5)
 #define RA_CTSU_SDPA_DEFAULT  (24U)
+#elif defined(BSP_MCU_GROUP_RA6M3)
+#define RA_CTSU_SDPA_DEFAULT  (29U)
 #else
 #define RA_CTSU_SDPA_DEFAULT  (0x1FU)
 #endif
@@ -78,8 +80,16 @@ static const uint8_t g_all_ts_channels[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 
  * TS00 -> P204, TS01 -> P206, TS03 -> P407, TS10 -> P109.
  */
 static const uint8_t g_all_ts_channels[] = { 0, 1, 3, 10 };
+#elif defined(BSP_MCU_GROUP_RA6M3)
+static const uint8_t g_all_ts_channels[] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+};
+#elif defined(BSP_MCU_GROUP_RA6M5)
+static const uint8_t g_all_ts_channels[] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+};
 #else
-/* This file currently provides pin mappings only for RA4W1 and RA4M2.
+/* This file currently provides pin mappings only for the listed MCU groups.
  * Keep behavior consistent with the ts_to_pin[] mapping section below.
  */
 #error "Unsupported MCU - Неподдържан микроконтролер"
@@ -97,7 +107,7 @@ static const uint8_t g_all_ts_channels[] = { 0, 1, 3, 10 };
 
 // TSCAP пин - референтен капацитивен пин (задължителен за CTSU)
 // P205 се използва като TSCAP за RA4W1
-#define TSCAP_PIN BSP_IO_PORT_02_PIN_05  /* P205 */
+#define TSCAP_PIN CTSU_CFG_TSCAP_PORT
 
 // Таблица за съответствие: TS канал номер -> GPIO пин
 // Индексът е TS номер (0-35), стойността е GPIO пин (или BSP_IO_PORT_PIN_INVALID ако няма)
@@ -148,7 +158,7 @@ static const bsp_io_port_pin_t ts_to_pin[36] = {
 #elif defined(BSP_MCU_GROUP_RA4M2)
 
 // TSCAP пин за RA4M2 - P207
-#define TSCAP_PIN BSP_IO_PORT_02_PIN_07  /* P207 */
+#define TSCAP_PIN CTSU_CFG_TSCAP_PORT
 
 // Таблица за съответствие за RA4M2 (R7FA4M2AC3CFP, LQFP100).
 // Datasheet Table 1.17 / CTSU chapter: this package exposes TS01..TS12 only.
@@ -191,7 +201,95 @@ static const bsp_io_port_pin_t ts_to_pin[36] = {
     [35] = BSP_IO_PORT_PIN_INVALID,
 };
 
-// Ако не е нито RA4W1, нито RA4M2 - грешка при компилация
+#elif defined(BSP_MCU_GROUP_RA6M3)
+
+#define TSCAP_PIN CTSU_CFG_TSCAP_PORT
+
+/* R7FA6M3AH3CFC (LQFP176), RA6M3 Group datasheet pin list. */
+static const bsp_io_port_pin_t ts_to_pin[36] = {
+    [0]  = BSP_IO_PORT_02_PIN_04,
+    [1]  = BSP_IO_PORT_02_PIN_06,
+    [2]  = BSP_IO_PORT_02_PIN_07,
+    [3]  = BSP_IO_PORT_04_PIN_07,
+    [4]  = BSP_IO_PORT_04_PIN_08,
+    [5]  = BSP_IO_PORT_04_PIN_09,
+    [6]  = BSP_IO_PORT_04_PIN_10,
+    [7]  = BSP_IO_PORT_04_PIN_11,
+    [8]  = BSP_IO_PORT_04_PIN_12,
+    [9]  = BSP_IO_PORT_04_PIN_13,
+    [10] = BSP_IO_PORT_04_PIN_14,
+    [11] = BSP_IO_PORT_04_PIN_15,
+    [12] = BSP_IO_PORT_07_PIN_08,
+    [13] = BSP_IO_PORT_07_PIN_09,
+    [14] = BSP_IO_PORT_07_PIN_10,
+    [15] = BSP_IO_PORT_07_PIN_11,
+    [16] = BSP_IO_PORT_07_PIN_12,
+    [17] = BSP_IO_PORT_07_PIN_13,
+    [18] = BSP_IO_PORT_PIN_INVALID,
+    [19] = BSP_IO_PORT_PIN_INVALID,
+    [20] = BSP_IO_PORT_PIN_INVALID,
+    [21] = BSP_IO_PORT_PIN_INVALID,
+    [22] = BSP_IO_PORT_PIN_INVALID,
+    [23] = BSP_IO_PORT_PIN_INVALID,
+    [24] = BSP_IO_PORT_PIN_INVALID,
+    [25] = BSP_IO_PORT_PIN_INVALID,
+    [26] = BSP_IO_PORT_PIN_INVALID,
+    [27] = BSP_IO_PORT_PIN_INVALID,
+    [28] = BSP_IO_PORT_PIN_INVALID,
+    [29] = BSP_IO_PORT_PIN_INVALID,
+    [30] = BSP_IO_PORT_PIN_INVALID,
+    [31] = BSP_IO_PORT_PIN_INVALID,
+    [32] = BSP_IO_PORT_PIN_INVALID,
+    [33] = BSP_IO_PORT_PIN_INVALID,
+    [34] = BSP_IO_PORT_PIN_INVALID,
+    [35] = BSP_IO_PORT_PIN_INVALID,
+};
+
+#elif defined(BSP_MCU_GROUP_RA6M5)
+
+#define TSCAP_PIN CTSU_CFG_TSCAP_PORT
+
+/* R7FA6M5BH3CFC (LQFP176), RA6M5 Group datasheet pin list. */
+static const bsp_io_port_pin_t ts_to_pin[36] = {
+    [0]  = BSP_IO_PORT_02_PIN_04,
+    [1]  = BSP_IO_PORT_02_PIN_05,
+    [2]  = BSP_IO_PORT_02_PIN_06,
+    [3]  = BSP_IO_PORT_04_PIN_07,
+    [4]  = BSP_IO_PORT_04_PIN_08,
+    [5]  = BSP_IO_PORT_04_PIN_09,
+    [6]  = BSP_IO_PORT_04_PIN_10,
+    [7]  = BSP_IO_PORT_04_PIN_11,
+    [8]  = BSP_IO_PORT_04_PIN_12,
+    [9]  = BSP_IO_PORT_04_PIN_13,
+    [10] = BSP_IO_PORT_04_PIN_14,
+    [11] = BSP_IO_PORT_04_PIN_15,
+    [12] = BSP_IO_PORT_07_PIN_08,
+    [13] = BSP_IO_PORT_07_PIN_09,
+    [14] = BSP_IO_PORT_07_PIN_10,
+    [15] = BSP_IO_PORT_07_PIN_11,
+    [16] = BSP_IO_PORT_07_PIN_12,
+    [17] = BSP_IO_PORT_07_PIN_13,
+    [18] = BSP_IO_PORT_02_PIN_03,
+    [19] = BSP_IO_PORT_02_PIN_02,
+    [20] = BSP_IO_PORT_PIN_INVALID,
+    [21] = BSP_IO_PORT_PIN_INVALID,
+    [22] = BSP_IO_PORT_PIN_INVALID,
+    [23] = BSP_IO_PORT_PIN_INVALID,
+    [24] = BSP_IO_PORT_PIN_INVALID,
+    [25] = BSP_IO_PORT_PIN_INVALID,
+    [26] = BSP_IO_PORT_PIN_INVALID,
+    [27] = BSP_IO_PORT_PIN_INVALID,
+    [28] = BSP_IO_PORT_PIN_INVALID,
+    [29] = BSP_IO_PORT_PIN_INVALID,
+    [30] = BSP_IO_PORT_PIN_INVALID,
+    [31] = BSP_IO_PORT_PIN_INVALID,
+    [32] = BSP_IO_PORT_PIN_INVALID,
+    [33] = BSP_IO_PORT_PIN_INVALID,
+    [34] = BSP_IO_PORT_PIN_INVALID,
+    [35] = BSP_IO_PORT_PIN_INVALID,
+};
+
+// Reject MCU groups without a verified TS pin map.
 #else
 #error "Unsupported MCU - Неподдържан микроконтролер"
 #endif

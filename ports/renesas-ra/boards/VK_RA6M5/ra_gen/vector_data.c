@@ -1,5 +1,9 @@
 /* generated vector source file - do not edit */
 #include "bsp_api.h"
+
+BSP_WEAK_REFERENCE void ctsu_write_isr(void) { }
+BSP_WEAK_REFERENCE void ctsu_read_isr(void) { }
+BSP_WEAK_REFERENCE void ctsu_end_isr(void) { }
 /* Do not build these data structures if no interrupts are currently allocated because IAR will have build errors. */
 #if VECTOR_DATA_IRQ_COUNT > 0
 BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BSP_PLACE_IN_SECTION(BSP_SECTION_APPLICATION_VECTORS) =
@@ -49,6 +53,9 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [42] = usbhs_d0fifo_handler, /* USBHS FIFO 0 (DMA transfer request 0) */
     [43] = usbhs_d1fifo_handler, /* USBHS FIFO 1 (DMA transfer request 1) */
     [44] = adc_scan_end_isr,         /* ADC0 SCAN END (A/D scan end interrupt) */
+    [45] = ctsu_write_isr,         /* CTSU WRITE (CTSU write request interrupt) */
+    [46] = ctsu_read_isr,         /* CTSU READ (CTSU measurement data transfer request interrupt) */
+    [47] = ctsu_end_isr,         /* CTSU END (CTSU measurement end interrupt) */
 
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
@@ -98,5 +105,8 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [42] = BSP_PRV_IELS_ENUM(EVENT_USBHS_FIFO_0), /* USBHS FIFO 0 (DMA transfer request 0) */
     [43] = BSP_PRV_IELS_ENUM(EVENT_USBHS_FIFO_1), /* USBHS FIFO 1 (DMA transfer request 1) */
     [44] = BSP_PRV_IELS_ENUM(EVENT_ADC0_SCAN_END),         /* ADC0 SCAN END (A/D scan end interrupt) */
+    [45] = BSP_PRV_IELS_ENUM(EVENT_CTSU_WRITE),         /* CTSU WRITE (CTSU write request interrupt) */
+    [46] = BSP_PRV_IELS_ENUM(EVENT_CTSU_READ),         /* CTSU READ (CTSU measurement data transfer request interrupt) */
+    [47] = BSP_PRV_IELS_ENUM(EVENT_CTSU_END),         /* CTSU END (CTSU measurement end interrupt) */
 };
 #endif

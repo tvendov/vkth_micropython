@@ -38,7 +38,7 @@ extern "C" {
 
 // Maximum number of channels that can be configured concurrently (threshold table size).
 // This is NOT the maximum TS channel number supported by the MCU.
-#define RA_CTSU_MAX_CHANNELS    14
+#define RA_CTSU_MAX_CHANNELS    20
 
 // Maximum CTSU TS channel count supported by this wrapper (TS00..TS35).
 // Used for parameter validation in ra_ctsu_read().
