@@ -12,8 +12,8 @@
  * other bank is erased + written; the previous bank stays valid until
  * the new bank's CRC verifies.
  *
- * RA4M2 data flash facts (per ?44.2 of the user manual):
- *   * 8 KB total at 0x40100000 (some SKUs 4 KB; sized via FSP infoGet)
+ * RA4M2 data flash facts (per §44.2 of the user manual):
+ *   * 8 KB total at 0x08000000 (RA4M2 family base; sized via FSP infoGet)
  *   * 64-byte erase block, 4-byte write granularity
  *   * AHB reads valid only after FCACHE invalidation
  *   * BGO mode supported but we use blocking writes for simplicity
@@ -75,12 +75,9 @@ bool dflash_save_blob(const dflash_header_t *hdr_template,
    legacy Block 0 (credentials) or Block 1 (session-state log). */
 bool dflash_factory_reset(void);
 
-/* Read 40-byte "LWCR" credentials record from Block 0 (written by
-   `provision_credentials.py`). On success, fills the three buffers
-   (DevEUI / JoinEUI / AppKey) with MSB-order bytes and returns true.
-   Returns false on blank / wrong magic / version mismatch / CRC fail. */
-bool dflash_load_credentials(uint8_t deveui[8], uint8_t joineui[8],
-    uint8_t appkey[16]);
+/* CRED (Block 0 "LWCR") се чете/пише само от Python
+   (provision_credentials.py / read_credentials.py → mac.set_keys()).
+   Тук няма C credential reader — виж DATA_FLASH.md. */
 
 #ifdef __cplusplus
 }

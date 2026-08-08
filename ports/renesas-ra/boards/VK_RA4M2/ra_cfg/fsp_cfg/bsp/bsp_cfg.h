@@ -56,7 +56,7 @@ extern "C" {
 #define BSP_CLOCK_CFG_SUBCLOCK_DRIVE (0)
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_POPULATED
-/* VK_RA4M2 carries a 32.768 kHz crystal on P214/P215 (SUBCLK pair). Setting
+/* VK_RA4M2 carries a 32.768 kHz crystal on XCIN/XCOUT (SUBCLK pair). Setting
  * this to 1 makes FSP bsp_clocks.c start the SOSC oscillator at boot and wait
  * BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS for it to stabilise, so RTC and
  * AGTSCLK can use it. */

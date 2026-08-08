@@ -13,7 +13,7 @@
  *     triggering an asynchronous save.
  *
  * Contexts are cached in RAM and persisted to RA4M2 data flash
- * (0x40100000-0x40101FFF, 8 KB) with an atomic ping-pong layout for
+ * (0x08000000-0x08001FFF, 8 KB) with an atomic ping-pong layout for
  * power-loss safety.
  */
 
@@ -149,16 +149,6 @@ static bool nvm_copy_in(const void *src, size_t src_size,
     return true;
 }
 
-/* P3.4 — deferred-save pending flag. Set when NvmDataMgmtStore is called
-   during an active RX window; cleared (and save replayed) by
-   NvmDataMgmtFlushDeferred() called from the MAC confirm callbacks after
-   they clear s_rx_window_active.
-
-   Volatile because writer (Python pump / MAC callback context) and reader
-   (same contexts, no ISR) coexist but no concurrent multi-threading.
-   Single-byte aligned access on Armv8-M is atomic at the bus level. */
-static volatile bool s_nvm_deferred_pending = false;
-
 uint16_t NvmDataMgmtStore(void) {
     /* Observation only. Entry stamp + RX-window collision
        check happen before any save work; done stamp + last/max happen after
@@ -172,18 +162,6 @@ uint16_t NvmDataMgmtStore(void) {
     STATS_STORE(nvm_save_call_us, _nvm_call_us);
     #endif
     STATS_INC(nvm_save_count);
-    if (s_rx_window_active) {
-        STATS_INC(nvm_save_in_rx_window_count);
-        /* P3.4 — defer the actual flash work until RX window closes.
-           dflash_save_blob is ~5-6 ms blocking; running it inside the
-           RX1 (1 s) or RX2 (2 s) window would push BUSY-low past the
-           radio's RxDone latch and miss the downlink. RAM cache update
-           also deferred — MAC layer keeps the in-RAM context dirty,
-           and the next OnNvmDataChange callback (or our flush) will
-           snapshot it then. Return 0 = "no bytes persisted this call". */
-        s_nvm_deferred_pending = true;
-        return 0;
-    }
 
     /* Pull current contexts from LoRaMac and snapshot into our RAM
        blob. Returns total bytes stored.
@@ -282,11 +260,6 @@ early_return:
 }
 
 uint16_t NvmDataMgmtRestore(void) {
-    /* Return first-boot semantics while lazy flash-bank restore remains
-       disabled below. */
-#if 1  /* set 0 to restore the lazy-load path */
-    return 0;
-#else
     /* Push our RAM blob back into LoRaMac via MIB_NVM_CTXS set. Must
        be called AFTER LoRaMacInitialization (which allocates the
        internal context buffers). LoRaMac copies into its own buffers,
@@ -328,7 +301,6 @@ uint16_t NvmDataMgmtRestore(void) {
     }
     return (uint16_t)(s_nvm.mac_size + s_nvm.region_size + s_nvm.crypto_size
         + s_nvm.se_size + s_nvm.cmds_size + s_nvm.classb_size + s_nvm.cq_size);
-#endif  /* lazy restore disabled */
 }
 
 bool NvmDataMgmtFactoryReset(void) {
@@ -338,25 +310,10 @@ bool NvmDataMgmtFactoryReset(void) {
     return true;
 }
 
-/* P3.4 — flush deferred save outside RX1/RX2 window.
-   Called from mac_mcps_indication / mac_mcps_confirm / mac_mlme_confirm
-   in mod_lorawan.c AFTER they set s_rx_window_active=0. Safe to call
-   even when no save is pending (no-op). Pending flag cleared BEFORE
-   the recursive NvmDataMgmtStore() so a re-entry from inside the
-   flash callback chain won't spin. */
-void NvmDataMgmtFlushDeferred(void) {
-    if (!s_nvm_deferred_pending) {
-        return;
-    }
-    s_nvm_deferred_pending = false;
-    (void)NvmDataMgmtStore();
-}
-
 #else  /* !NVM_PHASE6_AVAILABLE */
 
 uint16_t NvmDataMgmtStore(void) { return 0; }
 uint16_t NvmDataMgmtRestore(void) { return 0; }
-void     NvmDataMgmtFlushDeferred(void) {}
 bool NvmDataMgmtFactoryReset(void) { return true; }
 
 #endif

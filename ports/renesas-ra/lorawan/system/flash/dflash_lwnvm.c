@@ -164,53 +164,9 @@ bool dflash_init(void) {
     return true;
 }
 
-/* ---- Credentials helpers (Block 0 "LWCR" record) ---------------- */
-
-/* Read the 40-byte credentials record from Data Flash block 0 and
-   validate magic + version + CRC16. On success, copies DevEUI (8B),
-   JoinEUI (8B), AppKey (16B) into the caller's buffers and returns
-   true. On invalid / blank, returns false (caller should fall back
-   to a Python `LoRaConfig_TTN.py` or similar).
-   Layout matches provision_credentials.py:
-     [0..3]  "LWCR" magic
-     [4]     version 0x01
-     [5]     reserved
-     [6..13] DevEUI MSB
-     [14..21] JoinEUI MSB
-     [22..37] AppKey MSB
-     [38..39] CRC16-CCITT BE over bytes 0..37 (poly 0x1021, init 0xFFFF) */
-static uint16_t crc16_ccitt(const uint8_t *p, size_t n) {
-    uint16_t crc = 0xFFFFu;
-    for (size_t i = 0; i < n; ++i) {
-        crc ^= (uint16_t)p[i] << 8;
-        for (int b = 0; b < 8; ++b) {
-            crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
-                                   : (uint16_t)(crc << 1);
-        }
-    }
-    return crc;
-}
-
-bool dflash_load_credentials(uint8_t deveui[8], uint8_t joineui[8],
-    uint8_t appkey[16]) {
-    if (!dflash_init()) return false;
-
-    dflash_fcache_sync();
-    const uint8_t *blk0 = (const uint8_t *)s_df.df_start;
-    if (blk0[0] != 'L' || blk0[1] != 'W' ||
-        blk0[2] != 'C' || blk0[3] != 'R') {
-        return false;
-    }
-    if (blk0[4] != 0x01) return false;
-    uint16_t stored = ((uint16_t)blk0[38] << 8) | blk0[39];
-    uint16_t computed = crc16_ccitt(blk0, 38);
-    if (stored != computed) return false;
-
-    memcpy(deveui,  blk0 + 6,  8);
-    memcpy(joineui, blk0 + 14, 8);
-    memcpy(appkey,  blk0 + 22, 16);
-    return true;
-}
+/* Credentials (CRED block 0) се четат и пишат само от Python:
+   provision_credentials.py / read_credentials.py → mac.set_keys(...).
+   Тук няма C парсер на CRED record-а (виж DATA_FLASH.md). */
 
 /* ---- Load -------------------------------------------------------- */
 
