@@ -77,3 +77,7 @@
 [submodule "lib/cmsis-dsp"]
 	path = lib/cmsis-dsp
 	url = https://github.com/ARM-software/CMSIS-DSP.git
+[submodule "lib/lv_bindings"]
+	path = lib/lv_bindings
+	url = https://github.com/Vekatech/lv_binding_micropython.git
+	branch = lvgl_v9.0.0

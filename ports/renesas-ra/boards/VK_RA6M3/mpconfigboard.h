@@ -17,6 +17,18 @@
 #define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT MICROPY_HW_BOARD_NAME
 
 #define MODULE_LCD_ENABLED          (1)
+#if MODULE_LCD_ENABLED
+void machine_lcd_soft_reset(void);
+void machine_lcd_lvgl_soft_reset(void);
+#define MICROPY_BOARD_START_SOFT_RESET(state) do { \
+    boardctrl_start_soft_reset(state); \
+    machine_lcd_soft_reset(); \
+} while (0)
+#define MICROPY_BOARD_END_SOFT_RESET(state) do { \
+    machine_lcd_lvgl_soft_reset(); \
+    boardctrl_end_soft_reset(state); \
+} while (0)
+#endif
 #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
 #define MODULE_CAM_ENABLED          (0)
 #else

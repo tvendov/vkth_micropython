@@ -7,7 +7,7 @@ MEMORY
 {
   FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00100000  /* 1MB/2MB */
   FLASH_FS (r)       : ORIGIN = 0x00100000, LENGTH = 0x00100000  /* 1MB/2MB */
-  RAM (rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x000A0000  /* 640KB */
+  RAM (rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x00060000  /* 384KB before FB0 */
   FB0 (rwx)          : ORIGIN = 0x20040000, LENGTH = 0x003FC00   /* 255K */
   DATA_FLASH (rx)    : ORIGIN = 0x40100000, LENGTH = 0x00010000  /* 64KB */
   QSPI_FLASH (rx)    : ORIGIN = 0x60000000, LENGTH = 0x01000000  /* 16MB/64MB */
@@ -227,7 +227,7 @@ SECTIONS
         __noinit_end = .;
     } > RAM
 
-    .fb0 :
+    .fb0 (NOLOAD) :
     {
         . = ALIGN(64);
         __fb0_start = .;
@@ -293,6 +293,9 @@ SECTIONS
         __ID_Code_End = .;
     } > ID_CODE
 }
+
+ASSERT(SIZEOF(.fb0) <= LENGTH(FB0), "Framebuffer exceeds FB0")
+ASSERT(__RAM_segment_used_end__ <= ORIGIN(FB0), "RAM sections overlap framebuffer")
 /* produce a link error if there is not this amount of RAM for these sections */
 /* _minimum_stack_size = 2K; */
 /* _minimum_heap_size = 16K; */

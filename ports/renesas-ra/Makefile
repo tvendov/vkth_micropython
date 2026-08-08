@@ -38,6 +38,32 @@ QSTR_DEFS += qstrdefsport.h
 # Files that are generated and needed before the QSTR build.
 QSTR_GLOBAL_DEPENDENCIES += mpconfigboard_common.h $(BOARD_DIR)/mpconfigboard.h
 
+# Vekatech LVGL v9 integration for the parallel RGB display on VK_RA6M3.
+ifeq ($(BOARD),VK_RA6M3)
+ifeq ($(MICROPY_PY_LVGL),1)
+GIT_SUBMODULES += lib/lv_bindings
+LVGL_BINDING_DIR = $(TOP)/lib/lv_bindings
+LVGL_DIR = $(LVGL_BINDING_DIR)/lvgl
+LVGL_GENERIC_DRV_DIR = $(LVGL_BINDING_DIR)/driver/generic
+LVGL_HEADERS = $(shell find $(LVGL_DIR) -type f -name '*.h') $(LVGL_BINDING_DIR)/lv_conf.h
+LVGL_MPY_REL = lvgl/lv_mpy.c
+LVGL_MPY = $(BUILD)/$(LVGL_MPY_REL)
+LVGL_MPY_OBJ = $(BUILD)/lvgl/lv_mpy.o
+LVGL_CFLAGS = -DMICROPY_PY_LVGL=1 -DLV_COLOR_DEPTH=16 -DLV_USE_TINY_TTF=0 -DSTATIC=static
+
+INC += -I$(LVGL_BINDING_DIR)
+CFLAGS_EXTMOD += $(LVGL_CFLAGS)
+SRC_THIRDPARTY_C += $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src $(LVGL_GENERIC_DRV_DIR) -type f -name '*.c'))
+QSTR_GLOBAL_DEPENDENCIES += $(LVGL_MPY)
+
+$(LVGL_MPY): $(LVGL_HEADERS) $(LVGL_BINDING_DIR)/gen/gen_mpy.py
+	$(ECHO) "LVGL-GEN $@"
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(CPP) $(CFLAGS_EXTMOD) -DPYCPARSER -x c -I$(LVGL_BINDING_DIR)/pycparser/utils/fake_libc_include $(INC) $(LVGL_DIR)/lvgl.h > $(BUILD)/lvgl/lvgl.pp.c
+	$(Q)$(PYTHON) $(LVGL_BINDING_DIR)/gen/gen_mpy.py -M lvgl -MP lv -MD $(BUILD)/lvgl/lv_mpy.json -E $(BUILD)/lvgl/lvgl.pp.c $(LVGL_DIR)/lvgl.h > $@
+endif
+endif
+
 # MicroPython feature configurations
 MICROPY_ROM_TEXT_COMPRESSION ?= 1
 
@@ -50,6 +76,13 @@ include $(TOP)/extmod/extmod.mk
 SRC_EXTMOD_C := $(filter-out extmod/machine_timer.c,$(SRC_EXTMOD_C))
 PY_O := $(filter-out $(BUILD)/extmod/machine_timer.o,$(PY_O))
 SRC_QSTR := $(filter-out extmod/machine_timer.c,$(SRC_QSTR))
+
+ifeq ($(BOARD),VK_RA6M3)
+ifeq ($(MICROPY_PY_LVGL),1)
+PY_O += $(LVGL_MPY_OBJ)
+SRC_QSTR += $(LVGL_MPY)
+endif
+endif
 
 GIT_SUBMODULES += lib/fsp lib/tinyusb
 
@@ -700,11 +733,20 @@ $(TOP)/lib/fsp/README.md:
 	$(ECHO) "fsp submodule not found, fetching it now..."
 	(cd $(TOP) && git submodule update --init lib/fsp)
 
+ifeq ($(BOARD),VK_RA6M3)
+define GENERATE_ELF
+	$(ECHO) "LINK $(1)"
+	$(file >$(1).objects,$(2))
+	$(Q)$(LD) $(LDFLAGS) -o $(1) @$(1).objects $(LDFLAGS_MOD) $(LIBS)
+	$(Q)$(SIZE) $(1)
+endef
+else
 define GENERATE_ELF
 	$(ECHO) "LINK $(1)"
 	$(Q)$(LD) $(LDFLAGS) -o $(1) $(2) $(LDFLAGS_MOD) $(LIBS)
 	$(Q)$(SIZE) $(1)
 endef
+endif
 
 define GENERATE_BIN
 	$(ECHO) "GEN $(1)"

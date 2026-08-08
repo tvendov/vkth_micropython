@@ -34,6 +34,9 @@ extern const mp_obj_type_t machine_dac_type;
 extern const mp_obj_type_t machine_sdcard_type;
 extern const mp_obj_type_t machine_ws2812_type;
 extern const mp_obj_type_t machine_encoder_type;
+#if defined(MODULE_LCD_ENABLED) && MODULE_LCD_ENABLED
+extern const mp_obj_type_t machine_lcd_type;
+#endif
 
 void machine_init(void);
 void machine_deinit(void);
