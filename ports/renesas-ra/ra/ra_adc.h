@@ -138,32 +138,6 @@ enum ADC14_PIN
     AN119 = 51,
     AN120 = 52,
 
-    #elif defined(RA6M2)
-    // Unit 0
-    AN000 = 0,
-    AN001 = 1,
-    AN002 = 2,
-    AN003 = 3,
-    AN004 = 4,
-    AN005 = 5,
-    AN006 = 6,
-    AN007 = 7,
-    AN016 = 16,
-    AN017 = 17,
-    AN018 = 18,
-    AN019 = 19,
-    AN020 = 20,
-    // Unit 1
-    AN100 = 32,
-    AN101 = 33,
-    AN102 = 34,
-    AN105 = 37,
-    AN106 = 38,
-    AN107 = 39,
-    AN116 = 48,
-    AN117 = 49,
-    AN118 = 50,
-
     #elif defined(RA6M3)
     // Unit 0
     AN000 = 0,
@@ -192,6 +166,32 @@ enum ADC14_PIN
     AN118 = 50,
     AN119 = 51,
 
+    #elif defined(RA6M2)
+    // Unit 0
+    AN000 = 0,
+    AN001 = 1,
+    AN002 = 2,
+    AN003 = 3,
+    AN004 = 4,
+    AN005 = 5,
+    AN006 = 6,
+    AN007 = 7,
+    AN016 = 16,
+    AN017 = 17,
+    AN018 = 18,
+    AN019 = 19,
+    AN020 = 20,
+    // Unit 1
+    AN100 = 32,
+    AN101 = 33,
+    AN102 = 34,
+    AN105 = 37,
+    AN106 = 38,
+    AN107 = 39,
+    AN116 = 48,
+    AN117 = 49,
+    AN118 = 50,
+
     #elif defined(RA6M5)
     // Unit 0
     AN000 = 0,
@@ -211,19 +211,19 @@ enum ADC14_PIN
     AN100 = 32,
     AN101 = 33,
     AN102 = 34,
-    AN116 = 35,
-    AN117 = 37,
-    AN118 = 38,
-    AN119 = 39,
-    AN120 = 48,
-    AN121 = 49,
-    AN122 = 50,
-    AN123 = 51,
-    AN124 = 52,
-    AN125 = 53,
-    AN126 = 54,
-    AN127 = 55,
-    AN128 = 56,
+    AN116 = 48,
+    AN117 = 49,
+    AN118 = 50,
+    AN119 = 51,
+    AN120 = 52,
+    AN121 = 53,
+    AN122 = 54,
+    AN123 = 55,
+    AN124 = 56,
+    AN125 = 57,
+    AN126 = 58,
+    AN127 = 59,
+    AN128 = 60,
 
     #else
     #error "CMSIS MCU Series is not specified."
@@ -241,6 +241,12 @@ enum ADC14_PIN
 #define RA_ADC_DEF_RESOLUTION 12
 #endif
 
+typedef enum {
+    RA_ADC_VREF_AVCC = 0,
+    RA_ADC_VREF_EXTERNAL = 1,
+    RA_ADC_VREF_INTERNAL = 2,
+} ra_adc_vref_t;
+
 bool ra_adc_pin_to_ch(uint32_t pin, uint8_t *ch);
 bool ra_adc_ch_to_pin(uint8_t ch, uint32_t *pin);
 uint8_t ra_adc_get_channel(uint32_t pin);
@@ -251,6 +257,8 @@ void ra_adc_enable(uint32_t pin);
 void ra_adc_disable(uint32_t pin);
 void ra_adc_set_resolution(uint8_t res);
 uint8_t ra_adc_get_resolution(void);
+bool ra_adc_set_vref(ra_adc_vref_t vref);
+ra_adc_vref_t ra_adc_get_vref(void);
 uint16_t ra_adc_read_ch(uint8_t ch);
 uint16_t ra_adc_read(uint32_t pin);
 int16_t ra_adc_read_itemp(void);

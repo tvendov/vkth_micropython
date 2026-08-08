@@ -31,11 +31,9 @@
 #include "shared/netutils/netutils.h"
 #include "extmod/modnetwork.h"
 #include "hal_data.h"
-#include "pendsv.h"
 #include "eth.h"
 
-// Forward declaration: defined in mpnetworkport.c, runs from PendSV.
-extern void pyb_lwip_poll(void);
+extern void mod_network_poll_events(void);
 
 #if defined(MICROPY_HW_ETH_MDC)
 
@@ -223,7 +221,7 @@ static void eth_lwip_deinit(eth_t *self) {
 }
 
 // Drain all pending RX frames from the software FIFO (filled by ETH ISR)
-// and feed them into lwIP.  Runs from PendSV (low priority IRQ).
+// and feed them into lwIP from the scheduled network poll.
 //
 // Also acts as a fall-back direct EDMAC drain — if the FIFO is empty but
 // EDMAC still has frames waiting (e.g. the ISR was masked or skipped),
@@ -317,7 +315,7 @@ void ETH_IRQHandler(ether_callback_args_t *p_args) {
                         eth_rx_high_water = occ;
                     }
                 }
-                pendsv_schedule_dispatch(PENDSV_DISPATCH_LWIP, pyb_lwip_poll);
+                mod_network_poll_events();
             }
 
             if (ETHER_EXAMPLE_ETHER_ISR_EE_TC_MASK == (p_args->status_eesr & ETHER_EXAMPLE_ETHER_ISR_EE_TC_MASK)) {
@@ -379,7 +377,7 @@ int eth_start(eth_t *self) {
     eth_lwip_deinit(self);
 
     // Fire-and-forget: do not busy-loop on R_ETHER_LinkProcess until success.
-    // The PendSV-driven lwIP poll calls R_ETHER_LinkProcess regularly and the
+    // The scheduled lwIP poll calls R_ETHER_LinkProcess regularly and the
     // PHY auto-negotiation will complete in the background.  This keeps
     // lan.active(True) non-blocking — control returns to Python within a few
     // hundred microseconds instead of seconds.

@@ -33,6 +33,17 @@
 
 static R_ADC0_Type *adc_reg = R_ADC0;
 
+#define ADC_CHANNELS_PER_UNIT (32U)
+
+static R_ADC0_Type *ra_adc_reg_for_channel(uint8_t ch) {
+    #if defined(RA6M3) || defined(RA6M5)
+    if (ch >= ADC_CHANNELS_PER_UNIT && ch < (2U * ADC_CHANNELS_PER_UNIT)) {
+        return R_ADC1;
+    }
+    #endif
+    return R_ADC0;
+}
+
 #if defined(RA4M1) || defined(RA4M2) || defined(RA4W1)
 // TSN calibration bytes (for 125C) are located at a fixed address on RA4.
 // Avoid depending on CMSIS typedefs because not all RA4 device headers define R_TSN_Type.
@@ -50,6 +61,7 @@ static R_TSN_CTRL_Type *tsn_ctrl_reg = R_TSN_CTRL;
 static R_TSN_CAL_Type *tsn_cal_reg = R_TSN_CAL;
 #endif
 static uint8_t resolution = RA_ADC_DEF_RESOLUTION;
+static ra_adc_vref_t adc_vref = RA_ADC_VREF_AVCC;
 
 typedef struct adc_pin_to_ch {
     uint32_t pin;
@@ -114,30 +126,6 @@ static const adc_pin_to_ch_t pin_to_ch[] = {
     { P103, AN019 },
     { P501, AN017 },
 
-    #elif defined(RA6M2)
-    { P000, AN000 },
-    { P001, AN001 },
-    { P002, AN002 },
-    { P003, AN007 },
-    { P004, AN100 },
-    { P005, AN101 },
-    { P006, AN102 },
-    { P007, AN107 },
-    { P008, AN003 },
-    { P009, AN004 },
-    { P014, AN005 },
-    { P014, AN105 },
-    { P015, AN006 },
-    { P015, AN106 },
-    { P500, AN016 },
-    { P501, AN116 },
-    { P502, AN017 },
-    { P503, AN117 },
-    { P504, AN018 },
-    { P505, AN118 },
-    { P506, AN019 },
-    { P509, AN020 },
-
     #elif defined(RA6M3)
     { P000, AN000 },
     { P001, AN001 },
@@ -164,6 +152,30 @@ static const adc_pin_to_ch_t pin_to_ch[] = {
     { P507, AN119 },
     { P508, AN020 },
 
+    #elif defined(RA6M2)
+    { P000, AN000 },
+    { P001, AN001 },
+    { P002, AN002 },
+    { P003, AN007 },
+    { P004, AN100 },
+    { P005, AN101 },
+    { P006, AN102 },
+    { P007, AN107 },
+    { P008, AN003 },
+    { P009, AN004 },
+    { P014, AN005 },
+    { P014, AN105 },
+    { P015, AN006 },
+    { P015, AN106 },
+    { P500, AN016 },
+    { P501, AN116 },
+    { P502, AN017 },
+    { P503, AN117 },
+    { P504, AN018 },
+    { P505, AN118 },
+    { P506, AN019 },
+    { P509, AN020 },
+
     #elif defined(RA6M5)
     { P000, AN000 },
     { P001, AN001 },
@@ -180,7 +192,7 @@ static const adc_pin_to_ch_t pin_to_ch[] = {
     { P015, AN013 },
     { P000, AN100 },
     { P001, AN101 },
-    { P002, AN002 },
+    { P002, AN102 },
     { P500, AN116 },
     { P501, AN117 },
     { P502, AN118 },
@@ -347,8 +359,14 @@ static void udelay(uint32_t us) {
     }
 }
 
+static void ra_adc_apply_resolution(R_ADC0_Type *reg, uint16_t adprc) {
+    uint16_t adcer = reg->ADCER;
+    adcer &= (uint16_t)~0x0006;
+    adcer |= adprc;
+    reg->ADCER = adcer;
+}
+
 void ra_adc_set_resolution(uint8_t res) {
-    uint16_t adcer;
     uint16_t adprc;
     #if defined(RA4M2)
     if ((res == 12) | (res == 10) | (res == 8)) {
@@ -359,10 +377,7 @@ void ra_adc_set_resolution(uint8_t res) {
         } else {
             adprc = 0x0004;
         }
-        adcer = adc_reg->ADCER;
-        adcer &= (uint16_t) ~0x0006;
-        adcer |= (uint16_t)adprc;
-        adc_reg->ADCER = adcer;
+        ra_adc_apply_resolution(adc_reg, adprc);
         resolution = res;
     }
     #elif defined(RA4M1) | defined(RA4W1)
@@ -372,10 +387,7 @@ void ra_adc_set_resolution(uint8_t res) {
         } else {
             adprc = 0x0000;
         }
-        adcer = adc_reg->ADCER;
-        adcer &= (uint16_t) ~0x0006;
-        adcer |= (uint16_t)adprc;
-        adc_reg->ADCER = adcer;
+        ra_adc_apply_resolution(adc_reg, adprc);
         resolution = res;
     }
     #else
@@ -387,10 +399,10 @@ void ra_adc_set_resolution(uint8_t res) {
         } else {
             adprc = 0x0004;
         }
-        adcer = adc_reg->ADCER;
-        adcer &= (uint16_t) ~0x0006;
-        adcer |= (uint16_t)adprc;
-        adc_reg->ADCER = adcer;
+        ra_adc_apply_resolution(R_ADC0, adprc);
+        #if defined(RA6M3) || defined(RA6M5)
+        ra_adc_apply_resolution(R_ADC1, adprc);
+        #endif
         resolution = res;
     }
     #endif
@@ -427,14 +439,50 @@ uint8_t ra_adc_get_resolution(void) {
     return res;
 }
 
+bool ra_adc_set_vref(ra_adc_vref_t vref) {
+    uint8_t adhvrefcnt;
+
+    if (vref == RA_ADC_VREF_AVCC) {
+        adhvrefcnt = ADC_VREF_CONTROL_AVCC0_AVSS0;
+    } else if (vref == RA_ADC_VREF_EXTERNAL) {
+        adhvrefcnt = ADC_VREF_CONTROL_VREFH0_AVSS0;
+    } else if (vref == RA_ADC_VREF_INTERNAL) {
+        adhvrefcnt = ADC_VREF_CONTROL_IVREF_AVSS0;
+    } else {
+        return false;
+    }
+
+    while (adc_reg->ADCSR_b.ADST) {
+        ;
+    }
+
+    if (vref == RA_ADC_VREF_INTERNAL) {
+        adc_reg->ADHVREFCNT = (uint8_t)(adhvrefcnt | R_ADC0_ADHVREFCNT_HVSEL_Msk);
+        udelay(1);
+    }
+    adc_reg->ADHVREFCNT = adhvrefcnt;
+    if (vref == RA_ADC_VREF_INTERNAL) {
+        udelay(5);
+    }
+
+    adc_vref = vref;
+    return true;
+}
+
+ra_adc_vref_t ra_adc_get_vref(void) {
+    return adc_vref;
+}
+
 // assumption
 // AVCC0 is used. Neither VREFH0 nor internal reference voltage is not used.
 uint16_t ra_adc_read_ch(uint8_t ch) {
+    R_ADC0_Type *reg = ra_adc_reg_for_channel(ch);
+    uint8_t unit_ch = ch % ADC_CHANNELS_PER_UNIT;
     uint16_t value16 = 0;
     if ((ch == ADC_TEMP) | (ch == ADC_REF)) {
         #if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
         if (ch == ADC_TEMP) {
-            adc_reg->ADEXICR_b.TSSA = 1;
+            reg->ADEXICR_b.TSSA = 1;
             tsn_ctrl_reg->TSCR_b.TSEN = 1;
             while (!tsn_ctrl_reg->TSCR_b.TSEN) {
                 ;
@@ -445,28 +493,30 @@ uint16_t ra_adc_read_ch(uint8_t ch) {
             }
             udelay(300);
         } else if (ch == ADC_REF) {
-            adc_reg->ADEXICR_b.OCSA = 1;
+            reg->ADEXICR_b.OCSA = 1;
             udelay(300);
         }
         #endif
-        adc_reg->ADANSA[0] = 0;
-        adc_reg->ADANSA[1] = 0;
-    } else if (ch < 16) {
-        adc_reg->ADANSA[0] |= (uint16_t)(1 << ch);
+        reg->ADANSA[0] = 0;
+        reg->ADANSA[1] = 0;
+    } else if (unit_ch < 16) {
+        reg->ADANSA[0] = (uint16_t)(1U << unit_ch);
+        reg->ADANSA[1] = 0;
     } else {
-        adc_reg->ADANSA[1] |= (uint16_t)(1 << (ch - 16));
+        reg->ADANSA[0] = 0;
+        reg->ADANSA[1] = (uint16_t)(1U << (unit_ch - 16));
     }
-    adc_reg->ADCSR_b.ADCS = 0; /* single scan mode */
-    adc_reg->ADCSR_b.ADST = 1; /* start a/d conversion */
-    while (adc_reg->ADCSR_b.ADST) {
+    reg->ADCSR_b.ADCS = 0; /* single scan mode */
+    reg->ADCSR_b.ADST = 1; /* start a/d conversion */
+    while (reg->ADCSR_b.ADST) {
         ; /* ADC in progress*/
     }
     if (ch == ADC_TEMP) {
-        value16 = (uint16_t)adc_reg->ADTSDR;
+        value16 = (uint16_t)reg->ADTSDR;
     } else if (ch == ADC_REF) {
-        value16 = (uint16_t)adc_reg->ADOCDR;
+        value16 = (uint16_t)reg->ADOCDR;
     } else {
-        value16 = (uint16_t)adc_reg->ADDR[ch];
+        value16 = (uint16_t)reg->ADDR[unit_ch];
     }
     #if defined(RA4M2) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3) | defined(RA6M5)
     if (ch == ADC_TEMP) {
@@ -479,7 +529,7 @@ uint16_t ra_adc_read_ch(uint8_t ch) {
             ;
         }
     } else if (ch == ADC_REF) {
-        adc_reg->ADEXICR_b.OCSA = 0;
+        reg->ADEXICR_b.OCSA = 0;
     }
     #endif
     return value16;

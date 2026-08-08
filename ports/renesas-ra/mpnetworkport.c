@@ -3,9 +3,7 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2014 Damien P. George
  * Copyright (c) 2023 Arduino SA
- * Copyright (c) 2023 Vekatech Ltd.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,78 +24,63 @@
  * THE SOFTWARE.
  */
 
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-
-#include "py/objlist.h"
 #include "py/runtime.h"
 #include "py/mphal.h"
-#include "shared/netutils/netutils.h"
-#include "systick.h"
-#include "pendsv.h"
-#include "extmod/modnetwork.h"
+#include "shared/runtime/softtimer.h"
 
 #if MICROPY_PY_LWIP
 
-#include "lwip/netif.h"
 #include "lwip/timeouts.h"
-#include "lwip/dns.h"
-#include "lwip/dhcp.h"
-#include "lwip/apps/mdns.h"
 
 #if defined(MICROPY_HW_ETH_MDC)
 #include "hal_data.h"
+#include "eth.h"
 #endif
 
-// Poll lwIP every 128 ms.  Bit-mask trick: if (tick & 0x7f) == 0 -> divisor 128.
-#define LWIP_TICK(tick) (((tick) & ~(SYSTICK_DISPATCH_NUM_SLOTS - 1) & 0x7f) == 0)
+static mp_sched_node_t network_poll_node;
+static soft_timer_entry_t network_timer;
 
 u32_t sys_now(void) {
     return mp_hal_ticks_ms();
 }
 
-// Non-static: ETH_IRQHandler in eth.c calls pendsv_schedule_dispatch() with
-// this as the dispatch target, so the symbol must be linkable.
-void pyb_lwip_poll(void) {
+static void network_poll(mp_sched_node_t *node) {
     #if defined(MICROPY_HW_ETH_MDC)
-    extern bool eth_is_open(void);
-    extern void eth_drain_rx(void);
     if (eth_is_open()) {
-        // Drain any RX frames queued by EDMAC.  Runs at PendSV level — much
-        // lower priority than the ETH ISR, so audio / DSP / GPIO interrupts
-        // continue to run without being delayed by network frame processing.
         eth_drain_rx();
-    }
-    #endif
-
-    // Run lwIP internal updates (DHCP retries, ARP timeouts, TCP retransmit).
-    sys_check_timeouts();
-
-    #if defined(MICROPY_HW_ETH_MDC)
-    // Drive R_ETHER_LinkProcess only when the driver has been opened.  Calling
-    // it before R_ETHER_Open dereferences a NULL p_ether_cfg pointer in some
-    // FSP code paths.
-    if (eth_is_open()) {
         (void)R_ETHER_LinkProcess(&g_ether0_ctrl);
     }
     #endif
-}
 
-void mod_network_lwip_poll_wrapper(uint32_t ticks_ms) {
-    if (LWIP_TICK(ticks_ms)) {
-        pendsv_schedule_dispatch(PENDSV_DISPATCH_LWIP, pyb_lwip_poll);
+    // Run the lwIP internal updates
+    sys_check_timeouts();
+
+    #if MICROPY_PY_NETWORK_ESP_HOSTED
+    extern int esp_hosted_wifi_poll(void);
+    // Poll the NIC for incoming data
+    if (esp_hosted_wifi_poll() == -1) {
+        soft_timer_remove(&network_timer);
     }
-}
-
-void mod_network_lwip_init(void) {
-    // Install systick hook so that pyb_lwip_poll runs from PendSV every 128 ms
-    // independently of what the main Python thread is doing.
-    systick_enable_dispatch(SYSTICK_DISPATCH_LWIP, mod_network_lwip_poll_wrapper);
+    #endif
 }
 
 void mod_network_poll_events(void) {
-    pendsv_schedule_dispatch(PENDSV_DISPATCH_LWIP, pyb_lwip_poll);
+    mp_sched_schedule_node(&network_poll_node, network_poll);
 }
 
+static void network_timer_callback(soft_timer_entry_t *self) {
+    mod_network_poll_events();
+}
+
+void mod_network_lwip_init(void) {
+    static bool timer_started = false;
+    if (timer_started) {
+        soft_timer_remove(&network_timer);
+        timer_started = false;
+    }
+    // Start poll timer.
+    soft_timer_static_init(&network_timer, SOFT_TIMER_MODE_PERIODIC, 50, network_timer_callback);
+    soft_timer_reinsert(&network_timer, 50);
+    timer_started = true;
+}
 #endif // MICROPY_PY_LWIP
