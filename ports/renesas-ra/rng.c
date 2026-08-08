@@ -36,7 +36,7 @@
 #if defined(RA6M3)
 #include "hw_sce_private.h"
 #include "hw_sce_trng_private.h"
-#elif defined(RA6M5)
+#elif defined(RA4M2) || defined(RA6M5)
 #include "r_sce.h"
 #endif
 
@@ -48,14 +48,14 @@ uint32_t rng_read(void) {
         initialized = true;
         #if defined(RA6M3)
         HW_SCE_McuSpecificInit();
-        #elif defined(RA6M5)
+        #elif defined(RA4M2) || defined(RA6M5)
         R_SCE_Open(&sce_ctrl, &sce_cfg);
         #endif
     }
 
     #if defined(RA6M3)
     HW_SCE_RNG_Read(random_data);
-    #elif defined(RA6M5)
+    #elif defined(RA4M2) || defined(RA6M5)
     R_SCE_RandomNumberGenerate(random_data);
     #endif
 

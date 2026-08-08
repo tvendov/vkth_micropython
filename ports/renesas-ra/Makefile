@@ -609,7 +609,7 @@ HAL_SRC_C += $(addprefix $(HAL_DIR)/$(CRYPTO_DIR)/,\
 	primitive/hw_sce_p_subprc02.c \
 	)
 endif
-ifeq ($(CMSIS_MCU),RA6M5)
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M2 RA6M5))
 CRYPTO_DIR = ra/fsp/src/r_sce_protected/crypto_procedures_protected/src/sce9/
 
 INC += -I$(TOP)/$(HAL_DIR)/$(CRYPTO_DIR)/inc
