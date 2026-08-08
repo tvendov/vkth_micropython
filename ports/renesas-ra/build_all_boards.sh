@@ -5,7 +5,7 @@ DT=`date +%Y%m%d%H%M`
 make DEBUG=0 BOARD=${BOARD} clean 2>&1 | tee ${BOARD}_build_${DT}.log
 make DEBUG=0 BOARD=${BOARD}       2>&1 | tee -a ${BOARD}_build_${DT}.log
 #
-export BOARD="EK_RA6M2"
+export BOARD="VK_RA4M2"
 DT=`date +%Y%m%d%H%M`
 make DEBUG=1 BOARD=${BOARD} clean 2>&1 | tee ${BOARD}_build_${DT}.log
 make DEBUG=1 BOARD=${BOARD}       2>&1 | tee -a ${BOARD}_build_${DT}.log
@@ -20,7 +20,12 @@ DT=`date +%Y%m%d%H%M`
 make DEBUG=0 BOARD=${BOARD} clean 2>&1 | tee ${BOARD}_build_${DT}.log
 make DEBUG=0 BOARD=${BOARD}       2>&1 | tee -a ${BOARD}_build_${DT}.log
 #
-export BOARD="EK_RA6M1"
+export BOARD="VK_RA6M3"
+DT=`date +%Y%m%d%H%M`
+make DEBUG=1 BOARD=${BOARD} clean 2>&1 | tee ${BOARD}_build_${DT}.log
+make DEBUG=1 BOARD=${BOARD}       2>&1 | tee -a ${BOARD}_build_${DT}.log
+#
+export BOARD="VK_RA6M5"
 DT=`date +%Y%m%d%H%M`
 make DEBUG=1 BOARD=${BOARD} clean 2>&1 | tee ${BOARD}_build_${DT}.log
 make DEBUG=1 BOARD=${BOARD}       2>&1 | tee -a ${BOARD}_build_${DT}.log

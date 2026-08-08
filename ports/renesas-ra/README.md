@@ -53,15 +53,15 @@ First the submodules must be obtained using:
 * Build binary image `.hex`
 Then to build for a given board subdirectory name, run:
 
-      $ make BOARD=EK_RA6M2 clean
-      $ make BOARD=EK_RA6M2
+      $ make BOARD=VK_RA4M2 clean
+      $ make BOARD=VK_RA4M2
 
-  The default board subdirectory name is EK_RA6M2 (which is for EK-RA6M2 board)
+  The default board subdirectory name is VK_RA4M2
 but any of the names of the subdirectories in the `boards/` directory can be
 passed as the argument to `BOARD=`; for example `RA4M1_CLICKER`, `EK_RA4M1`,
-`EK_RA4W1` and `EK_RA6M1`.
+`EK_RA4W1`, `VK_RA6M3` and `VK_RA6M5`.
 The above command should produce binary images `firmware.hex` in the
-build-EK_RA6M2/` subdirectory (or the equivalent directory for the board specified).
+`build-VK_RA4M2/` subdirectory (or the equivalent directory for the board specified).
 
 ## Board definition auto-generated code
 
@@ -103,4 +103,3 @@ Please refer to the `renesas-ra` quick reference.
 
 ### EK-RA4W1
 * mpremote: "Execution: timeout waiting for remote" error happens when importing a file on /remote.
-

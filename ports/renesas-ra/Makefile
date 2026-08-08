@@ -4,8 +4,8 @@ ifdef BOARD_DIR
 # the path as the board name.
 BOARD ?= $(notdir $(BOARD_DIR:/=))
 else
-# If not given on the command line, then default to RA6M2_EK.
-BOARD ?= EK_RA6M2
+# If not given on the command line, then default to VK_RA4M2.
+BOARD ?= VK_RA4M2
 BOARD_DIR ?= boards/$(BOARD)
 endif
 

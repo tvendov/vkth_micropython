@@ -75,7 +75,12 @@ port_data = {
         pre_cmd=". esp-idf/export.sh",
     ),
     "x": PortData("mimxrt", "mimxrt", "build-TEENSY40/firmware.elf"),
-    "e": PortData("renesas-ra", "renesas-ra", "build-EK_RA6M2/firmware.elf"),
+    "e": PortData(
+        "renesas-ra",
+        "renesas-ra",
+        "build-VK_RA4M2/firmware.elf",
+        "BOARD=VK_RA4M2",
+    ),
     "r": PortData("nrf", "nrf", "build-PCA10040/firmware.elf"),
     "p": PortData("rp2", "rp2", "build-RPI_PICO_W/firmware.elf", "BOARD=RPI_PICO_W"),
     "d": PortData("samd", "samd", "build-ADAFRUIT_ITSYBITSY_M4_EXPRESS/firmware.elf"),
