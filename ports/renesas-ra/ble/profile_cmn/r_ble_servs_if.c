@@ -18,7 +18,22 @@
 ***********************************************************************************************************************/
 #include <stdlib.h>
 #include <string.h>
+#include "py/misc.h"
 #include "r_ble_servs_if.h"
+
+/* Keep vendor malloc/free call sites on GC-managed, C-tracked allocations. */
+static void *ble_servs_malloc(size_t size)
+{
+    return m_tracked_calloc(1, size);
+}
+
+static void ble_servs_free(void *ptr)
+{
+    m_tracked_free(ptr);
+}
+
+#define malloc(size) ble_servs_malloc(size)
+#define free(ptr)    ble_servs_free(ptr)
 
 static const st_ble_servs_info_t *gs_servs[BLE_PRF_MAX_NUM_OF_SERVS];
 static uint8_t gs_num_of_servs;

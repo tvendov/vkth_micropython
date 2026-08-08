@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 /* BLE Stack Variant: 0=Extended/All, 1=Balance, 2=Compact */
-#define BLE_CFG_LIBRARY_TYPE (0)
+#define BLE_CFG_LIBRARY_TYPE (2)
 
 /* Debug addresses */
 #define BLE_CFG_RF_DEBUG_PUBLIC_ADDRESS {0xFF,0xFF,0xFF,0x50,0x90,0x74}
@@ -66,4 +66,3 @@ extern "C" {
 }
 #endif
 #endif /* R_BLE_CFG_H_ */
-

@@ -114,8 +114,8 @@ static ra_dac_hw_stage_t ra_dac_last_stage[DAC_CH_SIZE];
 static int32_t ra_dac_last_error[DAC_CH_SIZE];
 static void ra_dac_stream_cleanup(uint8_t ch);
 
-static void ra_dac_output_amp_init(uint8_t ch) {
 #if BSP_FEATURE_DAC_HAS_OUTPUT_AMPLIFIER
+static void ra_dac_output_amp_init(uint8_t ch) {
     if (ch >= DAC_CH_SIZE) {
         return;
     }
@@ -144,10 +144,8 @@ static void ra_dac_output_amp_init(uint8_t ch) {
     }
 
     R_DAC->DADR[ch] = value;
-#else
-    (void)ch;
-#endif
 }
+#endif
 
 static void ra_dac_set_last_error(uint8_t ch, ra_dac_hw_stage_t stage, fsp_err_t err) {
     if (ch < DAC_CH_SIZE) {

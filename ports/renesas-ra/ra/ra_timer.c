@@ -1157,13 +1157,10 @@ void ra_port_agt_int_isr(void) {
     ra_agt_timer_chk_callback(ch, source);
 }
 
-/* Compatibility shim: every board's generated vector_data.c still references
- * `agt_int_isr`. On the LoRaWAN renesas flavour, FSP's r_agt.c provides a
- * strong `agt_int_isr` and AGT4/AGT5 slots are rerouted in vector_data.c to
- * `ra_port_agt_int_isr` for the port-owned channels. On every other build
- * (including non-LoRaWAN VK_RA4M2), this shim keeps the legacy symbol so the
- * board vector tables continue to bind without per-board edits. */
-#if !defined(MICROPY_HW_LORA_STACK_RENESAS) || (MICROPY_HW_LORA_STACK_RENESAS == 0)
+/* FSP owns agt_int_isr when AGT is used by LoRaWAN or BLE. Their board vector
+ * tables route port-owned channels directly to ra_port_agt_int_isr. */
+#if (!defined(MICROPY_HW_LORA_STACK_RENESAS) || (MICROPY_HW_LORA_STACK_RENESAS == 0)) && \
+    (!defined(MICROPY_HW_ENABLE_BLE) || (MICROPY_HW_ENABLE_BLE == 0))
 void agt_int_isr(void) {
     ra_port_agt_int_isr();
 }

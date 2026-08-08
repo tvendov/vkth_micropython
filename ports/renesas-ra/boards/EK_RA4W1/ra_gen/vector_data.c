@@ -32,7 +32,7 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [13] = rtc_alarm_periodic_isr,         /* RTC PERIOD (Periodic interrupt) */
     [14] = rtc_carry_isr,         /* RTC CARRY (Carry interrupt) */
     [15] = agt_int_isr,         /* AGT0 INT (AGT interrupt) */
-    [16] = agt_int_isr,         /* AGT1 INT (AGT interrupt) */
+    [16] = ra_port_agt_int_isr, /* AGT1 INT (MicroPython Timer) */
     [17] = r_icu_isr,         /* ICU IRQ0 (External pin interrupt 0) */
     [18] = r_icu_isr,         /* ICU IRQ1 (External pin interrupt 1) */
     [19] = r_icu_isr,         /* ICU IRQ2 (External pin interrupt 2) */

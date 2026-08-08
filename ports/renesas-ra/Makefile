@@ -266,7 +266,6 @@ SRC_C += \
 	machine_spi.c \
 	machine_ws2812.c \
 	machine_encoder.c \
-	machine_audioadc.c \
 	machine_pin.c \
 	machine_rtc.c \
 	machine_sdcard.c \
@@ -486,8 +485,6 @@ endif
 ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M1 RA4M2 RA4W1 RA6M1 RA6M2 RA6M3 RA6M5))
 HAL_SRC_C += $(addprefix ra/,\
 	ra_adc.c \
-	ra_storm_adc.c \
-	ra_storm_detect.c \
 	ra_dac.c \
 	ra_flash.c \
 	ra_gpio.c \
@@ -509,6 +506,14 @@ HAL_SRC_C += $(addprefix ra/,\
 	ra_utils.c \
 	)
 
+endif
+
+ifeq ($(CMSIS_MCU),$(filter $(CMSIS_MCU),RA4M2 RA6M3 RA6M5))
+CFLAGS += -DMICROPY_HW_ENABLE_AUDIOADC=1
+SRC_C += machine_audioadc.c
+HAL_SRC_C += ra/ra_storm_adc.c ra/ra_storm_detect.c
+else
+CFLAGS += -DMICROPY_HW_ENABLE_AUDIOADC=0
 endif
 
 # CTSU (Capacitive Touch Sensing Unit) support
@@ -565,7 +570,7 @@ ifeq ($(MICROPY_HW_ENABLE_BLE),1)
 CFLAGS += -DMICROPY_HW_ENABLE_BLE=1
 INC += -I$(TOP)/ports/renesas-ra/ble
 SRC_C += ble/modra_ble.c ble/ra_ble.c ble/ra_ble_config.c ble/ra_ble_events.c ble/gatt_db.c
-SRC_C += ble/profile_cmn/r_ble_serv_common.c ble/profile_cmn/r_ble_servs_if.c ble/profile_cmn/r_ble_servc_if.c
+SRC_C += ble/profile_cmn/r_ble_serv_common.c ble/profile_cmn/r_ble_servs_if.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/rm_ble_abs/rm_ble_abs.c
 # r_agt.c is added unconditionally for the LoRaWAN renesas stack at top of file;
 # BLE also needs it but cannot duplicate — skipped here when LoRaWAN active.
@@ -575,8 +580,8 @@ endif
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_ble/r_ble.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_gpt/r_gpt.c
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_icu/r_icu.c
-# Prebuilt BLE library (all/extended variant for BLE_CFG_LIBRARY_TYPE=0)
-LDFLAGS += -L$(TOP)/lib/fsp/ra/fsp/lib/r_ble/cm4_gcc/all
+# Prebuilt BLE library (compact variant for BLE_CFG_LIBRARY_TYPE=2)
+LDFLAGS += -L$(BOARD_DIR)/lib
 LIBS := -lr_ble $(LIBS)
 endif
 

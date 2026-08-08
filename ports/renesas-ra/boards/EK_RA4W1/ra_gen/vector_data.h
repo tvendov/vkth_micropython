@@ -16,6 +16,7 @@ void sci_uart_eri_isr(void);
 void rtc_alarm_periodic_isr(void);
 void rtc_carry_isr(void);
 void agt_int_isr(void);
+void ra_port_agt_int_isr(void);
 void r_icu_isr(void);
 void spi_rxi_isr(void);
 void spi_txi_isr(void);

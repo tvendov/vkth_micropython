@@ -19,6 +19,7 @@
 #define MICROPY_HW_ENABLE_ADC       (1)
 #define MICROPY_HW_HAS_FLASH        (1)
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (1)
+#define MICROPY_HW_AGT_RESERVED_MASK (0x01U)  // AGT0 is owned by the BLE stack
 
 // board config
 

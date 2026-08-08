@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "hal_data.h"
+#include "r_adc.h"
 #include "ra_config.h"
 #include "ra_gpio.h"
 #include "ra_utils.h"
