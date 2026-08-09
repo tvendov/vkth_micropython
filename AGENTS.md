@@ -28,3 +28,28 @@ following requirements:
   move or replace an already published tag without explicit user approval.
 
 Do not create subject-only commits or lightweight tags.
+
+## Evidence Requirements
+
+All technical analysis, status reports, and implementation decisions for this
+repository must contain zero unsupported factual claims.
+
+- Verify every material claim against primary evidence before presenting it as
+  fact. Primary evidence includes repository source and configuration files,
+  generated FSP files, linker maps and symbol tables, compiler output, test or
+  HIL logs, and the official MCU or peripheral documentation.
+- Identify the exact evidence for numerical and behavioral conclusions using a
+  file and line, symbol and address, build output, test result, or hardware
+  observation. Reconcile numerical totals explicitly.
+- Do not convert an assumption, recollection, likely explanation, or indirect
+  indication into a factual statement. If direct evidence is unavailable,
+  report the point only as `UNKNOWN` or `NOT VERIFIED` and state what evidence
+  is required to verify it.
+- Distinguish source presence, compilation, linker retention, runtime
+  initialization, and observed hardware behavior. Evidence for one stage does
+  not prove the following stages.
+- For actual board behavior, use HIL evidence. A successful build or a matching
+  configuration proves neither successful initialization nor correct hardware
+  operation.
+- Correct and explicitly retract any earlier statement that conflicts with
+  newly inspected primary evidence.
