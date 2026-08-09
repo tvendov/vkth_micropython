@@ -30,4 +30,15 @@
 #undef LV_FONT_MONTSERRAT_38
 #define LV_FONT_MONTSERRAT_38 1
 
+#undef LV_USE_DRAW_DAVE2D
+#define LV_USE_DRAW_DAVE2D 1
+
+#ifndef PYCPARSER
+    void vk_ra6m3_lvgl_gc_init(void);
+    void vk_ra6m3_lvgl_gc_deinit(void);
+    #undef LV_GC_INIT
+    #define LV_GC_INIT() vk_ra6m3_lvgl_gc_init()
+    #define LV_GC_DEINIT() vk_ra6m3_lvgl_gc_deinit()
+#endif
+
 #endif

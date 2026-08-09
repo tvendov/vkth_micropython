@@ -64,6 +64,7 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [53] = sci_uart_txi_isr,         /* SCI2 TXI (Transmit data empty) */
     [54] = sci_uart_tei_isr,         /* SCI2 TEI (Transmit end) */
     [55] = sci_uart_eri_isr,         /* SCI2 ERI (Receive error) */
+    [56] = vk_ra6m3_drw_int_isr,     /* DRW INT (D/AVE 2D interrupt) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -123,5 +124,6 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [53] = BSP_PRV_IELS_ENUM(EVENT_SCI2_TXI),         /* SCI2 TXI (Transmit data empty) */
     [54] = BSP_PRV_IELS_ENUM(EVENT_SCI2_TEI),         /* SCI2 TEI (Transmit end) */
     [55] = BSP_PRV_IELS_ENUM(EVENT_SCI2_ERI),         /* SCI2 ERI (Receive error) */
+    [56] = BSP_PRV_IELS_ENUM(EVENT_DRW_INT),          /* DRW INT (D/AVE 2D interrupt) */
 };
 #endif

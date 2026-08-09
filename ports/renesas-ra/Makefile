@@ -29,6 +29,7 @@ USE_FSP_SDHI ?= 0
 USE_FSP_ETH ?= 0
 USE_FSP_LCD ?= 0
 USE_FSP_CAM ?= 0
+USE_FSP_DRW ?= 0
 MICROPY_HW_ENABLE_SCI_I2C ?= 0
 FSP_BOARD_NAME ?= $(shell echo $(BOARD) | tr '[:upper:]' '[:lower:]')
 
@@ -58,14 +59,23 @@ endif
 
 INC += -I$(LVGL_BINDING_DIR)/lib
 CFLAGS_EXTMOD += $(LVGL_CFLAGS)
-SRC_THIRDPARTY_C += $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src -type f -name '*.c'))
+LVGL_SRC_C = $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src -type f -name '*.c'))
+LVGL_DAVE2D_SRC_C = $(filter lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/%.c,$(LVGL_SRC_C))
+LVGL_DAVE2D_OBJ = $(addprefix $(BUILD)/,$(LVGL_DAVE2D_SRC_C:.c=.o))
+ifeq ($(USE_FSP_DRW),1)
+# VK_RA6M3 supplies a wrapper around this translation unit to add the
+# MicroPython soft-reset lifecycle missing from the LVGL 9.4 implementation.
+LVGL_SRC_C := $(filter-out lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c,$(LVGL_SRC_C))
+$(LVGL_DAVE2D_OBJ): CFLAGS += -include $(BOARD_DIR)/dave2d_compat.h -Wno-unused-variable
+endif
+SRC_THIRDPARTY_C += $(LVGL_SRC_C)
 SRC_THIRDPARTY_C += lib/lv_bindings/ext_mod/lvgl/mem_core.c
 QSTR_GLOBAL_DEPENDENCIES += $(LVGL_MPY)
 
 $(LVGL_MPY): $(LVGL_HEADERS) $(LVGL_GENERATOR) $(LVGL_GENERATOR_LAUNCHER)
 	$(ECHO) "LVGL-GEN $@"
 	$(Q)mkdir -p $(dir $@)
-	$(Q)$(PYTHON) $(LVGL_GENERATOR_LAUNCHER) $(LVGL_GENERATOR) $(LVGL_CFLAGS) --board=renesas-ra --output=$@ --include=$(LVGL_BINDING_DIR)/lib --include=$(LVGL_DIR) --module_name=lvgl --module_prefix=lv --metadata=$(BUILD)/lvgl/lv_mpy.json --header_file=$(LVGL_DIR)/lvgl.h
+	$(Q)PYTHONHASHSEED=0 $(PYTHON) $(LVGL_GENERATOR_LAUNCHER) $(LVGL_GENERATOR) $(LVGL_CFLAGS) --board=renesas-ra --output=$@ --include=$(LVGL_BINDING_DIR)/lib --include=$(LVGL_DIR) --module_name=lvgl --module_prefix=lv --metadata=$(BUILD)/lvgl/lv_mpy.json --header_file=$(LVGL_DIR)/lvgl.h
 
 .PHONY: lvgl-submodules
 lvgl-submodules:
@@ -451,6 +461,16 @@ CFLAGS += -DUSE_FSP_LCD
 HAL_SRC_C += $(HAL_DIR)/ra/fsp/src/r_glcdc/r_glcdc.c \
 	$(HAL_DIR)/ra/fsp/src/r_sci_i2c/r_sci_i2c.c \
 	$(HAL_DIR)/ra/fsp/src/r_icu/r_icu.c
+endif
+
+ifeq ($(USE_FSP_DRW), 1)
+CFLAGS += -DUSE_FSP_DRW
+INC += -I$(TOP)/$(HAL_DIR)/ra/tes/dave2d/inc
+INC += -I$(TOP)/$(HAL_DIR)/ra/tes/dave2d/src
+INC += -I$(TOP)/$(HAL_DIR)/ra/fsp/src/r_drw
+HAL_SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/$(HAL_DIR)/ra/fsp/src/r_drw/*.c))
+HAL_SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/$(HAL_DIR)/ra/tes/dave2d/src/*.c))
+$(BUILD)/$(BOARD_DIR)/dave2d_port.o: CFLAGS += -Wno-unused-variable
 endif
 
 ifeq ($(USE_FSP_CAM), 1)

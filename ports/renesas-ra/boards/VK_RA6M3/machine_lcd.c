@@ -30,6 +30,9 @@
 #include "py/mphal.h"
 #include "modmachine.h"
 #include "hal_data.h"
+#if defined(USE_FSP_DRW)
+#include "dave2d_port.h"
+#endif
 #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
 #include "lvgl/lvgl.h"
 #endif
@@ -170,7 +173,13 @@ void machine_lcd_soft_reset(void) {
 void machine_lcd_lvgl_soft_reset(void) {
     #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
     if (lv_is_initialized()) {
+        #if defined(USE_FSP_DRW)
+        vk_ra6m3_dave2d_prepare_deinit();
+        #endif
         lv_deinit();
+        #if defined(USE_FSP_DRW)
+        vk_ra6m3_dave2d_finish_deinit();
+        #endif
     }
     #endif
 }
@@ -356,6 +365,25 @@ STATIC mp_obj_t lcd_touches(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_lcd_touches_obj, lcd_touches);
 
+#if defined(USE_FSP_DRW)
+STATIC mp_obj_t lcd_drw_stats(mp_obj_t self_in) {
+    (void)self_in;
+    uint32_t irq_count;
+    uint32_t allocation_count;
+    uint32_t active_bytes;
+    uint32_t peak_bytes;
+    vk_ra6m3_dave2d_get_stats(&irq_count, &allocation_count, &active_bytes, &peak_bytes);
+    mp_obj_t stats[] = {
+        mp_obj_new_int_from_uint(irq_count),
+        mp_obj_new_int_from_uint(allocation_count),
+        mp_obj_new_int_from_uint(active_bytes),
+        mp_obj_new_int_from_uint(peak_bytes),
+    };
+    return mp_obj_new_tuple(MP_ARRAY_SIZE(stats), stats);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_lcd_drw_stats_obj, lcd_drw_stats);
+#endif
+
 STATIC mp_obj_t lcd_deinit(mp_obj_t self_in) {
     machine_lcd_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->isinited) {
@@ -423,6 +451,9 @@ STATIC const mp_rom_map_elem_t lcd_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_stop),                MP_ROM_PTR(&machine_lcd_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_touched),             MP_ROM_PTR(&machine_lcd_touched_obj) },
     { MP_ROM_QSTR(MP_QSTR_touches),             MP_ROM_PTR(&machine_lcd_touches_obj) },
+    #if defined(USE_FSP_DRW)
+    { MP_ROM_QSTR(MP_QSTR_drw_stats),            MP_ROM_PTR(&machine_lcd_drw_stats_obj) },
+    #endif
     // control
     // { MP_ROM_QSTR(MP_QSTR_changebuf),           MP_ROM_PTR(&machine_lcd_changebuf_obj) },
 };

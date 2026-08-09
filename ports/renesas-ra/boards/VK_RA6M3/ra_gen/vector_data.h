@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (56)
+#define VECTOR_DATA_IRQ_COUNT    (57)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -48,6 +48,7 @@ void adc_scan_end_isr(void);
 void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
+void vk_ra6m3_drw_int_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI7_RXI ((IRQn_Type)0)  /* SCI7 RXI (Received data full) */
@@ -162,6 +163,8 @@ void ctsu_end_isr(void);
 #define SCI2_TEI_IRQn          ((IRQn_Type)54)  /* SCI2 TEI (Transmit end) */
 #define VECTOR_NUMBER_SCI2_ERI ((IRQn_Type)55)  /* SCI2 ERI (Receive error) */
 #define SCI2_ERI_IRQn          ((IRQn_Type)55)  /* SCI2 ERI (Receive error) */
+#define VECTOR_NUMBER_DRW_INT ((IRQn_Type)56)  /* DRW INT (D/AVE 2D interrupt) */
+#define DRW_INT_IRQn          ((IRQn_Type)56)  /* DRW INT (D/AVE 2D interrupt) */
 #ifdef __cplusplus
 }
 #endif
