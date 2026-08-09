@@ -44,13 +44,17 @@ ifeq ($(MICROPY_PY_LVGL),1)
 GIT_SUBMODULES += lib/lv_bindings
 LVGL_BINDING_DIR = $(TOP)/lib/lv_bindings
 LVGL_DIR = $(LVGL_BINDING_DIR)/lib/lvgl
-LVGL_HEADERS = $(shell find $(LVGL_DIR) -type f -name '*.h') $(LVGL_BINDING_DIR)/lib/lv_conf.h
+LVGL_BOARD_CONF = $(wildcard $(BOARD_DIR)/lv_conf_board.h)
+LVGL_HEADERS = $(shell find $(LVGL_DIR) -type f -name '*.h') $(LVGL_BINDING_DIR)/lib/lv_conf.h $(LVGL_BOARD_CONF)
 LVGL_GENERATOR = $(LVGL_BINDING_DIR)/gen/python_api_gen_mpy.py
 LVGL_GENERATOR_LAUNCHER = lvgl_gen.py
 LVGL_MPY_REL = lvgl/lv_mpy.c
 LVGL_MPY = $(BUILD)/$(LVGL_MPY_REL)
 LVGL_MPY_OBJ = $(BUILD)/lvgl/lv_mpy.o
 LVGL_CFLAGS = -DMICROPY_PY_LVGL=1 -DMICROPY_COLOR_DEPTH=16 -DMICROPY_TINY_TTF=0 -DSTATIC=static -Wno-error=unused-function
+ifneq ($(LVGL_BOARD_CONF),)
+LVGL_CFLAGS += -include $(LVGL_BOARD_CONF)
+endif
 
 INC += -I$(LVGL_BINDING_DIR)/lib
 CFLAGS_EXTMOD += $(LVGL_CFLAGS)
