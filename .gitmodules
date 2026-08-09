@@ -80,9 +80,3 @@
 [submodule "lib/lv_bindings"]
 	path = lib/lv_bindings
 	url = https://github.com/lvgl-micropython/lvgl_micropython.git
-[submodule "ports/renesas-ra/boards/VK_RA4M2/examples/arduino/ArduinoCore-renesas"]
-	path = ports/renesas-ra/boards/VK_RA4M2/examples/arduino/ArduinoCore-renesas
-	url = https://github.com/arduino/ArduinoCore-renesas.git
-[submodule "ports/renesas-ra/boards/VK_RA4M2/examples/arduino/Vekatech-Arduino"]
-	path = ports/renesas-ra/boards/VK_RA4M2/examples/arduino/Vekatech-Arduino
-	url = https://github.com/Vekatech/Arduino.git
