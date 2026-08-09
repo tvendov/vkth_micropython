@@ -7,15 +7,13 @@ BRD = uname().machine
 
 def TST():
     def slider_event_cb(e):
-        if hasattr(e, 'get_target_obj'):
-            slider = e.get_target_obj()
-        else:
-            slider = e.get_target()
+        slider = e.get_target_obj()
 
         # Refresh the text
         label.set_text(str(slider.get_value()))
 
-    scr = lv.scr_act()
+    scr = lv.screen_active()
+    scr.clean()
 
     #scr.set_style_bg_color(lv.color_hex(0x00ff00), lv.PART.MAIN)
 
@@ -35,10 +33,7 @@ def TST():
     #slider.set_pos(20, 180)
     slider.center()                                                    # Align to the center of the parent (screen)
     slider.align(lv.ALIGN.CENTER, 0, 70)
-    if hasattr(slider, 'add_event'):
-        slider.add_event(slider_event_cb, lv.EVENT.VALUE_CHANGED, None)  # Assign an event function
-    else:
-        slider.add_event_cb(slider_event_cb, lv.EVENT.VALUE_CHANGED, None)  # Assign an event function
+    slider.add_event_cb(slider_event_cb, lv.EVENT.VALUE_CHANGED, None)  # Assign an event function
 
     # Create a label above the slider
     label = lv.label(scr)

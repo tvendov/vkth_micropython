@@ -38,29 +38,40 @@ QSTR_DEFS += qstrdefsport.h
 # Files that are generated and needed before the QSTR build.
 QSTR_GLOBAL_DEPENDENCIES += mpconfigboard_common.h $(BOARD_DIR)/mpconfigboard.h
 
-# Vekatech LVGL v9 integration for the parallel RGB display on VK_RA6M3.
+# LVGL integration for the parallel RGB display on VK_RA6M3.
 ifeq ($(BOARD),VK_RA6M3)
 ifeq ($(MICROPY_PY_LVGL),1)
 GIT_SUBMODULES += lib/lv_bindings
 LVGL_BINDING_DIR = $(TOP)/lib/lv_bindings
-LVGL_DIR = $(LVGL_BINDING_DIR)/lvgl
-LVGL_GENERIC_DRV_DIR = $(LVGL_BINDING_DIR)/driver/generic
-LVGL_HEADERS = $(shell find $(LVGL_DIR) -type f -name '*.h') $(LVGL_BINDING_DIR)/lv_conf.h
+LVGL_DIR = $(LVGL_BINDING_DIR)/lib/lvgl
+LVGL_HEADERS = $(shell find $(LVGL_DIR) -type f -name '*.h') $(LVGL_BINDING_DIR)/lib/lv_conf.h
+LVGL_GENERATOR = $(LVGL_BINDING_DIR)/gen/python_api_gen_mpy.py
+LVGL_GENERATOR_LAUNCHER = lvgl_gen.py
 LVGL_MPY_REL = lvgl/lv_mpy.c
 LVGL_MPY = $(BUILD)/$(LVGL_MPY_REL)
 LVGL_MPY_OBJ = $(BUILD)/lvgl/lv_mpy.o
-LVGL_CFLAGS = -DMICROPY_PY_LVGL=1 -DLV_COLOR_DEPTH=16 -DLV_USE_TINY_TTF=0 -DSTATIC=static
+LVGL_CFLAGS = -DMICROPY_PY_LVGL=1 -DMICROPY_COLOR_DEPTH=16 -DMICROPY_TINY_TTF=0 -DSTATIC=static -Wno-error=unused-function
 
-INC += -I$(LVGL_BINDING_DIR)
+INC += -I$(LVGL_BINDING_DIR)/lib
 CFLAGS_EXTMOD += $(LVGL_CFLAGS)
-SRC_THIRDPARTY_C += $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src $(LVGL_GENERIC_DRV_DIR) -type f -name '*.c'))
+SRC_THIRDPARTY_C += $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src -type f -name '*.c'))
+SRC_THIRDPARTY_C += lib/lv_bindings/ext_mod/lvgl/mem_core.c
 QSTR_GLOBAL_DEPENDENCIES += $(LVGL_MPY)
 
-$(LVGL_MPY): $(LVGL_HEADERS) $(LVGL_BINDING_DIR)/gen/gen_mpy.py
+$(LVGL_MPY): $(LVGL_HEADERS) $(LVGL_GENERATOR) $(LVGL_GENERATOR_LAUNCHER)
 	$(ECHO) "LVGL-GEN $@"
 	$(Q)mkdir -p $(dir $@)
-	$(Q)$(CPP) $(CFLAGS_EXTMOD) -DPYCPARSER -x c -I$(LVGL_BINDING_DIR)/pycparser/utils/fake_libc_include $(INC) $(LVGL_DIR)/lvgl.h > $(BUILD)/lvgl/lvgl.pp.c
-	$(Q)$(PYTHON) $(LVGL_BINDING_DIR)/gen/gen_mpy.py -M lvgl -MP lv -MD $(BUILD)/lvgl/lv_mpy.json -E $(BUILD)/lvgl/lvgl.pp.c $(LVGL_DIR)/lvgl.h > $@
+	$(Q)$(PYTHON) $(LVGL_GENERATOR_LAUNCHER) $(LVGL_GENERATOR) $(LVGL_CFLAGS) --board=renesas-ra --output=$@ --include=$(LVGL_BINDING_DIR)/lib --include=$(LVGL_DIR) --module_name=lvgl --module_prefix=lv --metadata=$(BUILD)/lvgl/lv_mpy.json --header_file=$(LVGL_DIR)/lvgl.h
+
+.PHONY: lvgl-submodules
+lvgl-submodules:
+	$(ECHO) "Updating LVGL binding and nested submodules"
+	$(Q)cd $(TOP) && git submodule sync -- lib/lv_bindings
+	$(Q)cd $(TOP) && git submodule update --init --filter=blob:none lib/lv_bindings
+	$(Q)cd $(LVGL_BINDING_DIR) && git submodule sync -- lib/lvgl lib/pycparser
+	$(Q)cd $(LVGL_BINDING_DIR) && git submodule update --init --filter=blob:none lib/lvgl lib/pycparser
+
+submodules: lvgl-submodules
 endif
 endif
 

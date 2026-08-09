@@ -580,7 +580,7 @@ const display_cfg_t g_display0_cfg =
             DISPLAY_SIGNAL_POLARITY_LOACTIVE },
       .format = DISPLAY_OUT_FORMAT_24BITS_RGB888,
       .endian = DISPLAY_ENDIAN_LITTLE, .color_order =
-          DISPLAY_COLOR_ORDER_RGB,
+          DISPLAY_COLOR_ORDER_BGR,
       .data_enable_polarity =
           DISPLAY_SIGNAL_POLARITY_HIACTIVE,
       .sync_edge = DISPLAY_SIGNAL_SYNC_EDGE_RISING,

@@ -5,8 +5,8 @@
 /* Linker script to configure memory regions. */
 MEMORY
 {
-  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00100000  /* 1MB/2MB */
-  FLASH_FS (r)       : ORIGIN = 0x00100000, LENGTH = 0x00100000  /* 1MB/2MB */
+  FLASH (rx)         : ORIGIN = 0x00000000, LENGTH = 0x00180000  /* 1.5MB/2MB */
+  FLASH_FS (r)       : ORIGIN = 0x00180000, LENGTH = 0x00080000  /* 512KB/2MB */
   RAM (rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x00060000  /* 384KB before FB0 */
   FB0 (rwx)          : ORIGIN = 0x20040000, LENGTH = 0x003FC00   /* 255K */
   DATA_FLASH (rx)    : ORIGIN = 0x40100000, LENGTH = 0x00010000  /* 64KB */

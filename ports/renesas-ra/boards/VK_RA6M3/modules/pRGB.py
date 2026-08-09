@@ -11,7 +11,7 @@ class pRGB(framebuf.FrameBuffer):
 
     def __init__(self, res=SuppRes[0]):
         if res not in SuppRes:
-            raise ValueError('Unsupported resolution %s; the driver supports: %s.'%(str(res),', '.join(str(r) for r in suppRes)))
+            raise ValueError('Unsupported resolution %s; the driver supports: %s.'%(str(res),', '.join(str(r) for r in SuppRes)))
 
         self.width = res[0]   #480
         self.height = res[1]  #272
@@ -28,13 +28,14 @@ class pRGB_lvgl(object):
     * sets the driver callback to the disp_drv_flush_cb method.
 
     '''
-    def disp_drv_flush_cb(self,disp_drv,area,color):
+    def disp_drv_flush_cb(self,disp_drv,area,color_p):
         # print(f"({area.x1},{area.y1}..{area.x2},{area.y2})")
         w = area.x2-area.x1+1
         h = area.y2-area.y1+1
 
         # blit in background
-        self.blit(framebuf.FrameBuffer(color.__dereference__(w*h*lv.color_t.__SIZE__), w, h, framebuf.RGB565), area.x1, area.y1)
+        data_view = color_p.__dereference__(w*h*self.pixel_size)
+        self.blit(framebuf.FrameBuffer(data_view, w, h, framebuf.RGB565), area.x1, area.y1)
         self.disp_drv.flush_ready()
 
     def touch_drv_read_cb(self,touch_drv,data):
@@ -47,58 +48,37 @@ class pRGB_lvgl(object):
             data.state = lv.INDEV_STATE.RELEASED
 
     def __init__(self,doublebuffer=False,factor=10):
-        if hasattr(lv, 'COLOR_DEPTH'):
-            if lv.COLOR_DEPTH!=16: raise RuntimeError(f'LVGL *must* be compiled with LV_COLOR_DEPTH=16 (currently LV_COLOR_DEPTH={lv.COLOR_DEPTH}.')
-        
-        bufSize=(self.width*self.height*lv.color_t.__SIZE__)//factor
+        if lv.COLOR_DEPTH != 16:
+            raise RuntimeError(f'LVGL must be compiled with LV_COLOR_DEPTH=16 (currently LV_COLOR_DEPTH={lv.COLOR_DEPTH}).')
+
+        color_format = lv.COLOR_FORMAT.RGB565
+        self.pixel_size = lv.color_format_get_size(color_format)
+        bufSize = (self.width*self.height*self.pixel_size)//factor
 
         if not lv.is_initialized(): lv.init()
         # create event loop if not yet present
         if not lv_utils.event_loop.is_running(): self.event_loop=lv_utils.event_loop()
 
         # attach all to self to avoid objects' refcount dropping to zero when the scope is exited
-        if hasattr(lv, 'disp_create'):
-            self.disp_drv = lv.disp_create(self.width, self.height)
-        else:
-            self.disp_drv = lv.disp_drv_t()
-            self.disp_drv.init()
-            self.disp_drv.hor_res = self.width
-            self.disp_drv.ver_res = self.height
-
-        if hasattr(self.disp_drv, 'set_flush_cb'):
-            self.disp_drv.set_flush_cb(self.disp_drv_flush_cb)
-        else:
-            self.disp_drv.flush_cb = self.disp_drv_flush_cb
-
-        if hasattr(self.disp_drv, 'set_draw_buffers'):
-            self.disp_drv.set_draw_buffers(bytearray(bufSize), bytearray(bufSize) if doublebuffer else None, bufSize, lv.DISP_RENDER_MODE.PARTIAL)
-        else:
-            self.disp_drv.draw_buf = lv.disp_draw_buf_t()
-            self.disp_drv.draw_buf.init(bytearray(bufSize), bytearray(bufSize) if doublebuffer else None, bufSize)
-            self.disp_drv.register()
-
-        if hasattr(self.disp_drv, 'set_color_format'):
-            self.disp_drv.set_color_format(lv.COLOR_FORMAT.RGB565)
-
-        
+        self.buf1 = bytearray(bufSize)
+        self.buf2 = bytearray(bufSize) if doublebuffer else None
+        self.disp_drv = lv.display_create(self.width, self.height)
+        self.disp_drv.set_color_format(color_format)
+        self.disp_drv.set_flush_cb(self.disp_drv_flush_cb)
+        self.disp_drv.set_buffers(self.buf1, self.buf2, bufSize, lv.DISPLAY_RENDER_MODE.PARTIAL)
+        lv.theme_default_init(
+            self.disp_drv,
+            lv.palette_main(lv.PALETTE.BLUE),
+            lv.palette_main(lv.PALETTE.RED),
+            False,
+            lv.font_montserrat_14,
+        )
 
         self.points = 0
-        if hasattr(lv, 'indev_create'):
-            self.indev_drv = lv.indev_create()
-        else:
-            self.indev_drv = lv.indev_drv_t()
-            self.indev_drv.init()
-
-        if hasattr(self.indev_drv, 'set_type'):
-            self.indev_drv.set_type(lv.INDEV_TYPE.POINTER)
-        else:
-            self.indev_drv.type = lv.INDEV_TYPE.POINTER
-
-        if hasattr(self.indev_drv, 'set_read_cb'):
-            self.indev_drv.set_read_cb(self.touch_drv_read_cb)
-        else:
-            self.indev_drv.read_cb = self.touch_drv_read_cb
-            self.indev_drv.register()
+        self.indev_drv = lv.indev_create()
+        self.indev_drv.set_type(lv.INDEV_TYPE.POINTER)
+        self.indev_drv.set_display(self.disp_drv)
+        self.indev_drv.set_read_cb(self.touch_drv_read_cb)
 
 class RGB(pRGB,pRGB_lvgl):
     def __init__(self,res=SuppRes[0],doublebuffer=False,factor=10,**kw):
