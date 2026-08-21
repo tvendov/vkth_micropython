@@ -15,6 +15,14 @@ typedef struct _vk_ra6m3_drw_allocation_t {
 
 MP_REGISTER_ROOT_POINTER(void *vk_ra6m3_drw_allocations);
 
+/* The LVGL binding (build/lvgl/lv_mpy.c) registers these, but its
+ * MP_REGISTER_ROOT_POINTER lines do not survive the qstr preprocessing pass on a
+ * clean build, so root_pointers.collected misses them and mp_state_vm_t lacks the
+ * members.  Anchor them here, in the translation unit that owns their GC
+ * lifecycle (vk_ra6m3_lvgl_gc_init/deinit); identical registrations deduplicate. */
+MP_REGISTER_ROOT_POINTER(void *mp_lv_roots);
+MP_REGISTER_ROOT_POINTER(void *mp_lv_user_data);
+
 const uint8_t DRW_INT_IPL = 12;
 
 static volatile uint32_t drw_irq_count;

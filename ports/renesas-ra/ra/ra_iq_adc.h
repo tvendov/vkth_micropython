@@ -75,6 +75,39 @@ bool ra_iq_adc_acquire(const uint16_t **i_block, const uint16_t **q_block,
 
 void ra_iq_adc_get_status(ra_iq_adc_status_t *status);
 
+/* Phase-3 block-boundary DSP: DC removal + x2 decimation, done in C with no
+ * allocation and no Python (REQ-DSP-001).  Produces block_samples/2 centered
+ * int16 samples per channel per block.  This struct exposes the counters and the
+ * last-block DC means for control-plane inspection; it is not the realtime path. */
+typedef struct {
+    uint32_t dsp_blocks;    /* blocks processed by the C DSP stage since start() */
+    uint16_t dsp_samples;   /* decimated samples produced per block (block/2)     */
+    int16_t i_mean;         /* last block DC mean removed from I                  */
+    int16_t q_mean;         /* last block DC mean removed from Q                  */
+} ra_iq_dsp_status_t;
+
+void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
+
+/* Phase-4 AM demodulation to DAC.  The decimated I/Q from the phase-3 DSP is
+ * envelope-detected (alpha-max-beta-min, integer only), DC-blocked to center the
+ * envelope at mid-scale, and pushed into a single-producer/single-consumer
+ * lock-free ring.  The producer is the ADC0_SCAN_END block callback; the consumer
+ * is the DAC DMAC ping-pong fill callback.  No CPU is in the per-sample DAC path:
+ * the ra_dac double-buffered stream clocks one sample to DADR per timer tick via
+ * DMAC.  The audio rate is sample_rate_hz/2 (the decimated rate). */
+typedef struct {
+    uint32_t audio_underruns;   /* fill_cb ticks where the ring was empty        */
+    uint32_t ring_overruns;     /* produced samples dropped because ring was full */
+    uint8_t am_active;          /* AM->DAC path is running                        */
+} ra_iq_am_status_t;
+
+/* dac_pin must be a DAC-capable pin (P014 / DA0 on VK_RA6M3); dac_ch selects the
+ * DAC channel.  Requires the capture to be running.  Returns false if capture is
+ * not running, the pin is not a DAC pin, or the DAC stream fails to start. */
+bool ra_iq_adc_am_dac_start(uint32_t dac_pin, uint8_t dac_ch);
+void ra_iq_adc_am_dac_stop(void);
+void ra_iq_adc_get_am_status(ra_iq_am_status_t *status);
+
 #endif /* RA6M3 */
 
 #endif /* MICROPY_INCLUDED_RENESAS_RA_IQ_ADC_H */

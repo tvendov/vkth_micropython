@@ -88,6 +88,17 @@ Q(overruns)
 Q(unit1_stalls)
 Q(last_error)
 Q(initialised)
+Q(dsp_status)
+Q(dsp_blocks)
+Q(dsp_samples)
+Q(i_mean)
+Q(q_mean)
+Q(am_dac)
+Q(am_dac_stop)
+Q(am_status)
+Q(am_active)
+Q(audio_underruns)
+Q(ring_overruns)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

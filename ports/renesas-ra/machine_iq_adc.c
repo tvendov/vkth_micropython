@@ -33,6 +33,7 @@
 #include "py/smallint.h"
 #include "pin.h"
 #include "ra/ra_adc.h"
+#include "ra/ra_dac.h"
 #include "ra/ra_iq_adc.h"
 
 /* ------------------------------------------------------------------ */
@@ -288,6 +289,68 @@ static mp_obj_t machine_iqadc_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_status_obj, machine_iqadc_status);
 
+/* Phase-3 DSP counters (control-plane; allocates a dict, not the realtime path). */
+static mp_obj_t machine_iqadc_dsp_status(mp_obj_t self_in) {
+    (void)self_in;
+    ra_iq_dsp_status_t st;
+    ra_iq_adc_get_dsp_status(&st);
+
+    mp_obj_t d = mp_obj_new_dict(4);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_dsp_blocks), mp_obj_new_int(st.dsp_blocks));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_dsp_samples), mp_obj_new_int(st.dsp_samples));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_i_mean), mp_obj_new_int(st.i_mean));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_q_mean), mp_obj_new_int(st.q_mean));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_dsp_status_obj, machine_iqadc_dsp_status);
+
+/* am_dac(dac_pin, ch=0) -> None.  Starts the AM-demod-to-DAC audio path on the
+ * decimated I/Q.  dac_pin must be a DAC-capable pin (P014 / DA0 on VK_RA6M3).
+ * Control-plane: this only arms the path; the per-sample work runs in the ADC
+ * and DAC ISRs with no CPU per sample and no Python. */
+static mp_obj_t machine_iqadc_am_dac(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+
+    const machine_pin_obj_t *dp = machine_pin_find(args[1]);
+    if (!ra_dac_is_dac_pin(dp->pin)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("not a DAC pin"));
+    }
+
+    mp_int_t ch = (n_args > 2) ? mp_obj_get_int(args[2]) : 0;
+    if (ch < 0 || ch > 1) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad ch"));
+    }
+
+    if (!ra_iq_adc_am_dac_start(dp->pin, (uint8_t)ch)) {
+        mp_raise_OSError(MP_EIO);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_am_dac_obj,
+                                           2, 3, machine_iqadc_am_dac);
+
+static mp_obj_t machine_iqadc_am_dac_stop(mp_obj_t self_in) {
+    (void)self_in;
+    ra_iq_adc_am_dac_stop();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_am_dac_stop_obj, machine_iqadc_am_dac_stop);
+
+/* am_status() -> dict.  ALLOCATES (builds a dict): control-plane only. */
+static mp_obj_t machine_iqadc_am_status(mp_obj_t self_in) {
+    (void)self_in;
+    ra_iq_am_status_t st;
+    ra_iq_adc_get_am_status(&st);
+
+    mp_obj_t d = mp_obj_new_dict(3);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_am_active), mp_obj_new_int(st.am_active));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_audio_underruns), mp_obj_new_int(st.audio_underruns));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_ring_overruns), mp_obj_new_int(st.ring_overruns));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_am_status_obj, machine_iqadc_am_status);
+
 static mp_obj_t machine_iqadc_deinit(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->active) {
@@ -312,6 +375,10 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_last_error),   MP_ROM_PTR(&machine_iqadc_last_error_obj) },
     { MP_ROM_QSTR(MP_QSTR_ready),        MP_ROM_PTR(&machine_iqadc_ready_obj) },
     { MP_ROM_QSTR(MP_QSTR_status),       MP_ROM_PTR(&machine_iqadc_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dsp_status),   MP_ROM_PTR(&machine_iqadc_dsp_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_am_dac),       MP_ROM_PTR(&machine_iqadc_am_dac_obj) },
+    { MP_ROM_QSTR(MP_QSTR_am_dac_stop),  MP_ROM_PTR(&machine_iqadc_am_dac_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR_am_status),    MP_ROM_PTR(&machine_iqadc_am_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),       MP_ROM_PTR(&machine_iqadc_deinit_obj) },
 };
 static MP_DEFINE_CONST_DICT(machine_iqadc_locals_dict,

@@ -625,7 +625,11 @@ endif
 CFLAGS += -D$(CMSIS_DSP_CORE) -DARM_DSP_ATTRIBUTE= -DDISABLEFLOAT16
 INC += -I$(CMSIS_DSP_DIR)/Include
 INC += -I$(CMSIS_DSP_DIR)/PrivateInclude
-SRC_C += moddsp.c
+# moddsp.c (the Python `dsp` module) is intentionally NOT built: its MP_QSTR_*
+# tokens are not picked up by the qstr scan on this port, so it collides with the
+# frozen-collected `run` qstr.  The CMSIS-DSP *library* below is still compiled and
+# available to C code (e.g. ra_iq_adc AM demod); the Python wrapper is deferred.
+# SRC_C += moddsp.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_f32.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_init_f32.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_biquad_cascade_df1_f32.c

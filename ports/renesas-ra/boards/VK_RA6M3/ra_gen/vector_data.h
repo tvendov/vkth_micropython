@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (58)
+#define VECTOR_DATA_IRQ_COUNT    (60)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -49,6 +49,7 @@ void ctsu_write_isr(void);
 void ctsu_read_isr(void);
 void ctsu_end_isr(void);
 void vk_ra6m3_drw_int_isr(void);
+void dmac_int_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SCI7_RXI ((IRQn_Type)0)  /* SCI7 RXI (Received data full) */
@@ -167,6 +168,10 @@ void vk_ra6m3_drw_int_isr(void);
 #define DRW_INT_IRQn          ((IRQn_Type)56)  /* DRW INT (D/AVE 2D interrupt) */
 #define VECTOR_NUMBER_ADC1_SCAN_END ((IRQn_Type)57)  /* ADC1 SCAN END (A/D scan end interrupt) */
 #define ADC1_SCAN_END_IRQn          ((IRQn_Type)57)  /* ADC1 SCAN END (A/D scan end interrupt) */
+#define VECTOR_NUMBER_DMAC0_INT ((IRQn_Type)58)  /* DMAC0 INT (DMAC transfer end 0) */
+#define DMAC0_INT_IRQn          ((IRQn_Type)58)  /* DMAC0 INT (DMAC transfer end 0) */
+#define VECTOR_NUMBER_DMAC1_INT ((IRQn_Type)59)  /* DMAC1 INT (DMAC transfer end 1) */
+#define DMAC1_INT_IRQn          ((IRQn_Type)59)  /* DMAC1 INT (DMAC transfer end 1) */
 #ifdef __cplusplus
 }
 #endif

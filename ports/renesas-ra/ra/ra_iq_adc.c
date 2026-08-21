@@ -15,6 +15,7 @@
 #include "r_adc.h"
 #include "r_dtc.h"
 #include "ra_adc.h"
+#include "ra_dac.h"
 #include "ra_iq_adc.h"
 #include "ra_timer.h"
 #include "ra_utils.h"
@@ -74,6 +75,43 @@ static transfer_info_t BSP_ALIGN_VARIABLE(4) s_dtc_info[2];
 
 static uint16_t BSP_ALIGN_VARIABLE(4) s_i_buf[2][RA_IQ_ADC_MAX_BLOCK_SAMPLES];
 static uint16_t BSP_ALIGN_VARIABLE(4) s_q_buf[2][RA_IQ_ADC_MAX_BLOCK_SAMPLES];
+
+/* Phase-3 DSP output: DC-removed, x2-decimated block, produced in C on the block
+ * boundary.  block_samples/2 signed samples per channel; overwritten each block. */
+static int16_t BSP_ALIGN_VARIABLE(4) s_i_dc[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static int16_t BSP_ALIGN_VARIABLE(4) s_q_dc[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static ra_iq_dsp_status_t s_dsp;
+
+/* Phase-4 AM-to-DAC.  Single-producer (ADC0_SCAN_END block callback) /
+ * single-consumer (DAC DMAC fill callback) lock-free ring of DAC codes.  Power of
+ * two so count/wrap are masks.  s_ring_head is owned by the producer only,
+ * s_ring_tail by the consumer only; each publishes its index after the data write
+ * so no critical section is needed (REQ-RT-002).  count = (head - tail) & MASK. */
+#define RA_IQ_AUDIO_RING (1024U)
+#define RA_IQ_AUDIO_RING_MASK (RA_IQ_AUDIO_RING - 1U)
+
+static uint16_t s_audio_ring[RA_IQ_AUDIO_RING];
+static volatile uint32_t s_ring_head;   /* producer owns */
+static volatile uint32_t s_ring_tail;   /* consumer owns */
+
+/* Q8 slow LPF of the envelope, used as an IIR DC blocker so the audio is
+ * AC-coupled around mid-scale.  Owned by the producer. */
+static int32_t s_env_mean;
+
+typedef struct {
+    uint8_t active;             /* AM->DAC path is running                       */
+    uint8_t dac_ch;
+    uint32_t dac_pin;
+    uint32_t audio_underruns;
+    uint32_t ring_overruns;
+} ra_iq_am_private_t;
+
+static ra_iq_am_private_t s_audio;
+
+/* Two DAC ping-pong buffers, decimated-block sized.  DMAC clocks these to DADR;
+ * they must outlive the transfer, hence static (REQ-RT-004). */
+static uint16_t BSP_ALIGN_VARIABLE(4) s_dac_buf_a[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static uint16_t BSP_ALIGN_VARIABLE(4) s_dac_buf_b[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
 
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
     switch (ch) {
@@ -167,6 +205,114 @@ static bool ra_iq_unit1_alive_and_clear(void) {
     return alive;
 }
 
+/* Phase-3 block DSP: DC removal + x2 decimation, in C, no allocation, no Python
+ * (REQ-RT-002/003).  Runs on the just-filled half, which is safe until the block
+ * after next.  centered = (x[2j] + x[2j+1]) / 2 - mean, which equals averaging
+ * two mean-removed samples (mean removal is linear).  Integer only: no FPU state
+ * in the ISR.  An odd block_samples drops its last raw sample. */
+static void ra_iq_dsp_process(uint8_t half) {
+    const uint16_t *ip = s_i_buf[half];
+    const uint16_t *qp = s_q_buf[half];
+    uint16_t n = s_status.block_samples;
+    uint16_t m = (uint16_t)(n >> 1);
+    uint32_t si = 0U;
+    uint32_t sq = 0U;
+
+    for (uint16_t k = 0U; k < n; ++k) {
+        si += ip[k];
+        sq += qp[k];
+    }
+    int32_t mi = (n != 0U) ? (int32_t)(si / n) : 0;
+    int32_t mq = (n != 0U) ? (int32_t)(sq / n) : 0;
+
+    for (uint16_t j = 0U; j < m; ++j) {
+        int32_t ai = ((int32_t)ip[2U * j] + (int32_t)ip[2U * j + 1U]) >> 1;
+        int32_t aq = ((int32_t)qp[2U * j] + (int32_t)qp[2U * j + 1U]) >> 1;
+        s_i_dc[j] = (int16_t)(ai - mi);
+        s_q_dc[j] = (int16_t)(aq - mq);
+    }
+
+    s_dsp.i_mean = (int16_t)mi;
+    s_dsp.q_mean = (int16_t)mq;
+    s_dsp.dsp_samples = m;
+    s_dsp.dsp_blocks++;
+}
+
+/* Phase-4 AM demod producer.  Runs in the block callback (ADC0_SCAN_END IRQ)
+ * right after ra_iq_dsp_process, reading the decimated s_i_dc/s_q_dc it just
+ * produced.  Integer only, no FPU, no allocation, no Python (REQ-RT-002/003).
+ * Envelope = alpha-max-beta-min(|i|,|q|); an IIR DC blocker centers it at
+ * mid-scale so the DAC output is AC-coupled audio.  Pushes to the SPSC ring;
+ * a full ring drops the sample and counts an overrun. */
+static void ra_iq_am_produce(uint8_t half) {
+    uint16_t m = s_dsp.dsp_samples;
+    uint32_t head = s_ring_head;
+
+    (void)half;
+
+    for (uint16_t j = 0U; j < m; ++j) {
+        int32_t i = s_i_dc[j];
+        int32_t q = s_q_dc[j];
+        int32_t ai = (i < 0) ? -i : i;
+        int32_t aq = (q < 0) ? -q : q;
+        int32_t mx = (ai > aq) ? ai : aq;
+        int32_t mn = (ai > aq) ? aq : ai;
+        int32_t mag = mx + ((3 * mn) >> 3);
+
+        /* Q8 slow LPF: s_env_mean tracks (mag << 8). */
+        s_env_mean += (((int32_t)mag << 8) - s_env_mean) >> 8;
+
+        int32_t audio = 2048 + (mag - (s_env_mean >> 8));
+        if (audio < 0) {
+            audio = 0;
+        } else if (audio > 4095) {
+            audio = 4095;
+        }
+
+        uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
+        if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
+            s_audio.ring_overruns++;
+            continue;
+        }
+        s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = (uint16_t)audio;
+        head = next;
+    }
+
+    /* Publish the sample writes before the head update (SPSC ordering). */
+    __DMB();
+    s_ring_head = head;
+}
+
+/* DAC ping-pong refill.  Runs in the DMAC ISR.  Pops n samples from the ring
+ * into buf; on underrun writes mid-scale silence and counts it, so the stream
+ * never stops (see the ra_dac fill_cb contract).  Always returns true.  No
+ * allocation, no Python (REQ-RT-002/003). */
+static bool ra_iq_dac_fill(void *ctx, uint16_t *buf, size_t n) {
+    uint32_t tail = s_ring_tail;
+    uint32_t head = s_ring_head;
+
+    (void)ctx;
+
+    for (size_t k = 0U; k < n; ++k) {
+        if ((tail & RA_IQ_AUDIO_RING_MASK) == (head & RA_IQ_AUDIO_RING_MASK)) {
+            buf[k] = 2048U;
+            s_audio.audio_underruns++;
+            continue;
+        }
+        buf[k] = s_audio_ring[tail & RA_IQ_AUDIO_RING_MASK];
+        tail = (tail + 1U) & RA_IQ_AUDIO_RING_MASK;
+    }
+
+    __DMB();
+    s_ring_tail = tail;
+    return true;
+}
+
+static void ra_iq_dac_stop_cb(void *ctx) {
+    (void)ctx;
+    s_audio.active = 0U;
+}
+
 /* Block boundary.  Runs from FSP's adc_scan_end_isr, which the DTC lets through
  * only when the chain has filled a whole block.  No allocation, no Python, no
  * I/O here (REQ-RT-002, REQ-RT-003). */
@@ -203,6 +349,15 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
     s_status.blocks++;
     s_iq.sequence++;
     s_status.ready = 1U;
+
+    /* Phase-3 DSP on the block just captured (finished half). */
+    ra_iq_dsp_process(finished);
+
+    /* Phase-4 AM demod producer, only when the AM->DAC path is running.  Reads
+     * the s_i_dc/s_q_dc the DSP call above just filled. */
+    if (s_audio.active) {
+        ra_iq_am_produce(finished);
+    }
 }
 
 static bool ra_iq_adc_open_unit(bool unit1, uint8_t ch) {
@@ -440,6 +595,7 @@ bool ra_iq_adc_start(void) {
     s_status.last_error = RA_IQ_ADC_ERR_NONE;
     s_iq.sequence = 0U;
     s_iq.ready_half = 0U;
+    memset(&s_dsp, 0, sizeof(s_dsp));
 
     R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
     ra_iq_dtc_build();
@@ -470,6 +626,10 @@ void ra_iq_adc_stop(void) {
     if (!s_status.running) {
         return;
     }
+    /* Tear the AM->DAC path down first: its producer runs from this capture's
+     * block callback and its consumer clocks from a separate DMAC/AGT, both of
+     * which must be quiesced before the capture itself stops. */
+    ra_iq_adc_am_dac_stop();
     ra_agt_timer_stop(s_iq.timer_ch);
     if (s_iq.opened0) {
         R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl);
@@ -515,6 +675,78 @@ bool ra_iq_adc_acquire(const uint16_t **i_block, const uint16_t **q_block,
 void ra_iq_adc_get_status(ra_iq_adc_status_t *status) {
     if (status != NULL) {
         *status = s_status;
+    }
+}
+
+void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status) {
+    if (status != NULL) {
+        *status = s_dsp;
+    }
+}
+
+bool ra_iq_adc_am_dac_start(uint32_t dac_pin, uint8_t dac_ch) {
+    if (!s_status.running) {
+        return false;
+    }
+    if (!ra_dac_is_dac_pin(dac_pin)) {
+        return false;
+    }
+    if (s_audio.active) {
+        ra_iq_adc_am_dac_stop();
+    }
+
+    size_t sample_count = (size_t)(s_status.block_samples >> 1);
+    uint32_t freq = s_status.sample_rate_hz >> 1;
+    if ((sample_count == 0U) || (freq == 0U)) {
+        return false;
+    }
+
+    /* Reset the ring, DC blocker and counters before the producer can run. */
+    s_ring_head = 0U;
+    s_ring_tail = 0U;
+    s_env_mean = 0;
+    s_audio.dac_ch = dac_ch;
+    s_audio.dac_pin = dac_pin;
+    s_audio.audio_underruns = 0U;
+    s_audio.ring_overruns = 0U;
+
+    for (size_t k = 0U; k < sample_count; ++k) {
+        s_dac_buf_a[k] = 2048U;
+        s_dac_buf_b[k] = 2048U;
+    }
+
+    /* Arm the producer before starting the stream so the ring begins filling. */
+    __DMB();
+    s_audio.active = 1U;
+
+    ra_dac_init(dac_pin, dac_ch);
+
+    ra_dac_stream_status_t st = ra_dac_write_timed_double_buffered(
+        dac_ch, s_dac_buf_a, s_dac_buf_b, true, sample_count, freq,
+        ra_iq_dac_fill, ra_iq_dac_stop_cb, NULL, -1);
+    if (st != RA_DAC_STREAM_STATUS_OK) {
+        s_audio.active = 0U;
+        ra_dac_deinit(dac_pin, dac_ch);
+        return false;
+    }
+
+    return true;
+}
+
+void ra_iq_adc_am_dac_stop(void) {
+    if (!s_audio.active) {
+        return;
+    }
+    ra_dac_stream_stop(s_audio.dac_ch);
+    s_audio.active = 0U;
+    ra_dac_deinit(s_audio.dac_pin, s_audio.dac_ch);
+}
+
+void ra_iq_adc_get_am_status(ra_iq_am_status_t *status) {
+    if (status != NULL) {
+        status->audio_underruns = s_audio.audio_underruns;
+        status->ring_overruns = s_audio.ring_overruns;
+        status->am_active = s_audio.active;
     }
 }
 

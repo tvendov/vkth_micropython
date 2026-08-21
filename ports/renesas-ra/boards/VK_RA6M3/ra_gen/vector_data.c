@@ -66,6 +66,8 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
     [55] = sci_uart_eri_isr,         /* SCI2 ERI (Receive error) */
     [56] = vk_ra6m3_drw_int_isr,     /* DRW INT (D/AVE 2D interrupt) */
     [57] = adc_scan_end_isr,         /* ADC1 SCAN END (A/D scan end interrupt) */
+    [58] = dmac_int_isr,         /* DMAC0 INT (DMAC transfer end 0) */
+    [59] = dmac_int_isr,         /* DMAC1 INT (DMAC transfer end 1) */
 };
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
 {
@@ -127,5 +129,7 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [55] = BSP_PRV_IELS_ENUM(EVENT_SCI2_ERI),         /* SCI2 ERI (Receive error) */
     [56] = BSP_PRV_IELS_ENUM(EVENT_DRW_INT),          /* DRW INT (D/AVE 2D interrupt) */
     [57] = BSP_PRV_IELS_ENUM(EVENT_ADC1_SCAN_END),    /* ADC1 SCAN END (A/D scan end interrupt) */
+    [58] = BSP_PRV_IELS_ENUM(EVENT_DMAC0_INT),        /* DMAC0 INT (DMAC transfer end 0) */
+    [59] = BSP_PRV_IELS_ENUM(EVENT_DMAC1_INT),        /* DMAC1 INT (DMAC transfer end 1) */
 };
 #endif
