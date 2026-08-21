@@ -779,6 +779,23 @@ static uint16_t ra_adc_pga_nibble_get(volatile uint16_t *reg, uint8_t idx) {
     return (uint16_t)((*reg >> (idx * 4U)) & 0xFU);
 }
 
+/* Table 47.14: when any PGA of a unit uses differential input, ALL PGA
+ * amplifiers of that unit must be set to differential input in ADPGADCR0.
+ * Single-ended and differential PGA therefore cannot be mixed inside one unit. */
+static bool ra_adc_pga_unit_has_diff(R_ADC0_Type *reg, uint8_t except_idx) {
+    uint8_t i;
+    for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
+        if (i == except_idx) {
+            continue;
+        }
+        if ((ra_adc_pga_nibble_get(&reg->ADPGACR, i) == RA_ADC_PGA_ACR_AMP)
+            && ((ra_adc_pga_nibble_get(&reg->ADPGADCR0, i) & RA_ADC_PGA_DCR_DEN) != 0U)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ra_adc_pga_supported_ch(uint8_t ch) {
     R_ADC0_Type *reg;
     uint8_t idx;
@@ -796,6 +813,7 @@ bool ra_adc_pga_supported(uint32_t pin) {
 bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code) {
     R_ADC0_Type *reg;
     uint8_t idx;
+    uint8_t i;
 
     if (!ra_adc_pga_locate(ch, &reg, &idx)) {
         return false;
@@ -812,12 +830,17 @@ bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code)
     switch (mode) {
         case RA_ADC_PGA_OFF:
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, 0x0U);
-            ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+            /* Leave PnDEN alone while another amplifier of the unit is differential. */
+            if (!ra_adc_pga_unit_has_diff(reg, idx)) {
+                ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+            }
             return true;
 
         case RA_ADC_PGA_BYPASS:
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, 0x0U);
-            ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+            if (!ra_adc_pga_unit_has_diff(reg, idx)) {
+                ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+            }
             ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_BYPASS);
             return true;
 
@@ -825,6 +848,12 @@ bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code)
             if (gain_code > (uint8_t)RA_ADC_PGA_GAIN_13_333) {
                 return false;
             }
+            if (ra_adc_pga_unit_has_diff(reg, idx)) {
+                return false;   /* would mix single-ended and differential in one unit */
+            }
+            /* Table 47.14 note 4: with differential input disabled the associated
+             * PGAVSS pin still needs ASEL = 1 and must be wired to AVSS0 on the board. */
+            ra_adc_set_pin(ra_adc_pga_pgavss_pin(ch), true);
             ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, gain_code);
             ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_AMP);
@@ -835,6 +864,12 @@ bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code)
                 return false;
             }
             ra_adc_set_pin(ra_adc_pga_pgavss_pin(ch), true);
+            /* Every amplifier of the unit must carry PnDEN, not just this one. */
+            for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
+                uint16_t dcr = ra_adc_pga_nibble_get(&reg->ADPGADCR0, i);
+                ra_adc_pga_nibble(&reg->ADPGADCR0, i,
+                    (uint16_t)(RA_ADC_PGA_DCR_DEN | (dcr & 0x3U)));
+            }
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, ra_adc_pga_diff_gs_tbl[gain_code]);
             ra_adc_pga_nibble(&reg->ADPGADCR0, idx,
                 (uint16_t)(RA_ADC_PGA_DCR_DEN | (gain_code & 0x3U)));

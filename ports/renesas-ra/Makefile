@@ -590,6 +590,13 @@ else
 CFLAGS += -DMICROPY_HW_ENABLE_AUDIOADC=0
 endif
 
+# Coherent I/Q capture (SDR receive path).  RA6M3 only: it needs the second ADC
+# unit, the dedicated sample-and-hold channels and the PGA.
+ifeq ($(CMSIS_MCU),RA6M3)
+CFLAGS += -DMICROPY_HW_ENABLE_IQ_ADC=1
+HAL_SRC_C += ra/ra_iq_adc.c
+endif
+
 # CTSU (Capacitive Touch Sensing Unit) support
 ifeq ($(MICROPY_HW_ENABLE_TOUCHPAD),1)
 CFLAGS += -DMICROPY_HW_ENABLE_TOUCHPAD=1

@@ -70,3 +70,99 @@ Resulting artifacts:
 - `build-VK_RA6M3/firmware.bin`: 1545168 bytes
 - `build-VK_RA6M3/firmware.elf`: 17033728 bytes
 - `build-VK_RA6M3/firmware.hex`: 4346315 bytes
+
+## Rebuild after PnDEN and PGAVSS ASEL fixes
+
+Rebuilt successfully from MSYS2/UCRT64 after the current `ra_adc.c` PGA changes.
+
+Included in the rebuilt artifact:
+
+- `PnDEN` handling for the full PGA unit when differential input is selected.
+- Rejection of mixed single-ended and differential PGA usage inside one ADC unit.
+- PGAVSS analog mode (`PmnPFS.ASEL = 1`) for differential PGA.
+- PGAVSS analog mode (`PmnPFS.ASEL = 1`) for single-ended PGA, where the board must wire PGAVSS to AVSS0.
+- Previously committed `ADC1_SCAN_END` vector support.
+
+Resulting artifacts from the rebuild:
+
+- `build-VK_RA6M3/firmware.bin`: 1545320 bytes
+- `build-VK_RA6M3/firmware.elf`: 17034924 bytes
+- `build-VK_RA6M3/firmware.hex`: 4346736 bytes
+- timestamp: 2026-08-21 20:31:50
+
+Note: at the time of this rebuild, `ports/renesas-ra/ra/ra_adc.c` still had uncommitted changes.
+
+## Coherent I/Q capture driver (SDR receive path)
+
+Report tag: **SDR-RA6M3-BUILD-20260821-02**.
+
+Files touched (absolute paths):
+
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\ra\ra_iq_adc.h` — new.
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\ra\ra_iq_adc.c` — new.
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\Makefile` — build hook only.
+
+- Added `ra/ra_iq_adc.h` and `ra/ra_iq_adc.c`: single-activation coherent I/Q capture.
+- Added the RA6M3-only build hook to `ports/renesas-ra/Makefile`, right after the audioadc
+  block:
+
+  ```make
+  ifeq ($(CMSIS_MCU),RA6M3)
+  CFLAGS += -DMICROPY_HW_ENABLE_IQ_ADC=1
+  HAL_SRC_C += ra/ra_iq_adc.c
+  endif
+  ```
+
+Design as implemented (per ARCH-TRIG-002 / ARCH-ADC-002):
+
+- AGT reserves a channel; its event drives `ELSR8` (ELC_AD00) and `ELSR10` (ELC_AD10)
+  simultaneously — one trigger source for both units.
+- Both units opened with `ADC_TRIGGER_SYNC_ELC` via copy-and-override of `g_adc0_cfg` /
+  `g_adc1_cfg`; the generated files stay untouched.
+- S&H enabled on both units, identical `ADSSTR` / `SSTSH`, `SHMD = 1`.
+- Transport: one DTC chain from `ADC0_SCAN_END`. Descriptor 0 reads unit-0 `ADDR` into the I
+  buffer and chains into descriptor 1, which reads unit-1 into the Q buffer and raises the
+  interrupt. One activation, two samples — I/Q skew is structurally impossible.
+- `ADC1_SCAN_END` pulls no data. The slot stays NVIC-disabled; `IELSR[57].IR` is read and
+  cleared in the block callback as an O(1) liveness check for the Q unit (weak evidence: it
+  proves at least one scan completed in the block, not per-sample coherence, but it is the only
+  check that does not violate REQ-RT-004).
+- The callback rewrites both descriptors' `p_dest` and `length` unconditionally, so the driver
+  does not depend on unconfirmed DTC repeat-region reload semantics.
+
+Code review / fix pass before commit:
+
+- Closed the ADC open partial-failure leak: if `R_ADC_ScanCfg()` fails, the already-opened ADC
+  unit is closed immediately.
+- ADC1 scan-end is kept diagnostic-only: `R_ADC_Open()` can enable any valid scan-end IRQ, so the
+  driver now disables and clears `VECTOR_NUMBER_ADC1_SCAN_END` immediately after opening unit 1.
+- Fixed DTC repeat length handling after callback retargeting: live descriptors now use the same
+  encoded repeat/block `length` format that FSP writes during `R_DTC_Open()` / `R_DTC_Reconfigure()`.
+- `ra_iq_adc_start()` now reconfigures the DTC descriptor table before enabling capture and cleans
+  up DTC/ADC state if either ADC scan start fails.
+- Fixed the `P000 == 0` cleanup bug by tracking whether I/Q ADC pins were enabled, instead of using
+  pin number zero as a sentinel.
+- `ra_iq_adc_acquire()` now snapshots and clears the ready block under a short ADC0 scan-end IRQ
+  critical section, avoiding a race with the DTC callback.
+
+Not done (by the phasing rules): no Python wrapper (phase 5, after the C path is stable); buffers
+come out as raw `uint16_t` with no centering (DC removal is phase 3).
+
+Build check — built from MSYS2/UCRT64, `make BOARD=VK_RA6M3 -j8`, exit 0. `ra/ra_iq_adc.c`
+compiled and linked cleanly.
+
+- `build-VK_RA6M3/firmware.bin`: 1545320 bytes
+- `build-VK_RA6M3/firmware.elf`: 17034924 bytes
+- `build-VK_RA6M3/firmware.hex`: 4346736 bytes
+- `build-VK_RA6M3/ra/ra_iq_adc.o`: 84896 bytes
+- timestamp: 2026-08-21 21:13:49
+
+Important caveat: `firmware.bin` is byte-for-byte identical to the pre-I/Q rebuild above. With
+`-ffunction-sections` / `--gc-sections` the entire driver is garbage-collected because nothing
+references it yet (no Python wrapper). This build therefore proves the driver **compiles and links
+cleanly**, not that its code sits on a reachable path. Stronger evidence follows once the phase-5
+wrapper calls into it.
+
+Evidence class: **code review + clean compile only**. Nothing has been executed. First bench check
+is exactly the DTC-chain behaviour in repeat/ping-pong mode: does the interrupt arrive once per
+block, and does descriptor 1 actually run on every activation.
