@@ -43,6 +43,18 @@
 - The method blocks until the next GLCDC line-detect/VSYNC event or returns `False` on timeout.
 - Intended use: gate LVGL/direct-mode rendering to reduce visible flicker during frequent updates.
 
+## ADC1 scan-end vector
+
+- Added `ADC1_SCAN_END` to `ports/renesas-ra/boards/VK_RA6M3/ra_gen/vector_data.h`.
+- Increased `VECTOR_DATA_IRQ_COUNT` from 57 to 58.
+- Allocated IRQ slot 57:
+  - `VECTOR_NUMBER_ADC1_SCAN_END`
+  - `ADC1_SCAN_END_IRQn`
+- Added slot 57 to `g_vector_table` in `vector_data.c`, using the existing `adc_scan_end_isr`.
+- Added slot 57 to `g_interrupt_event_link_select` as `EVENT_ADC1_SCAN_END`.
+- Purpose: make ADC1/Q scan-end observable for diagnostics, statistics and possible transfer activation source.
+- This does not select the final I/Q transport design. Real I/Q capture should still avoid two independent ADC0/ADC1 transfers and use a synchronized transport path such as DTC chain or DMAC interleaving/offset.
+
 ## Build check
 
 Built successfully from MSYS2/UCRT64:
@@ -56,6 +68,5 @@ make BOARD=VK_RA6M3 -j8
 Resulting artifacts:
 
 - `build-VK_RA6M3/firmware.bin`: 1545168 bytes
-- `build-VK_RA6M3/firmware.elf`: 17033872 bytes
+- `build-VK_RA6M3/firmware.elf`: 17033728 bytes
 - `build-VK_RA6M3/firmware.hex`: 4346315 bytes
-

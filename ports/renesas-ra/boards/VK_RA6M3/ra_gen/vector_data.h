@@ -6,7 +6,7 @@ extern "C" {
 #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (57)
+#define VECTOR_DATA_IRQ_COUNT    (58)
 #endif
 /* ISR prototypes */
 void sci_uart_rxi_isr(void);
@@ -165,6 +165,8 @@ void vk_ra6m3_drw_int_isr(void);
 #define SCI2_ERI_IRQn          ((IRQn_Type)55)  /* SCI2 ERI (Receive error) */
 #define VECTOR_NUMBER_DRW_INT ((IRQn_Type)56)  /* DRW INT (D/AVE 2D interrupt) */
 #define DRW_INT_IRQn          ((IRQn_Type)56)  /* DRW INT (D/AVE 2D interrupt) */
+#define VECTOR_NUMBER_ADC1_SCAN_END ((IRQn_Type)57)  /* ADC1 SCAN END (A/D scan end interrupt) */
+#define ADC1_SCAN_END_IRQn          ((IRQn_Type)57)  /* ADC1 SCAN END (A/D scan end interrupt) */
 #ifdef __cplusplus
 }
 #endif
