@@ -166,3 +166,178 @@ wrapper calls into it.
 Evidence class: **code review + clean compile only**. Nothing has been executed. First bench check
 is exactly the DTC-chain behaviour in repeat/ping-pong mode: does the interrupt arrive once per
 block, and does descriptor 1 actually run on every activation.
+
+## Phase-5 Python wrapper: `machine.IQADC`
+
+Report tag: **SDR-RA6M3-BUILD-20260821-03**.
+
+Files touched (absolute paths):
+
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\machine_iq_adc.c` — new wrapper.
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\modmachine.c` — register `IQADC`.
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\qstrdefsport.h` — new qstrs.
+- `C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\Makefile` — `SRC_C += machine_iq_adc.c`.
+
+Wraps `ra_iq_adc_*` (the coherent I/Q driver above) as one MicroPython peripheral. The ISR/DTC
+path stays entirely in C; Python is a polling control-plane consumer that receives an
+already-complete block.
+
+Python API:
+
+```python
+from machine import IQADC, ADC
+from array import array
+
+iq = IQADC(i_pin="P000", q_pin="P004", rate=48000, block=128,
+           pga=ADC.PGA_BYPASS, gain=0)
+
+ib = array('H', bytearray(2 * 128))   # pre-allocated ONCE, before start()
+qb = array('H', bytearray(2 * 128))
+
+iq.start()
+seq = iq.read_block(ib, qb)           # -> int sequence, or None if no block ready
+if seq is not None:
+    ...                               # ib/qb now hold raw uint16 codes (no centering)
+iq.stop()
+```
+
+Methods:
+
+- `IQADC(i_pin, q_pin, *, rate=48000, block=128, pga=ADC.PGA_BYPASS, gain=0)` → `ra_iq_adc_init()`.
+  `i_pin` must resolve to AN000..AN002, `q_pin` to AN100..AN102 (else `ValueError`);
+  `block` in 1..256 (`RA_IQ_ADC_MAX_BLOCK_SAMPLES`); `pga = RA_ADC_PGA_OFF` is rejected.
+- `start()` → `ra_iq_adc_start()`; `stop()` → `ra_iq_adc_stop()`; `deinit()` → `ra_iq_adc_deinit()`.
+- `read_block(ib, qb)` → `ra_iq_adc_acquire()`, `memcpy` into the two caller `array('H')` buffers,
+  returns the block sequence number or `None` when no block is ready. For `block=N` the buffers
+  hold `N` samples = `2*N` bytes.
+- Zero-allocation getters for the running loop: `blocks()`, `overruns()`, `unit1_stalls()`,
+  `last_error()`, `ready()`.
+- `status()` → dict (`initialised, running, ready, rate, block, blocks, overruns, unit1_stalls,
+  last_error`).
+
+Realtime contract (REQ-RT-002 — no allocation after `start()`):
+
+- Consumer pre-allocates `ib`/`qb` once, before `start()`.
+- `read_block()` and the int/bool getters allocate nothing: they return only
+  `MP_OBJ_NEW_SMALL_INT(...)` / `mp_const_*`.
+- `status()` builds a dict and therefore **allocates** — it is control-plane only and must not be
+  called from inside the running capture loop; use the int getters there instead.
+- No per-sample and no per-block Python callback in this version; `read_block()` is pure polling.
+
+Code review / fix pass before commit:
+
+- Invalid `pga` and `gain` arguments are rejected as `ValueError` before touching the hardware path.
+- Hot-path counter returns are guarded: if `seq`, `blocks`, `overruns` or `unit1_stalls` exceed
+  `MP_SMALL_INT_MAX`, the getter raises `OverflowError` instead of returning a malformed small-int
+  or allocating a long int.
+- `read_block()` now sanity-checks the C driver's returned sample count before copying into the
+  caller buffers.
+
+Known limitation: `blocks`/`seq` are `uint32` and eventually exceed `MP_SMALL_INT_MAX`.
+At 48 kHz with `block=128` this happens after about 16 days on this port; a sustained-capture
+consumer should stop/deinit/recreate the object before then. Acceptable for v1; noted for the
+sustained-capture path.
+
+Not done (deferred by phasing): no gain auto-ranging, no DC removal (phase 3), no stream iterator,
+no `read_block_into` fast path beyond the current caller-buffer form (it already is zero-alloc).
+
+Build proof — built from MSYS2/UCRT64, `make BOARD=VK_RA6M3 -j8`, exit 0. Unlike the previous
+driver-only builds, the wrapper now references `ra_iq_adc_*`, so `--gc-sections` no longer strips
+it:
+
+- `arm-none-eabi-nm firmware.elf | grep -Ei 'ra_iq_adc|iqadc'` → `machine_iqadc_type` plus the
+  driver/wrapper method symbols (was 0 before the wrapper). The driver
+  entry points `ra_iq_adc_init` / `ra_iq_adc_acquire` / `ra_iq_adc_deinit` / `ra_iq_adc_get_status`
+  are now global `T` symbols, and the full `machine_iqadc_*` type/method table is present.
+- `build-VK_RA6M3/firmware.bin`: 1548640 bytes (was 1545320 — the driver plus wrapper are now
+  actually linked in).
+- `build-VK_RA6M3/firmware.elf`: 17136636 bytes
+- `build-VK_RA6M3/firmware.hex`: 4356080 bytes
+- `build-VK_RA6M3/machine_iq_adc.o`: 183468 bytes
+- timestamp: 2026-08-21 21:54:01
+
+Evidence class: **code review + clean compile + link/symbol evidence**. This proves the I/Q code
+now sits on a reachable path in the firmware; it has still **not** been executed on hardware. The
+first runtime check remains the DTC chain in repeat/ping-pong mode, now driveable from the REPL via
+`IQADC(...).start()` + `read_block()`.
+
+## First hardware bring-up on VK_RA6M3 (COM18)
+
+Report tag: **SDR-RA6M3-BRINGUP-20260821-01**. Evidence class: **hardware, on target**.
+
+Flashed the wrapper build to the board with J-Link (`R7FA6M3AH`, SWD, `loadbin firmware.bin @ 0x0`,
+program & verify O.K., 1572864 bytes) and drove `machine.IQADC` from the REPL over `mpremote`
+(COM18). Registers read live with `machine.mem8/16/32`.
+
+Result: `IQADC(...)` and `start()` run without fault (the REPL survives, so no hard fault), but
+capture produces **zero blocks** — after 5 s `blocks=0, overruns=0, unit1_stalls=0, ready=0` with
+`running=1`.
+
+Register bisection of the AGT -> ELC -> ADC0/ADC1 -> DTC -> callback chain (all values below are
+post-`start()`):
+
+- AGT: reserved channel 0 runs. `AGTCR=0x23` -> `TSTART=1, TCSTF=1, TUNDF=1`, counter moving. The
+  timer counts and underflows, i.e. it is generating `ELC_EVENT_AGT0_INT` (64).
+- ELC: `ELCR=0x80` -> `ELCON=1` (ELC enabled). `ELSR[8]=ELSR[10]=0x040` = `ELC_EVENT_AGT0_INT`, so
+  both ADC units are linked to the single AGT event (ARCH-TRIG-002 holds on silicon).
+- ADC0/ADC1: `ADCSR=0x0240` -> `TRGE=1, EXTRG=0` (synchronous ELC trigger, armed). `ADSTRGR=0x090A`
+  = the exact FSP value for a single ELC group-A trigger (`TRSA=0x09=ADC_ELC_TRIGGER` in bits
+  13:8, `TRSB=0x0A` in bits 5:0). `ADANSA0=0x0001` (one channel selected). Configuration is correct.
+- Transport, the decisive probe: `IELSR[48]` (ADC0_SCAN_END) = `0x0100004B` -> event 75, `DTCE=1`
+  (bit 24), `IR=0`; `IELSR[57]` (ADC1_SCAN_END, NVIC-disabled, not a DTC source) = `0x00010051` ->
+  event 81, **`IR=1` latched**. The latched ADC1 scan-end flag proves both ADC units are actually
+  being triggered and completing scans, and the cleared ADC0 flag proves the DTC is being activated
+  by ADC0_SCAN_END.
+
+Root cause (localized, not yet fixed): the whole trigger path works end to end — AGT underflow ->
+ELC -> both ADC units scan -> ADC0_SCAN_END activates the DTC. What never happens is the
+**block-boundary completion interrupt reaching the CPU**: `ADC0_SCAN_END.IR` is cleared by the DTC
+on every activation and the NVIC `adc_scan_end_isr` (the block callback that increments `blocks`
+and flips `ready`) never runs. This is exactly the DTC repeat / ping-pong re-arm behaviour the
+driver header flagged as unverified against the manual: in repeat mode the DTC transfers forever
+without ever asserting the transfer-complete interrupt at the block boundary. The fix belongs in
+the DTC descriptor setup in `ra/ra_iq_adc.c` (mode / transfer count / `DISEL` so the block boundary
+raises the interrupt), and is the next step before any I/Q or coherence test.
+
+Not a wrapper bug: `machine.IQADC`, the register-level configuration, the ELC link and the ADC
+trigger arming are all correct on hardware. The gap is solely the DTC completion-interrupt
+generation in the C driver.
+
+## DTC mode fix — I/Q transport verified on hardware (GREEN)
+
+Report tag: **SDR-RA6M3-BRINGUP-20260821-02**. Evidence class: **hardware, on target**.
+
+Root cause confirmed and fixed in `ra/ra_iq_adc.c`: the DTC chain descriptors were built in
+`TRANSFER_MODE_REPEAT`. Per FSP a repeat-mode transfer never "ends", so `TRANSFER_IRQ_END` is
+never delivered to the CPU — exactly the `IELSR[48].DTCE=1, IR=0, blocks=0` signature observed
+above. Change:
+
+- Both chain descriptors switched from `TRANSFER_MODE_REPEAT` to `TRANSFER_MODE_NORMAL`, so the
+  transfer completes after `block_samples` activations and the block-boundary interrupt reaches the
+  CPU (runs `ra_iq_block_callback`).
+- The block callback now re-arms the chain for the next ping-pong half every block: new `p_dest`,
+  raw `length = block_samples`, then `R_DTC_Reconfigure(...)`. Normal-mode DTC self-clears its DTCE
+  on completion, so the explicit re-arm is required to resume transport.
+- `ra_iq_dtc_repeat_length()` removed: encoded repeat/block length is not used on the normal-mode
+  path; the raw sample count is the correct `length`.
+
+Rebuilt (`make BOARD=VK_RA6M3 -j16`, exit 0, `firmware.bin` 1548640 bytes), flashed over J-Link,
+and driven from the REPL on COM18:
+
+```
+IQADC("P000","P004", rate=48000, block=128, pga=ADC.PGA_BYPASS)
+```
+
+Result — capture now runs:
+
+- `blocks` increments; `seq` returned by `read_block()` is monotonic 1,2,3,... with no gaps.
+- `overruns = 0`, `unit1_stalls = 0` over the sampled window: the ping-pong re-arm keeps up and the
+  ADC1 (Q) scan-end liveness flag latches every block.
+- Live data flowing on both channels (I ~3010 codes, Q ~2864 codes on floating/DC pins) — raw 12-bit
+  `uint16`, no centering, as designed.
+
+What this proves: the full transport — AGT -> ELC (single event to both units) -> ADC0/ADC1 sync
+scan -> single-activation DTC chain -> block-boundary interrupt -> ping-pong swap -> `read_block()`
+— works on silicon. What is still unproven: actual I/Q phase coherence, which needs a known coherent
+signal source on P000/P004 (the transport is structurally single-activation, and `unit1_stalls=0`
+is consistent with coherence, but it is not a phase measurement). That is the next bench step.

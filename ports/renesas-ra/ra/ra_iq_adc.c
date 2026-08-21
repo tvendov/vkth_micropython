@@ -167,11 +167,6 @@ static bool ra_iq_unit1_alive_and_clear(void) {
     return alive;
 }
 
-static uint16_t ra_iq_dtc_repeat_length(uint16_t samples) {
-    uint16_t cral = (uint16_t)(samples & 0xFFU);
-    return (uint16_t)((cral << 8) | cral);
-}
-
 /* Block boundary.  Runs from FSP's adc_scan_end_isr, which the DTC lets through
  * only when the chain has filled a whole block.  No allocation, no Python, no
  * I/O here (REQ-RT-002, REQ-RT-003). */
@@ -181,13 +176,16 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
 
     (void)p_args;
 
-    /* Point the chain at the other half and reload both counters.  Doing this
-     * unconditionally makes the driver independent of whether the DTC repeat
-     * area reloads the address on its own. */
+    /* Point the chain at the other half and reload both counters, then re-arm.
+     * In normal mode the DTC has just completed and cleared its own DTCE, so
+     * nothing moves again until R_DTC_Reconfigure() re-enables it.  Raw sample
+     * count is the correct length for normal mode (repeat/block encoding is not
+     * used on this path). */
     s_dtc_info[0].p_dest = s_i_buf[next];
     s_dtc_info[1].p_dest = s_q_buf[next];
-    s_dtc_info[0].length = ra_iq_dtc_repeat_length(s_status.block_samples);
-    s_dtc_info[1].length = ra_iq_dtc_repeat_length(s_status.block_samples);
+    s_dtc_info[0].length = s_status.block_samples;
+    s_dtc_info[1].length = s_status.block_samples;
+    (void)R_DTC_Reconfigure((transfer_ctrl_t *)&s_iq.dtc_ctrl, s_dtc_info);
 
     if (s_status.ready) {
         /* The previous block was never taken; it is gone now. */
@@ -272,7 +270,7 @@ static void ra_iq_dtc_build(void) {
     s_dtc_info[0].transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_EACH;
     s_dtc_info[0].transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_FIXED;
     s_dtc_info[0].transfer_settings_word_b.size = TRANSFER_SIZE_2_BYTE;
-    s_dtc_info[0].transfer_settings_word_b.mode = TRANSFER_MODE_REPEAT;
+    s_dtc_info[0].transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
     s_dtc_info[0].p_src = (void *)&reg0->ADDR[i_unit_ch];
     s_dtc_info[0].p_dest = s_i_buf[0];
     s_dtc_info[0].num_blocks = 0U;
@@ -285,7 +283,7 @@ static void ra_iq_dtc_build(void) {
     s_dtc_info[1].transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
     s_dtc_info[1].transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_FIXED;
     s_dtc_info[1].transfer_settings_word_b.size = TRANSFER_SIZE_2_BYTE;
-    s_dtc_info[1].transfer_settings_word_b.mode = TRANSFER_MODE_REPEAT;
+    s_dtc_info[1].transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
     s_dtc_info[1].p_src = (void *)&reg1->ADDR[q_unit_ch];
     s_dtc_info[1].p_dest = s_q_buf[0];
     s_dtc_info[1].num_blocks = 0U;
