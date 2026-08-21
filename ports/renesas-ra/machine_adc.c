@@ -79,6 +79,7 @@ static void machine_adc_validate_bits(mp_int_t bits) {
     { MP_ROM_QSTR(MP_QSTR_REF_AVCC), MP_ROM_INT(RA_ADC_VREF_AVCC) }, \
     { MP_ROM_QSTR(MP_QSTR_REF_EXTERNAL), MP_ROM_INT(RA_ADC_VREF_EXTERNAL) }, \
     { MP_ROM_QSTR(MP_QSTR_REF_INTERNAL), MP_ROM_INT(RA_ADC_VREF_INTERNAL) }, \
+    MICROPY_PY_MACHINE_ADC_CLASS_CONSTANTS_PGA \
     MICROPY_PY_MACHINE_ADC_CLASS_CONSTANTS_CORE_VBAT \
 
 typedef struct _machine_adc_obj_t {
@@ -116,6 +117,66 @@ static ra_adc_vref_t machine_adc_get_vref_arg(mp_obj_t vref_in) {
     }
     mp_raise_ValueError(MP_ERROR_TEXT("invalid vref"));
 }
+
+#if defined(RA6M3)
+
+#define MICROPY_PY_MACHINE_ADC_CLASS_CONSTANTS_PGA \
+    { MP_ROM_QSTR(MP_QSTR_PGA_OFF), MP_ROM_INT(RA_ADC_PGA_OFF) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_BYPASS), MP_ROM_INT(RA_ADC_PGA_BYPASS) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_SINGLE), MP_ROM_INT(RA_ADC_PGA_SINGLE) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_DIFFERENTIAL), MP_ROM_INT(RA_ADC_PGA_DIFFERENTIAL) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_2_000), MP_ROM_INT(RA_ADC_PGA_GAIN_2_000) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_2_500), MP_ROM_INT(RA_ADC_PGA_GAIN_2_500) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_2_667), MP_ROM_INT(RA_ADC_PGA_GAIN_2_667) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_2_857), MP_ROM_INT(RA_ADC_PGA_GAIN_2_857) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_3_077), MP_ROM_INT(RA_ADC_PGA_GAIN_3_077) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_3_333), MP_ROM_INT(RA_ADC_PGA_GAIN_3_333) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_3_636), MP_ROM_INT(RA_ADC_PGA_GAIN_3_636) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_4_000), MP_ROM_INT(RA_ADC_PGA_GAIN_4_000) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_4_444), MP_ROM_INT(RA_ADC_PGA_GAIN_4_444) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_5_000), MP_ROM_INT(RA_ADC_PGA_GAIN_5_000) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_5_714), MP_ROM_INT(RA_ADC_PGA_GAIN_5_714) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_6_667), MP_ROM_INT(RA_ADC_PGA_GAIN_6_667) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_8_000), MP_ROM_INT(RA_ADC_PGA_GAIN_8_000) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_10_000), MP_ROM_INT(RA_ADC_PGA_GAIN_10_000) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_GAIN_13_333), MP_ROM_INT(RA_ADC_PGA_GAIN_13_333) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_DIFF_GAIN_1_500), MP_ROM_INT(RA_ADC_PGA_DIFF_GAIN_1_500) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_DIFF_GAIN_2_333), MP_ROM_INT(RA_ADC_PGA_DIFF_GAIN_2_333) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_DIFF_GAIN_4_000), MP_ROM_INT(RA_ADC_PGA_DIFF_GAIN_4_000) }, \
+    { MP_ROM_QSTR(MP_QSTR_PGA_DIFF_GAIN_5_667), MP_ROM_INT(RA_ADC_PGA_DIFF_GAIN_5_667) }, \
+    { MP_ROM_QSTR(MP_QSTR_pga_supported), MP_ROM_PTR(&machine_adc_pga_supported_obj) }, \
+    { MP_ROM_QSTR(MP_QSTR_pga), MP_ROM_PTR(&machine_adc_pga_obj) }, \
+    { MP_ROM_QSTR(MP_QSTR_set_gain), MP_ROM_PTR(&machine_adc_set_gain_obj) }, \
+    { MP_ROM_QSTR(MP_QSTR_gain), MP_ROM_PTR(&machine_adc_gain_obj) },
+
+static ra_adc_pga_mode_t machine_adc_get_pga_mode(mp_obj_t mode_in) {
+    if (mp_obj_is_str(mode_in)) {
+        qstr mode_qstr = mp_obj_str_get_qstr(mode_in);
+        if (mode_qstr == MP_QSTR_off) {
+            return RA_ADC_PGA_OFF;
+        }
+        if (mode_qstr == MP_QSTR_bypass) {
+            return RA_ADC_PGA_BYPASS;
+        }
+        if (mode_qstr == MP_QSTR_single) {
+            return RA_ADC_PGA_SINGLE;
+        }
+        if (mode_qstr == MP_QSTR_differential) {
+            return RA_ADC_PGA_DIFFERENTIAL;
+        }
+        mp_raise_ValueError(MP_ERROR_TEXT("mode must be off, bypass, single or differential"));
+    }
+
+    mp_int_t mode = mp_obj_get_int(mode_in);
+    if (mode >= RA_ADC_PGA_OFF && mode <= RA_ADC_PGA_DIFFERENTIAL) {
+        return (ra_adc_pga_mode_t)mode;
+    }
+    mp_raise_ValueError(MP_ERROR_TEXT("invalid pga mode"));
+}
+
+#else
+#define MICROPY_PY_MACHINE_ADC_CLASS_CONSTANTS_PGA
+#endif
 
 // ADC(source, *, bits=..., vref=...)
 static mp_obj_t mp_machine_adc_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -173,6 +234,14 @@ static mp_obj_t mp_machine_adc_make_new(const mp_obj_type_t *type, size_t n_args
     o->pin = pin;
     o->sample_time = sample_time;
     ra_adc_enable((uint8_t)pin);
+    #if defined(RA6M3)
+    if (ra_adc_pga_supported_ch((uint8_t)channel)) {
+        ra_adc_pga_mode_t mode;
+        if (ra_adc_pga_get_ch((uint8_t)channel, &mode, NULL) && mode == RA_ADC_PGA_OFF) {
+            ra_adc_pga_config_ch((uint8_t)channel, RA_ADC_PGA_BYPASS, 0);
+        }
+    }
+    #endif
     return MP_OBJ_FROM_PTR(o);
 }
 
@@ -187,3 +256,73 @@ static mp_int_t mp_machine_adc_read_u16(machine_adc_obj_t *self) {
     mp_uint_t u16 = raw << (16 - bits) | raw >> (2 * bits - 16);
     return u16;
 }
+
+#if defined(RA6M3)
+
+static mp_obj_t machine_adc_pga_supported(mp_obj_t self_in) {
+    machine_adc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_bool(ra_adc_pga_supported_ch((uint8_t)self->channel));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_adc_pga_supported_obj, machine_adc_pga_supported);
+
+static mp_obj_t machine_adc_pga(size_t n_args, const mp_obj_t *args) {
+    machine_adc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    ra_adc_pga_mode_t mode;
+    uint8_t gain_code;
+
+    if (!ra_adc_pga_supported_ch((uint8_t)self->channel)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("channel has no PGA"));
+    }
+
+    if (n_args == 1) {
+        if (!ra_adc_pga_get_ch((uint8_t)self->channel, &mode, &gain_code)) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("pga get failed"));
+        }
+        mp_obj_t tuple[3] = {
+            MP_OBJ_NEW_SMALL_INT(mode),
+            MP_OBJ_NEW_SMALL_INT(gain_code),
+            MP_OBJ_NEW_SMALL_INT(ra_adc_pga_gain_milli(mode, gain_code)),
+        };
+        return mp_obj_new_tuple(MP_ARRAY_SIZE(tuple), tuple);
+    }
+
+    mode = machine_adc_get_pga_mode(args[1]);
+    gain_code = n_args >= 3 ? (uint8_t)mp_obj_get_int(args[2]) : 0;
+    if (!ra_adc_pga_config_ch((uint8_t)self->channel, mode, gain_code)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid pga config"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_adc_pga_obj, 1, 3, machine_adc_pga);
+
+static mp_obj_t machine_adc_set_gain(size_t n_args, const mp_obj_t *args) {
+    machine_adc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    uint8_t gain_code = (uint8_t)mp_obj_get_int(args[1]);
+    ra_adc_pga_mode_t mode = (n_args >= 3 && mp_obj_is_true(args[2])) ? RA_ADC_PGA_DIFFERENTIAL : RA_ADC_PGA_SINGLE;
+
+    if (!ra_adc_pga_supported_ch((uint8_t)self->channel)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("channel has no PGA"));
+    }
+    if (!ra_adc_pga_config_ch((uint8_t)self->channel, mode, gain_code)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid gain"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_adc_set_gain_obj, 2, 3, machine_adc_set_gain);
+
+static mp_obj_t machine_adc_gain(mp_obj_t self_in) {
+    machine_adc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    ra_adc_pga_mode_t mode;
+    uint8_t gain_code;
+
+    if (!ra_adc_pga_supported_ch((uint8_t)self->channel)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("channel has no PGA"));
+    }
+    if (!ra_adc_pga_get_ch((uint8_t)self->channel, &mode, &gain_code)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("pga get failed"));
+    }
+    return MP_OBJ_NEW_SMALL_INT(ra_adc_pga_gain_milli(mode, gain_code));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_adc_gain_obj, machine_adc_gain);
+
+#endif

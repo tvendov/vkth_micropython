@@ -258,8 +258,11 @@ void callback_icu(external_irq_callback_args_t *p_args) { // callback_icu
     }
 }
 
+static volatile uint32_t lcd_vsync_counter = 0;
+
 void lcd_Vsync_ISR(display_callback_args_t *p_args) {
     (void)p_args;
+    lcd_vsync_counter++;
 }
 
 STATIC mp_int_t machine_lcd_set_buffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
@@ -444,8 +447,27 @@ STATIC mp_obj_t lcd_changebuf(mp_obj_t self_in, mp_obj_t idx){
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(machine_lcd_changebuf_obj, lcd_changebuf);
 */
+// vsync([timeout_ms=20]) -- block until the NEXT GLCDC line-detect (VSYNC)
+// event or timeout. Returns True if the pulse arrived, False on timeout.
+// Used to gate LVGL render start so DIRECT-mode drawing chases the scanout
+// beam instead of racing it mid-frame (visible flicker on frequent updates).
+STATIC mp_obj_t lcd_vsync(size_t n_args, const mp_obj_t *args) {
+    (void)args;
+    uint32_t timeout_ms = (n_args > 1) ? (uint32_t)mp_obj_get_int(args[1]) : 20;
+    uint32_t start_cnt = lcd_vsync_counter;
+    uint32_t t0 = (uint32_t)mp_hal_ticks_ms();
+    while (lcd_vsync_counter == start_cnt) {
+        if ((uint32_t)mp_hal_ticks_ms() - t0 >= timeout_ms) {
+            return mp_const_false;
+        }
+    }
+    return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_vsync_obj, 1, 2, lcd_vsync);
+
 STATIC const mp_rom_map_elem_t lcd_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_init),                MP_ROM_PTR(&machine_lcd_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_vsync),               MP_ROM_PTR(&machine_lcd_vsync_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),              MP_ROM_PTR(&machine_lcd_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR_start),               MP_ROM_PTR(&machine_lcd_start_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop),                MP_ROM_PTR(&machine_lcd_stop_obj) },
