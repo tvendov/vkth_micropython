@@ -417,11 +417,43 @@ Phase-3 DSP smoke test above was then verified on VK_RA6M3 / COM18. Operator rul
 have the I/Q driver force-stop a stuck AGT during reserve so a crashed session without `deinit()`
 cannot lock out the next run without a debugger reset.
 
-AM demod and timed DAC/DMAC audio sink status: code path is now present and builds through the
-existing timer-paced double-buffered DAC API,
-`ra_dac_write_timed_double_buffered(ch, buf_a, buf_b, ..., freq, fill_cb, stop_cb, ctx, timer_ch)`.
-It is exposed as `IQADC.am_dac(P014[, ch])`, `am_dac_stop()` and `am_status()`, feeds decimated AM
-envelope samples from the block callback to the DAC fill callback through a static SPSC ring, and does
-not use Python in the realtime data path. `ra_gen/vector_data.c/.h` now also allocate `DMAC0_INT` and
-`DMAC1_INT` IRQ slots for the DAC DMAC completion callbacks. This part is not yet bench-verified;
-next proof is a P014 scope/headphone/load check plus `am_status()` counters.
+## Phase-4 AM demod -> timed DAC/DMAC audio sink
+
+Report tag: **SDR-RA6M3-AMDAC-20260822-01**. Evidence class: **hardware, on target** (VK_RA6M3 /
+COM18, 2026-08-22).
+
+The full receive path now runs end to end in C: coherent I/Q capture -> DC removal + x2 decimation
+(phase 3) -> AM envelope detect (alpha-max-beta-min, integer) -> IIR DC blocker to center at
+mid-scale -> single-producer/single-consumer lock-free ring -> timer-paced, DTC/DMAC double-buffered
+DAC output on DA0/P014. No Python and no CPU copy in the per-sample DAC path: the ra_dac
+double-buffered stream clocks one sample to DADR per timer tick via DMAC, and the block callback only
+runs the integer demod and pushes to the ring.
+
+Implementation:
+- `ra/ra_iq_adc.c` / `.h`: `ra_iq_am_produce()` (envelope + DC-block + ring push, called from the
+  block callback after the DSP stage), `ra_iq_dac_fill()` (DAC fill callback: pops the ring, writes
+  mid-scale on underrun, always returns true so the stream never self-stops), and
+  `ra_iq_adc_am_dac_start(dac_pin, dac_ch)` / `_stop()` / `ra_iq_adc_get_am_status()`. The DAC is
+  driven through the existing `ra_dac_write_timed_double_buffered(...)` API; the I/Q capture reserves
+  one AGT for its ELC trigger and the DAC auto-timer (`-1`) takes the other.
+- `machine_iq_adc.c` + `qstrdefsport.h`: `IQADC.am_dac(P014[, ch])`, `am_dac_stop()`, `am_status()`.
+
+Generated-file change (REQ-GIT-007): `boards/VK_RA6M3/ra_gen/vector_data.c/.h` now allocate two DMAC
+completion IRQ slots — `DMAC0_INT` (slot 58) and `DMAC1_INT` (slot 59), `dmac_int_isr`,
+`EVENT_DMAC0_INT` / `EVENT_DMAC1_INT`, `VECTOR_DATA_IRQ_COUNT` raised 58 -> 60. This is required
+because `ra_dac`'s double-buffered mode needs a DMAC channel with an allocated interrupt vector for
+its ping-pong completion callback; the stock VK_RA6M3 vector table had none (only EDMAC0). Root cause
+of the earlier failure: `ra_dac_write_timed_double_buffered` returned at stage `EVENT_MAP` with
+`FSP_ERR_UNSUPPORTED` because `ra_dac_dmac_irq()` found no `VECTOR_NUMBER_DMAC0_INT`. (This is exactly
+why the same DAC path already works on VK_RA4M2, whose generated vector table allocates DMAC0..7.)
+
+Bench result: `iq.am_dac("P014")` starts with no error; `am_status()` reports `am_active=1,
+audio_underruns=0, ring_overruns=0` over the sampled window (producer and consumer are rate-matched:
+audio rate = ADC rate / 2). `DADR0` (0x4005E000) reads ~2046..2050, i.e. the DMAC is clocking the
+AM-demodulated, mid-scale-centered envelope to the DAC; on floating/DC inputs the swing is just the
+noise envelope. After `am_dac_stop()`, `DADR0 = 0`. Build: UCRT64, `-j16`, exit 0, `firmware.bin`
+1550436 bytes.
+
+Next bench step: apply a real AM-modulated carrier to the P000/P004 front end and observe the
+recovered audio envelope on DA0/P014 with a scope (or a load/headphone). The transport, rate match,
+and demod math are proven; only the analog end-to-end with a real signal remains.
