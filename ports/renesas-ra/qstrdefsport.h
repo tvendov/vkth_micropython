@@ -76,6 +76,19 @@ Q(PGA_DIFF_GAIN_2_333)
 Q(PGA_DIFF_GAIN_4_000)
 Q(PGA_DIFF_GAIN_5_667)
 
+// For machine.IQADC coherent I/Q capture on RA6M3.
+Q(IQADC)
+Q(i_pin)
+Q(q_pin)
+Q(rate)
+Q(block)
+Q(read_block)
+Q(blocks)
+Q(overruns)
+Q(unit1_stalls)
+Q(last_error)
+Q(initialised)
+
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
 Q(MSC+HID)

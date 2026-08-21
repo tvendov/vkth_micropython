@@ -595,6 +595,7 @@ endif
 ifeq ($(CMSIS_MCU),RA6M3)
 CFLAGS += -DMICROPY_HW_ENABLE_IQ_ADC=1
 HAL_SRC_C += ra/ra_iq_adc.c
+SRC_C += machine_iq_adc.c
 endif
 
 # CTSU (Capacitive Touch Sensing Unit) support

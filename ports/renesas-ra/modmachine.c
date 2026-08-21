@@ -100,6 +100,13 @@ extern const mp_obj_type_t machine_audioadc_type;
 #define MICROPY_PY_MACHINE_AUDIOADC_ENTRY
 #endif
 
+#if MICROPY_HW_ENABLE_IQ_ADC
+extern const mp_obj_type_t machine_iqadc_type;
+#define MICROPY_PY_MACHINE_IQADC_ENTRY { MP_ROM_QSTR(MP_QSTR_IQADC), MP_ROM_PTR(&machine_iqadc_type) },
+#else
+#define MICROPY_PY_MACHINE_IQADC_ENTRY
+#endif
+
 #if defined(MICROPY_HW_ENCODER_A)
 #define MICROPY_PY_MACHINE_ENCODER_ENTRY { MP_ROM_QSTR(MP_QSTR_Encoder), MP_ROM_PTR(&machine_encoder_type) },
 #else
@@ -117,6 +124,7 @@ extern const mp_obj_type_t machine_audioadc_type;
     MICROPY_PY_MACHINE_WS2812_ENTRY \
     MICROPY_PY_MACHINE_ENCODER_ENTRY \
     MICROPY_PY_MACHINE_AUDIOADC_ENTRY \
+    MICROPY_PY_MACHINE_IQADC_ENTRY \
     \
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \
     { MP_ROM_QSTR(MP_QSTR_Timer),               MP_ROM_PTR(&machine_timer_type) }, \
