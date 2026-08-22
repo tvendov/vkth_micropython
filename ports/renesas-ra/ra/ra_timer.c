@@ -359,7 +359,7 @@ static uint32_t ra_agt_timer_clock_frequency_get(uint32_t ch) {
     uint8_t divider = 0;
 
     if (0U == (count_source_int & (~AGT_SOURCE_CLOCK_PCLKB_BITS))) {
-        clock_freq_hz = PCLK;
+        clock_freq_hz = R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_PCLKB);   // real PCLKB, not PCLK
         divider = count_source_int;
         if (divider != 0U) {
             // Map PCLKB / 8 from 1 to 3 and PCLKB / 2 from 3 to 1.
@@ -795,19 +795,22 @@ bool ra_agt_timer_set_freq_ex(uint32_t ch, float freq, ra_agt_clock_source_t clk
     uint32_t period_counts = 0;
     uint8_t cks = 0;
     ra_agt_timer_state[ch].irq_count = 0;
-    if (freq > (float)(PCLK / 2)) {
+    /* The AGT counts from PCLKB, NOT the CPU/ICLK "PCLK" macro. On RA6M3 PCLKB is
+     * PLL/4 = 60 MHz while PCLK is 120 MHz, so the old (PCLK/2)/freq period was 2x too
+     * long and every requested rate came out at HALF (48 kHz -> 24 kHz physically).
+     * Query the real PCLKB like the FSP AGT driver; where PCLK == PCLKB this is a no-op. */
+    uint32_t pclkb = R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_PCLKB);
+    if (freq > (float)(pclkb / 2)) {
         return false;
     } else if (freq >= 1000.0) {
         /* PCLKB/2: crystal-accurate, for freq >= 1000 Hz. clk_src ignored. */
         source = AGT_PCLKB2;
-        period_counts = (uint32_t)((float)(PCLK / 2) / freq);
+        period_counts = (uint32_t)((float)(pclkb / 2) / freq);
     } else if (freq >= 77.0) {
-        /* PCLKB/8: crystal-accurate, for 77–999 Hz.
-         * PCLKB/8 = PCLK / 8 (40 MHz / 8 = 5 MHz on VK_RA4M2).
-         * Min freq = 5000000/65536 ≈ 76.3 Hz.
+        /* PCLKB/8: crystal-accurate, for 77–999 Hz (min ~= (PCLKB/8)/65536).
          * Preferred over LOCO (±15% RC) for accuracy. clk_src ignored. */
         source = AGT_PCLKB8;
-        period_counts = (uint32_t)((float)(PCLK / 8) / freq);
+        period_counts = (uint32_t)((float)(pclkb / 8) / freq);
     } else if (freq > 1.0) {
         /* Low-frequency branch. AGTSCLK (TCK=110b, LPM=0) feeds from SOSC
          * crystal; AGTKCLK (TCK=100b) feeds from LOCO directly. Both deliver
