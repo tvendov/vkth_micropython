@@ -643,6 +643,9 @@ DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_biquad_cascade_df1_
 # Hybrid CMSIS stage 1: Q15 x2 decimation kernel for the I/Q DSP path.
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_decimate_q15.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_decimate_init_q15.c
+# Hybrid CMSIS stage 2: Q15 FIR for the SSB Hilbert transformer.
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_q15.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FilteringFunctions/arm_fir_init_q15.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/StatisticsFunctions/arm_rms_f32.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/StatisticsFunctions/arm_power_f32.c
 # FFT (real forward, float32)

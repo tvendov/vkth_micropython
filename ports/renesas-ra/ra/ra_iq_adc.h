@@ -101,6 +101,13 @@ void ra_iq_adc_get_timing(uint32_t *last_cyc, uint32_t *max_cyc, uint32_t *avg_c
 void ra_iq_adc_set_dec_kernel(uint8_t use_cmsis);
 uint8_t ra_iq_adc_get_dec_kernel(void);
 
+/* Hybrid CMSIS-DSP stage 2: select the SSB Hilbert kernel.  1 = CMSIS arm_fir_q15
+ * (default, measured ~15% faster on target), 0 = hand loop (fallback).  Same 31
+ * antisymmetric taps and 15-sample group delay, so the output is equivalent; A/B their
+ * per-block cost (iq.timing()) on USB/LSB.  Control-plane. */
+void ra_iq_adc_set_hil_kernel(uint8_t use_cmsis);
+uint8_t ra_iq_adc_get_hil_kernel(void);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free

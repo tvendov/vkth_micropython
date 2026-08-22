@@ -577,6 +577,20 @@ static mp_obj_t machine_iqadc_dec_kernel(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_dec_kernel_obj, 1, 2,
     machine_iqadc_dec_kernel);
 
+/* hil_kernel([on]) -> bool.  Hybrid CMSIS stage-2 A/B switch for the SSB Hilbert:
+ * no arg reads, a truthy arg selects CMSIS arm_fir_q15, falsy the hand loop (default).
+ * Toggling live resets iq.timing() so a following read reflects the selected kernel. */
+static mp_obj_t machine_iqadc_hil_kernel(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        ra_iq_adc_set_hil_kernel(mp_obj_is_true(args[1]) ? 1U : 0U);
+    }
+    return mp_obj_new_bool(ra_iq_adc_get_hil_kernel() != 0U);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_hil_kernel_obj, 1, 2,
+    machine_iqadc_hil_kernel);
+
 /* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
  * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
 static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
@@ -677,6 +691,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_volume),       MP_ROM_PTR(&machine_iqadc_volume_obj) },
     { MP_ROM_QSTR(MP_QSTR_bandwidth),    MP_ROM_PTR(&machine_iqadc_bandwidth_obj) },
     { MP_ROM_QSTR(MP_QSTR_dec_kernel),   MP_ROM_PTR(&machine_iqadc_dec_kernel_obj) },
+    { MP_ROM_QSTR(MP_QSTR_hil_kernel),   MP_ROM_PTR(&machine_iqadc_hil_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },
