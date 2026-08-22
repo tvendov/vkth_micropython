@@ -309,6 +309,16 @@ static uint32_t s_agc_clips;                     /* limiter saturation count    
 /* Master output volume applied after the AGC, Q15.  Control-plane owned. */
 static volatile int32_t s_vol_q15 = RA_IQ_AGC_GAIN_UNITY;
 
+/* Squelch: mute the audio (and freeze the AGC) while the pre-AGC audio envelope stays
+ * below a threshold, so the servo does not ramp gain up and amplify noise on silence.
+ * s_sq_thresh == 0 disables it (default).  s_sq_env is a one-pole |audio| envelope; the
+ * gate has hysteresis (opens at thresh, closes below 3/4 thresh) to stop chatter.  All
+ * producer-owned; threshold is written from the control plane. */
+#define RA_IQ_SQ_ENV_SH (5U)                 /* |audio| one-pole smoothing shift */
+static volatile int32_t s_sq_thresh;         /* 0 = squelch off                  */
+static int32_t s_sq_env;                     /* smoothed |audio| envelope        */
+static uint8_t s_sq_open = 1U;               /* 1 = passing audio, 0 = muted     */
+
 /* Integer sqrt (Newton-free, bitwise).  Exact floor(sqrt(x)) for uint32. */
 static uint32_t ra_iq_isqrt32(uint32_t x) {
     uint32_t rem = 0U;
@@ -407,6 +417,26 @@ static inline int32_t ra_iq_audio_filter(int32_t x) {
  * 0..4095.  One implementation for all demod modes (Step 0 refactor). */
 static inline uint16_t ra_iq_audio_stage(int32_t audio) {
     audio = ra_iq_audio_filter(audio);
+
+    /* Squelch gate on the pre-AGC envelope.  While closed, output mid-scale silence and
+     * return early -- which also freezes the AGC servo and its mean-square, so the gain
+     * does not ramp up to amplify noise during the quiet.  Hysteresis: open at thresh,
+     * close below 3/4 thresh. */
+    if (s_sq_thresh > 0) {
+        int32_t a = (audio < 0) ? -audio : audio;
+        s_sq_env += (a - s_sq_env) >> RA_IQ_SQ_ENV_SH;
+        if (s_sq_open) {
+            if (s_sq_env < (s_sq_thresh - (s_sq_thresh >> 2))) {
+                s_sq_open = 0U;
+            }
+        } else if (s_sq_env >= s_sq_thresh) {
+            s_sq_open = 1U;
+        }
+        if (!s_sq_open) {
+            return 2048U;
+        }
+    }
+
     uint8_t mode = s_agc_mode;
 
     int32_t eff_gain;
@@ -1671,6 +1701,31 @@ uint8_t ra_iq_adc_get_audio_filter(void) {
     return s_af_mode;
 }
 
+/* Squelch threshold in pre-AGC audio-envelope units; 0 disables (default).  A rough
+ * scale: the |audio| envelope of a clean signal sits in the hundreds..~2000, so a few
+ * hundred mutes weak noise while passing real signals.  Control-plane. */
+void ra_iq_adc_set_squelch(int32_t thresh) {
+    if (thresh < 0) {
+        thresh = 0;
+    }
+    s_sq_thresh = thresh;
+    /* Re-open on a threshold change so a raised gate does not stick muted until the
+     * next loud sample; the envelope logic re-closes within a few samples if needed. */
+    s_sq_open = 1U;
+}
+
+void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
+    if (thresh != NULL) {
+        *thresh = s_sq_thresh;
+    }
+    if (open != NULL) {
+        *open = (s_sq_thresh > 0) ? s_sq_open : 1U;
+    }
+    if (env != NULL) {
+        *env = s_sq_env;
+    }
+}
+
 void ra_iq_adc_set_demod(uint8_t mode) {
     if (mode > (uint8_t)RA_IQ_DEMOD_CW) {
         mode = (uint8_t)RA_IQ_DEMOD_OFF;
@@ -1688,6 +1743,8 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     /* Reset the CMSIS Hilbert instance + its I delay line on the same clean point. */
     ra_iq_hil_cmsis_init((uint16_t)(s_status.block_samples >> 1));
     s_cw_phase = 0U;
+    s_sq_env = 0;
+    s_sq_open = 1U;
 
     /* Fresh AGC servo per demod selection; the configured mode/target/shifts/gain
      * cap and the master volume persist across mode changes. */

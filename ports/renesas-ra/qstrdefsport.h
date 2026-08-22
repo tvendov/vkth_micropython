@@ -149,6 +149,11 @@ Q(mag_kernel)
 Q(audio_filter)
 Q(voice)
 Q(ssb)
+// iq_adc squelch
+Q(squelch)
+Q(thresh)
+Q(open)
+Q(env)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

@@ -653,6 +653,27 @@ static mp_obj_t machine_iqadc_audio_filter(size_t n_args, const mp_obj_t *args) 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_audio_filter_obj, 1, 2,
     machine_iqadc_audio_filter);
 
+/* squelch([thresh]) -> dict {thresh, open, env}.  With an arg, sets the squelch
+ * threshold (0 disables); always returns the current threshold, gate state and the
+ * live pre-AGC envelope so a UI can tune it. */
+static mp_obj_t machine_iqadc_squelch(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        ra_iq_adc_set_squelch(mp_obj_get_int(args[1]));
+    }
+    int32_t thresh, env;
+    uint8_t open;
+    ra_iq_adc_get_squelch(&thresh, &open, &env);
+    mp_obj_t d = mp_obj_new_dict(3);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_thresh), mp_obj_new_int(thresh));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_open), mp_obj_new_bool(open != 0U));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_env), mp_obj_new_int(env));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_squelch_obj, 1, 2,
+    machine_iqadc_squelch);
+
 /* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
  * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
 static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
@@ -757,6 +778,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_chf_kernel),   MP_ROM_PTR(&machine_iqadc_chf_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_mag_kernel),   MP_ROM_PTR(&machine_iqadc_mag_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_audio_filter), MP_ROM_PTR(&machine_iqadc_audio_filter_obj) },
+    { MP_ROM_QSTR(MP_QSTR_squelch),      MP_ROM_PTR(&machine_iqadc_squelch_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },
