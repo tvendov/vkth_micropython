@@ -157,6 +157,8 @@ Q(env)
 // iq_adc s-meter (rms qstr already defined above for the AGC)
 Q(smeter)
 Q(dbfs)
+// iq_adc tuning NCO (digital fine-tune)
+Q(tune)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

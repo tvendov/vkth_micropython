@@ -689,6 +689,20 @@ static mp_obj_t machine_iqadc_smeter(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_smeter_obj, machine_iqadc_smeter);
 
+/* tune([hz]) -> int.  Digital fine-tune NCO: with an arg, shifts the offset hz inside
+ * the captured baseband (+/- fs/2) down to 0 Hz before the channel filter (0 = centre);
+ * always returns the current, clamped offset.  Coarse tuning is the analog LO. */
+static mp_obj_t machine_iqadc_tune(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        ra_iq_adc_set_tune(mp_obj_get_int(args[1]));
+    }
+    return mp_obj_new_int(ra_iq_adc_get_tune());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tune_obj, 1, 2,
+    machine_iqadc_tune);
+
 /* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
  * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
 static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
@@ -795,6 +809,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_audio_filter), MP_ROM_PTR(&machine_iqadc_audio_filter_obj) },
     { MP_ROM_QSTR(MP_QSTR_squelch),      MP_ROM_PTR(&machine_iqadc_squelch_obj) },
     { MP_ROM_QSTR(MP_QSTR_smeter),       MP_ROM_PTR(&machine_iqadc_smeter_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tune),         MP_ROM_PTR(&machine_iqadc_tune_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },

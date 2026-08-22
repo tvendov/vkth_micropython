@@ -143,6 +143,14 @@ void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env);
  * and its dBFS level vs the ~2047 baseband full-scale.  Either pointer may be NULL. */
 void ra_iq_adc_get_smeter(int32_t *rms, float *dbfs);
 
+/* Tuning NCO (digital fine-tune): shift an offset hz inside the captured baseband
+ * (-fs/2 .. +fs/2, fs = sample_rate_hz/2) down to 0 Hz before the channel filter, so a
+ * signal off the ADC centre can be tuned in without moving the analog LO.  In a Tayloe/
+ * Si5351 front end the LO sets the coarse frequency and this is the digital fine-tune /
+ * passband offset.  hz == 0 is centre (default); |hz| clamps just inside fs/2. */
+void ra_iq_adc_set_tune(int32_t hz);
+int32_t ra_iq_adc_get_tune(void);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free

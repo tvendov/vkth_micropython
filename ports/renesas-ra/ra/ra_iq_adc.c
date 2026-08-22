@@ -585,6 +585,19 @@ static volatile uint8_t s_demod_mode;   /* RA_IQ_DEMOD_OFF by default */
 static uint32_t s_cw_phase;
 static uint32_t s_cw_inc;
 
+/* Tuning NCO (digital down-conversion).  Shifts a chosen frequency inside the captured
+ * baseband (-fs/2 .. +fs/2, fs = sample_rate_hz/2) down to 0 Hz by a complex multiply,
+ * BEFORE the channel filter and demod, so a signal offset from the ADC centre can be
+ * tuned in.  Same 32-bit phase / top-8-bits sine-table scheme as the CW BFO.  The mix
+ * for a shift of -f_tune is (i + jq)*(cos - j sin):
+ *   i' = (i*cos + q*sin) >> 15;  q' = (q*cos - i*sin) >> 15.
+ * s_tune_hz == 0 skips the mix entirely (bit-identical to no NCO).  s_tune_step is the
+ * per-sample phase increment set from f_tune and fs in the control plane (two's-complement
+ * so a negative f_tune decrements the phase).  Producer-owned phase. */
+static uint32_t s_tune_phase;
+static volatile uint32_t s_tune_step;
+static volatile int32_t s_tune_hz;
+
 /* Q15 sine table, s_sin256[n] = round(32767 * sin(2*pi*n/256)), n = 0..255.
  * Cosine is s_sin256[(idx + 64) & 255]. */
 static const int16_t s_sin256[256] = {
@@ -897,6 +910,26 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
         s_i_dc[j] = (int16_t)ci;
         s_q_dc[j] = (int16_t)cq;
+    }
+
+    /* Tuning NCO: complex down-conversion of the decimated I/Q, in place, AFTER the DC
+     * removal + imbalance and BEFORE the channel filter, so a signal offset from the ADC
+     * centre lands at 0 Hz for the fixed channel filter + demod.  Skipped when tuning is
+     * off (bit-identical to no NCO).  Phase is continuous across blocks. */
+    if (s_tune_hz != 0) {
+        uint32_t ph = s_tune_phase;
+        uint32_t step = s_tune_step;
+        for (uint16_t j = 0U; j < m; ++j) {
+            uint8_t idx = (uint8_t)(ph >> 24);
+            int32_t c = s_sin256[(idx + 64U) & 255U];   /* cos */
+            int32_t s = s_sin256[idx];                  /* sin */
+            int32_t i = s_i_dc[j];
+            int32_t q = s_q_dc[j];
+            s_i_dc[j] = (int16_t)((i * c + q * s) >> 15);
+            s_q_dc[j] = (int16_t)((q * c - i * s) >> 15);
+            ph += step;
+        }
+        s_tune_phase = ph;
     }
 
     /* Channel low-pass filter, in place, AFTER imbalance and BEFORE the demod (and
@@ -1467,6 +1500,7 @@ bool ra_iq_adc_start(void) {
     s_proc_sum = 0U;
     s_proc_count = 0U;
     s_smeter_rms = 0;
+    s_tune_phase = 0U;
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -1697,7 +1731,8 @@ void ra_iq_adc_set_audio_filter(uint8_t mode) {
             break;
         }
         case RA_IQ_AF_VOICE: {
-            float fhi = (2700.0f < nyq) ? 2700.0f : nyq;
+            /* SSB voice band-pass ~300..2400 Hz (2.4k, matching the SDR UI FILTERS). */
+            float fhi = (2400.0f < nyq) ? 2400.0f : nyq;
             ra_iq_af_design(0U, RA_IQ_AF_HP, 300.0f, 0.7071068f, fs);
             ra_iq_af_design(1U, RA_IQ_AF_LP, fhi, 0.7071068f, fs);
             s_af_active = 2U;
@@ -1749,6 +1784,35 @@ void ra_iq_adc_get_smeter(int32_t *rms, float *dbfs) {
     }
 }
 
+/* Tune to an offset hz inside the captured baseband (-fs/2 .. +fs/2, fs =
+ * sample_rate_hz/2); hz == 0 is centre (no shift, default).  |hz| is clamped just inside
+ * fs/2.  Sets the NCO phase step and zeroes the phase so the shift is deterministic.
+ * Control-plane. */
+void ra_iq_adc_set_tune(int32_t hz) {
+    int32_t fs = (int32_t)(s_status.sample_rate_hz >> 1);
+    if (fs <= 0) {
+        s_tune_hz = 0;
+        s_tune_step = 0U;
+        s_tune_phase = 0U;
+        return;
+    }
+    int32_t lim = (fs >> 1) - 1;              /* stay just inside +/- Nyquist */
+    if (hz > lim) {
+        hz = lim;
+    } else if (hz < -lim) {
+        hz = -lim;
+    }
+    /* step = round(hz / fs * 2^32), two's-complement for negative hz. */
+    int64_t step = (((int64_t)hz << 32) + (int64_t)(hz >= 0 ? fs : -fs) / 2) / (int64_t)fs;
+    s_tune_step = (uint32_t)(int32_t)step;
+    s_tune_phase = 0U;
+    s_tune_hz = hz;
+}
+
+int32_t ra_iq_adc_get_tune(void) {
+    return s_tune_hz;
+}
+
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
     if (thresh != NULL) {
         *thresh = s_sq_thresh;
@@ -1794,21 +1858,23 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     s_audio.audio_underruns = 0U;
     s_audio.ring_overruns = 0U;
 
-    /* Per-mode default channel bandwidth.  AM 5 kHz, USB/LSB 3 kHz, CW 1 kHz, OFF
-     * bypass.  compute_alpha recomputes the pole at the current audio rate and
-     * resets the section state so the change does not click.  The operator can
-     * override afterwards with ra_iq_adc_set_bandwidth. */
+    /* Per-mode default channel bandwidth, matching the SDR UI app FILTERS map (AM 6k,
+     * USB/LSB 2.4k, CW 500 Hz, OFF bypass).  compute_alpha recomputes the pole at the
+     * current audio rate and resets the section state so the change does not click.  The
+     * operator can override afterwards with ra_iq_adc_set_bandwidth.  Note the integer
+     * one-pole saturates above ~3820 Hz, so AM 6k passes through on that path (bypass=1);
+     * iq.chf_kernel(True) selects the f32 biquad that actually realises the wide skirt. */
     uint32_t bw;
     switch (mode) {
         case (uint8_t)RA_IQ_DEMOD_AM:
-            bw = 5000U;
+            bw = 6000U;
             break;
         case (uint8_t)RA_IQ_DEMOD_USB:
         case (uint8_t)RA_IQ_DEMOD_LSB:
-            bw = 3000U;
+            bw = 2400U;
             break;
         case (uint8_t)RA_IQ_DEMOD_CW:
-            bw = 1000U;
+            bw = 500U;
             break;
         default:
             bw = 0U;   /* OFF: bypass */
