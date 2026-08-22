@@ -124,6 +124,30 @@ static const int16_t s_dec_hb[RA_IQ_DEC_TAPS] = {
 static int16_t s_dec_hist_i[RA_IQ_DEC_TAPS - 1U];
 static int16_t s_dec_hist_q[RA_IQ_DEC_TAPS - 1U];
 
+/* Hybrid CMSIS-DSP stage 1: the same half-band decimation as an arm_fir_decimate_q15
+ * kernel, selectable at runtime (iq.dec_kernel) for an A/B timing/behaviour compare
+ * against the hand loop above; the hand path stays the default and the fallback.  The
+ * coefficients are symmetric so CMSIS's time-reversed ordering is identical to s_dec_hb;
+ * with sum(taps) == 32768 (Q15 unity) and |raw| <= 4095 the Q15 output never saturates.
+ * State is numTaps + blockSize - 1 q15 words, kept across blocks inside the instance
+ * (its own cross-block delay line, so no s_dec_hist needed on this path).  Not ISR-
+ * reconfigured: (re)initialised in ra_iq_adc_start and on the control-plane toggle. */
+static uint8_t s_dec_use_cmsis;    /* 0 = hand integer FIR (default), 1 = CMSIS */
+static arm_fir_decimate_instance_q15 s_dec_cmsis_i;
+static arm_fir_decimate_instance_q15 s_dec_cmsis_q;
+static q15_t s_dec_state_i[RA_IQ_DEC_TAPS + RA_IQ_ADC_MAX_BLOCK_SAMPLES - 1U];
+static q15_t s_dec_state_q[RA_IQ_DEC_TAPS + RA_IQ_ADC_MAX_BLOCK_SAMPLES - 1U];
+
+/* (Re)initialise both CMSIS decimator instances for the current block length, clearing
+ * their state.  blockSize is the INPUT block (== block_samples), a multiple of M=2 by
+ * construction; the decimator emits block_samples/2 samples.  Control-plane only. */
+static void ra_iq_dec_cmsis_init(uint16_t block_samples) {
+    (void)arm_fir_decimate_init_q15(&s_dec_cmsis_i, RA_IQ_DEC_TAPS, 2U,
+        s_dec_hb, s_dec_state_i, block_samples);
+    (void)arm_fir_decimate_init_q15(&s_dec_cmsis_q, RA_IQ_DEC_TAPS, 2U,
+        s_dec_hb, s_dec_state_q, block_samples);
+}
+
 /* Manual I/Q imbalance correction (Q15), applied to the decimated I/Q before any
  * demodulation.  Standard two-parameter linear model: I is the reference, and
  * Q' = amp*Q + phase*I compensates the gain and quadrature-skew mismatch between
@@ -580,28 +604,41 @@ static void ra_iq_dsp_process(uint8_t half) {
     int32_t amp = s_iqc_amp_q15;
     int32_t phase = s_iqc_phase_q15;
 
-    /* Pass 1: decimate raw -> Q0 into s_i_dc/s_q_dc, accumulate the decimated mean. */
+    /* Pass 1: decimate raw -> Q0 into s_i_dc/s_q_dc, accumulate the decimated mean.
+     * Two interchangeable kernels produce identical output (same symmetric half-band
+     * taps, same causal cross-block state); the hand loop is the default/fallback and
+     * the CMSIS kernel is the hybrid stage-1 A/B path.  raw is 0..4095 so the uint16
+     * block reinterprets as non-negative q15 for the CMSIS call without saturation. */
     int32_t si = 0;
     int32_t sq = 0;
-    for (uint16_t j = 0U; j < m; ++j) {
-        int32_t center = (int32_t)(2U * j);
-        int32_t acci = 0;
-        int32_t accq = 0;
-        for (uint8_t t = 0U; t < RA_IQ_DEC_TAPS; ++t) {
-            int32_t h = (int32_t)s_dec_hb[t];
-            if (h == 0) {
-                continue;
-            }
-            int32_t e = center - (int32_t)t;
-            acci += h * ra_iq_dec_raw(ip, s_dec_hist_i, e);
-            accq += h * ra_iq_dec_raw(qp, s_dec_hist_q, e);
+    if (s_dec_use_cmsis) {
+        arm_fir_decimate_q15(&s_dec_cmsis_i, (const q15_t *)ip, s_i_dc, n);
+        arm_fir_decimate_q15(&s_dec_cmsis_q, (const q15_t *)qp, s_q_dc, n);
+        for (uint16_t j = 0U; j < m; ++j) {
+            si += (int32_t)s_i_dc[j];
+            sq += (int32_t)s_q_dc[j];
         }
-        int32_t di = acci >> 15;
-        int32_t dq = accq >> 15;
-        s_i_dc[j] = (int16_t)di;
-        s_q_dc[j] = (int16_t)dq;
-        si += di;
-        sq += dq;
+    } else {
+        for (uint16_t j = 0U; j < m; ++j) {
+            int32_t center = (int32_t)(2U * j);
+            int32_t acci = 0;
+            int32_t accq = 0;
+            for (uint8_t t = 0U; t < RA_IQ_DEC_TAPS; ++t) {
+                int32_t h = (int32_t)s_dec_hb[t];
+                if (h == 0) {
+                    continue;
+                }
+                int32_t e = center - (int32_t)t;
+                acci += h * ra_iq_dec_raw(ip, s_dec_hist_i, e);
+                accq += h * ra_iq_dec_raw(qp, s_dec_hist_q, e);
+            }
+            int32_t di = acci >> 15;
+            int32_t dq = accq >> 15;
+            s_i_dc[j] = (int16_t)di;
+            s_q_dc[j] = (int16_t)dq;
+            si += di;
+            sq += dq;
+        }
     }
     int32_t mi = (m != 0U) ? (si / (int32_t)m) : 0;
     int32_t mq = (m != 0U) ? (sq / (int32_t)m) : 0;
@@ -1122,6 +1159,9 @@ bool ra_iq_adc_start(void) {
      * (a brief startup transient of a few decimated samples), which is harmless. */
     memset(s_dec_hist_i, 0, sizeof(s_dec_hist_i));
     memset(s_dec_hist_q, 0, sizeof(s_dec_hist_q));
+    /* Arm the CMSIS decimator for this block length so iq.dec_kernel can toggle it
+     * live; its state is cleared here and carried across blocks by the instance. */
+    ra_iq_dec_cmsis_init(s_status.block_samples);
 
     /* One-time ring flush at capture start: the ring must be empty before the
      * producer runs, but must NOT be flushed on a mode switch (see set_demod). */
@@ -1231,6 +1271,27 @@ void ra_iq_adc_get_timing(uint32_t *last_cyc, uint32_t *max_cyc, uint32_t *avg_c
     if (cpu_hz != NULL) {
         *cpu_hz = SystemCoreClock;
     }
+}
+
+/* Select the decimation kernel: 0 = hand integer half-band FIR (default/fallback),
+ * 1 = CMSIS arm_fir_decimate_q15.  Both produce the same output; this is the hybrid
+ * stage-1 A/B switch.  Toggling live re-arms the CMSIS instance (clearing its state);
+ * the hand path always keeps a fresh s_dec_hist, so either direction resumes cleanly.
+ * The timing accumulators are reset so iq.timing() reflects the selected kernel only.
+ * Control-plane. */
+void ra_iq_adc_set_dec_kernel(uint8_t use_cmsis) {
+    s_dec_use_cmsis = use_cmsis ? 1U : 0U;
+    if (s_status.running) {
+        ra_iq_dec_cmsis_init(s_status.block_samples);
+        s_proc_last = 0U;
+        s_proc_max = 0U;
+        s_proc_sum = 0U;
+        s_proc_count = 0U;
+    }
+}
+
+uint8_t ra_iq_adc_get_dec_kernel(void) {
+    return s_dec_use_cmsis;
 }
 
 void ra_iq_adc_set_demod(uint8_t mode) {

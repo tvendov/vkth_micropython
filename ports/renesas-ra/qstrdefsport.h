@@ -140,6 +140,8 @@ Q(avg_cyc)
 Q(block_cyc)
 Q(cpu_hz)
 Q(max_pct)
+// iq_adc hybrid CMSIS stage-1 decimator kernel switch
+Q(dec_kernel)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

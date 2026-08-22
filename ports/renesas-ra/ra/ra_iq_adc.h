@@ -94,6 +94,13 @@ void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
 void ra_iq_adc_get_timing(uint32_t *last_cyc, uint32_t *max_cyc, uint32_t *avg_cyc,
     uint32_t *cpu_hz);
 
+/* Hybrid CMSIS-DSP stage 1: select the x2 decimation kernel.  0 = hand integer
+ * half-band FIR (default, fallback), 1 = CMSIS arm_fir_decimate_q15.  Same symmetric
+ * half-band taps, so the two paths produce equivalent output; the switch exists to
+ * A/B their per-block cost (iq.timing()) before committing the stage.  Control-plane. */
+void ra_iq_adc_set_dec_kernel(uint8_t use_cmsis);
+uint8_t ra_iq_adc_get_dec_kernel(void);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
