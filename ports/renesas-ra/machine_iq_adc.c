@@ -619,6 +619,40 @@ static mp_obj_t machine_iqadc_mag_kernel(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_mag_kernel_obj, 1, 2,
     machine_iqadc_mag_kernel);
 
+/* audio_filter([name]) -> str.  Post-demod audio band-limiter preset: no arg reads the
+ * current preset, an arg selects one of "off" / "am" / "voice" (alias "ssb") / "cw".
+ * set_demod applies a per-mode default (AM low-pass, SSB voice band-pass, CW peak). */
+static mp_obj_t machine_iqadc_audio_filter(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        qstr name = mp_obj_str_get_qstr(args[1]);
+        uint8_t m;
+        if (name == MP_QSTR_off) {
+            m = RA_IQ_AF_OFF;
+        } else if (name == MP_QSTR_am) {
+            m = RA_IQ_AF_AM;
+        } else if ((name == MP_QSTR_voice) || (name == MP_QSTR_ssb)) {
+            m = RA_IQ_AF_VOICE;
+        } else if (name == MP_QSTR_cw) {
+            m = RA_IQ_AF_CW;
+        } else {
+            mp_raise_ValueError(MP_ERROR_TEXT("unknown audio filter"));
+        }
+        ra_iq_adc_set_audio_filter(m);
+    }
+    qstr cur;
+    switch (ra_iq_adc_get_audio_filter()) {
+        case RA_IQ_AF_AM:    cur = MP_QSTR_am;    break;
+        case RA_IQ_AF_VOICE: cur = MP_QSTR_voice; break;
+        case RA_IQ_AF_CW:    cur = MP_QSTR_cw;    break;
+        default:             cur = MP_QSTR_off;   break;
+    }
+    return MP_OBJ_NEW_QSTR(cur);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_audio_filter_obj, 1, 2,
+    machine_iqadc_audio_filter);
+
 /* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
  * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
 static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
@@ -722,6 +756,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_hil_kernel),   MP_ROM_PTR(&machine_iqadc_hil_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_chf_kernel),   MP_ROM_PTR(&machine_iqadc_chf_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_mag_kernel),   MP_ROM_PTR(&machine_iqadc_mag_kernel_obj) },
+    { MP_ROM_QSTR(MP_QSTR_audio_filter), MP_ROM_PTR(&machine_iqadc_audio_filter_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },

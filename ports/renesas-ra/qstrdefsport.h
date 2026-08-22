@@ -145,6 +145,10 @@ Q(dec_kernel)
 Q(hil_kernel)
 Q(chf_kernel)
 Q(mag_kernel)
+// iq_adc post-demod audio filter preset + names
+Q(audio_filter)
+Q(voice)
+Q(ssb)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

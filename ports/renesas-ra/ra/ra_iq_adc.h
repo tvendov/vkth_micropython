@@ -122,6 +122,17 @@ uint8_t ra_iq_adc_get_chf_kernel(void);
 void ra_iq_adc_set_mag_kernel(uint8_t use_f32);
 uint8_t ra_iq_adc_get_mag_kernel(void);
 
+/* Post-demod AUDIO filter preset, applied to the demodulated audio before the AGC:
+ * OFF (bypass), AM (4.5 kHz low-pass), VOICE (300..2700 Hz band-pass for SSB), CW
+ * (narrow band-pass peak at the 700 Hz BFO).  set_demod applies a per-mode default;
+ * this overrides it.  f32 biquads, designed in the control plane. */
+#define RA_IQ_AF_OFF   (0U)
+#define RA_IQ_AF_AM    (1U)
+#define RA_IQ_AF_VOICE (2U)
+#define RA_IQ_AF_CW    (3U)
+void ra_iq_adc_set_audio_filter(uint8_t mode);
+uint8_t ra_iq_adc_get_audio_filter(void);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free

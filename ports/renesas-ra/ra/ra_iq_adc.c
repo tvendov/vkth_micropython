@@ -325,10 +325,88 @@ static uint32_t ra_iq_isqrt32(uint32_t x) {
     return root >> 1;
 }
 
-/* Shared audio-output tail: AGC servo + master volume + peak limiter.  Takes the
- * signed audio the demod case produced and returns the clamped DAC code in
+/* Post-demod AUDIO filter: band-limits the demodulated audio BEFORE the AGC so the
+ * servo and the DAC only see in-band energy.  This is the audio-domain complement to
+ * the channel filter (which shapes the complex I/Q before demod).  Up to two 2nd-order
+ * biquad sections, run per-sample in the block callback as transposed direct-form II
+ * (a1,a2 here are the STANDARD +denominator, not the CMSIS df1 negated form):
+ *   y  = b0*x + z1;  z1 = b1*x - a1*y + z2;  z2 = b2*x - a2*y.
+ * f32 (FPU, lazy-stacked in the ISR like the stage-3 biquad).  Presets, selected per
+ * demod or by iq.audio_filter, designed from the audio rate in the control plane:
+ *   OFF   - bypass.
+ *   AM    - 4th-order Butterworth low-pass at 4.5 kHz (two LP sections).
+ *   VOICE - band-pass ~300..2700 Hz for SSB (HP 300 + LP 2700).
+ *   CW    - two cascaded band-pass peaks at the 700 Hz BFO, Q=8 (a narrow CW ring). */
+/* RA_IQ_AF_OFF/AM/VOICE/CW are defined in ra_iq_adc.h (public preset ids). */
+#define RA_IQ_AF_STAGES (2U)
+
+static uint8_t s_af_mode;            /* current RA_IQ_AF_* preset                     */
+static uint8_t s_af_active;          /* number of active biquad sections (0 = bypass) */
+static float s_af_b0[RA_IQ_AF_STAGES], s_af_b1[RA_IQ_AF_STAGES], s_af_b2[RA_IQ_AF_STAGES];
+static float s_af_a1[RA_IQ_AF_STAGES], s_af_a2[RA_IQ_AF_STAGES];
+static float s_af_z1[RA_IQ_AF_STAGES], s_af_z2[RA_IQ_AF_STAGES];
+
+/* Biquad kinds for the audio presets. */
+#define RA_IQ_AF_LP (0U)
+#define RA_IQ_AF_HP (1U)
+#define RA_IQ_AF_BP (2U)
+
+/* Control plane: design one RBJ biquad section (kind at f0/Q, audio rate fs) into the
+ * stage arrays, normalised by a0, standard (non-negated) a1/a2 for the transposed
+ * form.  Not the ISR. */
+static void ra_iq_af_design(uint8_t stage, uint8_t kind, float f0, float qf, float fs) {
+    float w0 = 2.0f * 3.14159265f * f0 / fs;
+    float cosw = arm_cos_f32(w0);
+    float sinw = sqrtf(1.0f - (cosw * cosw));   /* w0 in (0, pi) => sin > 0 */
+    float alpha = sinw / (2.0f * qf);
+    float a0 = 1.0f + alpha;
+    float b0, b1, b2;
+    if (kind == RA_IQ_AF_HP) {
+        b0 = (1.0f + cosw) * 0.5f;
+        b1 = -(1.0f + cosw);
+        b2 = b0;
+    } else if (kind == RA_IQ_AF_BP) {
+        b0 = alpha;                 /* constant 0 dB peak-gain band-pass */
+        b1 = 0.0f;
+        b2 = -alpha;
+    } else { /* RA_IQ_AF_LP */
+        b0 = (1.0f - cosw) * 0.5f;
+        b1 = 1.0f - cosw;
+        b2 = b0;
+    }
+    s_af_b0[stage] = b0 / a0;
+    s_af_b1[stage] = b1 / a0;
+    s_af_b2[stage] = b2 / a0;
+    s_af_a1[stage] = (-2.0f * cosw) / a0;
+    s_af_a2[stage] = (1.0f - alpha) / a0;
+}
+
+/* Zero the audio-filter delay lines (on a preset or demod change) to avoid a click. */
+static void ra_iq_af_reset(void) {
+    memset(s_af_z1, 0, sizeof(s_af_z1));
+    memset(s_af_z2, 0, sizeof(s_af_z2));
+}
+
+/* Per-sample audio filter: run the active biquad sections.  Bypass returns x. */
+static inline int32_t ra_iq_audio_filter(int32_t x) {
+    if (s_af_active == 0U) {
+        return x;
+    }
+    float xf = (float)x;
+    for (uint8_t s = 0U; s < s_af_active; ++s) {
+        float y = s_af_b0[s] * xf + s_af_z1[s];
+        s_af_z1[s] = s_af_b1[s] * xf - s_af_a1[s] * y + s_af_z2[s];
+        s_af_z2[s] = s_af_b2[s] * xf - s_af_a2[s] * y;
+        xf = y;
+    }
+    return (int32_t)(xf + (xf >= 0.0f ? 0.5f : -0.5f));
+}
+
+/* Shared audio-output tail: AUDIO filter -> AGC servo -> master volume -> peak limiter.
+ * Takes the signed audio the demod case produced and returns the clamped DAC code in
  * 0..4095.  One implementation for all demod modes (Step 0 refactor). */
 static inline uint16_t ra_iq_audio_stage(int32_t audio) {
+    audio = ra_iq_audio_filter(audio);
     uint8_t mode = s_agc_mode;
 
     int32_t eff_gain;
@@ -1547,6 +1625,52 @@ uint8_t ra_iq_adc_get_mag_kernel(void) {
     return s_mag_use_f32;
 }
 
+/* Select the post-demod audio filter preset (RA_IQ_AF_*).  Designs the sections from
+ * the current audio rate and resets the delay lines.  Any unknown value clamps to OFF.
+ * set_demod applies a per-mode default; iq.audio_filter overrides it.  Control-plane. */
+void ra_iq_adc_set_audio_filter(uint8_t mode) {
+    float fs = (float)(s_status.sample_rate_hz >> 1);
+    float nyq = 0.45f * fs;   /* keep every design frequency safely below fs/2 */
+
+    if ((fs <= 0.0f) || (mode > RA_IQ_AF_CW)) {
+        mode = RA_IQ_AF_OFF;
+    }
+
+    switch (mode) {
+        case RA_IQ_AF_AM: {
+            float f = (4500.0f < nyq) ? 4500.0f : nyq;
+            ra_iq_af_design(0U, RA_IQ_AF_LP, f, 0.5411961f, fs);
+            ra_iq_af_design(1U, RA_IQ_AF_LP, f, 1.3065630f, fs);
+            s_af_active = 2U;
+            break;
+        }
+        case RA_IQ_AF_VOICE: {
+            float fhi = (2700.0f < nyq) ? 2700.0f : nyq;
+            ra_iq_af_design(0U, RA_IQ_AF_HP, 300.0f, 0.7071068f, fs);
+            ra_iq_af_design(1U, RA_IQ_AF_LP, fhi, 0.7071068f, fs);
+            s_af_active = 2U;
+            break;
+        }
+        case RA_IQ_AF_CW: {
+            float f = (700.0f < nyq) ? 700.0f : nyq;
+            ra_iq_af_design(0U, RA_IQ_AF_BP, f, 8.0f, fs);
+            ra_iq_af_design(1U, RA_IQ_AF_BP, f, 8.0f, fs);
+            s_af_active = 2U;
+            break;
+        }
+        default:
+            mode = RA_IQ_AF_OFF;
+            s_af_active = 0U;
+            break;
+    }
+    s_af_mode = mode;
+    ra_iq_af_reset();
+}
+
+uint8_t ra_iq_adc_get_audio_filter(void) {
+    return s_af_mode;
+}
+
 void ra_iq_adc_set_demod(uint8_t mode) {
     if (mode > (uint8_t)RA_IQ_DEMOD_CW) {
         mode = (uint8_t)RA_IQ_DEMOD_OFF;
@@ -1599,6 +1723,26 @@ void ra_iq_adc_set_demod(uint8_t mode) {
             break;
     }
     ra_iq_filt_compute_alpha(bw);
+
+    /* Per-mode default post-demod audio filter: AM low-pass, SSB voice band-pass, CW
+     * peak, OFF bypass.  The operator can override with ra_iq_adc_set_audio_filter. */
+    uint8_t af;
+    switch (mode) {
+        case (uint8_t)RA_IQ_DEMOD_AM:
+            af = RA_IQ_AF_AM;
+            break;
+        case (uint8_t)RA_IQ_DEMOD_USB:
+        case (uint8_t)RA_IQ_DEMOD_LSB:
+            af = RA_IQ_AF_VOICE;
+            break;
+        case (uint8_t)RA_IQ_DEMOD_CW:
+            af = RA_IQ_AF_CW;
+            break;
+        default:
+            af = RA_IQ_AF_OFF;
+            break;
+    }
+    ra_iq_adc_set_audio_filter(af);
 
     __DMB();
     s_demod_mode = mode;
