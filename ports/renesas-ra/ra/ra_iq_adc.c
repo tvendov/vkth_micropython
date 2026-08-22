@@ -23,6 +23,9 @@
 
 #if MICROPY_HW_ENABLE_IQ_ADC
 
+#include "arm_math.h"
+#include "arm_const_structs.h"
+
 /* Sampling time applied to both units.  Identical values on the two units are
  * required by ARCH-ADC-002: unequal sampling times move the aperture of one
  * channel against the other. */
@@ -105,6 +108,126 @@ static volatile uint32_t s_ring_tail;   /* consumer owns */
 /* Q8 slow LPF of the envelope, used as an IIR DC blocker so the audio is
  * AC-coupled around mid-scale.  Owned by the producer.  AM-only. */
 static int32_t s_env_mean;
+
+/* Audio-output stages inserted between each demod case and the ring push:
+ *   signed audio  ->  RMS AGC  ->  * master volume  ->  peak limiter  ->  DAC code.
+ * All integer, all producer-owned (block callback), so no lock is needed on the
+ * running state.  The volatile fields are written from the control plane and read
+ * by the producer; separate word reads make a mid-update read harmless (a servo
+ * parameter, no crash).  REQ-RT-002/003: no FPU, no allocation, no Python here. */
+#define RA_IQ_AGC_MODE_OFF    (0U)
+#define RA_IQ_AGC_MODE_FAST   (1U)
+#define RA_IQ_AGC_MODE_SLOW   (2U)
+#define RA_IQ_AGC_MODE_MANUAL (3U)
+
+#define RA_IQ_AGC_GAIN_UNITY  (32768)   /* Q15 1.0                              */
+#define RA_IQ_AGC_GAIN_MIN    (256)     /* Q15 ~1/128, servo floor              */
+
+/* PI gain servo with asymmetric attack/decay.  att_sh < dec_sh => attack (output
+ * too loud) is faster than decay (recovery when quiet), the standard SSB/CW rule.
+ * kp_sh is the proportional feed-forward strength (larger shift = weaker P).
+ * fast preset is also the power-on default so agc("fast") without args matches. */
+#define RA_IQ_AGC_FAST_MS_SH   (6U)
+#define RA_IQ_AGC_FAST_ATT_SH  (5U)
+#define RA_IQ_AGC_FAST_DEC_SH  (9U)
+#define RA_IQ_AGC_FAST_KP_SH   (6U)
+/* slow preset: long RMS window and very slow decay so SSB/CW keying does not pump. */
+#define RA_IQ_AGC_SLOW_MS_SH   (9U)
+#define RA_IQ_AGC_SLOW_ATT_SH  (6U)
+#define RA_IQ_AGC_SLOW_DEC_SH  (13U)
+#define RA_IQ_AGC_SLOW_KP_SH   (8U)
+
+#define RA_IQ_AGC_INV_SH       (22)             /* 1/target fixed-point shift    */
+#define RA_IQ_AGC_TARGET_MIN   (16)             /* keeps 1/target bounded        */
+#define RA_IQ_AGC_TARGET_DEF   (1000)           /* ~half of the ~2048 range      */
+#define RA_IQ_AGC_GAIN_MAX_DEF (8 * 32768)      /* Q15 8.0                       */
+
+static volatile uint8_t s_agc_mode = RA_IQ_AGC_MODE_OFF;
+static int32_t s_agc_ms;                        /* smoothed mean-square         */
+static int32_t s_agc_gain_q15 = RA_IQ_AGC_GAIN_UNITY;
+static volatile int32_t s_agc_target = RA_IQ_AGC_TARGET_DEF;
+static volatile uint8_t s_agc_ms_sh = RA_IQ_AGC_FAST_MS_SH;
+static volatile uint8_t s_agc_att_sh = RA_IQ_AGC_FAST_ATT_SH;
+static volatile uint8_t s_agc_dec_sh = RA_IQ_AGC_FAST_DEC_SH;
+static volatile uint8_t s_agc_kp_sh = RA_IQ_AGC_FAST_KP_SH;
+static volatile int32_t s_agc_inv_target = ((1 << RA_IQ_AGC_INV_SH) / RA_IQ_AGC_TARGET_DEF);
+static volatile int32_t s_agc_gain_max = RA_IQ_AGC_GAIN_MAX_DEF;
+static int32_t s_agc_env;                        /* last computed RMS envelope   */
+static uint32_t s_agc_clips;                     /* limiter saturation count     */
+
+/* Master output volume applied after the AGC, Q15.  Control-plane owned. */
+static volatile int32_t s_vol_q15 = RA_IQ_AGC_GAIN_UNITY;
+
+/* Integer sqrt (Newton-free, bitwise).  Exact floor(sqrt(x)) for uint32. */
+static uint32_t ra_iq_isqrt32(uint32_t x) {
+    uint32_t rem = 0U;
+    uint32_t root = 0U;
+    for (uint32_t i = 0U; i < 16U; ++i) {
+        root <<= 1;
+        rem = (rem << 2) | (x >> 30);
+        x <<= 2;
+        if (root < rem) {
+            rem -= root | 1U;
+            root += 2U;
+        }
+    }
+    return root >> 1;
+}
+
+/* Shared audio-output tail: AGC servo + master volume + peak limiter.  Takes the
+ * signed audio the demod case produced and returns the clamped DAC code in
+ * 0..4095.  One implementation for all demod modes (Step 0 refactor). */
+static inline uint16_t ra_iq_audio_stage(int32_t audio) {
+    uint8_t mode = s_agc_mode;
+
+    int32_t eff_gain;
+    if ((mode != RA_IQ_AGC_MODE_OFF) && (mode != RA_IQ_AGC_MODE_MANUAL)) {
+        int32_t p = audio * audio;                          /* |audio| < ~2048  */
+        s_agc_ms += (p - s_agc_ms) >> s_agc_ms_sh;
+        int32_t env = (int32_t)ra_iq_isqrt32((uint32_t)(s_agc_ms < 0 ? 0 : s_agc_ms));
+        s_agc_env = env;
+        int32_t out_env = (env * s_agc_gain_q15) >> 15;
+
+        /* PI gain servo in the log domain.  rel = (target - out_env)/target in Q15
+         * is the relative (dB-like) error.  Integral: gain *= 1 + rel/2^sh, with
+         * asymmetric attack (out too loud, e<0 -> att_sh, fast) vs decay (quiet,
+         * e>0 -> dec_sh, slow); the error-proportional step settles smoothly with
+         * no bang-bang dither.  Proportional: an un-accumulated feed-forward of
+         * rel/2^kp_sh added to the applied gain for faster transient response. */
+        int32_t e = s_agc_target - out_env;
+        int32_t rel = (int32_t)(((int64_t)e * s_agc_inv_target) >> (RA_IQ_AGC_INV_SH - 15));
+        uint8_t sh = (e < 0) ? s_agc_att_sh : s_agc_dec_sh;
+        s_agc_gain_q15 += (int32_t)(((int64_t)s_agc_gain_q15 * rel) >> (15 + sh));
+        if (s_agc_gain_q15 < RA_IQ_AGC_GAIN_MIN) {
+            s_agc_gain_q15 = RA_IQ_AGC_GAIN_MIN;
+        } else if (s_agc_gain_q15 > s_agc_gain_max) {
+            s_agc_gain_q15 = s_agc_gain_max;
+        }
+        eff_gain = s_agc_gain_q15 + (int32_t)(((int64_t)s_agc_gain_q15 * rel) >> (15 + s_agc_kp_sh));
+        if (eff_gain < RA_IQ_AGC_GAIN_MIN) {
+            eff_gain = RA_IQ_AGC_GAIN_MIN;
+        } else if (eff_gain > s_agc_gain_max) {
+            eff_gain = s_agc_gain_max;
+        }
+    } else if (mode == RA_IQ_AGC_MODE_OFF) {
+        s_agc_gain_q15 = RA_IQ_AGC_GAIN_UNITY;
+        eff_gain = RA_IQ_AGC_GAIN_UNITY;
+    } else {
+        eff_gain = s_agc_gain_q15;   /* manual: operator-set constant, applied as-is */
+    }
+
+    audio = (audio * eff_gain) >> 15;
+    audio = (audio * s_vol_q15) >> 15;
+
+    if (audio > 2047) {
+        audio = 2047;
+        s_agc_clips++;
+    } else if (audio < -2048) {
+        audio = -2048;
+        s_agc_clips++;
+    }
+    return (uint16_t)(2048 + audio);
+}
 
 /* SSB phasing demodulator (USB/LSB).  31-tap Type-III (odd length, antisymmetric)
  * Hilbert transformer, Q15.  Generated as:
@@ -198,6 +321,28 @@ typedef struct {
 } ra_iq_audio_private_t;
 
 static ra_iq_audio_private_t s_audio;
+
+/* --------------------------------------------------------------------------
+ * Spectrum (FFT) path.  The block callback (ISR) only COPIES decimated I/Q into
+ * a ping-pong integer accumulator; the float window + CMSIS FFT + magnitude run
+ * later inside the Python iq.spectrum() call (control plane, FPU is fine there).
+ * Accumulation is gated by s_spec_enable so there is zero ISR cost when the
+ * spectrum is not in use (REQ-RT-002/003: no FPU/alloc/Python in the ISR).
+ * ------------------------------------------------------------------------ */
+#define RA_IQ_SPEC_N 256
+
+static int16_t s_spec_i[2][RA_IQ_SPEC_N];
+static int16_t s_spec_q[2][RA_IQ_SPEC_N];
+static volatile uint16_t s_spec_wr;         /* producer-owned fill index         */
+static volatile uint8_t s_spec_half;        /* producer-owned active half         */
+static volatile int8_t s_spec_ready = -1;   /* completed half, -1 = none          */
+static volatile uint8_t s_spec_enable;      /* gate: accumulate only when in use  */
+
+/* Control-plane FFT work buffers.  s_spec_fft is interleaved complex (re, im). */
+static float s_spec_fft[2 * RA_IQ_SPEC_N];
+static float s_spec_win[RA_IQ_SPEC_N];      /* Hann window                        */
+static float s_spec_mag[RA_IQ_SPEC_N];      /* |FFT| before fftshift              */
+static uint8_t s_spec_win_init;
 
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
     switch (ch) {
@@ -341,6 +486,26 @@ static void ra_iq_dsp_process(uint8_t half) {
         s_q_dc[j] = (int16_t)cq;
     }
 
+    /* Spectrum accumulator: gated int16 copy of the decimated I/Q into the active
+     * ping-pong half.  Integer only, no FPU (REQ-RT-002/003).  When a half fills,
+     * publish it as ready and flip to the other half; a not-yet-consumed ready
+     * half is simply overwritten by the flip (newest snapshot wins). */
+    if (s_spec_enable) {
+        uint8_t h = s_spec_half;
+        uint16_t wr = s_spec_wr;
+        for (uint16_t j = 0U; j < m; ++j) {
+            s_spec_i[h][wr] = s_i_dc[j];
+            s_spec_q[h][wr] = s_q_dc[j];
+            if (++wr == RA_IQ_SPEC_N) {
+                s_spec_ready = (int8_t)h;
+                h ^= 1U;
+                wr = 0U;
+            }
+        }
+        s_spec_half = h;
+        s_spec_wr = wr;
+    }
+
     s_dsp.i_mean = (int16_t)mi;
     s_dsp.q_mean = (int16_t)mq;
     s_dsp.dsp_samples = m;
@@ -376,19 +541,15 @@ static void ra_iq_demod_produce(uint8_t half) {
                 /* Q8 slow LPF: s_env_mean tracks (mag << 8). */
                 s_env_mean += (((int32_t)mag << 8) - s_env_mean) >> 8;
 
-                int32_t audio = 2048 + (mag - (s_env_mean >> 8));
-                if (audio < 0) {
-                    audio = 0;
-                } else if (audio > 4095) {
-                    audio = 4095;
-                }
+                int32_t audio = mag - (s_env_mean >> 8);
 
+                uint16_t dac = ra_iq_audio_stage(audio);
                 uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
                 if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
                     s_audio.ring_overruns++;
                     continue;
                 }
-                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = (uint16_t)audio;
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = dac;
                 head = next;
             }
             break;
@@ -423,21 +584,16 @@ static void ra_iq_demod_produce(uint8_t half) {
                 int32_t id = s_hil_i[di];
 
                 int32_t audio = is_lsb ? (id + hq) : (id - hq);
-                int32_t dac = 2048 + audio;
-                if (dac < 0) {
-                    dac = 0;
-                } else if (dac > 4095) {
-                    dac = 4095;
-                }
 
                 pos = (uint8_t)((pos + 1U) % 31U);
 
+                uint16_t dac = ra_iq_audio_stage(audio);
                 uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
                 if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
                     s_audio.ring_overruns++;
                     continue;
                 }
-                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = (uint16_t)dac;
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = dac;
                 head = next;
             }
             s_hil_pos = pos;
@@ -458,19 +614,13 @@ static void ra_iq_demod_produce(uint8_t half) {
                 int32_t audio = ((i * c) - (q * s)) >> 15;
                 s_cw_phase += s_cw_inc;
 
-                int32_t dac = 2048 + audio;
-                if (dac < 0) {
-                    dac = 0;
-                } else if (dac > 4095) {
-                    dac = 4095;
-                }
-
+                uint16_t dac = ra_iq_audio_stage(audio);
                 uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
                 if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
                     s_audio.ring_overruns++;
                     continue;
                 }
-                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = (uint16_t)dac;
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = dac;
                 head = next;
             }
             break;
@@ -879,6 +1029,11 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     memset(s_hil_q, 0, sizeof(s_hil_q));
     s_hil_pos = 0U;
     s_cw_phase = 0U;
+
+    /* Fresh AGC servo per demod selection; the configured mode/target/shifts/gain
+     * cap and the master volume persist across mode changes. */
+    s_agc_ms = 0;
+    s_agc_gain_q15 = RA_IQ_AGC_GAIN_UNITY;
     if ((mode == (uint8_t)RA_IQ_DEMOD_CW) && (s_status.sample_rate_hz != 0U)) {
         uint32_t fs = s_status.sample_rate_hz >> 1;
         s_cw_inc = (fs != 0U) ? (uint32_t)(((uint64_t)700 << 32) / fs) : 0U;
@@ -947,6 +1102,152 @@ void ra_iq_adc_get_iq_correction(uint8_t *enable, int32_t *amp_q15, int32_t *pha
     if (phase_q15 != NULL) {
         *phase_q15 = s_iqc_phase_q15;
     }
+}
+
+void ra_iq_adc_set_agc(uint8_t mode, int32_t gain_q15, int32_t target) {
+    if (mode > RA_IQ_AGC_MODE_MANUAL) {
+        mode = RA_IQ_AGC_MODE_OFF;
+    }
+
+    /* target <= 0 keeps the current target; clamp so 1/target stays bounded, then
+     * precompute the reciprocal the PI servo uses instead of a per-sample divide. */
+    if (target > 0) {
+        if (target < RA_IQ_AGC_TARGET_MIN) {
+            target = RA_IQ_AGC_TARGET_MIN;
+        }
+        s_agc_target = target;
+        s_agc_inv_target = (int32_t)((1 << RA_IQ_AGC_INV_SH) / target);
+    }
+
+    switch (mode) {
+        case RA_IQ_AGC_MODE_SLOW:
+            s_agc_ms_sh = RA_IQ_AGC_SLOW_MS_SH;
+            s_agc_att_sh = RA_IQ_AGC_SLOW_ATT_SH;
+            s_agc_dec_sh = RA_IQ_AGC_SLOW_DEC_SH;
+            s_agc_kp_sh = RA_IQ_AGC_SLOW_KP_SH;
+            break;
+        case RA_IQ_AGC_MODE_FAST:
+            s_agc_ms_sh = RA_IQ_AGC_FAST_MS_SH;
+            s_agc_att_sh = RA_IQ_AGC_FAST_ATT_SH;
+            s_agc_dec_sh = RA_IQ_AGC_FAST_DEC_SH;
+            s_agc_kp_sh = RA_IQ_AGC_FAST_KP_SH;
+            break;
+        default:
+            break;
+    }
+
+    if (mode == RA_IQ_AGC_MODE_MANUAL) {
+        if (gain_q15 < RA_IQ_AGC_GAIN_MIN) {
+            gain_q15 = RA_IQ_AGC_GAIN_MIN;
+        }
+        s_agc_gain_q15 = gain_q15;
+    } else if (mode == RA_IQ_AGC_MODE_OFF) {
+        s_agc_gain_q15 = RA_IQ_AGC_GAIN_UNITY;
+    } else {
+        /* Re-seed the servo so an fast<->slow switch adapts from unity. */
+        s_agc_ms = 0;
+        s_agc_gain_q15 = RA_IQ_AGC_GAIN_UNITY;
+    }
+
+    __DMB();
+    s_agc_mode = mode;
+}
+
+void ra_iq_adc_get_agc(uint8_t *mode, int32_t *gain_q15, int32_t *target,
+    int32_t *env, uint32_t *clips) {
+    if (mode != NULL) {
+        *mode = s_agc_mode;
+    }
+    if (gain_q15 != NULL) {
+        *gain_q15 = s_agc_gain_q15;
+    }
+    if (target != NULL) {
+        *target = s_agc_target;
+    }
+    if (env != NULL) {
+        *env = s_agc_env;
+    }
+    if (clips != NULL) {
+        *clips = s_agc_clips;
+    }
+}
+
+void ra_iq_adc_set_volume(int32_t vol_q15) {
+    if (vol_q15 < 0) {
+        vol_q15 = 0;
+    }
+    s_vol_q15 = vol_q15;
+}
+
+int32_t ra_iq_adc_get_volume(void) {
+    return s_vol_q15;
+}
+
+/* Enable/disable spectrum accumulation.  On enable, reset the producer indices so
+ * the first snapshot after enabling starts on a fresh half boundary.  Control
+ * plane; the flag is read by the block callback. */
+void ra_iq_adc_spectrum_enable(uint8_t on) {
+    if (on) {
+        /* Only reset the accumulator on the 0->1 transition.  spectrum() calls this
+         * on every invocation; resetting each time would restart the fill and, when
+         * polled faster than one FFT frame accumulates, never produce a snapshot. */
+        if (!s_spec_enable) {
+            s_spec_wr = 0U;
+            s_spec_half = 0U;
+            s_spec_ready = -1;
+            __DMB();
+            s_spec_enable = 1U;
+        }
+    } else {
+        s_spec_enable = 0U;
+    }
+}
+
+size_t ra_iq_adc_spectrum_size(void) {
+    return (size_t)RA_IQ_SPEC_N;
+}
+
+/* Bin spacing in integer Hz for the UI frequency axis: the spectrum is taken on
+ * the decimated complex baseband, whose rate is sample_rate_hz/2, so bin_hz =
+ * (sample_rate_hz/2) / N. */
+uint32_t ra_iq_adc_spectrum_bin_hz(void) {
+    uint32_t audio_rate = s_status.sample_rate_hz >> 1;
+    return audio_rate / (uint32_t)RA_IQ_SPEC_N;
+}
+
+/* Control-plane FFT.  Consumes the most recent completed accumulator half, applies
+ * a Hann window, runs the CMSIS radix complex FFT, takes the magnitude, and writes
+ * it fftshift-ed so DC lands at out[N/2].  Returns false when no fresh snapshot is
+ * ready.  Not callable from an ISR (uses the FPU). */
+bool ra_iq_adc_spectrum(float *out, size_t n) {
+    int8_t h = s_spec_ready;
+    if (h < 0) {
+        return false;
+    }
+    s_spec_ready = -1;
+
+    if (!s_spec_win_init) {
+        for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
+            s_spec_win[k] = 0.5f - 0.5f * arm_cos_f32(
+                (2.0f * PI * (float)k) / (float)(RA_IQ_SPEC_N - 1));
+        }
+        s_spec_win_init = 1U;
+    }
+
+    for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
+        float w = s_spec_win[k];
+        s_spec_fft[2U * k] = (float)s_spec_i[h][k] * w;
+        s_spec_fft[2U * k + 1U] = (float)s_spec_q[h][k] * w;
+    }
+
+    arm_cfft_f32(&arm_cfft_sR_f32_len256, s_spec_fft, 0, 1);
+    arm_cmplx_mag_f32(s_spec_fft, s_spec_mag, RA_IQ_SPEC_N);
+
+    size_t count = (n < (size_t)RA_IQ_SPEC_N) ? n : (size_t)RA_IQ_SPEC_N;
+    for (size_t i = 0U; i < count; ++i) {
+        out[i] = s_spec_mag[(i + (RA_IQ_SPEC_N / 2)) & (RA_IQ_SPEC_N - 1)];
+    }
+    return true;
 }
 
 #endif /* MICROPY_HW_ENABLE_IQ_ADC */

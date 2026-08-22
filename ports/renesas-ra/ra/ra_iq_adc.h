@@ -137,6 +137,37 @@ void ra_iq_adc_get_audio_status(ra_iq_audio_status_t *status);
 void ra_iq_adc_set_iq_correction(uint8_t enable, int32_t amp_q15, int32_t phase_q15);
 void ra_iq_adc_get_iq_correction(uint8_t *enable, int32_t *amp_q15, int32_t *phase_q15);
 
+/* Audio-output stages applied per audio sample in the block callback, between the
+ * demod and the ring push: an integer RMS AGC and a manual master volume, followed
+ * by a peak limiter that keeps 2048+audio inside 0..4095.
+ *
+ * AGC mode: 0 = off (unity, bypass), 1 = fast (AM/voice), 2 = slow (SSB/CW, no
+ * keying pump), 3 = manual (fixed gain_q15, no adaptation).  gain_q15 is used only
+ * in manual mode; target is the RMS servo set-point in audio amplitude units and
+ * target <= 0 keeps the current value.  The running servo state (mean-square and
+ * gain) is reset on each demod (re)selection; mode/target/shifts/gain-cap and the
+ * master volume persist across mode changes.  Control-plane setters/getters. */
+void ra_iq_adc_set_agc(uint8_t mode, int32_t gain_q15, int32_t target);
+void ra_iq_adc_get_agc(uint8_t *mode, int32_t *gain_q15, int32_t *target,
+    int32_t *env, uint32_t *clips);
+
+/* Master output volume to the DAC, Q15 (32768 = unity).  Applied after the AGC. */
+void ra_iq_adc_set_volume(int32_t vol_q15);
+int32_t ra_iq_adc_get_volume(void);
+
+/* Spectrum (FFT) path.  256-point complex FFT of the decimated I/Q baseband.  The
+ * block callback (ISR) only copies decimated samples into an integer accumulator,
+ * gated by ra_iq_adc_spectrum_enable(); the float window + FFT + magnitude run in
+ * ra_iq_adc_spectrum() from the Python control plane (uses the FPU, not ISR-safe).
+ * ra_iq_adc_spectrum() fills out[] with the magnitude spectrum, fftshift-ed so DC
+ * is at out[N/2], out[0] = -fs_audio/2 and out[N-1] = +fs_audio/2 - one bin; it
+ * writes min(n, N) bins and returns false when no fresh snapshot is ready. */
+#define RA_IQ_SPECTRUM_N (256)
+bool ra_iq_adc_spectrum(float *out, size_t n);
+void ra_iq_adc_spectrum_enable(uint8_t on);
+size_t ra_iq_adc_spectrum_size(void);
+uint32_t ra_iq_adc_spectrum_bin_hz(void);
+
 #endif /* MICROPY_HW_ENABLE_IQ_ADC */
 
 #endif /* MICROPY_INCLUDED_RENESAS_RA_IQ_ADC_H */

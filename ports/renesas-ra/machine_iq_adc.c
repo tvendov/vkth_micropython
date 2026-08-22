@@ -425,6 +425,151 @@ static mp_obj_t machine_iqadc_iq_correction_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_iq_correction_status_obj, machine_iqadc_iq_correction_status);
 
+/* agc(mode, *, gain=1.0, target=0.5) -> None.  mode is "off"/"fast"/"slow"/
+ * "manual".  gain (float, Q15 when converted) is used only in manual mode; target
+ * is a 0..1 fraction of the ~2048 audio range, converted to an amplitude set-point.
+ * Control-plane; the per-sample AGC runs in the ADC block callback (integer only,
+ * no Python). */
+static mp_obj_t machine_iqadc_agc(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+
+    /* Arg qstr names are SDR-unique (agc_mode/rms_target) to avoid the frozen
+     * asyncio/LVGL qstr collisions that bite bare words like mode/target. */
+    enum { ARG_mode, ARG_gain, ARG_target };
+    static const mp_arg_t allowed[] = {
+        { MP_QSTR_agc_mode,   MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_gain,       MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_rms_target, MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed), allowed, args);
+
+    /* Compare the mode string with strcmp so "off"/"fast"/"slow"/"manual" need no
+     * qstrs (slow/manual are frozen-reserved on this board). */
+    const char *ms = mp_obj_str_get_str(args[ARG_mode].u_obj);
+    uint8_t m;
+    if (strcmp(ms, "off") == 0) {
+        m = 0U;
+    } else if (strcmp(ms, "fast") == 0) {
+        m = 1U;
+    } else if (strcmp(ms, "slow") == 0) {
+        m = 2U;
+    } else if (strcmp(ms, "manual") == 0) {
+        m = 3U;
+    } else {
+        mp_raise_ValueError(MP_ERROR_TEXT("unknown agc mode"));
+    }
+
+    /* gain only meaningful in manual; default 1.0 (unity) when omitted. */
+    mp_float_t g = (args[ARG_gain].u_obj != MP_OBJ_NULL)
+        ? mp_obj_get_float(args[ARG_gain].u_obj) : (mp_float_t)1.0;
+    int32_t gain_q15 = (int32_t)(g * (mp_float_t)32768.0 + (mp_float_t)0.5);
+
+    /* target<=0 keeps current; the default 0.5 maps to half of the ~2048 range. */
+    int32_t target;
+    if (args[ARG_target].u_obj != MP_OBJ_NULL) {
+        mp_float_t t = mp_obj_get_float(args[ARG_target].u_obj);
+        target = (int32_t)(t * (mp_float_t)2048.0 + (mp_float_t)0.5);
+    } else {
+        target = 1024;
+    }
+
+    ra_iq_adc_set_agc(m, gain_q15, target);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_iqadc_agc_obj, 1, machine_iqadc_agc);
+
+/* agc_status() -> dict.  ALLOCATES (builds a dict): control-plane only. */
+static mp_obj_t machine_iqadc_agc_status(mp_obj_t self_in) {
+    (void)self_in;
+    uint8_t mode;
+    int32_t gain_q15;
+    int32_t target;
+    int32_t env;
+    uint32_t clips;
+    ra_iq_adc_get_agc(&mode, &gain_q15, &target, &env, &clips);
+
+    mp_obj_t d = mp_obj_new_dict(5);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_agc_mode), mp_obj_new_int(mode));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_gain), mp_obj_new_float((mp_float_t)gain_q15 / (mp_float_t)32768.0));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_rms_target), mp_obj_new_int(target));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_rms), mp_obj_new_int(env));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_agc_clips), mp_obj_new_int(clips));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_agc_status_obj, machine_iqadc_agc_status);
+
+/* volume(x) -> None sets the master output volume (x float, clamped 0..8); the
+ * no-arg form volume() returns the current volume as a float. */
+static mp_obj_t machine_iqadc_volume(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+
+    if (n_args == 1) {
+        return mp_obj_new_float((mp_float_t)ra_iq_adc_get_volume() / (mp_float_t)32768.0);
+    }
+
+    mp_float_t x = mp_obj_get_float(args[1]);
+    if (x < (mp_float_t)0.0) {
+        x = (mp_float_t)0.0;
+    } else if (x > (mp_float_t)8.0) {
+        x = (mp_float_t)8.0;
+    }
+    ra_iq_adc_set_volume((int32_t)(x * (mp_float_t)32768.0 + (mp_float_t)0.5));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_volume_obj, 1, 2, machine_iqadc_volume);
+
+/* spectrum(buf) -> bin_count | None.  buf must be array('f') (float32) with
+ * len >= RA_IQ_SPECTRUM_N.  On the first call it enables spectrum accumulation in
+ * the ADC block callback (a gated int16 copy; the FFT itself runs here, not in the
+ * ISR).  Returns None when no completed snapshot is ready yet; otherwise fills buf
+ * with the fftshift-ed magnitude spectrum (DC at buf[N/2]) and returns N.  The
+ * float window + CMSIS FFT run in this call (control plane, FPU is fine). */
+static mp_obj_t machine_iqadc_spectrum(mp_obj_t self_in, mp_obj_t buf_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_WRITE);
+    if (bi.typecode != 'f') {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('f')"));
+    }
+
+    size_t n = ra_iq_adc_spectrum_size();
+    if (bi.len < n * sizeof(float)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf too small"));
+    }
+
+    ra_iq_adc_spectrum_enable(1U);
+
+    if (!ra_iq_adc_spectrum((float *)bi.buf, n)) {
+        return mp_const_none;
+    }
+    return MP_OBJ_NEW_SMALL_INT((mp_int_t)n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_spectrum_obj, machine_iqadc_spectrum);
+
+static mp_obj_t machine_iqadc_spectrum_stop(mp_obj_t self_in) {
+    (void)self_in;
+    ra_iq_adc_spectrum_enable(0U);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_spectrum_stop_obj, machine_iqadc_spectrum_stop);
+
+/* spectrum_info() -> dict {bins, bin_hz, center_hz}.  center_hz is 0 (baseband,
+ * DC-centered after fftshift).  Control-plane; allocates a dict. */
+static mp_obj_t machine_iqadc_spectrum_info(mp_obj_t self_in) {
+    (void)self_in;
+    mp_obj_t d = mp_obj_new_dict(3);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_bins), mp_obj_new_int((mp_int_t)ra_iq_adc_spectrum_size()));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_bin_hz), mp_obj_new_int((mp_int_t)ra_iq_adc_spectrum_bin_hz()));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_center_hz), mp_obj_new_int(0));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_spectrum_info_obj, machine_iqadc_spectrum_info);
+
 static mp_obj_t machine_iqadc_deinit(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->active) {
@@ -455,6 +600,12 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_read_audio),   MP_ROM_PTR(&machine_iqadc_read_audio_obj) },
     { MP_ROM_QSTR(MP_QSTR_iq_correction), MP_ROM_PTR(&machine_iqadc_iq_correction_obj) },
     { MP_ROM_QSTR(MP_QSTR_iq_correction_status), MP_ROM_PTR(&machine_iqadc_iq_correction_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_agc),          MP_ROM_PTR(&machine_iqadc_agc_obj) },
+    { MP_ROM_QSTR(MP_QSTR_agc_status),   MP_ROM_PTR(&machine_iqadc_agc_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_volume),       MP_ROM_PTR(&machine_iqadc_volume_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum_info), MP_ROM_PTR(&machine_iqadc_spectrum_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),       MP_ROM_PTR(&machine_iqadc_deinit_obj) },
 };
 static MP_DEFINE_CONST_DICT(machine_iqadc_locals_dict,

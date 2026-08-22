@@ -108,6 +108,24 @@ Q(stream_from)
 Q(usb)
 Q(lsb)
 Q(cw)
+// iq_adc audio-output stages (RMS AGC + master volume).  Method/kw/key names are
+// SDR-unique to dodge the frozen asyncio/LVGL qstr collisions that bite bare words
+// (mode/target/env/clips/slow/manual).  Mode strings are compared with strcmp, so
+// off/fast/slow/manual need no qstrs.  "gain" is declared above.
+Q(agc)
+Q(agc_status)
+Q(volume)
+Q(agc_mode)
+Q(rms_target)
+Q(rms)
+Q(agc_clips)
+// iq_adc spectrum (FFT) path.  All SDR-unique; none collide with frozen qstrs.
+Q(spectrum)
+Q(spectrum_stop)
+Q(spectrum_info)
+Q(bins)
+Q(bin_hz)
+Q(center_hz)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
