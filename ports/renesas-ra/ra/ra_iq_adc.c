@@ -674,6 +674,43 @@ static int16_t s_spec_smooth_q8[RA_IQ_SPEC_N];
 static size_t s_spec_smooth_n;
 static uint8_t s_spec_smooth_valid;
 
+/* Per-stage verification tap.  When s_tap_stage != OFF, ra_iq_dsp_process snapshots the
+ * decimated I/Q at that boundary into s_tap_i/q for iq.tap() to read back over UART and
+ * compare numerically.  ISR cost is one copy of the decimated block only when the stage
+ * matches; disarmed (OFF) it is free.  Control-plane arms/reads it. */
+#define RA_IQ_TAP_OFF    0U
+#define RA_IQ_TAP_DECIM  1U   /* after x2 decimation + DC removal + I/Q correction */
+#define RA_IQ_TAP_NCO    2U   /* after the tuning NCO down-conversion               */
+#define RA_IQ_TAP_CHFILT 3U   /* after the channel low-pass filter (pre-demod)      */
+static volatile uint8_t s_tap_stage = RA_IQ_TAP_OFF;
+static volatile uint8_t s_tap_ready;
+static volatile uint16_t s_tap_n;
+static int16_t s_tap_i[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static int16_t s_tap_q[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+
+static inline void ra_iq_tap_capture(uint8_t stage, uint16_t m) {
+    if (s_tap_stage != stage) {
+        return;
+    }
+    uint16_t nn = (m > (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U)) ? (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U) : m;
+    for (uint16_t j = 0U; j < nn; ++j) {
+        s_tap_i[j] = s_i_dc[j];
+        s_tap_q[j] = s_q_dc[j];
+    }
+    s_tap_n = nn;
+    s_tap_ready = 1U;
+}
+
+/* Bench signal injection: a synthetic complex tone written into the raw block in place of
+ * the ADC samples, scaled by the CURRENT PGA gain so the whole front end (PGA -> decimate
+ * -> IQ corr -> NCO -> channel filter -> demod -> AGC -> volume) is driven from a known,
+ * amplitude-controlled input.  Vary the amplitude (or the PGA gain) and watch the AGC /
+ * S-meter / stage taps respond.  Control-plane arms it; the ISR just generates the tone. */
+static volatile uint8_t s_inject_enable;
+static volatile uint32_t s_inject_step;    /* phase increment per raw sample (freq/fs) */
+static volatile int32_t s_inject_ampl;     /* base amplitude in ADC counts (pre-PGA)   */
+static uint32_t s_inject_phase;
+
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
     switch (ch) {
         case 0:
@@ -850,6 +887,31 @@ static void ra_iq_dsp_process(uint8_t half) {
     uint16_t n = s_status.block_samples;
     uint16_t m = (uint16_t)(n >> 1);
 
+    if (s_inject_enable) {
+        /* Overwrite the raw ADC block with a synthetic complex tone scaled by the current
+         * PGA gain, so the whole chain runs on a known, amplitude-controlled input. */
+        ra_adc_pga_mode_t md;
+        uint8_t code = 0U;
+        (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
+        int32_t a = (int32_t)(((int64_t)s_inject_ampl *
+            (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
+        uint32_t ph = s_inject_phase;
+        uint32_t step = s_inject_step;
+        for (uint16_t k = 0U; k < n; ++k) {
+            uint8_t idx = (uint8_t)(ph >> 24);
+            int32_t c = s_sin256[(idx + 64U) & 255U];   /* cos, Q15 */
+            int32_t s = s_sin256[idx];                  /* sin, Q15 */
+            int32_t iv = 2048 + ((a * c) >> 15);
+            int32_t qv = 2048 + ((a * s) >> 15);
+            if (iv < 0) { iv = 0; } else if (iv > 4095) { iv = 4095; }
+            if (qv < 0) { qv = 0; } else if (qv > 4095) { qv = 4095; }
+            s_i_buf[half][k] = (uint16_t)iv;
+            s_q_buf[half][k] = (uint16_t)qv;
+            ph += step;
+        }
+        s_inject_phase = ph;
+    }
+
     uint8_t iqc = s_iqc_enable;
     int32_t amp = s_iqc_amp_q15;
     int32_t phase = s_iqc_phase_q15;
@@ -921,6 +983,7 @@ static void ra_iq_dsp_process(uint8_t half) {
         s_i_dc[j] = (int16_t)ci;
         s_q_dc[j] = (int16_t)cq;
     }
+    ra_iq_tap_capture(RA_IQ_TAP_DECIM, m);
 
     /* Wide spectrum tap: copy the DC-removed / IQ-corrected capture BEFORE the tuning
      * NCO and channel filter.  The UI reducer recentres these raw capture bins around
@@ -961,6 +1024,7 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
         s_tune_phase = ph;
     }
+    ra_iq_tap_capture(RA_IQ_TAP_NCO, m);
 
     /* Channel low-pass filter, in place, AFTER imbalance and BEFORE the demod.  The
      * wide spectrum tap above intentionally precedes this filter.
@@ -1024,6 +1088,7 @@ static void ra_iq_dsp_process(uint8_t half) {
             }
         }
     }
+    ra_iq_tap_capture(RA_IQ_TAP_CHFILT, m);
 
     /* S-meter: block RMS of the channel-filtered complex baseband, one-pole smoothed
      * over blocks.  |i|,|q| <= 4095 so i*i+q*q <= ~3.4e7 and the int64 sum over up to
@@ -1191,6 +1256,22 @@ static void ra_iq_demod_produce(uint8_t half) {
                 s_cw_phase += s_cw_inc;
 
                 uint16_t dac = ra_iq_audio_stage(audio);
+                uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
+                if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
+                    s_audio.ring_overruns++;
+                    continue;
+                }
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = dac;
+                head = next;
+            }
+            break;
+        }
+        case RA_IQ_DEMOD_PASS: {
+            /* Verification passthrough: the channel-filtered real part straight into the
+             * audio stage (no demod), so the pre-demod baseband can be heard / scoped and
+             * the AGC/volume tail is still exercised on a known input. */
+            for (uint16_t j = 0U; j < m; ++j) {
+                uint16_t dac = ra_iq_audio_stage(s_i_dc[j]);
                 uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
                 if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
                     s_audio.ring_overruns++;
@@ -1837,6 +1918,44 @@ bool ra_iq_adc_get_pga_gain(uint8_t *gain_code) {
     return ra_adc_pga_get_ch(s_iq.i_ch, &mode, gain_code);
 }
 
+/* Arm the per-stage verification tap (0 = off).  Control-plane. */
+void ra_iq_adc_set_tap(uint8_t stage) {
+    s_tap_stage = stage;
+    if (stage == RA_IQ_TAP_OFF) {
+        s_tap_ready = 0U;
+    }
+}
+
+/* Read the last tap snapshot as interleaved [i0,q0,i1,q1,...] into out (cap_pairs = how
+ * many i/q pairs fit).  Returns the pair count, or 0 if no fresh snapshot; consumes it. */
+uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs) {
+    if (!s_tap_ready) {
+        return 0U;
+    }
+    uint16_t n = s_tap_n;
+    if ((size_t)n > cap_pairs) {
+        n = (uint16_t)cap_pairs;
+    }
+    for (uint16_t j = 0U; j < n; ++j) {
+        out[2U * j] = s_tap_i[j];
+        out[2U * j + 1U] = s_tap_q[j];
+    }
+    s_tap_ready = 0U;
+    return n;
+}
+
+/* Arm/disarm bench injection: a complex tone at freq_hz, base amplitude ampl (ADC counts),
+ * scaled by the current PGA gain inside the ISR.  Control-plane. */
+void ra_iq_adc_set_inject(uint8_t enable, uint32_t freq_hz, int32_t ampl) {
+    s_inject_ampl = ampl;
+    uint32_t fs = s_status.sample_rate_hz;
+    s_inject_step = (fs != 0U) ? (uint32_t)(((uint64_t)freq_hz << 32) / fs) : 0U;
+    if (!enable) {
+        s_inject_phase = 0U;
+    }
+    s_inject_enable = enable;
+}
+
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
     if (thresh != NULL) {
         *thresh = s_sq_thresh;
@@ -2159,15 +2278,11 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
     return true;
 }
 
-/* Allocation-free spectrum for the UI: same FFT as ra_iq_adc_spectrum, but the 256
- * fftshifted magnitudes are recentred by the current tuning offset and reduced in C to
- * nbars peak-per-group bars.  A fast-attack/slow-release reference plus per-bar Q8
- * attack/decay removes whole-frame gain pumping and quantised height jumps.  Writes
- * int16 heights 0..max_h into the caller's buffer; Python never boxes a float. */
-bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
-    if ((nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N)) {
-        return false;
-    }
+/* Consume one completed capture and prepare the one shared FFT magnitude buffer.
+ * release_alpha is cadence-dependent: 1/64 at 10 Hz and 1/192 at 30 Hz both keep
+ * roughly the same six-second reference release. */
+static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
+    int32_t *shift_bins_out) {
     int8_t h = s_spec_ready;
     if (h < 0) {
         return false;
@@ -2204,28 +2319,48 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
     } else if (peak > s_spec_ref_peak) {
         s_spec_ref_peak += (peak - s_spec_ref_peak) * 0.5f;
     } else {
-        s_spec_ref_peak += (peak - s_spec_ref_peak) * (1.0f / 64.0f);
+        s_spec_ref_peak += (peak - s_spec_ref_peak) * release_alpha;
     }
     if (s_spec_ref_peak < 1e-6f) {
         s_spec_ref_peak = 1e-6f;
     }
-    float inv = 1.0f / s_spec_ref_peak;
-
-    if (s_spec_smooth_n != nbars) {
-        s_spec_smooth_n = nbars;
-        s_spec_smooth_valid = 0U;
-        memset(s_spec_smooth_q8, 0, sizeof(s_spec_smooth_q8));
-    }
 
     /* Shift the raw capture panorama so the selected NCO frequency is at the middle.
-     * The alignment is calculated on the 256 FFT bins before the 27-column reduction;
-     * visible horizontal position is still quantised by those 27 physical UI columns. */
+     * Both native consumers use this exact same tuned-centre mapping. */
     int32_t shift_bins = 0;
     int32_t fs = (int32_t)(s_status.sample_rate_hz >> 1);
     if (fs > 0) {
         int64_t num = (int64_t)s_tune_hz * (int64_t)RA_IQ_SPEC_N;
         num += (num >= 0) ? (int64_t)(fs / 2) : -(int64_t)(fs / 2);
         shift_bins = (int32_t)(num / (int64_t)fs);
+    }
+    if (ref_peak_out != NULL) {
+        *ref_peak_out = s_spec_ref_peak;
+    }
+    if (shift_bins_out != NULL) {
+        *shift_bins_out = shift_bins;
+    }
+    return true;
+}
+
+/* Allocation-free spectrum for the UI: the existing 256-bin magnitude buffer is
+ * recentred by the current tuning offset and reduced in C to nbars peak-per-group
+ * bars.  Python never boxes a float. */
+bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
+    if ((out == NULL) || (nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N)) {
+        return false;
+    }
+    float ref_peak;
+    int32_t shift_bins;
+    if (!ra_iq_adc_spectrum_prepare(1.0f / 64.0f, &ref_peak, &shift_bins)) {
+        return false;
+    }
+    float inv = 1.0f / ref_peak;
+
+    if (s_spec_smooth_n != nbars) {
+        s_spec_smooth_n = nbars;
+        s_spec_smooth_valid = 0U;
+        memset(s_spec_smooth_q8, 0, sizeof(s_spec_smooth_q8));
     }
 
     /* Peak per bar over the tuned, fftshifted spectrum, dB-scaled to 0..max_h. */
@@ -2269,6 +2404,21 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
         out[b] = (int16_t)height;
     }
     s_spec_smooth_valid = 1U;
+    return true;
+}
+
+/* Native waterfall access to the SAME magnitude buffer used by spectrum_bars().
+ * The LCD consumes it synchronously before another FFT can overwrite it, so there is
+ * no second 256-bin buffer and no copy through Python/LVGL. */
+bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
+    int32_t *shift_bins) {
+    if ((magnitudes == NULL) || (ref_peak == NULL) || (shift_bins == NULL)) {
+        return false;
+    }
+    if (!ra_iq_adc_spectrum_prepare(1.0f / 192.0f, ref_peak, shift_bins)) {
+        return false;
+    }
+    *magnitudes = s_spec_mag;
     return true;
 }
 

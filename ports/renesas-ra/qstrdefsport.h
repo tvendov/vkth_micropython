@@ -108,6 +108,7 @@ Q(stream_from)
 Q(usb)
 Q(lsb)
 Q(cw)
+Q(thru)
 // iq_adc audio-output stages (RMS AGC + master volume).  Method/kw/key names are
 // SDR-unique to dodge the frozen asyncio/LVGL qstr collisions that bite bare words
 // (mode/target/env/clips/slow/manual).  Mode strings are compared with strcmp, so
@@ -161,8 +162,10 @@ Q(smeter)
 Q(dbfs)
 // iq_adc tuning NCO (digital fine-tune)
 Q(tune)
-// iq_adc RF/PGA front-end gain -> exposed as iq.gain() (reuses the existing "gain" qstr;
-// the flash region is full, so no new qstr string is spent on this method).
+// iq_adc RF/PGA front-end gain -> exposed as iq.gain() (reuses the existing "gain" qstr).
+// iq_adc per-stage verification tap + bench signal injection
+Q(tap)
+Q(inject)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

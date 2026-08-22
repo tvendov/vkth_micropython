@@ -36,6 +36,9 @@
 #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
 #include "lvgl/lvgl.h"
 #endif
+#if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
+#include "ra_iq_adc.h"
+#endif
 
 #if MODULE_LCD_ENABLED
 
@@ -189,7 +192,14 @@ static uint8_t s_lcd_lvgl_bridged = 0;   // C LVGL display/indev bridge installe
 #define LCD_SPECTRUM_GAP_PX     (4)
 #define LCD_SPECTRUM_MAX_H_PX   (50)
 #define LCD_SPECTRUM_PHASES     (5U)
-#define LCD_SPECTRUM_TICK_MS    (20U)
+#define LCD_SPECTRUM_TICK_MS    (10U)
+#define LCD_SPECTRUM_PHASE_MS   (20U)
+#define LCD_SPECTRUM_FRAME_MS   (100U)
+#define LCD_WATERFALL_FRAME_MS  (33U)
+#define LCD_WATERFALL_BINS      (256U)
+#define LCD_WATERFALL_TOP_PAD   (18)
+#define LCD_VIEW_SPECTRUM       (0U)
+#define LCD_VIEW_WATERFALL      (1U)
 static lv_obj_t *s_lcd_spectrum_obj;
 static int16_t s_lcd_spectrum_h[LCD_SPECTRUM_BARS];
 static int16_t s_lcd_spectrum_target[LCD_SPECTRUM_BARS];
@@ -200,6 +210,13 @@ static lv_color_t s_lcd_spectrum_center;
 static uint8_t s_lcd_spectrum_valid;
 static uint8_t s_lcd_spectrum_target_valid;
 static uint8_t s_lcd_spectrum_phase;
+static uint8_t s_lcd_spectrum_view;
+static uint8_t s_lcd_waterfall_reset;
+static uint32_t s_lcd_spectrum_last_fft_ms;
+static uint32_t s_lcd_spectrum_last_phase_ms;
+static uint32_t s_lcd_waterfall_rows;
+static uint32_t s_lcd_waterfall_last_us;
+static uint32_t s_lcd_waterfall_max_us;
 static uint32_t s_lcd_render_start_us;
 static uint32_t s_lcd_render_last_us;
 static uint32_t s_lcd_render_max_us;
@@ -219,6 +236,16 @@ void machine_lcd_lvgl_soft_reset(void) {
         s_lcd_spectrum_timer = NULL;
         s_lcd_spectrum_valid = 0U;
         s_lcd_spectrum_target_valid = 0U;
+        s_lcd_spectrum_view = LCD_VIEW_SPECTRUM;
+        s_lcd_waterfall_reset = 1U;
+        s_lcd_spectrum_last_fft_ms = 0U;
+        s_lcd_spectrum_last_phase_ms = 0U;
+        s_lcd_waterfall_rows = 0U;
+        s_lcd_waterfall_last_us = 0U;
+        s_lcd_waterfall_max_us = 0U;
+        #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
+        ra_iq_adc_spectrum_enable(0U);
+        #endif
         s_lcd_render_start_us = 0U;
         s_lcd_render_last_us = 0U;
         s_lcd_render_max_us = 0U;
@@ -709,16 +736,180 @@ static void lcd_lv_spectrum_bar_area(const lv_area_t *obj_area, uint32_t index,
     bar_area->y1 = obj_area->y2 - height + 1;
 }
 
-/* Visual cadence is deliberately decoupled from the 10 Hz FFT producer.  Five
- * interleaved groups are committed on consecutive 20 ms ticks: each individual bar
- * still represents a 10 Hz stream, but only five or six bars change in one physical
- * display frame.  The groups are spread across the width (0,5,10... then 1,6,11...)
- * so the result reads as independent/parallel motion rather than a left-to-right wipe. */
+/* Fast approximate -60..0 dB mapping without 256 log10f calls per row.  IEEE-754
+ * exponent + the top mantissa byte approximate log2(r); 10 octaves are 60.2 dB. */
+static uint8_t lcd_waterfall_level(float ratio) {
+    if (!(ratio > 0.0009765625f)) {       /* <= 2^-10 */
+        return 0U;
+    }
+    if (ratio >= 1.0f) {
+        return 255U;
+    }
+    union {
+        float f;
+        uint32_t u;
+    } bits = { .f = ratio };
+    int32_t exponent = (int32_t)((bits.u >> 23) & 0xFFU) - 127;
+    int32_t log2_q8 = exponent * 256 + (int32_t)((bits.u >> 15) & 0xFFU);
+    int32_t level = ((log2_q8 + 10 * 256) * 255) / (10 * 256);
+    if (level < 0) {
+        level = 0;
+    } else if (level > 255) {
+        level = 255;
+    }
+    return (uint8_t)level;
+}
+
+/* PicoRX-style six-section heat map, calculated directly into RGB565.  Keeping the
+ * conversion arithmetic here avoids a second 256-entry image/palette buffer. */
+static uint16_t lcd_waterfall_rgb565(uint8_t level) {
+    uint32_t scaled = (uint32_t)level * 6U;
+    uint8_t section = (uint8_t)(scaled >> 8);
+    uint8_t t = (uint8_t)scaled;
+    uint8_t r = 0U;
+    uint8_t g = 0U;
+    uint8_t b = 0U;
+    switch (section) {
+        case 0: b = t; break;                         /* black -> blue   */
+        case 1: g = t; b = 255U; break;              /* blue -> cyan    */
+        case 2: g = 255U; b = (uint8_t)(255U - t); break; /* cyan -> green */
+        case 3: r = t; g = 255U; break;              /* green -> yellow */
+        case 4: r = 255U; g = (uint8_t)(255U - t); break; /* yellow -> red */
+        default: r = 255U; g = t; b = t; break;      /* red -> white    */
+    }
+    return lv_color_to_u16(lv_color_make(r, g, b));
+}
+
+/* Direct single-framebuffer waterfall.  The 256 bins are one pixel each and centred
+ * in the existing native spectrum object.  The framebuffer itself is the history:
+ * rows move down in place and only the new top row is generated. */
+static void lcd_waterfall_write(const float *magnitudes, float ref_peak,
+    int32_t shift_bins) {
+    if ((magnitudes == NULL) || !(ref_peak > 0.0f) ||
+        (s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj) ||
+        !lv_obj_is_visible(s_lcd_spectrum_obj)) {
+        return;
+    }
+
+    lv_area_t obj_area;
+    lv_obj_get_coords(s_lcd_spectrum_obj, &obj_area);
+    int32_t obj_w = lv_area_get_width(&obj_area);
+    int32_t x1 = obj_area.x1 + (obj_w - (int32_t)LCD_WATERFALL_BINS) / 2;
+    int32_t y1 = obj_area.y1 + LCD_WATERFALL_TOP_PAD;
+    int32_t y2 = obj_area.y2;
+    int32_t screen_w = (int32_t)g_display0_cfg.input[0].hsize;
+    int32_t screen_h = (int32_t)g_display0_cfg.input[0].vsize;
+    if ((obj_w < (int32_t)LCD_WATERFALL_BINS) || (x1 < 0) ||
+        (x1 + (int32_t)LCD_WATERFALL_BINS > screen_w) || (y1 < 0) ||
+        (y2 >= screen_h) || (y1 >= y2)) {
+        return;
+    }
+
+    /* Start immediately after a fresh line-detect pulse.  The graph begins around
+     * the middle of the panel, leaving several milliseconds for this <40 KB move
+     * before GLCDC reaches the same scan lines. */
+    uint32_t frame = lcd_vsync_counter;
+    uint32_t wait_start = (uint32_t)mp_hal_ticks_ms();
+    while (lcd_vsync_counter == frame) {
+        if ((uint32_t)((uint32_t)mp_hal_ticks_ms() - wait_start) >= 20U) {
+            break;
+        }
+    }
+    uint32_t t0 = (uint32_t)mp_hal_ticks_us();
+    uint32_t stride = g_display0_cfg.input[0].hstride;
+    uint16_t *fb = (uint16_t *)g_display0_cfg.input[0].p_base;
+    uint16_t bg = lv_color_to_u16(s_lcd_spectrum_bg);
+
+    if (s_lcd_waterfall_reset) {
+        for (int32_t y = y1; y <= y2; ++y) {
+            uint16_t *row = fb + (uint32_t)y * stride + (uint32_t)x1;
+            for (uint32_t x = 0U; x < LCD_WATERFALL_BINS; ++x) {
+                row[x] = bg;
+            }
+        }
+        s_lcd_waterfall_reset = 0U;
+    }
+
+    for (int32_t y = y2; y > y1; --y) {
+        uint16_t *dst = fb + (uint32_t)y * stride + (uint32_t)x1;
+        const uint16_t *src = dst - stride;
+        memcpy(dst, src, LCD_WATERFALL_BINS * sizeof(uint16_t));
+    }
+
+    float inv = 1.0f / ref_peak;
+    uint16_t *new_row = fb + (uint32_t)y1 * stride + (uint32_t)x1;
+    for (uint32_t x = 0U; x < LCD_WATERFALL_BINS; ++x) {
+        uint32_t src = (uint32_t)((int32_t)x + (LCD_WATERFALL_BINS / 2U) +
+            shift_bins) & (LCD_WATERFALL_BINS - 1U);
+        new_row[x] = lcd_waterfall_rgb565(lcd_waterfall_level(magnitudes[src] * inv));
+    }
+
+    uint32_t elapsed = (uint32_t)mp_hal_ticks_us() - t0;
+    s_lcd_waterfall_last_us = elapsed;
+    if (elapsed > s_lcd_waterfall_max_us) {
+        s_lcd_waterfall_max_us = elapsed;
+    }
+    s_lcd_waterfall_rows++;
+}
+
+/* Spectrum visual cadence remains the proven 10 Hz producer + five interleaved
+ * 20 ms groups.  Waterfall is an alternative view: the same timer consumes the same
+ * DSP snapshot at 30 Hz and writes it directly, with no LVGL draw task. */
 static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
     (void)timer;
-    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj) ||
-        !s_lcd_spectrum_target_valid) {
+    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj)) {
         return;
+    }
+
+    uint32_t now = (uint32_t)mp_hal_ticks_ms();
+    #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
+    if (s_lcd_spectrum_view == LCD_VIEW_WATERFALL) {
+        if ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >= LCD_WATERFALL_FRAME_MS) {
+            /* Advance the deadline, not "last = now".  The measured panel is 50 Hz;
+             * retaining the 33 ms phase yields a 20/40/40 ms VSYNC pattern and a
+             * true 30 rows/s average instead of rounding every update down to 25 Hz. */
+            if ((s_lcd_spectrum_last_fft_ms == 0U) ||
+                ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >
+                 (3U * LCD_WATERFALL_FRAME_MS))) {
+                s_lcd_spectrum_last_fft_ms = now;
+            } else {
+                s_lcd_spectrum_last_fft_ms += LCD_WATERFALL_FRAME_MS;
+            }
+            const float *magnitudes;
+            float ref_peak;
+            int32_t shift_bins;
+            if (ra_iq_adc_spectrum_frame(&magnitudes, &ref_peak, &shift_bins)) {
+                lcd_waterfall_write(magnitudes, ref_peak, shift_bins);
+            }
+        }
+        return;
+    }
+
+    if ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >= LCD_SPECTRUM_FRAME_MS) {
+        if ((s_lcd_spectrum_last_fft_ms == 0U) ||
+            ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >
+             (3U * LCD_SPECTRUM_FRAME_MS))) {
+            s_lcd_spectrum_last_fft_ms = now;
+        } else {
+            s_lcd_spectrum_last_fft_ms += LCD_SPECTRUM_FRAME_MS;
+        }
+        if (ra_iq_adc_spectrum_bars(s_lcd_spectrum_target, LCD_SPECTRUM_BARS,
+            LCD_SPECTRUM_MAX_H_PX)) {
+            s_lcd_spectrum_target_valid = 1U;
+        }
+    }
+    #endif
+
+    if (!s_lcd_spectrum_target_valid ||
+        ((uint32_t)(now - s_lcd_spectrum_last_phase_ms) < LCD_SPECTRUM_PHASE_MS)) {
+        return;
+    }
+    if ((s_lcd_spectrum_last_phase_ms == 0U) ||
+        ((uint32_t)(now - s_lcd_spectrum_last_phase_ms) >
+         (3U * LCD_SPECTRUM_PHASE_MS))) {
+        s_lcd_spectrum_last_phase_ms = now;
+    } else {
+        s_lcd_spectrum_last_phase_ms += LCD_SPECTRUM_PHASE_MS;
     }
 
     lv_area_t obj_area;
@@ -740,10 +931,6 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
         lcd_lv_spectrum_bar_area(&obj_area, i, old_h, &old_area);
         lcd_lv_spectrum_bar_area(&obj_area, i, new_h, &new_area);
         if (s_lcd_spectrum_valid) {
-            /* Do not merge the interleaved bars into a nearly screen-wide dirty
-             * rectangle.  Each narrow strip is rendered independently after the
-             * GLCDC line-detect pulse, so framebuffer writes finish well ahead of
-             * the scan reaching the spectrum rows. */
             lv_area_t dirty = {
                 .x1 = new_area.x1,
                 .x2 = new_area.x2,
@@ -761,11 +948,9 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
     if (s_lcd_spectrum_phase >= LCD_SPECTRUM_PHASES) {
         s_lcd_spectrum_phase = 0U;
     }
-    if (changed != 0U) {
-        if (!s_lcd_spectrum_valid) {
-            lv_obj_invalidate(s_lcd_spectrum_obj);
-            s_lcd_spectrum_valid = 1U;
-        }
+    if ((changed != 0U) && !s_lcd_spectrum_valid) {
+        lv_obj_invalidate(s_lcd_spectrum_obj);
+        s_lcd_spectrum_valid = 1U;
     }
 }
 
@@ -777,6 +962,9 @@ static void lcd_lv_spectrum_event_cb(lv_event_t *e) {
             s_lcd_spectrum_obj = NULL;
             s_lcd_spectrum_valid = 0U;
             s_lcd_spectrum_target_valid = 0U;
+            #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
+            ra_iq_adc_spectrum_enable(0U);
+            #endif
             if (s_lcd_spectrum_timer != NULL) {
                 lv_timer_delete(s_lcd_spectrum_timer);
                 s_lcd_spectrum_timer = NULL;
@@ -797,6 +985,16 @@ static void lcd_lv_spectrum_event_cb(lv_event_t *e) {
     rect.bg_opa = LV_OPA_COVER;
     rect.border_opa = LV_OPA_TRANSP;
     rect.radius = 0;
+
+    if (s_lcd_spectrum_view == LCD_VIEW_WATERFALL) {
+        /* LVGL owns layout and occasional full-screen redraws, but not waterfall
+         * pixels.  Clear this surface through the normal pipeline, then let the
+         * next direct row restart history after the render has completed. */
+        rect.bg_color = s_lcd_spectrum_bg;
+        lv_draw_rect(layer, &rect, &obj_area);
+        s_lcd_waterfall_reset = 1U;
+        return;
+    }
 
     /* A height change invalidates only the vertical delta.  A growing delta is
      * completely covered by its new bar and therefore needs no background clear;
@@ -880,6 +1078,13 @@ STATIC mp_obj_t lcd_spectrum_attach(size_t n_args, const mp_obj_t *args) {
         s_lcd_spectrum_valid = 0U;
         s_lcd_spectrum_target_valid = 0U;
         s_lcd_spectrum_phase = 0U;
+        s_lcd_spectrum_view = LCD_VIEW_SPECTRUM;
+        s_lcd_waterfall_reset = 1U;
+        s_lcd_spectrum_last_fft_ms = (uint32_t)mp_hal_ticks_ms();
+        s_lcd_spectrum_last_phase_ms = s_lcd_spectrum_last_fft_ms;
+        s_lcd_waterfall_rows = 0U;
+        s_lcd_waterfall_last_us = 0U;
+        s_lcd_waterfall_max_us = 0U;
         s_lcd_spectrum_obj = obj;
         lv_obj_add_event_cb(obj, lcd_lv_spectrum_event_cb, LV_EVENT_DRAW_MAIN, NULL);
         lv_obj_add_event_cb(obj, lcd_lv_spectrum_event_cb, LV_EVENT_DELETE, NULL);
@@ -887,6 +1092,9 @@ STATIC mp_obj_t lcd_spectrum_attach(size_t n_args, const mp_obj_t *args) {
             lv_timer_delete(s_lcd_spectrum_timer);
         }
         s_lcd_spectrum_timer = new_timer;
+        #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
+        ra_iq_adc_spectrum_enable(1U);
+        #endif
     }
     lv_obj_invalidate(obj);
     return mp_const_true;
@@ -905,6 +1113,9 @@ STATIC mp_obj_t lcd_spectrum_update(mp_obj_t self_in, mp_obj_t buf_in) {
         s_lcd_spectrum_valid = 0U;
         s_lcd_spectrum_target_valid = 0U;
         return mp_const_false;
+    }
+    if (s_lcd_spectrum_view != LCD_VIEW_SPECTRUM) {
+        return MP_OBJ_NEW_SMALL_INT(0);
     }
 
     mp_buffer_info_t bi;
@@ -931,6 +1142,46 @@ STATIC mp_obj_t lcd_spectrum_update(mp_obj_t self_in, mp_obj_t buf_in) {
     return MP_OBJ_NEW_SMALL_INT((mp_int_t)changed);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(machine_lcd_spectrum_update_obj, lcd_spectrum_update);
+
+// spectrum([view]) -- view 0 = bars, 1 = waterfall.  With no argument return
+// (view, direct_rows, last_write_us, max_write_us) for measurement.
+STATIC mp_obj_t lcd_spectrum(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+    if (n_args == 1U) {
+        mp_obj_t t[4] = {
+            MP_OBJ_NEW_SMALL_INT(s_lcd_spectrum_view),
+            mp_obj_new_int_from_uint(s_lcd_waterfall_rows),
+            mp_obj_new_int_from_uint(s_lcd_waterfall_last_us),
+            mp_obj_new_int_from_uint(s_lcd_waterfall_max_us),
+        };
+        return mp_obj_new_tuple(MP_ARRAY_SIZE(t), t);
+    }
+
+    mp_int_t view = mp_obj_get_int(args[1]);
+    if ((view != (mp_int_t)LCD_VIEW_SPECTRUM) &&
+        (view != (mp_int_t)LCD_VIEW_WATERFALL)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("view must be 0 or 1"));
+    }
+    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj)) {
+        return mp_const_false;
+    }
+    if ((uint8_t)view != s_lcd_spectrum_view) {
+        s_lcd_spectrum_view = (uint8_t)view;
+        s_lcd_spectrum_valid = 0U;
+        s_lcd_waterfall_reset = 1U;
+        s_lcd_spectrum_last_fft_ms = 0U;
+        s_lcd_spectrum_last_phase_ms = 0U;
+        if (s_lcd_spectrum_view == LCD_VIEW_WATERFALL) {
+            s_lcd_waterfall_rows = 0U;
+            s_lcd_waterfall_last_us = 0U;
+            s_lcd_waterfall_max_us = 0U;
+        }
+        lv_obj_invalidate(s_lcd_spectrum_obj);
+    }
+    return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_spectrum_obj, 1, 2,
+    lcd_spectrum);
 
 // render_debug([reset]) -> (last_us, max_us, frame_crossings, line_pulses)
 // frame_crossings must stay zero: a non-zero value means a render ran into the next
@@ -1004,6 +1255,7 @@ STATIC const mp_rom_map_elem_t lcd_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_touch_debug),         MP_ROM_PTR(&machine_lcd_touch_debug_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_attach),     MP_ROM_PTR(&machine_lcd_spectrum_attach_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_update),     MP_ROM_PTR(&machine_lcd_spectrum_update_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum),            MP_ROM_PTR(&machine_lcd_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_render_debug),        MP_ROM_PTR(&machine_lcd_render_debug_obj) },
     #if defined(USE_FSP_DRW)
     { MP_ROM_QSTR(MP_QSTR_drw_stats),            MP_ROM_PTR(&machine_lcd_drw_stats_obj) },

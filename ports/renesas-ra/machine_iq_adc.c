@@ -356,6 +356,8 @@ static mp_obj_t machine_iqadc_demod(mp_obj_t self_in, mp_obj_t mode_in) {
         m = (uint8_t)RA_IQ_DEMOD_CW;
     } else if (mode == MP_QSTR_off) {
         m = (uint8_t)RA_IQ_DEMOD_OFF;
+    } else if (mode == MP_QSTR_thru) {
+        m = (uint8_t)RA_IQ_DEMOD_PASS;   /* verification passthrough (pre-demod I) */
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("unknown demod mode"));
     }
@@ -719,6 +721,42 @@ static mp_obj_t machine_iqadc_pga_gain(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_pga_gain_obj, 1, 2,
     machine_iqadc_pga_gain);
 
+/* tap(stage[, buf]) -> int|None.  Per-stage verification tap: arm 'stage' (0=off, 1=decim,
+ * 2=nco, 3=chfilt).  With buf = array('h') the last decimated snapshot is copied as
+ * interleaved [i0,q0,i1,q1,...] and the i/q pair count is returned (None until a fresh
+ * snapshot is ready).  Lets the host dump any pre-demod stage over UART and compare. */
+static mp_obj_t machine_iqadc_tap(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    ra_iq_adc_set_tap((uint8_t)mp_obj_get_int(args[1]));
+    if (n_args < 3) {
+        return mp_const_none;
+    }
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(args[2], &bi, MP_BUFFER_WRITE);
+    if (bi.typecode != 'h') {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('h')"));
+    }
+    uint16_t n = ra_iq_adc_tap_read((int16_t *)bi.buf, (bi.len / sizeof(int16_t)) / 2U);
+    return (n == 0U) ? mp_const_none : MP_OBJ_NEW_SMALL_INT(n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tap_obj, 2, 3, machine_iqadc_tap);
+
+/* inject(enable[, freq, ampl]) -> None.  Bench signal injection: replace the ADC input with
+ * a synthetic complex tone (freq Hz default 1000, base amplitude ampl in ADC counts default
+ * 500) scaled by the current PGA gain, so the whole front end runs on a known, amplitude-
+ * controlled input -- vary ampl (or iq.gain) and watch the AGC / S-meter respond. */
+static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    uint8_t en = mp_obj_is_true(args[1]) ? 1U : 0U;
+    uint32_t freq = (n_args >= 3) ? (uint32_t)mp_obj_get_int(args[2]) : 1000U;
+    int32_t ampl = (n_args >= 4) ? (int32_t)mp_obj_get_int(args[3]) : 500;
+    ra_iq_adc_set_inject(en, freq, ampl);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 4, machine_iqadc_inject);
+
 /* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
  * array('h', N); the pre-NCO capture FFT is shifted by the current tune offset, then
  * reduced 256->N, dB-scaled, and attack/release smoothed in C, filling buf with
@@ -847,6 +885,8 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_smeter),       MP_ROM_PTR(&machine_iqadc_smeter_obj) },
     { MP_ROM_QSTR(MP_QSTR_tune),         MP_ROM_PTR(&machine_iqadc_tune_obj) },
     { MP_ROM_QSTR(MP_QSTR_gain),         MP_ROM_PTR(&machine_iqadc_pga_gain_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tap),          MP_ROM_PTR(&machine_iqadc_tap_obj) },
+    { MP_ROM_QSTR(MP_QSTR_inject),       MP_ROM_PTR(&machine_iqadc_inject_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_bars), MP_ROM_PTR(&machine_iqadc_spectrum_bars_obj) },
     { MP_ROM_QSTR(MP_QSTR_counters),     MP_ROM_PTR(&machine_iqadc_counters_obj) },

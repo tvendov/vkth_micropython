@@ -156,6 +156,15 @@ int32_t ra_iq_adc_get_tune(void);
 bool ra_iq_adc_set_pga_gain(uint8_t gain_code);
 bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
 
+/* Per-stage verification tap: arm a stage (0=off, 1=decim, 2=nco, 3=chfilt) and read the
+ * last decimated I/Q snapshot as interleaved i/q pairs for numeric comparison over UART. */
+void ra_iq_adc_set_tap(uint8_t stage);
+uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs);
+
+/* Bench injection: replace the ADC input with a synthetic complex tone (freq_hz, base
+ * amplitude ampl in ADC counts, scaled by the current PGA gain) to exercise the chain. */
+void ra_iq_adc_set_inject(uint8_t enable, uint32_t freq_hz, int32_t ampl);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
@@ -169,6 +178,7 @@ typedef enum {
     RA_IQ_DEMOD_USB = 2,    /* upper sideband, phasing method: I_delayed - H(Q) */
     RA_IQ_DEMOD_LSB = 3,    /* lower sideband, phasing method: I_delayed + H(Q) */
     RA_IQ_DEMOD_CW = 4,     /* CW: mix baseband up to a fixed 700 Hz beat, real part */
+    RA_IQ_DEMOD_PASS = 5,   /* verification passthrough: channel-filtered I straight to audio */
 } ra_iq_demod_mode_t;
 
 typedef struct {
@@ -252,6 +262,12 @@ bool ra_iq_adc_spectrum(float *out, size_t n);
  * filling caller buffers.  This keeps the GUI heap quiet and makes GC-related UI
  * pauses rarer; the ADC/DAC realtime path remains interrupt/DMA-driven. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);
+/* Consume one fresh FFT snapshot and expose the existing internal magnitude buffer
+ * to a synchronous native display consumer.  No buffer is allocated or copied; the
+ * returned pointer remains valid until the next spectrum call.  ref_peak and
+ * shift_bins describe the same tuned-centre scaling used by spectrum_bars(). */
+bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
+    int32_t *shift_bins);
 size_t ra_iq_adc_get_counters(int32_t *out, size_t n);
 void ra_iq_adc_spectrum_enable(uint8_t on);
 size_t ra_iq_adc_spectrum_size(void);
