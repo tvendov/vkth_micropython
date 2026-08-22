@@ -88,25 +88,48 @@ typedef struct {
 
 void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
 
-/* Phase-4 AM demodulation to DAC.  The decimated I/Q from the phase-3 DSP is
- * envelope-detected (alpha-max-beta-min, integer only), DC-blocked to center the
- * envelope at mid-scale, and pushed into a single-producer/single-consumer
- * lock-free ring.  The producer is the ADC0_SCAN_END block callback; the consumer
- * is the DAC DMAC ping-pong fill callback.  No CPU is in the per-sample DAC path:
- * the ra_dac double-buffered stream clocks one sample to DADR per timer tick via
- * DMAC.  The audio rate is sample_rate_hz/2 (the decimated rate). */
-typedef struct {
-    uint32_t audio_underruns;   /* fill_cb ticks where the ring was empty        */
-    uint32_t ring_overruns;     /* produced samples dropped because ring was full */
-    uint8_t am_active;          /* AM->DAC path is running                        */
-} ra_iq_am_status_t;
+/* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
+ * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
+ * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
+ * ring of DAC codes.  The producer is the ADC0_SCAN_END block callback; the consumer
+ * is any DAC DMAC ping-pong fill callback that calls ra_iq_adc_audio_pull().  The
+ * demodulator does NOT own the DAC: it only produces a generic audio stream.  The
+ * audio rate is sample_rate_hz/2 (the decimated rate). */
+typedef enum {
+    RA_IQ_DEMOD_OFF = 0,
+    RA_IQ_DEMOD_AM = 1,
+} ra_iq_demod_mode_t;
 
-/* dac_pin must be a DAC-capable pin (P014 / DA0 on VK_RA6M3); dac_ch selects the
- * DAC channel.  Requires the capture to be running.  Returns false if capture is
- * not running, the pin is not a DAC pin, or the DAC stream fails to start. */
-bool ra_iq_adc_am_dac_start(uint32_t dac_pin, uint8_t dac_ch);
-void ra_iq_adc_am_dac_stop(void);
-void ra_iq_adc_get_am_status(ra_iq_am_status_t *status);
+typedef struct {
+    uint32_t audio_underruns;   /* pull ticks where the ring was empty            */
+    uint32_t ring_overruns;     /* produced samples dropped because ring was full */
+    uint8_t demod_mode;         /* current ra_iq_demod_mode_t                     */
+} ra_iq_audio_status_t;
+
+/* Select the demod mode.  0 = OFF, 1 = AM; any other value clamps to OFF.  On a
+ * (re)selection the audio ring, DC blocker and audio counters are reset so the
+ * producer starts clean.  Control-plane. */
+void ra_iq_adc_set_demod(uint8_t mode);
+uint8_t ra_iq_adc_get_demod(void);
+
+/* Audio-stream parameters for a DAC consumer: freq_hz is the decimated audio rate
+ * (sample_rate_hz/2), sample_count is the decimated block length (block_samples/2).
+ * Either pointer may be NULL. */
+void ra_iq_adc_get_audio_params(uint32_t *freq_hz, size_t *sample_count);
+
+/* Generic SPSC consumer of the audio ring.  Pops n samples into buf; on an empty
+ * ring writes 2048 (mid-scale silence) and counts an underrun so the stream never
+ * stops.  Callable from any DMAC-ISR fill callback.  No allocation, no Python
+ * (REQ-RT-002/003).  Always returns n. */
+size_t ra_iq_adc_audio_pull(uint16_t *buf, size_t n);
+
+void ra_iq_adc_get_audio_status(ra_iq_audio_status_t *status);
+
+/* Manual I/Q imbalance correction, applied to the decimated I/Q before demod:
+ * I is the reference, Q' = amp*Q + phase*I in Q15 (amp = 32768 is unity, phase =
+ * 0 is no skew).  Disabled by default.  Control-plane setters/getters. */
+void ra_iq_adc_set_iq_correction(uint8_t enable, int32_t amp_q15, int32_t phase_q15);
+void ra_iq_adc_get_iq_correction(uint8_t *enable, int32_t *amp_q15, int32_t *phase_q15);
 
 #endif /* MICROPY_HW_ENABLE_IQ_ADC */
 

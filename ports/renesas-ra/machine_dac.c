@@ -33,6 +33,11 @@
 #include "ra/ra_dac.h"
 #include "modmachine.h"
 
+#if MICROPY_HW_ENABLE_IQ_ADC
+#include "hal_data.h"
+#include "ra/ra_iq_adc.h"
+#endif
+
 #if MICROPY_PY_MACHINE_DAC
 
 typedef struct _machine_dac_obj_t {
@@ -61,6 +66,25 @@ static machine_dac_obj_t machine_dac_obj[] = {
 static uint16_t machine_dac_raw_to_mv(uint16_t raw) {
     return (uint16_t)((raw * 3300U) / 4095U);
 }
+
+#if MICROPY_HW_ENABLE_IQ_ADC
+extern const mp_obj_type_t machine_iqadc_type;
+
+/* One DAC channel streams a demod source at a time on this board, so a single
+ * ping-pong pair is enough.  DMAC clocks these to DADR, so they must outlive the
+ * transfer (static) and be aligned for the transfer size (REQ-RT-004). */
+static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_a[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+
+/* DAC ping-pong refill, runs in the DMAC ISR.  Pulls the demod audio ring; the
+ * pull writes mid-scale silence on underrun so the stream never stops.  No
+ * allocation, no Python (REQ-RT-002/003). */
+static bool machine_dac_iq_fill(void *ctx, uint16_t *buf, size_t n) {
+    (void)ctx;
+    ra_iq_adc_audio_pull(buf, n);
+    return true;
+}
+#endif
 
 static void machine_dac_stop_stream(machine_dac_obj_t *self) {
     if (ra_dac_stream_is_active(self->ch)) {
@@ -275,6 +299,61 @@ static mp_obj_t machine_dac_write_timed(size_t n_args, const mp_obj_t *pos_args,
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_dac_write_timed_obj, 1, machine_dac_write_timed);
 
+#if MICROPY_HW_ENABLE_IQ_ADC
+// DAC.stream(source, *, freq=None)
+// Plays a demodulator's generic audio stream through this DAC's own double-buffered
+// DMAC path with no CPU per sample.  source is an IQADC instance; its audio params
+// (rate, block) drive the stream unless freq is overridden.  Stop with DAC.stop().
+static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_dac_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+
+    enum { ARG_source, ARG_freq };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_source, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_freq, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    if (!mp_obj_is_type(args[ARG_source].u_obj, &machine_iqadc_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("source must be IQADC"));
+    }
+
+    uint32_t freq;
+    size_t sample_count;
+    ra_iq_adc_get_audio_params(&freq, &sample_count);
+    if (args[ARG_freq].u_obj != mp_const_none) {
+        mp_int_t f = mp_obj_get_int(args[ARG_freq].u_obj);
+        if (f <= 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("freq should be > 0"));
+        }
+        freq = (uint32_t)f;
+    }
+    if (sample_count == 0 || sample_count > (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid audio block"));
+    }
+
+    for (size_t i = 0; i < sample_count; ++i) {
+        machine_dac_stream_buf_a[i] = 2048U;
+        machine_dac_stream_buf_b[i] = 2048U;
+    }
+
+    ra_dac_stream_status_t status = ra_dac_write_timed_double_buffered(
+        self->ch, machine_dac_stream_buf_a, machine_dac_stream_buf_b, true,
+        sample_count, freq, machine_dac_iq_fill, NULL, NULL, -1);
+    if (status != RA_DAC_STREAM_STATUS_OK) {
+        machine_dac_raise_stream_error(self, status);
+    }
+
+    self->buffer_obj = MP_OBJ_NULL;
+    self->active = ra_dac_is_running(self->ch);
+    self->mv = machine_dac_raw_to_mv(ra_dac_read(self->ch));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_dac_stream_obj, 1, machine_dac_stream);
+#endif
+
 // DAC.stop()
 static mp_obj_t machine_dac_stop(mp_obj_t self_in) {
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -303,6 +382,9 @@ static const mp_rom_map_elem_t machine_dac_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&machine_dac_read_obj) },
     { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&machine_dac_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_write_timed), MP_ROM_PTR(&machine_dac_write_timed_obj) },
+    #if MICROPY_HW_ENABLE_IQ_ADC
+    { MP_ROM_QSTR(MP_QSTR_stream_from), MP_ROM_PTR(&machine_dac_stream_obj) },
+    #endif
     { MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&machine_dac_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_playing), MP_ROM_PTR(&machine_dac_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_read_mv), MP_ROM_PTR(&machine_dac_read_mv_obj) },

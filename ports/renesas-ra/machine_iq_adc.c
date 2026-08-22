@@ -4,6 +4,8 @@
  * API: IQADC(i_pin, q_pin, rate=, block=, pga=, gain=)
  *      .start() .stop() .read_block(ib, qb) .blocks() .overruns()
  *      .unit1_stalls() .last_error() .ready() .status() .deinit()
+ *      .demod(mode) .audio_status() .read_audio(buf)
+ * The demodulator produces a generic audio stream; play it via DAC.stream(iqadc).
  *
  * REQ-RT-002: nothing the running capture loop calls may allocate on the
  * Python heap.  The consumer pre-allocates the array('H') I/Q buffers ONCE
@@ -33,7 +35,6 @@
 #include "py/smallint.h"
 #include "pin.h"
 #include "ra/ra_adc.h"
-#include "ra/ra_dac.h"
 #include "ra/ra_iq_adc.h"
 #include "ra/ra_sdr_caps.h"
 
@@ -312,52 +313,111 @@ static mp_obj_t machine_iqadc_dsp_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_dsp_status_obj, machine_iqadc_dsp_status);
 
-/* am_dac(dac_pin, ch=0) -> None.  Starts the AM-demod-to-DAC audio path on the
- * decimated I/Q.  dac_pin must be a DAC-capable pin (P014 / DA0 on VK_RA6M3).
- * Control-plane: this only arms the path; the per-sample work runs in the ADC
- * and DAC ISRs with no CPU per sample and no Python. */
-static mp_obj_t machine_iqadc_am_dac(size_t n_args, const mp_obj_t *args) {
-    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+/* demod(mode) -> None.  Selects the demodulator that fills the audio ring: "am"
+ * or "off".  Control-plane only; the per-sample demod work runs in the ADC block
+ * callback with no CPU per sample and no Python.  The DAC is decoupled: play the
+ * stream with DAC.stream(iqadc). */
+static mp_obj_t machine_iqadc_demod(mp_obj_t self_in, mp_obj_t mode_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->active) { mp_raise_OSError(MP_ENODEV); }
 
-    const machine_pin_obj_t *dp = machine_pin_find(args[1]);
-    if (!ra_dac_is_dac_pin(dp->pin)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("not a DAC pin"));
+    qstr mode = mp_obj_str_get_qstr(mode_in);
+    uint8_t m;
+    if (mode == MP_QSTR_am) {
+        m = (uint8_t)RA_IQ_DEMOD_AM;
+    } else if (mode == MP_QSTR_off) {
+        m = (uint8_t)RA_IQ_DEMOD_OFF;
+    } else {
+        mp_raise_ValueError(MP_ERROR_TEXT("unknown demod mode"));
     }
-
-    mp_int_t ch = (n_args > 2) ? mp_obj_get_int(args[2]) : 0;
-    if (ch < 0 || ch > 1) {
-        mp_raise_ValueError(MP_ERROR_TEXT("bad ch"));
-    }
-
-    if (!ra_iq_adc_am_dac_start(dp->pin, (uint8_t)ch)) {
-        mp_raise_OSError(MP_EIO);
-    }
+    ra_iq_adc_set_demod(m);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_am_dac_obj,
-                                           2, 3, machine_iqadc_am_dac);
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_demod_obj, machine_iqadc_demod);
 
-static mp_obj_t machine_iqadc_am_dac_stop(mp_obj_t self_in) {
+/* audio_status() -> dict.  ALLOCATES (builds a dict): control-plane only. */
+static mp_obj_t machine_iqadc_audio_status(mp_obj_t self_in) {
     (void)self_in;
-    ra_iq_adc_am_dac_stop();
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_am_dac_stop_obj, machine_iqadc_am_dac_stop);
-
-/* am_status() -> dict.  ALLOCATES (builds a dict): control-plane only. */
-static mp_obj_t machine_iqadc_am_status(mp_obj_t self_in) {
-    (void)self_in;
-    ra_iq_am_status_t st;
-    ra_iq_adc_get_am_status(&st);
+    ra_iq_audio_status_t st;
+    ra_iq_adc_get_audio_status(&st);
 
     mp_obj_t d = mp_obj_new_dict(3);
-    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_am_active), mp_obj_new_int(st.am_active));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_demod), mp_obj_new_int(st.demod_mode));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_audio_underruns), mp_obj_new_int(st.audio_underruns));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_ring_overruns), mp_obj_new_int(st.ring_overruns));
     return d;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_am_status_obj, machine_iqadc_am_status);
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_audio_status_obj, machine_iqadc_audio_status);
+
+/* read_audio(buf) -> sample_count.  Debug/inspection pull of the demod audio ring;
+ * NOT the realtime path (the realtime path is DAC.stream() via ra_iq_adc_audio_pull
+ * from the DMAC ISR).  buf must be array('H') with len >= decimated sample_count.
+ * On an empty ring the pull writes mid-scale silence, so this always fills buf. */
+static mp_obj_t machine_iqadc_read_audio(mp_obj_t self_in, mp_obj_t buf_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_WRITE);
+    if (bi.typecode != 'H') {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('H')"));
+    }
+
+    size_t sample_count;
+    ra_iq_adc_get_audio_params(NULL, &sample_count);
+    if (bi.len < sample_count * sizeof(uint16_t)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf too small"));
+    }
+
+    ra_iq_adc_audio_pull((uint16_t *)bi.buf, sample_count);
+    return MP_OBJ_NEW_SMALL_INT((mp_int_t)sample_count);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_read_audio_obj, machine_iqadc_read_audio);
+
+/* iq_correction(enable=True, amp=<float>, phase=<float>) — manual I/Q imbalance.
+ * amp/phase default to the current values, so enable/disable does not lose them. */
+static mp_obj_t machine_iqadc_iq_correction(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    enum { ARG_enable, ARG_amp, ARG_phase };
+    static const mp_arg_t allowed[] = {
+        { MP_QSTR_enable, MP_ARG_BOOL, {.u_bool = true} },
+        { MP_QSTR_amp,    MP_ARG_OBJ,  {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_phase,  MP_ARG_OBJ,  {.u_obj = MP_OBJ_NULL} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed), allowed, args);
+
+    uint8_t en;
+    int32_t amp_q15;
+    int32_t phase_q15;
+    ra_iq_adc_get_iq_correction(&en, &amp_q15, &phase_q15);
+
+    if (args[ARG_amp].u_obj != MP_OBJ_NULL) {
+        mp_float_t a = mp_obj_get_float(args[ARG_amp].u_obj);
+        amp_q15 = (int32_t)(a * (mp_float_t)32768.0 + (a >= 0 ? (mp_float_t)0.5 : (mp_float_t)-0.5));
+    }
+    if (args[ARG_phase].u_obj != MP_OBJ_NULL) {
+        mp_float_t p = mp_obj_get_float(args[ARG_phase].u_obj);
+        phase_q15 = (int32_t)(p * (mp_float_t)32768.0 + (p >= 0 ? (mp_float_t)0.5 : (mp_float_t)-0.5));
+    }
+    ra_iq_adc_set_iq_correction(args[ARG_enable].u_bool ? 1U : 0U, amp_q15, phase_q15);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_iqadc_iq_correction_obj, 1, machine_iqadc_iq_correction);
+
+static mp_obj_t machine_iqadc_iq_correction_status(mp_obj_t self_in) {
+    (void)self_in;
+    uint8_t en;
+    int32_t amp_q15;
+    int32_t phase_q15;
+    ra_iq_adc_get_iq_correction(&en, &amp_q15, &phase_q15);
+
+    mp_obj_t d = mp_obj_new_dict(3);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_correcting), mp_obj_new_int(en));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_amp), mp_obj_new_float((mp_float_t)amp_q15 / (mp_float_t)32768.0));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_phase), mp_obj_new_float((mp_float_t)phase_q15 / (mp_float_t)32768.0));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_iq_correction_status_obj, machine_iqadc_iq_correction_status);
 
 static mp_obj_t machine_iqadc_deinit(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -384,9 +444,11 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ready),        MP_ROM_PTR(&machine_iqadc_ready_obj) },
     { MP_ROM_QSTR(MP_QSTR_status),       MP_ROM_PTR(&machine_iqadc_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_dsp_status),   MP_ROM_PTR(&machine_iqadc_dsp_status_obj) },
-    { MP_ROM_QSTR(MP_QSTR_am_dac),       MP_ROM_PTR(&machine_iqadc_am_dac_obj) },
-    { MP_ROM_QSTR(MP_QSTR_am_dac_stop),  MP_ROM_PTR(&machine_iqadc_am_dac_stop_obj) },
-    { MP_ROM_QSTR(MP_QSTR_am_status),    MP_ROM_PTR(&machine_iqadc_am_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_demod),        MP_ROM_PTR(&machine_iqadc_demod_obj) },
+    { MP_ROM_QSTR(MP_QSTR_audio_status), MP_ROM_PTR(&machine_iqadc_audio_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_read_audio),   MP_ROM_PTR(&machine_iqadc_read_audio_obj) },
+    { MP_ROM_QSTR(MP_QSTR_iq_correction), MP_ROM_PTR(&machine_iqadc_iq_correction_obj) },
+    { MP_ROM_QSTR(MP_QSTR_iq_correction_status), MP_ROM_PTR(&machine_iqadc_iq_correction_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),       MP_ROM_PTR(&machine_iqadc_deinit_obj) },
 };
 static MP_DEFINE_CONST_DICT(machine_iqadc_locals_dict,
