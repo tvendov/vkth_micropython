@@ -103,13 +103,94 @@ static volatile uint32_t s_ring_head;   /* producer owns */
 static volatile uint32_t s_ring_tail;   /* consumer owns */
 
 /* Q8 slow LPF of the envelope, used as an IIR DC blocker so the audio is
- * AC-coupled around mid-scale.  Owned by the producer. */
+ * AC-coupled around mid-scale.  Owned by the producer.  AM-only. */
 static int32_t s_env_mean;
+
+/* SSB phasing demodulator (USB/LSB).  31-tap Type-III (odd length, antisymmetric)
+ * Hilbert transformer, Q15.  Generated as:
+ *
+ *   center tap n = 15 is 0; all even offsets from center are 0; for odd offset
+ *   k in {1,3,5,7,9,11,13,15}:
+ *       h[15+k] = -(2/(pi*k)) * w[15+k]
+ *       h[15-k] = +(2/(pi*k)) * w[15-k]
+ *   with the Blackman window
+ *       w[n] = 0.42 - 0.5*cos(2*pi*n/30) + 0.08*cos(4*pi*n/30), n = 0..30.
+ *   Each value * 32768, rounded to nearest int.
+ *
+ * The window is symmetric (w[15+k] == w[15-k]) so the taps come out antisymmetric.
+ * The k = 15 endpoint taps (n = 0, 30) vanish because w[0] = w[30] = 0, so the
+ * effective non-zero taps are at offsets +/-{1,3,5,7,9,11,13}.  Full 31-entry array
+ * (index n = tap position, offset = n - 15) is stored for clarity:
+ *
+ *   n:  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
+ *   h:  0   0  +27  0 +146  0 +465  0 +1174 0 +2628 0 +5905 0 +20489
+ *   n: 15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30
+ *   h:  0 -20489 0 -5905 0 -2628 0 -1174 0 -465 0 -146 0 -27  0   0
+ *
+ * Group delay is (31-1)/2 = 15 taps; the I path is delayed by 15 to align with H(Q).
+ * Convolution: hq = sum_n h[n] * q[pos - n]; the newest sample sits at q[pos]. */
+static const int16_t s_hil_taps[31] = {
+    0,     0,     27,    0,     146,   0,     465,   0,
+    1174,  0,     2628,  0,     5905,  0,     20489, 0,
+    -20489, 0,    -5905, 0,     -2628, 0,     -1174, 0,
+    -465,  0,     -146,  0,     -27,   0,     0,
+};
+
+/* Circular histories of the last 31 decimated I and Q samples (int16), and the
+ * write index.  These persist across blocks because the FIR spans block
+ * boundaries.  Single-producer (block callback) owned, so no lock is needed. */
+static int16_t s_hil_i[31];
+static int16_t s_hil_q[31];
+static uint8_t s_hil_pos;
 
 /* Selected demod mode (ra_iq_demod_mode_t).  OFF = the producer touches neither the
  * ring nor the DC blocker.  Written from the control plane, read in the block
  * callback. */
 static volatile uint8_t s_demod_mode;   /* RA_IQ_DEMOD_OFF by default */
+
+/* CW BFO NCO.  A 32-bit phase accumulator advanced by s_cw_inc per audio sample;
+ * the top 8 bits index a 256-entry Q15 sine table.  s_cw_inc is set from a fixed
+ * 700 Hz beat and the audio rate (sample_rate_hz/2) in ra_iq_adc_set_demod.  Owned
+ * by the producer (block callback); s_cw_inc is written from the control plane. */
+static uint32_t s_cw_phase;
+static uint32_t s_cw_inc;
+
+/* Q15 sine table, s_sin256[n] = round(32767 * sin(2*pi*n/256)), n = 0..255.
+ * Cosine is s_sin256[(idx + 64) & 255]. */
+static const int16_t s_sin256[256] = {
+         0,    804,   1608,   2410,   3212,   4011,   4808,   5602,
+      6393,   7179,   7962,   8739,   9512,  10278,  11039,  11793,
+     12539,  13279,  14010,  14732,  15446,  16151,  16846,  17530,
+     18204,  18868,  19519,  20159,  20787,  21403,  22005,  22594,
+     23170,  23731,  24279,  24811,  25329,  25832,  26319,  26790,
+     27245,  27683,  28105,  28510,  28898,  29268,  29621,  29956,
+     30273,  30571,  30852,  31113,  31356,  31580,  31785,  31971,
+     32137,  32285,  32412,  32521,  32609,  32678,  32728,  32757,
+     32767,  32757,  32728,  32678,  32609,  32521,  32412,  32285,
+     32137,  31971,  31785,  31580,  31356,  31113,  30852,  30571,
+     30273,  29956,  29621,  29268,  28898,  28510,  28105,  27683,
+     27245,  26790,  26319,  25832,  25329,  24811,  24279,  23731,
+     23170,  22594,  22005,  21403,  20787,  20159,  19519,  18868,
+     18204,  17530,  16846,  16151,  15446,  14732,  14010,  13279,
+     12539,  11793,  11039,  10278,   9512,   8739,   7962,   7179,
+      6393,   5602,   4808,   4011,   3212,   2410,   1608,    804,
+         0,   -804,  -1608,  -2410,  -3212,  -4011,  -4808,  -5602,
+     -6393,  -7179,  -7962,  -8739,  -9512, -10278, -11039, -11793,
+    -12539, -13279, -14010, -14732, -15446, -16151, -16846, -17530,
+    -18204, -18868, -19519, -20159, -20787, -21403, -22005, -22594,
+    -23170, -23731, -24279, -24811, -25329, -25832, -26319, -26790,
+    -27245, -27683, -28105, -28510, -28898, -29268, -29621, -29956,
+    -30273, -30571, -30852, -31113, -31356, -31580, -31785, -31971,
+    -32137, -32285, -32412, -32521, -32609, -32678, -32728, -32757,
+    -32767, -32757, -32728, -32678, -32609, -32521, -32412, -32285,
+    -32137, -31971, -31785, -31580, -31356, -31113, -30852, -30571,
+    -30273, -29956, -29621, -29268, -28898, -28510, -28105, -27683,
+    -27245, -26790, -26319, -25832, -25329, -24811, -24279, -23731,
+    -23170, -22594, -22005, -21403, -20787, -20159, -19519, -18868,
+    -18204, -17530, -16846, -16151, -15446, -14732, -14010, -13279,
+    -12539, -11793, -11039, -10278,  -9512,  -8739,  -7962,  -7179,
+     -6393,  -5602,  -4808,  -4011,  -3212,  -2410,  -1608,   -804,
+};
 
 typedef struct {
     uint32_t audio_underruns;
@@ -271,7 +352,10 @@ static void ra_iq_dsp_process(uint8_t half) {
  * Integer only, no FPU, no allocation, no Python (REQ-RT-002/003).  Dispatches on
  * the selected demod mode; each mode centers its output around mid-scale and pushes
  * to the SPSC ring, where a full ring drops the sample and counts an overrun.
- * AM: envelope = alpha-max-beta-min(|i|,|q|) with an IIR DC blocker. */
+ * AM: envelope = alpha-max-beta-min(|i|,|q|) with an IIR DC blocker.
+ * USB/LSB: phasing method.  audio = I_delayed -/+ H(Q), centered at mid-scale with
+ * no DC blocker (SSB audio carries no DC term).  USB = I_delayed - H(Q); if a known
+ * signal shows the opposite sideband on hardware, the operator can swap USB/LSB. */
 static void ra_iq_demod_produce(uint8_t half) {
     uint16_t m = s_dsp.dsp_samples;
     uint32_t head = s_ring_head;
@@ -308,6 +392,89 @@ static void ra_iq_demod_produce(uint8_t half) {
                 head = next;
             }
             break;
+        case RA_IQ_DEMOD_USB:
+        case RA_IQ_DEMOD_LSB: {
+            uint8_t is_lsb = (s_demod_mode == (uint8_t)RA_IQ_DEMOD_LSB);
+            uint8_t pos = s_hil_pos;
+            for (uint16_t j = 0U; j < m; ++j) {
+                s_hil_i[pos] = s_i_dc[j];
+                s_hil_q[pos] = s_q_dc[j];
+
+                /* Hilbert of Q: hq = sum_n taps[n] * q[pos - n], 31-modulo index
+                 * (31 is not a power of two, so wrap with a subtract). */
+                int32_t hq = 0;
+                for (uint8_t n = 0U; n < 31U; ++n) {
+                    if (s_hil_taps[n] == 0) {
+                        continue;
+                    }
+                    int8_t idx = (int8_t)pos - (int8_t)n;
+                    if (idx < 0) {
+                        idx += 31;
+                    }
+                    hq += (int32_t)s_hil_taps[n] * (int32_t)s_hil_q[idx];
+                }
+                hq >>= 15;
+
+                /* I delayed by the group delay (15 taps) to align with H(Q). */
+                int8_t di = (int8_t)pos - 15;
+                if (di < 0) {
+                    di += 31;
+                }
+                int32_t id = s_hil_i[di];
+
+                int32_t audio = is_lsb ? (id + hq) : (id - hq);
+                int32_t dac = 2048 + audio;
+                if (dac < 0) {
+                    dac = 0;
+                } else if (dac > 4095) {
+                    dac = 4095;
+                }
+
+                pos = (uint8_t)((pos + 1U) % 31U);
+
+                uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
+                if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
+                    s_audio.ring_overruns++;
+                    continue;
+                }
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = (uint16_t)dac;
+                head = next;
+            }
+            s_hil_pos = pos;
+            break;
+        }
+        case RA_IQ_DEMOD_CW: {
+            /* Mix the complex baseband up to a fixed 700 Hz beat and take the real
+             * part: audio = Re{(i + jq) * (cos + j sin)} = i*cos - q*sin.  A carrier
+             * at 0 Hz baseband becomes an on/off-keyed 700 Hz tone.  No DC blocker:
+             * the output is already AC.  The NCO phase advances every sample, even
+             * on a ring-full drop, so the tone stays continuous. */
+            for (uint16_t j = 0U; j < m; ++j) {
+                int32_t i = s_i_dc[j];
+                int32_t q = s_q_dc[j];
+                uint8_t idx = (uint8_t)(s_cw_phase >> 24);
+                int32_t c = s_sin256[(idx + 64U) & 255U];
+                int32_t s = s_sin256[idx];
+                int32_t audio = ((i * c) - (q * s)) >> 15;
+                s_cw_phase += s_cw_inc;
+
+                int32_t dac = 2048 + audio;
+                if (dac < 0) {
+                    dac = 0;
+                } else if (dac > 4095) {
+                    dac = 4095;
+                }
+
+                uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
+                if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
+                    s_audio.ring_overruns++;
+                    continue;
+                }
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = (uint16_t)dac;
+                head = next;
+            }
+            break;
+        }
         default:
             return;
     }
@@ -603,6 +770,12 @@ bool ra_iq_adc_start(void) {
     s_iq.ready_half = 0U;
     memset(&s_dsp, 0, sizeof(s_dsp));
 
+    /* One-time ring flush at capture start: the ring must be empty before the
+     * producer runs, but must NOT be flushed on a mode switch (see set_demod). */
+    s_ring_head = 0U;
+    s_ring_tail = 0U;
+    __DMB();
+
     R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
     ra_iq_dtc_build();
     R_BSP_IrqStatusClear(VECTOR_NUMBER_ADC0_SCAN_END);
@@ -692,15 +865,26 @@ void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status) {
 }
 
 void ra_iq_adc_set_demod(uint8_t mode) {
-    if (mode > (uint8_t)RA_IQ_DEMOD_AM) {
+    if (mode > (uint8_t)RA_IQ_DEMOD_CW) {
         mode = (uint8_t)RA_IQ_DEMOD_OFF;
     }
 
-    /* Reset the ring, DC blocker and audio counters so the producer starts clean,
-     * then publish the mode after those writes (SPSC ordering). */
-    s_ring_head = 0U;
-    s_ring_tail = 0U;
+    /* Reset the producer DSP state and audio counters so the new mode starts
+     * clean, then publish the mode after those writes (SPSC ordering).  The ring
+     * pointers are deliberately NOT touched here: between two active modes the ring
+     * must keep flowing (old samples drain, new fill) so the DAC never underruns on
+     * a mode switch.  The one-time ring flush lives in ra_iq_adc_start(). */
     s_env_mean = 0;
+    memset(s_hil_i, 0, sizeof(s_hil_i));
+    memset(s_hil_q, 0, sizeof(s_hil_q));
+    s_hil_pos = 0U;
+    s_cw_phase = 0U;
+    if ((mode == (uint8_t)RA_IQ_DEMOD_CW) && (s_status.sample_rate_hz != 0U)) {
+        uint32_t fs = s_status.sample_rate_hz >> 1;
+        s_cw_inc = (fs != 0U) ? (uint32_t)(((uint64_t)700 << 32) / fs) : 0U;
+    } else {
+        s_cw_inc = 0U;
+    }
     s_audio.audio_underruns = 0U;
     s_audio.ring_overruns = 0U;
     __DMB();

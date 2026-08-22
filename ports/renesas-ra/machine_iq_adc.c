@@ -313,8 +313,8 @@ static mp_obj_t machine_iqadc_dsp_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_dsp_status_obj, machine_iqadc_dsp_status);
 
-/* demod(mode) -> None.  Selects the demodulator that fills the audio ring: "am"
- * or "off".  Control-plane only; the per-sample demod work runs in the ADC block
+/* demod(mode) -> None.  Selects the demodulator that fills the audio ring: "am",
+ * "usb", "lsb", "cw" or "off".  Control-plane only; the per-sample demod work runs in the ADC block
  * callback with no CPU per sample and no Python.  The DAC is decoupled: play the
  * stream with DAC.stream(iqadc). */
 static mp_obj_t machine_iqadc_demod(mp_obj_t self_in, mp_obj_t mode_in) {
@@ -325,6 +325,12 @@ static mp_obj_t machine_iqadc_demod(mp_obj_t self_in, mp_obj_t mode_in) {
     uint8_t m;
     if (mode == MP_QSTR_am) {
         m = (uint8_t)RA_IQ_DEMOD_AM;
+    } else if (mode == MP_QSTR_usb) {
+        m = (uint8_t)RA_IQ_DEMOD_USB;
+    } else if (mode == MP_QSTR_lsb) {
+        m = (uint8_t)RA_IQ_DEMOD_LSB;
+    } else if (mode == MP_QSTR_cw) {
+        m = (uint8_t)RA_IQ_DEMOD_CW;
     } else if (mode == MP_QSTR_off) {
         m = (uint8_t)RA_IQ_DEMOD_OFF;
     } else {

@@ -98,6 +98,9 @@ void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
 typedef enum {
     RA_IQ_DEMOD_OFF = 0,
     RA_IQ_DEMOD_AM = 1,
+    RA_IQ_DEMOD_USB = 2,    /* upper sideband, phasing method: I_delayed - H(Q) */
+    RA_IQ_DEMOD_LSB = 3,    /* lower sideband, phasing method: I_delayed + H(Q) */
+    RA_IQ_DEMOD_CW = 4,     /* CW: mix baseband up to a fixed 700 Hz beat, real part */
 } ra_iq_demod_mode_t;
 
 typedef struct {
@@ -106,9 +109,12 @@ typedef struct {
     uint8_t demod_mode;         /* current ra_iq_demod_mode_t                     */
 } ra_iq_audio_status_t;
 
-/* Select the demod mode.  0 = OFF, 1 = AM; any other value clamps to OFF.  On a
- * (re)selection the audio ring, DC blocker and audio counters are reset so the
- * producer starts clean.  Control-plane. */
+/* Select the demod mode.  0 = OFF, 1 = AM, 2 = USB, 3 = LSB, 4 = CW; any other
+ * value clamps to OFF.  On a (re)selection the producer DSP state (DC blocker,
+ * SSB Hilbert histories, CW NCO phase) and audio counters are reset so the
+ * producer starts clean; the audio ring is NOT flushed so a mode switch does not
+ * underrun the DAC (the ring is flushed once in ra_iq_adc_start).
+ * Control-plane. */
 void ra_iq_adc_set_demod(uint8_t mode);
 uint8_t ra_iq_adc_get_demod(void);
 

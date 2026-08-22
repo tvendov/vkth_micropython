@@ -104,6 +104,10 @@ Q(amp)
 Q(phase)
 Q(correcting)
 Q(stream_from)
+// iq_adc SSB demod modes; "am"/"off" are auto-collected elsewhere, "usb"/"lsb"/"cw" are not
+Q(usb)
+Q(lsb)
+Q(cw)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
