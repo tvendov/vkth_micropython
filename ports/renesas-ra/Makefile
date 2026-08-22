@@ -590,11 +590,17 @@ else
 CFLAGS += -DMICROPY_HW_ENABLE_AUDIOADC=0
 endif
 
-# Coherent I/Q capture (SDR receive path).  RA6M3 only: it needs the second ADC
-# unit, the dedicated sample-and-hold channels and the PGA.
-ifeq ($(CMSIS_MCU),RA6M3)
+# Coherent I/Q capture (SDR receive path).  Needs the second ADC unit, the
+# dedicated sample-and-hold channels and the PGA.  Gated on the board feature
+# flag MICROPY_HW_ENABLE_RA_SDR (set in boards/<BOARD>/mpconfigboard.mk), NOT on
+# the MCU: the RA6-family capability layer (ra_sdr_caps.c) supplies the portable
+# facts so the same driver runs on register-compatible RA6 members.  The driver
+# and Python wrapper still key off -DMICROPY_HW_ENABLE_IQ_ADC=1, kept below.
+# NOTE: operator-owned Makefile block; leave for confirmation.
+ifeq ($(MICROPY_HW_ENABLE_RA_SDR),1)
 CFLAGS += -DMICROPY_HW_ENABLE_IQ_ADC=1
 HAL_SRC_C += ra/ra_iq_adc.c
+HAL_SRC_C += ra/ra_sdr_caps.c
 SRC_C += machine_iq_adc.c
 endif
 

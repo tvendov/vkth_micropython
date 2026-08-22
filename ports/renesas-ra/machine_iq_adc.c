@@ -35,6 +35,7 @@
 #include "ra/ra_adc.h"
 #include "ra/ra_dac.h"
 #include "ra/ra_iq_adc.h"
+#include "ra/ra_sdr_caps.h"
 
 /* ------------------------------------------------------------------ */
 /* Object                                                               */
@@ -131,13 +132,20 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
     const machine_pin_obj_t *ip = machine_pin_find(args[ARG_i_pin].u_obj);
     const machine_pin_obj_t *qp = machine_pin_find(args[ARG_q_pin].u_obj);
 
+    /* The I/Q pins must land in the PGA / dedicated-S&H channel range of each
+     * unit; those ranges come from the capability layer.  On VK_RA6M3 they are
+     * AN000..AN002 (unit 0) and AN100..AN102 (unit 1). */
+    const ra_sdr_mcu_facts_t *mcu = ra_sdr_caps_get()->mcu;
+    uint8_t i_lo = mcu->pga_adc0_first_ch;
+    uint8_t i_hi = (uint8_t)(mcu->pga_adc0_first_ch + mcu->pga_channels_per_unit - 1U);
+    uint8_t q_lo = mcu->pga_adc1_first_ch;
+    uint8_t q_hi = (uint8_t)(mcu->pga_adc1_first_ch + mcu->pga_channels_per_unit - 1U);
+
     uint8_t i_ch, q_ch;
-    if (!ra_adc_pin_to_ch(ip->pin, &i_ch) ||
-        (i_ch != AN000 && i_ch != AN001 && i_ch != AN002)) {
+    if (!ra_adc_pin_to_ch(ip->pin, &i_ch) || (i_ch < i_lo) || (i_ch > i_hi)) {
         mp_raise_ValueError(MP_ERROR_TEXT("i_pin must be AN000..AN002"));
     }
-    if (!ra_adc_pin_to_ch(qp->pin, &q_ch) ||
-        (q_ch != AN100 && q_ch != AN101 && q_ch != AN102)) {
+    if (!ra_adc_pin_to_ch(qp->pin, &q_ch) || (q_ch < q_lo) || (q_ch > q_hi)) {
         mp_raise_ValueError(MP_ERROR_TEXT("q_pin must be AN100..AN102"));
     }
 

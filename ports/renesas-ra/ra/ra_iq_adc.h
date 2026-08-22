@@ -31,7 +31,7 @@
 
 #include "ra_adc.h"
 
-#if defined(RA6M3)
+#if MICROPY_HW_ENABLE_IQ_ADC
 
 #define RA_IQ_ADC_MAX_BLOCK_SAMPLES (256)
 
@@ -108,6 +108,6 @@ bool ra_iq_adc_am_dac_start(uint32_t dac_pin, uint8_t dac_ch);
 void ra_iq_adc_am_dac_stop(void);
 void ra_iq_adc_get_am_status(ra_iq_am_status_t *status);
 
-#endif /* RA6M3 */
+#endif /* MICROPY_HW_ENABLE_IQ_ADC */
 
 #endif /* MICROPY_INCLUDED_RENESAS_RA_IQ_ADC_H */

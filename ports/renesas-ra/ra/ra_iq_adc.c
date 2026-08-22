@@ -17,15 +17,12 @@
 #include "ra_adc.h"
 #include "ra_dac.h"
 #include "ra_iq_adc.h"
+#include "ra_sdr_caps.h"
 #include "ra_timer.h"
 #include "ra_utils.h"
 #include "vector_data.h"
 
-#if defined(RA6M3)
-
-/* ELC output slots that feed the ADC units (47.5.2). */
-#define RA_IQ_ELSR_ADC0 (8U)
-#define RA_IQ_ELSR_ADC1 (10U)
+#if MICROPY_HW_ENABLE_IQ_ADC
 
 /* Sampling time applied to both units.  Identical values on the two units are
  * required by ARCH-ADC-002: unequal sampling times move the aperture of one
@@ -142,20 +139,28 @@ static bool ra_iq_reserve_timer(uint8_t *timer_ch) {
     return false;
 }
 
-/* One event, both units.  This is the whole of ARCH-TRIG-002. */
+/* One event, both units.  This is the whole of ARCH-TRIG-002.  The ELC output
+ * slots that feed the ADC units (47.5.2) come from the capability layer; on
+ * RA6M3 they resolve to ELSR8 (ELC_AD00) and ELSR10 (ELC_AD10). */
 static void ra_iq_elc_enable(elc_event_t event) {
+    const ra_sdr_caps_t *caps = ra_sdr_caps_get();
+    uint8_t elsr_adc0 = caps->mcu->elc_adc0_slot;
+    uint8_t elsr_adc1 = caps->mcu->elc_adc1_slot;
     ra_mstpcrc_start(R_MSTP_MSTPCRC_MSTPC14_Msk);
-    R_ELC->ELSR[RA_IQ_ELSR_ADC0].HA = (uint16_t)event;
-    R_ELC->ELSR[RA_IQ_ELSR_ADC1].HA = (uint16_t)event;
-    FSP_REGISTER_READ(R_ELC->ELSR[RA_IQ_ELSR_ADC1].HA);
+    R_ELC->ELSR[elsr_adc0].HA = (uint16_t)event;
+    R_ELC->ELSR[elsr_adc1].HA = (uint16_t)event;
+    FSP_REGISTER_READ(R_ELC->ELSR[elsr_adc1].HA);
     R_ELC->ELCR = R_ELC_ELCR_ELCON_Msk;
     FSP_REGISTER_READ(R_ELC->ELCR);
 }
 
 static void ra_iq_elc_disable(void) {
-    R_ELC->ELSR[RA_IQ_ELSR_ADC0].HA = 0U;
-    R_ELC->ELSR[RA_IQ_ELSR_ADC1].HA = 0U;
-    FSP_REGISTER_READ(R_ELC->ELSR[RA_IQ_ELSR_ADC1].HA);
+    const ra_sdr_caps_t *caps = ra_sdr_caps_get();
+    uint8_t elsr_adc0 = caps->mcu->elc_adc0_slot;
+    uint8_t elsr_adc1 = caps->mcu->elc_adc1_slot;
+    R_ELC->ELSR[elsr_adc0].HA = 0U;
+    R_ELC->ELSR[elsr_adc1].HA = 0U;
+    FSP_REGISTER_READ(R_ELC->ELSR[elsr_adc1].HA);
 }
 
 /* ADSHCR / ADSHMSR / ADSSTR, identical on both units (ARCH-ADC-002).
@@ -455,6 +460,8 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     uint8_t q_ch;
     uint8_t timer_ch;
     elc_event_t agt_event;
+    const ra_sdr_caps_t *caps = ra_sdr_caps_get();
+    uint8_t channels_per_unit = caps->mcu->adc_channels_per_unit;
 
     if ((block_samples == 0U) || (block_samples > RA_IQ_ADC_MAX_BLOCK_SAMPLES)
         || (sample_rate_hz == 0U)) {
@@ -465,7 +472,7 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     }
     /* ARCH-ADC-001 and ARCH-ADC-002: I on unit 0, Q on unit 1, both on channels
      * that carry a dedicated sample-and-hold. */
-    if ((i_ch >= RA_IQ_ADC_CHANNELS_PER_UNIT) || (q_ch < RA_IQ_ADC_CHANNELS_PER_UNIT)) {
+    if ((i_ch >= channels_per_unit) || (q_ch < channels_per_unit)) {
         return false;
     }
     if (!ra_adc_pga_supported_ch(i_ch) || !ra_adc_pga_supported_ch(q_ch)) {
@@ -750,4 +757,4 @@ void ra_iq_adc_get_am_status(ra_iq_am_status_t *status) {
     }
 }
 
-#endif /* RA6M3 */
+#endif /* MICROPY_HW_ENABLE_IQ_ADC */
