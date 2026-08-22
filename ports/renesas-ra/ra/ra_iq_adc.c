@@ -1823,6 +1823,20 @@ int32_t ra_iq_adc_get_tune(void) {
     return s_tune_hz;
 }
 
+/* Live PGA (RF front-end) gain, applied to BOTH I and Q channels so they stay matched.
+ * gain_code is an RA_ADC_PGA_GAIN_* enum (0x0..0xE = x2.0..x13.3). Only has effect when
+ * the unit was created in a PGA mode other than BYPASS -- ra_adc_pga_set_gain_ch returns
+ * false otherwise, so this is a safe no-op in bypass. Control-plane only, never the ISR. */
+bool ra_iq_adc_set_pga_gain(uint8_t gain_code) {
+    return ra_adc_pga_set_gain_ch(s_iq.i_ch, gain_code)
+           && ra_adc_pga_set_gain_ch(s_iq.q_ch, gain_code);
+}
+
+bool ra_iq_adc_get_pga_gain(uint8_t *gain_code) {
+    ra_adc_pga_mode_t mode;
+    return ra_adc_pga_get_ch(s_iq.i_ch, &mode, gain_code);
+}
+
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
     if (thresh != NULL) {
         *thresh = s_sq_thresh;

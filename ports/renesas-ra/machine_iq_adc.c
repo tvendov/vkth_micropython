@@ -703,6 +703,22 @@ static mp_obj_t machine_iqadc_tune(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tune_obj, 1, 2,
     machine_iqadc_tune);
 
+/* pga_gain([code]) -> int.  RF front-end PGA gain (0..14 = x2.0..x13.3), applied to both
+ * I and Q channels so they stay matched; always returns the current code.  Only has effect
+ * when the unit was created in a PGA mode other than BYPASS (a no-op otherwise). */
+static mp_obj_t machine_iqadc_pga_gain(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        ra_iq_adc_set_pga_gain((uint8_t)mp_obj_get_int(args[1]));   // app clamps 0..14
+    }
+    uint8_t code = 0;
+    (void)ra_iq_adc_get_pga_gain(&code);
+    return mp_obj_new_int(code);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_pga_gain_obj, 1, 2,
+    machine_iqadc_pga_gain);
+
 /* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
  * array('h', N); the pre-NCO capture FFT is shifted by the current tune offset, then
  * reduced 256->N, dB-scaled, and attack/release smoothed in C, filling buf with
@@ -765,29 +781,8 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_filter_status_obj, machine_iqadc_
  * ISR).  Returns None when no completed snapshot is ready yet; otherwise fills buf
  * with the fftshift-ed magnitude spectrum (DC at buf[N/2]) and returns N.  The
  * float window + CMSIS FFT run in this call (control plane, FPU is fine). */
-static mp_obj_t machine_iqadc_spectrum(mp_obj_t self_in, mp_obj_t buf_in) {
-    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
-
-    mp_buffer_info_t bi;
-    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_WRITE);
-    if (bi.typecode != 'f') {
-        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('f')"));
-    }
-
-    size_t n = ra_iq_adc_spectrum_size();
-    if (bi.len < n * sizeof(float)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("buf too small"));
-    }
-
-    ra_iq_adc_spectrum_enable(1U);
-
-    if (!ra_iq_adc_spectrum((float *)bi.buf, n)) {
-        return mp_const_none;
-    }
-    return MP_OBJ_NEW_SMALL_INT((mp_int_t)n);
-}
-static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_spectrum_obj, machine_iqadc_spectrum);
+/* Raw float iq.spectrum(buf) removed to reclaim flash for iq.gain() (the firmware region
+ * was full): the UI uses the alloc-free iq.spectrum_bars() reducer instead. */
 
 static mp_obj_t machine_iqadc_spectrum_stop(mp_obj_t self_in) {
     (void)self_in;
@@ -851,8 +846,8 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_squelch),      MP_ROM_PTR(&machine_iqadc_squelch_obj) },
     { MP_ROM_QSTR(MP_QSTR_smeter),       MP_ROM_PTR(&machine_iqadc_smeter_obj) },
     { MP_ROM_QSTR(MP_QSTR_tune),         MP_ROM_PTR(&machine_iqadc_tune_obj) },
+    { MP_ROM_QSTR(MP_QSTR_gain),         MP_ROM_PTR(&machine_iqadc_pga_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
-    { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_bars), MP_ROM_PTR(&machine_iqadc_spectrum_bars_obj) },
     { MP_ROM_QSTR(MP_QSTR_counters),     MP_ROM_PTR(&machine_iqadc_counters_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },

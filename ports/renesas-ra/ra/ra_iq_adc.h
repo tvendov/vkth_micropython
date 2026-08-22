@@ -151,6 +151,11 @@ void ra_iq_adc_get_smeter(int32_t *rms, float *dbfs);
 void ra_iq_adc_set_tune(int32_t hz);
 int32_t ra_iq_adc_get_tune(void);
 
+/* Live RF/PGA gain on both I/Q channels. gain_code = RA_ADC_PGA_GAIN_* (0..14); effective
+ * only when the unit runs in a PGA mode other than BYPASS. Returns false (no-op) otherwise. */
+bool ra_iq_adc_set_pga_gain(uint8_t gain_code);
+bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free

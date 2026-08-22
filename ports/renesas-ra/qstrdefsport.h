@@ -161,6 +161,8 @@ Q(smeter)
 Q(dbfs)
 // iq_adc tuning NCO (digital fine-tune)
 Q(tune)
+// iq_adc RF/PGA front-end gain -> exposed as iq.gain() (reuses the existing "gain" qstr;
+// the flash region is full, so no new qstr string is spent on this method).
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
