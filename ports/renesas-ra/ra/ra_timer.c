@@ -302,11 +302,8 @@ bool ra_agt_timer_reserve(uint32_t ch) {
     if (ch >= AGT_CH_SIZE || agt_reserved[ch]) {
         return false;
     }
-    // Reject if the hardware timer is currently running
-    if (agt_regs[ch] != NULL && agt_regs[ch]->CTRL.AGTCR_b.TCSTF != 0U) {
-        return false;
-    }
-    // Reject if any software state indicates the channel is in use
+    // A live SOFTWARE owner means the channel is genuinely in use -> reject. These
+    // checks come FIRST so a channel with no owner can be reclaimed below.
     ra_agt_timer_state_t *st = &ra_agt_timer_state[ch];
     if (st->callback != NULL || st->freq != 0.0f || st->period_counts != 0U) {
         return false;
@@ -317,6 +314,18 @@ bool ra_agt_timer_reserve(uint32_t ch) {
     for (size_t i = 0; i < AGT_OUTPUT_CHANNELS; ++i) {
         if (st->output_enabled[i] || st->compare_irq_enabled[i]) {
             return false;
+        }
+    }
+    // No software owner. If the hardware timer is still RUNNING it is an ORPHAN left
+    // by a session killed without deinit -- its running state (AGTCR.TCSTF) survives a
+    // warm reset, so reserve would otherwise reject it forever until a cold reset.
+    // Reclaim it: stop the count, then take the channel (init reconfigures it fully).
+    if (agt_regs[ch] != NULL && agt_regs[ch]->CTRL.AGTCR_b.TCSTF != 0U) {
+        agt_regs[ch]->CTRL.AGTCR_b.TSTART = 0U;         // request stop
+        for (uint32_t spin = 0U; spin < 10000U; ++spin) {
+            if (agt_regs[ch]->CTRL.AGTCR_b.TCSTF == 0U) {
+                break;                                   // counter has stopped
+            }
         }
     }
     agt_reserved[ch] = true;
