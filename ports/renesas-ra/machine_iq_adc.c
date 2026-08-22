@@ -703,6 +703,45 @@ static mp_obj_t machine_iqadc_tune(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tune_obj, 1, 2,
     machine_iqadc_tune);
 
+/* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
+ * array('h', N); the FFT + 256->N peak reduction + dB scaling is done in C, filling
+ * buf with int16 heights 0..50.  Returns N when a fresh snapshot was written, else
+ * None.  No MicroPython object is allocated -- safe to call in the zero-alloc loop. */
+static mp_obj_t machine_iqadc_spectrum_bars(mp_obj_t self_in, mp_obj_t buf_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_WRITE);
+    if (bi.typecode != 'h') {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('h')"));
+    }
+    size_t n = bi.len / sizeof(int16_t);
+    ra_iq_adc_spectrum_enable(1U);
+    if (!ra_iq_adc_spectrum_bars((int16_t *)bi.buf, n, 50)) {
+        return mp_const_none;
+    }
+    return MP_OBJ_NEW_SMALL_INT((mp_int_t)n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_spectrum_bars_obj, machine_iqadc_spectrum_bars);
+
+/* counters(buf) -> int.  Allocation-free counter snapshot: buf is a caller
+ * array('i', >=6); filled with [blocks, overruns, unit1_stalls, audio_underruns,
+ * ring_overruns, agc_clips].  Returns the count written.  Replaces the dict-returning
+ * status()/audio_status()/agc_status() in the poll loop -- no allocation. */
+static mp_obj_t machine_iqadc_counters(mp_obj_t self_in, mp_obj_t buf_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_WRITE);
+    if (bi.typecode != 'i' && bi.typecode != 'l') {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('i')"));
+    }
+    size_t n = bi.len / sizeof(int32_t);
+    size_t c = ra_iq_adc_get_counters((int32_t *)bi.buf, n);
+    return MP_OBJ_NEW_SMALL_INT((mp_int_t)c);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_counters_obj, machine_iqadc_counters);
+
 /* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
  * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
 static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
@@ -812,6 +851,8 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_tune),         MP_ROM_PTR(&machine_iqadc_tune_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum_bars), MP_ROM_PTR(&machine_iqadc_spectrum_bars_obj) },
+    { MP_ROM_QSTR(MP_QSTR_counters),     MP_ROM_PTR(&machine_iqadc_counters_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_info), MP_ROM_PTR(&machine_iqadc_spectrum_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),       MP_ROM_PTR(&machine_iqadc_deinit_obj) },

@@ -2128,4 +2128,87 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
     return true;
 }
 
+/* Allocation-free spectrum for the UI: same FFT as ra_iq_adc_spectrum, but the 256
+ * fftshifted magnitudes are reduced in C to nbars peak-per-group bars, per-frame-peak
+ * dB-scaled (~50 dB span) to int16 heights 0..max_h, written into the caller's int16
+ * buffer.  The whole float pipeline stays in C so the Python UI never boxes a float --
+ * it only reads small ints out of the array.  Returns false when no snapshot is ready. */
+bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
+    if ((nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N)) {
+        return false;
+    }
+    int8_t h = s_spec_ready;
+    if (h < 0) {
+        return false;
+    }
+    s_spec_ready = -1;
+
+    if (!s_spec_win_init) {
+        for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
+            s_spec_win[k] = 0.5f - 0.5f * arm_cos_f32(
+                (2.0f * PI * (float)k) / (float)(RA_IQ_SPEC_N - 1));
+        }
+        s_spec_win_init = 1U;
+    }
+    for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
+        float w = s_spec_win[k];
+        s_spec_fft[2U * k] = (float)s_spec_i[h][k] * w;
+        s_spec_fft[2U * k + 1U] = (float)s_spec_q[h][k] * w;
+    }
+    arm_cfft_f32(&arm_cfft_sR_f32_len256, s_spec_fft, 0, 1);
+    arm_cmplx_mag_f32(s_spec_fft, s_spec_mag, RA_IQ_SPEC_N);
+
+    /* Global peak for per-frame normalisation. */
+    float peak = 1e-6f;
+    for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
+        if (s_spec_mag[k] > peak) {
+            peak = s_spec_mag[k];
+        }
+    }
+    float inv = 1.0f / peak;
+
+    /* Peak per bar over the fftshifted spectrum, dB-scaled to 0..max_h. */
+    for (size_t b = 0U; b < nbars; ++b) {
+        uint32_t lo = (uint32_t)((b * (size_t)RA_IQ_SPEC_N) / nbars);
+        uint32_t hi = (uint32_t)(((b + 1U) * (size_t)RA_IQ_SPEC_N) / nbars);
+        float mx = 0.0f;
+        for (uint32_t k = lo; k < hi; ++k) {
+            float v = s_spec_mag[(k + (RA_IQ_SPEC_N / 2)) & (RA_IQ_SPEC_N - 1)];
+            if (v > mx) {
+                mx = v;
+            }
+        }
+        float r = mx * inv;
+        float db = (r > 1e-4f) ? (20.0f * log10f(r)) : -80.0f;
+        float norm = (db + 50.0f) / 50.0f;
+        if (norm < 0.0f) {
+            norm = 0.0f;
+        } else if (norm > 1.0f) {
+            norm = 1.0f;
+        }
+        out[b] = (int16_t)(norm * (float)max_h + 0.5f);
+    }
+    return true;
+}
+
+/* Allocation-free counter snapshot for the UI: fills the caller's int32 buffer with
+ * [blocks, overruns, unit1_stalls, audio_underruns, ring_overruns, agc_clips] (up to n).
+ * Replaces the dict-returning status()/audio_status()/agc_status() in the poll loop so
+ * the UI reads counters without allocating a single MicroPython object.  Returns the
+ * number of fields written. */
+size_t ra_iq_adc_get_counters(int32_t *out, size_t n) {
+    int32_t vals[6];
+    vals[0] = (int32_t)s_status.blocks;
+    vals[1] = (int32_t)s_status.overruns;
+    vals[2] = (int32_t)s_status.unit1_stalls;
+    vals[3] = (int32_t)s_audio.audio_underruns;
+    vals[4] = (int32_t)s_audio.ring_overruns;
+    vals[5] = (int32_t)s_agc_clips;
+    size_t count = (n < 6U) ? n : 6U;
+    for (size_t i = 0U; i < count; ++i) {
+        out[i] = vals[i];
+    }
+    return count;
+}
+
 #endif /* MICROPY_HW_ENABLE_IQ_ADC */

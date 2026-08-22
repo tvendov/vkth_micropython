@@ -240,6 +240,13 @@ int32_t ra_iq_adc_get_volume(void);
  * writes min(n, N) bins and returns false when no fresh snapshot is ready. */
 #define RA_IQ_SPECTRUM_N (256)
 bool ra_iq_adc_spectrum(float *out, size_t n);
+
+/* Allocation-free UI accessors: the FFT->bars reduction (dB-scaled int16 heights) and
+ * the counter snapshot are done entirely in C, filling caller-preallocated buffers, so
+ * the Python poll loop never creates a MicroPython object (no boxed floats, no dicts) --
+ * required so GC never runs and stalls the realtime ADC ISR. */
+bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);
+size_t ra_iq_adc_get_counters(int32_t *out, size_t n);
 void ra_iq_adc_spectrum_enable(uint8_t on);
 size_t ra_iq_adc_spectrum_size(void);
 uint32_t ra_iq_adc_spectrum_bin_hz(void);

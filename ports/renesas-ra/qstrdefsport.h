@@ -127,6 +127,8 @@ Q(bypassed)
 Q(fs)
 // iq_adc spectrum (FFT) path.  All SDR-unique; none collide with frozen qstrs.
 Q(spectrum)
+Q(spectrum_bars)
+Q(counters)
 Q(spectrum_stop)
 Q(spectrum_info)
 Q(bins)
