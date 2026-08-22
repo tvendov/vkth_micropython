@@ -674,6 +674,21 @@ static mp_obj_t machine_iqadc_squelch(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_squelch_obj, 1, 2,
     machine_iqadc_squelch);
 
+/* smeter() -> dict {rms, dbfs}.  Signal-strength readout from the channel-filtered
+ * complex baseband, independent of the demod mode and the AGC (for a UI / waterfall). */
+static mp_obj_t machine_iqadc_smeter(mp_obj_t self_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    int32_t rms;
+    float dbfs;
+    ra_iq_adc_get_smeter(&rms, &dbfs);
+    mp_obj_t d = mp_obj_new_dict(2);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_rms), mp_obj_new_int(rms));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_dbfs), mp_obj_new_float(dbfs));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_smeter_obj, machine_iqadc_smeter);
+
 /* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
  * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
 static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
@@ -779,6 +794,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_mag_kernel),   MP_ROM_PTR(&machine_iqadc_mag_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_audio_filter), MP_ROM_PTR(&machine_iqadc_audio_filter_obj) },
     { MP_ROM_QSTR(MP_QSTR_squelch),      MP_ROM_PTR(&machine_iqadc_squelch_obj) },
+    { MP_ROM_QSTR(MP_QSTR_smeter),       MP_ROM_PTR(&machine_iqadc_smeter_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },

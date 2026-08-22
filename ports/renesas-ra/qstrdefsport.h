@@ -154,6 +154,9 @@ Q(squelch)
 Q(thresh)
 Q(open)
 Q(env)
+// iq_adc s-meter (rms qstr already defined above for the AGC)
+Q(smeter)
+Q(dbfs)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

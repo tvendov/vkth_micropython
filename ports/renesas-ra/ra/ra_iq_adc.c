@@ -89,6 +89,13 @@ static int16_t BSP_ALIGN_VARIABLE(4) s_i_dc[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
 static int16_t BSP_ALIGN_VARIABLE(4) s_q_dc[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
 static ra_iq_dsp_status_t s_dsp;
 
+/* S-meter: smoothed RMS magnitude of the channel-filtered complex baseband, computed
+ * per block in ra_iq_dsp_process.  Independent of the demod mode and the AGC, so it
+ * reflects the actual in-channel signal level for a UI / waterfall.  One-pole smoothed
+ * over blocks; the control plane turns it into dBFS.  Producer-owned. */
+#define RA_IQ_SMETER_SH (2U)
+static int32_t s_smeter_rms;
+
 /* x2 decimation half-band anti-alias FIR.  11-tap linear-phase half-band low-pass,
  * cutoff Fs/4, replacing the former (x[2j]+x[2j+1])>>1 two-sample average.  A
  * half-band filter has its center tap = 0.5 and every even-offset tap (except the
@@ -955,6 +962,20 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
     }
 
+    /* S-meter: block RMS of the channel-filtered complex baseband, one-pole smoothed
+     * over blocks.  |i|,|q| <= 4095 so i*i+q*q <= ~3.4e7 and the int64 sum over up to
+     * 128 samples stays well inside range; ra_iq_isqrt32 gives the per-block RMS. */
+    if (m != 0U) {
+        int64_t pow = 0;
+        for (uint16_t j = 0U; j < m; ++j) {
+            int32_t ii = s_i_dc[j];
+            int32_t qq = s_q_dc[j];
+            pow += (int64_t)ii * ii + (int64_t)qq * qq;
+        }
+        int32_t rms = (int32_t)ra_iq_isqrt32((uint32_t)(pow / (int64_t)m));
+        s_smeter_rms += (rms - s_smeter_rms) >> RA_IQ_SMETER_SH;
+    }
+
     /* Spectrum accumulator: gated int16 copy of the decimated I/Q into the active
      * ping-pong half.  Integer only, no FPU (REQ-RT-002/003).  When a half fills,
      * publish it as ready and flip to the other half; a not-yet-consumed ready
@@ -1445,6 +1466,7 @@ bool ra_iq_adc_start(void) {
     s_proc_max = 0U;
     s_proc_sum = 0U;
     s_proc_count = 0U;
+    s_smeter_rms = 0;
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -1712,6 +1734,19 @@ void ra_iq_adc_set_squelch(int32_t thresh) {
     /* Re-open on a threshold change so a raised gate does not stick muted until the
      * next loud sample; the envelope logic re-closes within a few samples if needed. */
     s_sq_open = 1U;
+}
+
+/* S-meter readout: the smoothed channel RMS and its level in dBFS relative to the
+ * ~2047 full-scale of the DC-removed 12-bit baseband.  rms == 0 floors dbfs at -120.
+ * Control-plane (uses the FPU for the log). */
+void ra_iq_adc_get_smeter(int32_t *rms, float *dbfs) {
+    int32_t r = s_smeter_rms;
+    if (rms != NULL) {
+        *rms = r;
+    }
+    if (dbfs != NULL) {
+        *dbfs = (r > 0) ? (20.0f * log10f((float)r / 2047.0f)) : -120.0f;
+    }
 }
 
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {

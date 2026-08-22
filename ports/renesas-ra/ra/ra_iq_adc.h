@@ -139,6 +139,10 @@ uint8_t ra_iq_adc_get_audio_filter(void);
 void ra_iq_adc_set_squelch(int32_t thresh);
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env);
 
+/* S-meter: smoothed RMS of the channel-filtered complex baseband (mode/AGC independent)
+ * and its dBFS level vs the ~2047 baseband full-scale.  Either pointer may be NULL. */
+void ra_iq_adc_get_smeter(int32_t *rms, float *dbfs);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
