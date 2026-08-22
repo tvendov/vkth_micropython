@@ -33,6 +33,7 @@
 
 #if MICROPY_HW_ENABLE_IQ_ADC
 
+#define RA_IQ_ADC_MIN_BLOCK_SAMPLES (10)
 #define RA_IQ_ADC_MAX_BLOCK_SAMPLES (256)
 
 typedef struct {
@@ -56,7 +57,10 @@ typedef enum {
     RA_IQ_ADC_ERR_UNIT1_STALL = -2,
 } ra_iq_adc_error_t;
 
-/* i_pin must be an AN000..AN002 pin, q_pin an AN100..AN102 pin: only those six
+/* block_samples must be even and in the inclusive range 10..256: the x2 CMSIS
+ * decimator requires a whole number of output samples and the 11-tap hand kernel
+ * needs ten preceding raw samples of history.  i_pin must be an AN000..AN002 pin,
+ * q_pin an AN100..AN102 pin: only those six
  * channels carry the dedicated sample-and-hold circuits and the PGA.
  * pga_mode is applied to both channels; RA_ADC_PGA_BYPASS is the safe default,
  * and RA_ADC_PGA_OFF is rejected because ADC12 does not work in that state. */
@@ -75,15 +79,16 @@ bool ra_iq_adc_acquire(const uint16_t **i_block, const uint16_t **q_block,
 
 void ra_iq_adc_get_status(ra_iq_adc_status_t *status);
 
-/* Phase-3 block-boundary DSP: DC removal + x2 decimation, done in C with no
- * allocation and no Python (REQ-DSP-001).  Produces block_samples/2 centered
- * int16 samples per channel per block.  This struct exposes the counters and the
- * last-block DC means for control-plane inspection; it is not the realtime path. */
+/* Phase-3 block-boundary DSP: streaming DC removal + x2 decimation, done in C
+ * with no allocation and no Python (REQ-DSP-001).  Produces block_samples/2
+ * centered int16 samples per channel per block while the DC estimator state
+ * continues across block boundaries.  This struct is control-plane inspection;
+ * it is not the realtime path. */
 typedef struct {
     uint32_t dsp_blocks;    /* blocks processed by the C DSP stage since start() */
     uint16_t dsp_samples;   /* decimated samples produced per block (block/2)     */
-    int16_t i_mean;         /* last block DC mean removed from I                  */
-    int16_t q_mean;         /* last block DC mean removed from Q                  */
+    int16_t i_mean;         /* current persistent absolute I DC estimate          */
+    int16_t q_mean;         /* current persistent absolute Q DC estimate          */
 } ra_iq_dsp_status_t;
 
 void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
@@ -279,6 +284,31 @@ bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
 void ra_iq_adc_scope_enable(uint8_t on);
 void ra_iq_adc_scope_push(const uint16_t *samples, size_t n);
 bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n);
+
+/* Per-block scope ROUTING to the two DACs (distinct from ra_iq_adc_scope_push,
+ * which CAPTURES what the DAC plays; this routes a chosen DSP block OUT to the
+ * DAC hardware so it can be watched on a real oscilloscope).  A single selector
+ * (0 = off, else RA_IQ_BLK_* block id 1..RA_IQ_BLK_LIMITER):
+ *   - pre-demod block (PGA/decim/iqcorr/nco/chfilt, complex I/Q): the decimated
+ *     I is fed to the DAC0 audio ring and Q to the parallel scope Q ring, so
+ *     DAC0 shows I and DAC1 shows Q, both at the decimated rate.
+ *   - post-demod block (demod..limiter, mono audio): the mono sample flows to
+ *     the DAC0 audio ring as it does today; the Q ring stays idle (mid-scale).
+ * When a pre-demod stage is routed the demod producer is skipped for that block
+ * (the scope capture is the sole producer of the audio ring), so DAC0 no longer
+ * carries demodulated audio -- that is the point of routing.  DAC0 therefore
+ * always reads s_audio_ring via ra_iq_adc_audio_pull(); DAC1 reads the Q ring
+ * via ra_iq_adc_scope_pull_q().  s_scope_stage == 0 restores normal audio and
+ * leaves the ISR cost at zero.  set_scope also resets both ring indices. */
+void ra_iq_adc_set_scope(uint8_t stage);
+uint8_t ra_iq_adc_get_scope(void);
+
+/* SPSC consumer of the routed Q ring, mirroring ra_iq_adc_audio_pull: pops n
+ * DAC codes into buf, writing 2048 (mid-scale) on an empty ring so DAC1 never
+ * stops.  Returns mid-scale silence whenever no pre-demod stage is routed.
+ * Callable from a DMAC-ISR fill callback (no allocation, no Python).  Always
+ * returns n. */
+size_t ra_iq_adc_scope_pull_q(uint16_t *buf, size_t n);
 size_t ra_iq_adc_get_counters(int32_t *out, size_t n);
 void ra_iq_adc_spectrum_enable(uint8_t on);
 size_t ra_iq_adc_spectrum_size(void);

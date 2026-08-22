@@ -85,6 +85,8 @@ typedef struct _ra_dac_stream_state_t {
     bool double_buffered;
     bool timer_reserved;
     bool timer_initialized;
+    bool timer_shared;
+    bool timer_shared_owner;
     bool transfer_open;
     bool dmac_reserved;
     bool agt_iels_detached;
@@ -112,7 +114,29 @@ typedef struct _ra_dac_stream_state_t {
 static ra_dac_stream_state_t ra_dac_stream_state[DAC_CH_SIZE];
 static ra_dac_hw_stage_t ra_dac_last_stage[DAC_CH_SIZE];
 static int32_t ra_dac_last_error[DAC_CH_SIZE];
+
+/* Shared sample clock for both DAC streams.  The RA6M3 has only 2 AGT channels
+ * and the IQ ADC already owns one, so both DAC0 and DAC1 must run their DMAC
+ * ping-pong off the SAME AGT tick.  This is also the coherent choice: one clock
+ * means I and Q advance together with no drift (ARCH-TRIG-002 single-source).
+ *
+ * The FIRST stream to start reserves+inits the AGT (physical owner: it does the
+ * AGT-IELS detach and will restore it), records the channel here, users=1.  A
+ * SECOND stream BORROWS it: no reserve, no init, no re-program of the period —
+ * it only links the SAME AGT ELC event to its own DMAC activation source, and
+ * users becomes 2.  The AGT (stop/deinit/release + IELS restore) is torn down by
+ * whichever stream brings users back to 0, which may be the borrower if the owner
+ * stopped first. */
+static int8_t s_dac_stream_timer_ch = -1;
+static uint8_t s_dac_stream_timer_users;
+static bool s_dac_stream_timer_iels_detached;
+static IRQn_Type s_dac_stream_timer_irq;
+static uint32_t s_dac_stream_timer_iels_saved;
+
 static void ra_dac_stream_cleanup(uint8_t ch);
+static bool ra_dac_timer_reserve(int8_t requested, uint8_t *timer_ch);
+static bool ra_dac_shared_timer_acquire(ra_dac_stream_state_t *state, int8_t requested, uint32_t freq);
+static void ra_dac_shared_timer_release(void);
 
 #if BSP_FEATURE_DAC_HAS_OUTPUT_AMPLIFIER
 static void ra_dac_output_amp_init(uint8_t ch) {
@@ -349,10 +373,15 @@ static void ra_dac_stream_cleanup(uint8_t ch) {
     bool notify_double_buffer_stop = state->double_buffered && state->buffer_stop != NULL;
     ra_dac_stream_double_buffer_stop_t stop_cb = state->buffer_stop;
     void *stop_context = state->buffer_context;
-    if (state->timer_initialized) {
+    bool timer_shared = state->timer_shared;
+
+    /* A shared-timer stream must not touch the AGT here: the clock stays running
+     * for the other stream.  The AGT callback is only ever installed by a lone
+     * (non-shared) DTC stream, so nothing to detach on the shared path either. */
+    if (state->timer_initialized && !timer_shared) {
         ra_agt_timer_set_callback(state->timer_ch, NULL, NULL);
     }
-    if (state->active && state->timer_initialized) {
+    if (state->active && state->timer_initialized && !timer_shared) {
         ra_agt_timer_stop(state->timer_ch);
     }
 
@@ -366,13 +395,17 @@ static void ra_dac_stream_cleanup(uint8_t ch) {
         }
     }
 
-    if (state->timer_initialized) {
+    if (timer_shared) {
+        // Drops the refcount; the last user tears the shared AGT down (and restores
+        // its IELS) via file-scope owner bookkeeping.
+        ra_dac_shared_timer_release();
+    } else if (state->timer_initialized) {
         ra_agt_timer_deinit(state->timer_ch);
     } else if (state->timer_reserved) {
         ra_agt_timer_release_reservation(state->timer_ch);
     }
 
-    if (state->agt_iels_detached && state->agt_irq >= (IRQn_Type)0) {
+    if (!timer_shared && state->agt_iels_detached && state->agt_irq >= (IRQn_Type)0) {
         R_ICU->IELSR[state->agt_irq] = state->agt_iels_saved;
         FSP_REGISTER_READ(R_ICU->IELSR[state->agt_irq]);
     }
@@ -408,6 +441,75 @@ static void ra_dac_dmac_detach_agt_iels(ra_dac_stream_state_t *state) {
     R_ICU->IELSR[agt_irq] = 0U;
     FSP_REGISTER_READ(R_ICU->IELSR[agt_irq]);
     state->agt_iels_detached = true;
+}
+
+/* Reserve+init the shared AGT for the first DAC stream, or borrow it for the
+ * second.  On the owner path this reserves an AGT (respecting a requested channel),
+ * inits its period from freq, and records the channel + IELS-detach bookkeeping at
+ * file scope so any later cleanup can restore it.  On the borrower path it takes the
+ * already-owned channel and IGNORES the requested freq (the shared AGT has one
+ * period, programmed once by the owner).  Returns false only if the owner could not
+ * get any AGT. */
+static bool ra_dac_shared_timer_acquire(ra_dac_stream_state_t *state, int8_t requested,
+    uint32_t freq) {
+    if (s_dac_stream_timer_users == 0U) {
+        uint8_t ch;
+        if (!ra_dac_timer_reserve(requested, &ch)) {
+            return false;
+        }
+        s_dac_stream_timer_ch = (int8_t)ch;
+        s_dac_stream_timer_iels_detached = false;
+        state->timer_ch = ch;
+        state->timer_shared = true;
+        state->timer_shared_owner = true;
+        state->timer_reserved = true;
+
+        ra_agt_timer_init(ch, (float)freq);
+        state->timer_initialized = true;
+        // Publish the reference now so a freq-check failure here is undone by the
+        // caller's cleanup -> shared_timer_release (1->0), which deinits the AGT.
+        s_dac_stream_timer_users = 1U;
+        if (ra_agt_timer_get_freq(ch) <= 0.0f) {
+            return false;
+        }
+        return true;
+    }
+
+    // Borrower: a specific-channel request that does not match the shared AGT is
+    // rejected so the two streams cannot silently split onto different clocks.
+    if (requested >= 0 && (uint8_t)requested != (uint8_t)s_dac_stream_timer_ch) {
+        return false;
+    }
+    state->timer_ch = (uint8_t)s_dac_stream_timer_ch;
+    state->timer_shared = true;
+    state->timer_shared_owner = false;
+    // No reserve, no init, no start: the owner already programmed the period and
+    // will start the AGT.  The borrower must not touch the shared clock's state.
+    s_dac_stream_timer_users++;
+    return true;
+}
+
+/* Drop this stream's reference to the shared AGT.  The stream that brings users
+ * back to 0 performs the physical teardown (stop + deinit + IELS restore), even if
+ * it is the borrower and the owner already stopped.  IELS restore uses the file-
+ * scope record captured by the owner's detach. */
+static void ra_dac_shared_timer_release(void) {
+    if (s_dac_stream_timer_users == 0U) {
+        return;
+    }
+    if (--s_dac_stream_timer_users != 0U) {
+        return;
+    }
+
+    if (s_dac_stream_timer_ch >= 0) {
+        ra_agt_timer_deinit((uint32_t)s_dac_stream_timer_ch);
+    }
+    if (s_dac_stream_timer_iels_detached && s_dac_stream_timer_irq >= (IRQn_Type)0) {
+        R_ICU->IELSR[s_dac_stream_timer_irq] = s_dac_stream_timer_iels_saved;
+        FSP_REGISTER_READ(R_ICU->IELSR[s_dac_stream_timer_irq]);
+    }
+    s_dac_stream_timer_ch = -1;
+    s_dac_stream_timer_iels_detached = false;
 }
 
 static void ra_dac_dtc_complete_callback(void *param) {
@@ -566,7 +668,21 @@ static bool ra_dac_stream_start_transfer(uint8_t ch, const uint16_t *buf, size_t
             return false;
         }
 
-        ra_dac_dmac_detach_agt_iels(state);
+        /* The AGT-IELS detach (stop the underflow also asserting the NVIC IRQ)
+         * touches a single shared register slot.  Only the physical owner does it,
+         * once, and hands the saved value to file scope so any stream's cleanup can
+         * restore it.  A shared borrower must not re-detach (it would save the
+         * already-zeroed value); its DMAC still fires because activation_source is
+         * the shared AGT ELC event set above. */
+        if (!state->timer_shared || state->timer_shared_owner) {
+            ra_dac_dmac_detach_agt_iels(state);
+            if (state->timer_shared) {
+                s_dac_stream_timer_irq = state->agt_irq;
+                s_dac_stream_timer_iels_saved = state->agt_iels_saved;
+                s_dac_stream_timer_iels_detached = state->agt_iels_detached;
+                state->agt_iels_detached = false;
+            }
+        }
         ra_dac_dmac_make_channel_secure(state->dmac_ch);
         ra_dac_elc_enable();
         ra_dac_dmac_error_clear();
@@ -754,19 +870,33 @@ ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_
     state->loop = loop;
     state->freq = freq;
 
-    if (!ra_dac_timer_reserve(timer_ch, &state->timer_ch)) {
-        return RA_DAC_STREAM_STATUS_TIMER_BUSY;
-    }
-    state->timer_reserved = true;
+    /* DMAC streams share ONE AGT across both DAC channels (RA6M3 has only 2 AGT,
+     * IQ ADC owns the other).  DTC streams keep a dedicated AGT: DTC activation is
+     * per-IRQ and the completion callback is installed on the AGT, neither of which
+     * is shareable. */
+    if (transfer == RA_DAC_TRANSFER_DMAC) {
+        if (!ra_dac_shared_timer_acquire(state, timer_ch, freq)) {
+            // owner-path freq failure (timer_shared set) vs no AGT / borrow mismatch.
+            ra_dac_stream_status_t err = state->timer_shared ?
+                RA_DAC_STREAM_STATUS_INVALID_FREQ : RA_DAC_STREAM_STATUS_TIMER_BUSY;
+            ra_dac_stream_cleanup(ch);
+            return err;
+        }
+    } else {
+        if (!ra_dac_timer_reserve(timer_ch, &state->timer_ch)) {
+            return RA_DAC_STREAM_STATUS_TIMER_BUSY;
+        }
+        state->timer_reserved = true;
 
-    ra_agt_timer_init(state->timer_ch, (float)freq);
-    state->timer_initialized = true;
-    if (!loop && transfer == RA_DAC_TRANSFER_DTC) {
-        ra_agt_timer_set_callback(state->timer_ch, ra_dac_dtc_complete_callback, (void *)(uintptr_t)ch);
-    }
-    if (ra_agt_timer_get_freq(state->timer_ch) <= 0.0f) {
-        ra_dac_stream_cleanup(ch);
-        return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+        ra_agt_timer_init(state->timer_ch, (float)freq);
+        state->timer_initialized = true;
+        if (!loop) {
+            ra_agt_timer_set_callback(state->timer_ch, ra_dac_dtc_complete_callback, (void *)(uintptr_t)ch);
+        }
+        if (ra_agt_timer_get_freq(state->timer_ch) <= 0.0f) {
+            ra_dac_stream_cleanup(ch);
+            return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+        }
     }
 
     if (!ra_dac_stream_start_transfer(ch, buf, sample_count, loop)) {
@@ -785,7 +915,11 @@ ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_
         R_BSP_IrqStatusClear(agt_irq);
     }
     state->active = true;
-    ra_agt_timer_start(state->timer_ch);
+    // A shared borrower must not start the AGT: the owner already runs it and both
+    // DMACs trigger off the same tick.  Start only on the owner / dedicated path.
+    if (!state->timer_shared || state->timer_shared_owner) {
+        ra_agt_timer_start(state->timer_ch);
+    }
     if (!loop && transfer == RA_DAC_TRANSFER_DTC && agt_irq >= (IRQn_Type)0) {
         R_BSP_IrqEnable(agt_irq);
     }
@@ -830,16 +964,14 @@ ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *
     state->buffer_stop = stop_cb;
     state->buffer_context = context;
 
-    if (!ra_dac_timer_reserve(timer_ch, &state->timer_ch)) {
-        return RA_DAC_STREAM_STATUS_TIMER_BUSY;
-    }
-    state->timer_reserved = true;
-
-    ra_agt_timer_init(state->timer_ch, (float)freq);
-    state->timer_initialized = true;
-    if (ra_agt_timer_get_freq(state->timer_ch) <= 0.0f) {
+    // Both DAC streams share ONE AGT (see ra_dac_shared_timer_acquire).  The second
+    // (borrower) stream reuses the first's clock and adopts its period, so an SDR
+    // scope running both DACs at sample_rate_hz/2 keeps I and Q coherent.
+    if (!ra_dac_shared_timer_acquire(state, timer_ch, freq)) {
+        ra_dac_stream_status_t err = state->timer_shared ?
+            RA_DAC_STREAM_STATUS_INVALID_FREQ : RA_DAC_STREAM_STATUS_TIMER_BUSY;
         ra_dac_stream_cleanup(ch);
-        return RA_DAC_STREAM_STATUS_INVALID_FREQ;
+        return err;
     }
 
     if (!ra_dac_stream_start_transfer(ch, buf_a, sample_count, false)) {
@@ -857,7 +989,10 @@ ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *
         R_BSP_IrqStatusClear(agt_irq);
     }
     state->active = true;
-    ra_agt_timer_start(state->timer_ch);
+    // Borrower must not start the shared AGT; the owner already runs it.
+    if (!state->timer_shared || state->timer_shared_owner) {
+        ra_agt_timer_start(state->timer_ch);
+    }
 
     return RA_DAC_STREAM_STATUS_OK;
 }

@@ -167,6 +167,8 @@ Q(tune)
 Q(tap)
 Q(inject)
 Q(block)
+// iq_adc per-block scope routing to the DAC(s)
+Q(scope)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

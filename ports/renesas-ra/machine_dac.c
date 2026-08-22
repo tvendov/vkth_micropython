@@ -70,17 +70,26 @@ static uint16_t machine_dac_raw_to_mv(uint16_t raw) {
 #if MICROPY_HW_ENABLE_IQ_ADC
 extern const mp_obj_type_t machine_iqadc_type;
 
-/* One DAC channel streams a demod source at a time on this board, so a single
- * ping-pong pair is enough.  DMAC clocks these to DADR, so they must outlive the
- * transfer (static) and be aligned for the transfer size (REQ-RT-004). */
-static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_a[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
-static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+/* Ping-pong buffers, one pair PER DAC channel: DAC0 and DAC1 can stream at the same
+ * time (I on DAC0, Q on DAC1) when a pre-demod block is routed via iq.scope(), so they
+ * must not share buffers.  DMAC clocks these to DADR, so they must outlive the transfer
+ * (static) and be aligned for the transfer size (REQ-RT-004). */
+#define MACHINE_DAC_STREAM_CH (2)
+static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_a[MACHINE_DAC_STREAM_CH][RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[MACHINE_DAC_STREAM_CH][RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
 
-/* DAC ping-pong refill, runs in the DMAC ISR.  Pulls the demod audio ring; the
- * pull writes mid-scale silence on underrun so the stream never stops.  No
+/* DAC ping-pong refill, runs in the DMAC ISR.  ctx carries the DAC channel index:
+ * channel 0 (DAC0) pulls s_audio_ring (the demod audio, or the routed mono / pre-demod
+ * I when iq.scope() selects a block); channel 1 (DAC1) pulls the routed Q ring, which
+ * carries the pre-demod Q when a pre-demod block is routed and mid-scale silence
+ * otherwise.  Both pulls write mid-scale on underrun so the stream never stops.  No
  * allocation, no Python (REQ-RT-002/003). */
 static bool machine_dac_iq_fill(void *ctx, uint16_t *buf, size_t n) {
-    (void)ctx;
+    uint8_t ch = (uint8_t)(uintptr_t)ctx;
+    if (ch == 1U) {
+        ra_iq_adc_scope_pull_q(buf, n);
+        return true;
+    }
     ra_iq_adc_audio_pull(buf, n);
     /* Capture after the pull, so SCOPE sees the exact DAC codes including the
      * 2048 mid-scale silence inserted on an underrun.  The push is a gated no-op
@@ -338,14 +347,19 @@ static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_m
         mp_raise_ValueError(MP_ERROR_TEXT("invalid audio block"));
     }
 
+    if (self->ch >= MACHINE_DAC_STREAM_CH) {
+        mp_raise_ValueError(MP_ERROR_TEXT("channel cannot stream"));
+    }
+    uint16_t *buf_a = machine_dac_stream_buf_a[self->ch];
+    uint16_t *buf_b = machine_dac_stream_buf_b[self->ch];
     for (size_t i = 0; i < sample_count; ++i) {
-        machine_dac_stream_buf_a[i] = 2048U;
-        machine_dac_stream_buf_b[i] = 2048U;
+        buf_a[i] = 2048U;
+        buf_b[i] = 2048U;
     }
 
     ra_dac_stream_status_t status = ra_dac_write_timed_double_buffered(
-        self->ch, machine_dac_stream_buf_a, machine_dac_stream_buf_b, true,
-        sample_count, freq, machine_dac_iq_fill, NULL, NULL, -1);
+        self->ch, buf_a, buf_b, true,
+        sample_count, freq, machine_dac_iq_fill, (void *)(uintptr_t)self->ch, NULL, -1);
     if (status != RA_DAC_STREAM_STATUS_OK) {
         machine_dac_raise_stream_error(self, status);
     }

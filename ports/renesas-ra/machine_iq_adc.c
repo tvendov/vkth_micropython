@@ -102,9 +102,10 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
     if (args[ARG_rate].u_int <= 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad rate"));
     }
-    if (args[ARG_block].u_int < 1 ||
-        args[ARG_block].u_int > RA_IQ_ADC_MAX_BLOCK_SAMPLES) {
-        mp_raise_ValueError(MP_ERROR_TEXT("block out of range"));
+    if (args[ARG_block].u_int < RA_IQ_ADC_MIN_BLOCK_SAMPLES ||
+        args[ARG_block].u_int > RA_IQ_ADC_MAX_BLOCK_SAMPLES ||
+        ((args[ARG_block].u_int & 1) != 0)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("block must be even 10..256"));
     }
     if (args[ARG_pga].u_int == (int)RA_ADC_PGA_OFF) {
         mp_raise_ValueError(MP_ERROR_TEXT("pga OFF rejected"));
@@ -771,6 +772,27 @@ static mp_obj_t machine_iqadc_block(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_block_obj, 2, 3, machine_iqadc_block);
 
+/* scope([stage]) -> int.  Route ONE DSP block's output to the DAC(s) for oscilloscope
+ * inspection: stage 0 = off, else the block id 1..11 (1=PGA 2=decim 3=iqcorr 4=nco
+ * 5=chfilt 6=demod 7=af 8=squelch 9=agc 10=vol 11=limiter).  A pre-demod block (1..5,
+ * complex) routes I->DAC0 and Q->DAC1; a post-demod block (6..11, mono) routes the mono
+ * signal->DAC0 only.  With no arg returns the current stage.  Setting resets the ring
+ * indices; play with DAC(pin0).stream_from(iq) [and DAC(pin1).stream_from(iq) for the
+ * pre-demod Q].  Control-plane. */
+static mp_obj_t machine_iqadc_scope(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        mp_int_t stage = mp_obj_get_int(args[1]);
+        if (stage < 0 || stage > 11) {
+            mp_raise_ValueError(MP_ERROR_TEXT("stage out of range"));
+        }
+        ra_iq_adc_set_scope((uint8_t)stage);
+    }
+    return mp_obj_new_int(ra_iq_adc_get_scope());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_scope_obj, 1, 2, machine_iqadc_scope);
+
 /* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
  * array('h', N); the pre-NCO capture FFT is shifted by the current tune offset, then
  * reduced 256->N, dB-scaled, and attack/release smoothed in C, filling buf with
@@ -902,6 +924,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_tap),          MP_ROM_PTR(&machine_iqadc_tap_obj) },
     { MP_ROM_QSTR(MP_QSTR_inject),       MP_ROM_PTR(&machine_iqadc_inject_obj) },
     { MP_ROM_QSTR(MP_QSTR_block),        MP_ROM_PTR(&machine_iqadc_block_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scope),        MP_ROM_PTR(&machine_iqadc_scope_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_bars), MP_ROM_PTR(&machine_iqadc_spectrum_bars_obj) },
     { MP_ROM_QSTR(MP_QSTR_counters),     MP_ROM_PTR(&machine_iqadc_counters_obj) },
