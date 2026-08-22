@@ -198,6 +198,8 @@ static uint8_t s_lcd_lvgl_bridged = 0;   // C LVGL display/indev bridge installe
 #define LCD_WATERFALL_FRAME_MS  (33U)
 #define LCD_WATERFALL_BINS      (256U)
 #define LCD_WATERFALL_TOP_PAD   (18)
+#define LCD_WATERFALL_SPEC_H    (30)
+#define LCD_WATERFALL_GAP_PX    (2)
 #define LCD_VIEW_SPECTRUM       (0U)
 #define LCD_VIEW_WATERFALL      (1U)
 static lv_obj_t *s_lcd_spectrum_obj;
@@ -780,6 +782,47 @@ static uint16_t lcd_waterfall_rgb565(uint8_t level) {
     return lv_color_to_u16(lv_color_make(r, g, b));
 }
 
+/* The WF view is combined, not waterfall-only.  Draw all 256 current FFT bins
+ * one-to-one above the 256-pixel waterfall.  Both plots use the same horizontal
+ * origin and the same shifted source index, so every live column is exactly above
+ * its own history. */
+static void lcd_waterfall_draw_spectrum(uint16_t *fb, uint32_t stride,
+    const lv_area_t *obj_area, const float *magnitudes, float inv,
+    int32_t shift_bins) {
+    int32_t obj_w = lv_area_get_width(obj_area);
+    lv_area_t plot = {
+        .x1 = obj_area->x1 + (obj_w - (int32_t)LCD_WATERFALL_BINS) / 2,
+        .y1 = obj_area->y1 + LCD_WATERFALL_TOP_PAD,
+        .y2 = obj_area->y1 + LCD_WATERFALL_TOP_PAD + LCD_WATERFALL_SPEC_H - 1,
+    };
+    plot.x2 = plot.x1 + (int32_t)LCD_WATERFALL_BINS - 1;
+
+    uint16_t bg = lv_color_to_u16(s_lcd_spectrum_bg);
+    for (int32_t y = plot.y1; y <= plot.y2; ++y) {
+        uint16_t *row = fb + (uint32_t)y * stride + (uint32_t)plot.x1;
+        for (int32_t x = plot.x1; x <= plot.x2; ++x) {
+            row[x - plot.x1] = bg;
+        }
+    }
+
+    uint16_t bar_color = lv_color_to_u16(s_lcd_spectrum_bar);
+    uint16_t center_color = lv_color_to_u16(s_lcd_spectrum_center);
+    for (uint32_t x = 0U; x < LCD_WATERFALL_BINS; ++x) {
+        uint32_t src = (uint32_t)((int32_t)x +
+            (LCD_WATERFALL_BINS / 2U) + shift_bins) &
+            (LCD_WATERFALL_BINS - 1U);
+        uint8_t level = lcd_waterfall_level(magnitudes[src] * inv);
+        int32_t height = 1 + ((int32_t)level *
+            (LCD_WATERFALL_SPEC_H - 1) + 127) / 255;
+        int32_t px = plot.x1 + (int32_t)x;
+        uint16_t color = (x == (LCD_WATERFALL_BINS / 2U)) ?
+            center_color : bar_color;
+        for (int32_t y = plot.y2 - height + 1; y <= plot.y2; ++y) {
+            fb[(uint32_t)y * stride + (uint32_t)px] = color;
+        }
+    }
+}
+
 /* Direct single-framebuffer waterfall.  The 256 bins are one pixel each and centred
  * in the existing native spectrum object.  The framebuffer itself is the history:
  * rows move down in place and only the new top row is generated. */
@@ -795,7 +838,8 @@ static void lcd_waterfall_write(const float *magnitudes, float ref_peak,
     lv_obj_get_coords(s_lcd_spectrum_obj, &obj_area);
     int32_t obj_w = lv_area_get_width(&obj_area);
     int32_t x1 = obj_area.x1 + (obj_w - (int32_t)LCD_WATERFALL_BINS) / 2;
-    int32_t y1 = obj_area.y1 + LCD_WATERFALL_TOP_PAD;
+    int32_t y1 = obj_area.y1 + LCD_WATERFALL_TOP_PAD + LCD_WATERFALL_SPEC_H +
+        LCD_WATERFALL_GAP_PX;
     int32_t y2 = obj_area.y2;
     int32_t screen_w = (int32_t)g_display0_cfg.input[0].hsize;
     int32_t screen_h = (int32_t)g_display0_cfg.input[0].vsize;
@@ -843,6 +887,7 @@ static void lcd_waterfall_write(const float *magnitudes, float ref_peak,
             shift_bins) & (LCD_WATERFALL_BINS - 1U);
         new_row[x] = lcd_waterfall_rgb565(lcd_waterfall_level(magnitudes[src] * inv));
     }
+    lcd_waterfall_draw_spectrum(fb, stride, &obj_area, magnitudes, inv, shift_bins);
 
     uint32_t elapsed = (uint32_t)mp_hal_ticks_us() - t0;
     s_lcd_waterfall_last_us = elapsed;

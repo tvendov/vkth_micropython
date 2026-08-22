@@ -51,8 +51,11 @@ class pRGB_lvgl(object):
         bufSize = self.width*self.height*self.pixel_size
 
         if not lv.is_initialized(): lv.init()
-        # create event loop if not yet present
-        if not lv_utils.event_loop.is_running(): self.event_loop=lv_utils.event_loop()
+        # Match the measured 50 Hz GLCDC scan cadence.  The native waterfall is a
+        # 30 Hz direct-framebuffer consumer driven by an LVGL C timer; the former
+        # 25 Hz task pump was therefore a hard ceiling even though no pixels pass
+        # through the LVGL draw pipeline.
+        if not lv_utils.event_loop.is_running(): self.event_loop=lv_utils.event_loop(freq=50)
 
         # attach all to self to avoid objects' refcount dropping to zero when the scope is exited
         self.buf1 = memoryview(self.display)
