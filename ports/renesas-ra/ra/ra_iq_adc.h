@@ -88,6 +88,12 @@ typedef struct {
 
 void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
 
+/* Per-block DSP processing time (dsp_process + demod_produce) measured with the DWT
+ * cycle counter.  avg is over all blocks since start(); cpu_hz is SystemCoreClock so
+ * the caller can turn cycles into a fraction of the block period.  Control-plane. */
+void ra_iq_adc_get_timing(uint32_t *last_cyc, uint32_t *max_cyc, uint32_t *avg_cyc,
+    uint32_t *cpu_hz);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
@@ -136,6 +142,19 @@ void ra_iq_adc_get_audio_status(ra_iq_audio_status_t *status);
  * 0 is no skew).  Disabled by default.  Control-plane setters/getters. */
 void ra_iq_adc_set_iq_correction(uint8_t enable, int32_t amp_q15, int32_t phase_q15);
 void ra_iq_adc_get_iq_correction(uint8_t *enable, int32_t *amp_q15, int32_t *phase_q15);
+
+/* Channel low-pass filter, applied to the decimated complex I/Q AFTER the I/Q
+ * imbalance correction and BEFORE demod/AGC, so those stages do not work on
+ * out-of-channel noise.  N=4 cascaded one-pole sections (~24 dB/oct), integer,
+ * allocation-free, run in the block callback.  The cutoff (hz) is turned into a
+ * Q15 pole coefficient in the control plane from hz and the current audio rate
+ * (sample_rate_hz/2).  hz == 0, or hz >= fs/2, => BYPASS: the path is then
+ * bit-identical to no filter.  set_bandwidth recomputes the coefficient and
+ * resets the section state so a cutoff change does not click; ra_iq_adc_set_demod
+ * applies a per-mode default cutoff and does the same reset. */
+void ra_iq_adc_set_bandwidth(uint32_t hz);
+uint32_t ra_iq_adc_get_bandwidth(void);
+uint8_t ra_iq_adc_filter_bypassed(void);
 
 /* Audio-output stages applied per audio sample in the block callback, between the
  * demod and the ring push: an integer RMS AGC and a manual master volume, followed

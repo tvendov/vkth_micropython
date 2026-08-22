@@ -67,6 +67,14 @@ typedef struct {
 static ra_iq_adc_private_t s_iq;
 static ra_iq_adc_status_t s_status;
 
+/* Per-block DSP processing time, measured with the DWT cycle counter around the
+ * dsp_process + demod_produce work in the block callback.  This is the budget gate
+ * for the CMSIS/f32 vs integer decision (measure before switching a stage). */
+static volatile uint32_t s_proc_last;
+static volatile uint32_t s_proc_max;
+static volatile uint32_t s_proc_sum;
+static volatile uint32_t s_proc_count;
+
 /* DTC reads and writes its transfer information straight out of this array, so
  * it is the live state of the transfer, not a copy.  Descriptor 0 carries I and
  * chains into descriptor 1, which carries Q and raises the block interrupt. */
@@ -81,6 +89,41 @@ static int16_t BSP_ALIGN_VARIABLE(4) s_i_dc[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
 static int16_t BSP_ALIGN_VARIABLE(4) s_q_dc[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
 static ra_iq_dsp_status_t s_dsp;
 
+/* x2 decimation half-band anti-alias FIR.  11-tap linear-phase half-band low-pass,
+ * cutoff Fs/4, replacing the former (x[2j]+x[2j+1])>>1 two-sample average.  A
+ * half-band filter has its center tap = 0.5 and every even-offset tap (except the
+ * center) exactly 0, so a length-11 filter has non-zero taps only at offsets 0,
+ * +/-1, +/-3, +/-5 -- and the +/-5 endpoints vanish here because the Blackman window
+ * is 0 at n=0 and n=10.  Five non-zero taps remain (center + the +/-1 and +/-3 pairs).
+ *
+ * Generated in double precision (windowed-sinc), then scaled to Q15:
+ *   hd[n] = 0.5              for offset k = n-5 == 0
+ *         = sin(pi*k/2)/(pi*k)   otherwise            (ideal half-band Fs/4 LPF)
+ *   w[n]  = 0.42 - 0.5*cos(2*pi*n/10) + 0.08*cos(4*pi*n/10)   (Blackman)
+ *   h[n]  = hd[n]*w[n];  the even-offset non-center taps computed as ~1e-17 and are
+ *           forced to exactly 0.
+ * Normalized for unity DC gain: q[n] = round(h[n]/sum(h) * 32768), with the +/-32768
+ * rounding residue folded into the center tap so sum(q) == 32768 exactly (a raw
+ * round left sum == 32768 already here; the center tap absorbs any residue).  The
+ * center tap is 16416 rather than 16384 because renormalizing after zeroing the
+ * windowed endpoint taps redistributes their (tiny) DC share onto the passband.
+ *
+ * Magnitude response vs the old 2-sample average (the band Fs/4..Fs/2 folds into
+ * baseband on x2 decimation, so this is the alias-rejection that matters):
+ *   0.375 Fs: -21.1 dB (FIR) vs -8.3 dB (avg);  0.4375 Fs: -35.5 dB vs -14.2 dB.
+ * Half-band symmetry pins -6 dB exactly at Fs/4.  Integer conv, >>15 back to Q0. */
+#define RA_IQ_DEC_TAPS (11U)
+static const int16_t s_dec_hb[RA_IQ_DEC_TAPS] = {
+    0, 0, -699, 0, 8875, 16416, 8875, 0, -699, 0, 0,
+};
+
+/* Full-rate delay line of the last RA_IQ_DEC_TAPS-1 raw samples per channel, so the
+ * FIR can be centered on even positions near the start of a block (its support
+ * reaches into the previous block).  Single-producer (block callback) owned; reset
+ * to zero at capture start and carried across blocks while running. */
+static int16_t s_dec_hist_i[RA_IQ_DEC_TAPS - 1U];
+static int16_t s_dec_hist_q[RA_IQ_DEC_TAPS - 1U];
+
 /* Manual I/Q imbalance correction (Q15), applied to the decimated I/Q before any
  * demodulation.  Standard two-parameter linear model: I is the reference, and
  * Q' = amp*Q + phase*I compensates the gain and quadrature-skew mismatch between
@@ -91,6 +134,26 @@ static ra_iq_dsp_status_t s_dsp;
 static volatile uint8_t s_iqc_enable;
 static volatile int32_t s_iqc_amp_q15 = 32768;
 static volatile int32_t s_iqc_phase_q15;
+
+/* Channel low-pass filter, applied to the decimated I/Q in ra_iq_dsp_process AFTER
+ * the imbalance correction, BEFORE the demod reads s_i_dc/s_q_dc.  N=4 cascaded
+ * one-pole sections give ~24 dB/oct and are unconditionally stable in integer:
+ *   per section  y += ((x - y) * alpha_q15) >> 15;  x = y;
+ * A Q15 biquad was rejected because its feedback coefficient exceeds the Q15 range
+ * near audio-rate cutoffs.  The section accumulators are int32 for headroom over the
+ * int16 samples.  Producer-owned (block callback), so no lock on the running state.
+ *
+ * s_filt_alpha_q15 == 32768 (unity pole) means BYPASS: the DSP loop then skips the
+ * cascade entirely so the path is bit-identical to no filter.  s_filt_bw_hz is the
+ * requested cutoff kept so a rate change / demod re-select can recompute alpha.
+ * s_filt_alpha_q15 and s_filt_bw_hz are computed in the control plane (set_bandwidth
+ * / set_demod), never in the ISR (REQ-RT-002/003). */
+#define RA_IQ_FILT_SECTIONS (4U)
+
+static int32_t s_filt_i[RA_IQ_FILT_SECTIONS];
+static int32_t s_filt_q[RA_IQ_FILT_SECTIONS];
+static volatile int32_t s_filt_alpha_q15 = 32768;  /* 32768 = unity pole = bypass */
+static volatile uint32_t s_filt_bw_hz;             /* 0 = bypass                   */
 
 /* Phase-4 demod audio.  Single-producer (ADC0_SCAN_END block callback) /
  * single-consumer (DAC DMAC fill callback via ra_iq_adc_audio_pull) lock-free ring
@@ -444,35 +507,121 @@ static bool ra_iq_unit1_alive_and_clear(void) {
     return alive;
 }
 
-/* Phase-3 block DSP: DC removal + x2 decimation, in C, no allocation, no Python
- * (REQ-RT-002/003).  Runs on the just-filled half, which is safe until the block
- * after next.  centered = (x[2j] + x[2j+1]) / 2 - mean, which equals averaging
- * two mean-removed samples (mean removal is linear).  Integer only: no FPU state
- * in the ISR.  An odd block_samples drops its last raw sample. */
+/* Zero the cascade accumulators.  Called on a cutoff change and on a demod
+ * (re)selection so a coefficient change starts from silence and does not click.
+ * The producer also reads these, but a demod is either OFF (producer idle) or the
+ * caller quiesces via the control plane; a transient zero is harmless (REQ-RT). */
+static void ra_iq_filt_reset(void) {
+    memset(s_filt_i, 0, sizeof(s_filt_i));
+    memset(s_filt_q, 0, sizeof(s_filt_q));
+}
+
+/* Control-plane: turn a cutoff in Hz into the one-pole Q15 coefficient at the
+ * current audio rate (sample_rate_hz/2) and reset the section state.  For fc << fs
+ * the one-pole -3 dB point is at alpha = 2*pi*fc/fs; clamped to [1, 32768].
+ * hz == 0, hz >= fs/2, or an unknown rate => alpha = 32768 (unity pole = bypass).
+ * Integer/float math here is fine: this is not the ISR. */
+static void ra_iq_filt_compute_alpha(uint32_t hz) {
+    uint32_t fs = s_status.sample_rate_hz >> 1;
+    int32_t alpha;
+
+    s_filt_bw_hz = hz;
+
+    if ((hz == 0U) || (fs == 0U) || (hz >= (fs >> 1))) {
+        alpha = 32768;   /* bypass */
+    } else {
+        /* alpha_q15 = round(2*pi*fc/fs * 32768).  Single precision (the port builds
+         * with -fsingle-precision-constant); the result is bounded so no overflow. */
+        float a = (2.0f * 3.14159265f * (float)hz / (float)fs) * 32768.0f;
+        alpha = (int32_t)(a + 0.5f);
+        if (alpha < 1) {
+            alpha = 1;
+        } else if (alpha > 32768) {
+            alpha = 32768;
+        }
+    }
+
+    s_filt_alpha_q15 = alpha;
+    ra_iq_filt_reset();
+}
+
+/* Half-band FIR x2 decimation.  Causal convolution: output j convolves the newest
+ * raw sample at even position 2j back through the RA_IQ_DEC_TAPS most-recent raw
+ * samples -- acc = sum_t h[t]*raw[2j - t], t = 0..RA_IQ_DEC_TAPS-1.  This is the
+ * linear-phase FIR evaluated at 2j with its fixed (RA_IQ_DEC_TAPS-1)/2 = 5-raw-sample
+ * group delay; it never reads a future (not-yet-captured) sample, so the effective
+ * index e = 2j - t stays in [-(RA_IQ_DEC_TAPS-1) .. 2(m-1)] = [-10 .. n-2], always in
+ * bounds.  raw[] returns a sample by effective index e over the stream
+ * [history(RA_IQ_DEC_TAPS-1) ++ current block]: e < 0 reads the history, e >= 0 reads
+ * the current block.  Only the five non-zero taps contribute (s_dec_hb has zeros at
+ * offsets +/-2, +/-4, +/-5); the loop runs all 11 for clarity and skips the zeros.
+ * int32 acc is ample: |raw| <= 4095, sum|h| == 32768, so |acc| < 4095*32768 < 2^28. */
+static inline int32_t ra_iq_dec_raw(const uint16_t *blk, const int16_t *hist,
+    int32_t e) {
+    return (e < 0) ? (int32_t)hist[(RA_IQ_DEC_TAPS - 1) + e] : (int32_t)blk[e];
+}
+
+/* Phase-3 block DSP: x2 half-band-FIR decimation + DC removal, in C, no allocation,
+ * no Python (REQ-RT-002/003).  Runs on the just-filled half, safe until the block
+ * after next.  The former two-sample average (x[2j]+x[2j+1])>>1 is replaced by an
+ * 11-tap half-band anti-alias FIR (s_dec_hb) with a cross-block history delay line.
+ * DC removal moves AFTER decimation: the mean is computed over the m decimated
+ * samples and subtracted, which is equivalent to the old raw-block mean because the
+ * FIR is linear and unity-DC-gain, and it keeps the history in the raw domain.
+ * Integer only: no FPU state in the ISR.  An odd block_samples drops its last raw
+ * sample (m = n>>1, as before). */
 static void ra_iq_dsp_process(uint8_t half) {
     const uint16_t *ip = s_i_buf[half];
     const uint16_t *qp = s_q_buf[half];
     uint16_t n = s_status.block_samples;
     uint16_t m = (uint16_t)(n >> 1);
-    uint32_t si = 0U;
-    uint32_t sq = 0U;
-
-    for (uint16_t k = 0U; k < n; ++k) {
-        si += ip[k];
-        sq += qp[k];
-    }
-    int32_t mi = (n != 0U) ? (int32_t)(si / n) : 0;
-    int32_t mq = (n != 0U) ? (int32_t)(sq / n) : 0;
 
     uint8_t iqc = s_iqc_enable;
     int32_t amp = s_iqc_amp_q15;
     int32_t phase = s_iqc_phase_q15;
 
+    /* Pass 1: decimate raw -> Q0 into s_i_dc/s_q_dc, accumulate the decimated mean. */
+    int32_t si = 0;
+    int32_t sq = 0;
     for (uint16_t j = 0U; j < m; ++j) {
-        int32_t ai = ((int32_t)ip[2U * j] + (int32_t)ip[2U * j + 1U]) >> 1;
-        int32_t aq = ((int32_t)qp[2U * j] + (int32_t)qp[2U * j + 1U]) >> 1;
-        int32_t ci = ai - mi;
-        int32_t cq = aq - mq;
+        int32_t center = (int32_t)(2U * j);
+        int32_t acci = 0;
+        int32_t accq = 0;
+        for (uint8_t t = 0U; t < RA_IQ_DEC_TAPS; ++t) {
+            int32_t h = (int32_t)s_dec_hb[t];
+            if (h == 0) {
+                continue;
+            }
+            int32_t e = center - (int32_t)t;
+            acci += h * ra_iq_dec_raw(ip, s_dec_hist_i, e);
+            accq += h * ra_iq_dec_raw(qp, s_dec_hist_q, e);
+        }
+        int32_t di = acci >> 15;
+        int32_t dq = accq >> 15;
+        s_i_dc[j] = (int16_t)di;
+        s_q_dc[j] = (int16_t)dq;
+        si += di;
+        sq += dq;
+    }
+    int32_t mi = (m != 0U) ? (si / (int32_t)m) : 0;
+    int32_t mq = (m != 0U) ? (sq / (int32_t)m) : 0;
+
+    /* Carry the last RA_IQ_DEC_TAPS-1 raw samples of this block into the history for
+     * the next call, so the FIR support is continuous across the block boundary.
+     * Copied from the raw domain (matching ra_iq_dec_raw). */
+    if (n >= (RA_IQ_DEC_TAPS - 1U)) {
+        for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
+            uint16_t src = (uint16_t)(n - (RA_IQ_DEC_TAPS - 1U) + k);
+            s_dec_hist_i[k] = (int16_t)ip[src];
+            s_dec_hist_q[k] = (int16_t)qp[src];
+        }
+    }
+
+    /* Pass 2: DC removal on the decimated samples, then Q imbalance correction.
+     * Identical downstream math to before, only the mean source changed. */
+    for (uint16_t j = 0U; j < m; ++j) {
+        int32_t ci = (int32_t)s_i_dc[j] - mi;
+        int32_t cq = (int32_t)s_q_dc[j] - mq;
         if (iqc) {
             /* I is the reference; correct Q only.  Q15 fixed point. */
             cq = (amp * cq + phase * ci) >> 15;
@@ -484,6 +633,37 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
         s_i_dc[j] = (int16_t)ci;
         s_q_dc[j] = (int16_t)cq;
+    }
+
+    /* Channel low-pass filter, in place, AFTER imbalance and BEFORE the demod (and
+     * before the spectrum copy, so the analyser shows the channel actually heard).
+     * Bypass (alpha == 32768) skips the cascade so s_i_dc/s_q_dc are untouched and
+     * the path is bit-identical to no filter.  N one-pole sections per channel,
+     * integer only (REQ-RT-002/003). */
+    int32_t alpha = s_filt_alpha_q15;
+    if (alpha != 32768) {
+        for (uint16_t j = 0U; j < m; ++j) {
+            int32_t xi = s_i_dc[j];
+            int32_t xq = s_q_dc[j];
+            for (uint8_t s = 0U; s < RA_IQ_FILT_SECTIONS; ++s) {
+                s_filt_i[s] += ((xi - s_filt_i[s]) * alpha) >> 15;
+                xi = s_filt_i[s];
+                s_filt_q[s] += ((xq - s_filt_q[s]) * alpha) >> 15;
+                xq = s_filt_q[s];
+            }
+            if (xi > 32767) {
+                xi = 32767;
+            } else if (xi < -32768) {
+                xi = -32768;
+            }
+            if (xq > 32767) {
+                xq = 32767;
+            } else if (xq < -32768) {
+                xq = -32768;
+            }
+            s_i_dc[j] = (int16_t)xi;
+            s_q_dc[j] = (int16_t)xq;
+        }
     }
 
     /* Spectrum accumulator: gated int16 copy of the decimated I/Q into the active
@@ -671,7 +851,8 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
     s_iq.sequence++;
     s_status.ready = 1U;
 
-    /* Phase-3 DSP on the block just captured (finished half). */
+    /* Phase-3 DSP on the block just captured (finished half); timed with DWT. */
+    uint32_t t0 = DWT->CYCCNT;
     ra_iq_dsp_process(finished);
 
     /* Phase-4 demod producer, only when a demod mode is selected.  Reads the
@@ -679,6 +860,13 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
     if (s_demod_mode != RA_IQ_DEMOD_OFF) {
         ra_iq_demod_produce(finished);
     }
+    uint32_t dt = DWT->CYCCNT - t0;
+    s_proc_last = dt;
+    if (dt > s_proc_max) {
+        s_proc_max = dt;
+    }
+    s_proc_sum += dt;
+    s_proc_count++;
 }
 
 static bool ra_iq_adc_open_unit(bool unit1, uint8_t ch) {
@@ -920,6 +1108,21 @@ bool ra_iq_adc_start(void) {
     s_iq.ready_half = 0U;
     memset(&s_dsp, 0, sizeof(s_dsp));
 
+    /* Reset the per-block DSP timing and enable the DWT cycle counter. */
+    s_proc_last = 0U;
+    s_proc_max = 0U;
+    s_proc_sum = 0U;
+    s_proc_count = 0U;
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    /* Fresh decimation-FIR history at capture start; carried across blocks while
+     * running.  A zeroed line means the first output block's leading taps see raw 0
+     * (a brief startup transient of a few decimated samples), which is harmless. */
+    memset(s_dec_hist_i, 0, sizeof(s_dec_hist_i));
+    memset(s_dec_hist_q, 0, sizeof(s_dec_hist_q));
+
     /* One-time ring flush at capture start: the ring must be empty before the
      * producer runs, but must NOT be flushed on a mode switch (see set_demod). */
     s_ring_head = 0U;
@@ -1014,6 +1217,22 @@ void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status) {
     }
 }
 
+void ra_iq_adc_get_timing(uint32_t *last_cyc, uint32_t *max_cyc, uint32_t *avg_cyc,
+    uint32_t *cpu_hz) {
+    if (last_cyc != NULL) {
+        *last_cyc = s_proc_last;
+    }
+    if (max_cyc != NULL) {
+        *max_cyc = s_proc_max;
+    }
+    if (avg_cyc != NULL) {
+        *avg_cyc = (s_proc_count != 0U) ? (s_proc_sum / s_proc_count) : 0U;
+    }
+    if (cpu_hz != NULL) {
+        *cpu_hz = SystemCoreClock;
+    }
+}
+
 void ra_iq_adc_set_demod(uint8_t mode) {
     if (mode > (uint8_t)RA_IQ_DEMOD_CW) {
         mode = (uint8_t)RA_IQ_DEMOD_OFF;
@@ -1042,6 +1261,29 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     }
     s_audio.audio_underruns = 0U;
     s_audio.ring_overruns = 0U;
+
+    /* Per-mode default channel bandwidth.  AM 5 kHz, USB/LSB 3 kHz, CW 1 kHz, OFF
+     * bypass.  compute_alpha recomputes the pole at the current audio rate and
+     * resets the section state so the change does not click.  The operator can
+     * override afterwards with ra_iq_adc_set_bandwidth. */
+    uint32_t bw;
+    switch (mode) {
+        case (uint8_t)RA_IQ_DEMOD_AM:
+            bw = 5000U;
+            break;
+        case (uint8_t)RA_IQ_DEMOD_USB:
+        case (uint8_t)RA_IQ_DEMOD_LSB:
+            bw = 3000U;
+            break;
+        case (uint8_t)RA_IQ_DEMOD_CW:
+            bw = 1000U;
+            break;
+        default:
+            bw = 0U;   /* OFF: bypass */
+            break;
+    }
+    ra_iq_filt_compute_alpha(bw);
+
     __DMB();
     s_demod_mode = mode;
 }
@@ -1102,6 +1344,18 @@ void ra_iq_adc_get_iq_correction(uint8_t *enable, int32_t *amp_q15, int32_t *pha
     if (phase_q15 != NULL) {
         *phase_q15 = s_iqc_phase_q15;
     }
+}
+
+void ra_iq_adc_set_bandwidth(uint32_t hz) {
+    ra_iq_filt_compute_alpha(hz);
+}
+
+uint32_t ra_iq_adc_get_bandwidth(void) {
+    return s_filt_bw_hz;
+}
+
+uint8_t ra_iq_adc_filter_bypassed(void) {
+    return (s_filt_alpha_q15 == 32768) ? 1U : 0U;
 }
 
 void ra_iq_adc_set_agc(uint8_t mode, int32_t gain_q15, int32_t target) {

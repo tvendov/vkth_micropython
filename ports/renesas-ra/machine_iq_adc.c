@@ -313,6 +313,29 @@ static mp_obj_t machine_iqadc_dsp_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_dsp_status_obj, machine_iqadc_dsp_status);
 
+/* timing() -> per-block DSP cycle budget.  block_cyc = cpu_hz*block/rate; the DSP
+ * (dsp_process + demod_produce) must fit inside that.  Control-plane. */
+static mp_obj_t machine_iqadc_timing(mp_obj_t self_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    uint32_t last_cyc, max_cyc, avg_cyc, cpu_hz;
+    ra_iq_adc_get_timing(&last_cyc, &max_cyc, &avg_cyc, &cpu_hz);
+
+    uint32_t block_cyc = (self->rate != 0U)
+        ? (uint32_t)(((uint64_t)cpu_hz * self->block) / self->rate) : 0U;
+    mp_float_t max_pct = (block_cyc != 0U)
+        ? ((mp_float_t)max_cyc * (mp_float_t)100.0 / (mp_float_t)block_cyc) : (mp_float_t)0.0;
+
+    mp_obj_t d = mp_obj_new_dict(6);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_last_cyc), mp_obj_new_int(last_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_max_cyc), mp_obj_new_int(max_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_avg_cyc), mp_obj_new_int(avg_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_block_cyc), mp_obj_new_int(block_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_cpu_hz), mp_obj_new_int(cpu_hz));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_max_pct), mp_obj_new_float(max_pct));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_timing_obj, machine_iqadc_timing);
+
 /* demod(mode) -> None.  Selects the demodulator that fills the audio ring: "am",
  * "usb", "lsb", "cw" or "off".  Control-plane only; the per-sample demod work runs in the ADC block
  * callback with no CPU per sample and no Python.  The DAC is decoupled: play the
@@ -521,6 +544,39 @@ static mp_obj_t machine_iqadc_volume(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_volume_obj, 1, 2, machine_iqadc_volume);
 
+/* bandwidth(hz) -> None sets the channel low-pass cutoff for the active mode (int
+ * Hz; 0 = bypass).  Applied to the decimated I/Q after imbalance and before demod/
+ * AGC so those stages do not work on out-of-channel noise.  Named "bandwidth", not
+ * "filter" ("filter" is a frozen Python-builtin qstr).  Control-plane; the per-sample
+ * cascade runs in the ADC block callback (integer only, no Python). */
+static mp_obj_t machine_iqadc_bandwidth(mp_obj_t self_in, mp_obj_t hz_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+
+    mp_int_t hz = mp_obj_get_int(hz_in);
+    if (hz < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad bandwidth"));
+    }
+    ra_iq_adc_set_bandwidth((uint32_t)hz);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_bandwidth_obj, machine_iqadc_bandwidth);
+
+/* filter_status() -> dict {bandwidth, bypassed, fs}.  fs is the audio (decimated)
+ * rate the cutoff is measured against.  ALLOCATES a dict: control-plane only. */
+static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
+    (void)self_in;
+    uint32_t fs;
+    ra_iq_adc_get_audio_params(&fs, NULL);
+
+    mp_obj_t d = mp_obj_new_dict(3);
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_bandwidth), mp_obj_new_int((mp_int_t)ra_iq_adc_get_bandwidth()));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_bypassed), mp_obj_new_int(ra_iq_adc_filter_bypassed()));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_fs), mp_obj_new_int((mp_int_t)fs));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_filter_status_obj, machine_iqadc_filter_status);
+
 /* spectrum(buf) -> bin_count | None.  buf must be array('f') (float32) with
  * len >= RA_IQ_SPECTRUM_N.  On the first call it enables spectrum accumulation in
  * the ADC block callback (a gated int16 copy; the FFT itself runs here, not in the
@@ -595,6 +651,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ready),        MP_ROM_PTR(&machine_iqadc_ready_obj) },
     { MP_ROM_QSTR(MP_QSTR_status),       MP_ROM_PTR(&machine_iqadc_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_dsp_status),   MP_ROM_PTR(&machine_iqadc_dsp_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_timing),       MP_ROM_PTR(&machine_iqadc_timing_obj) },
     { MP_ROM_QSTR(MP_QSTR_demod),        MP_ROM_PTR(&machine_iqadc_demod_obj) },
     { MP_ROM_QSTR(MP_QSTR_audio_status), MP_ROM_PTR(&machine_iqadc_audio_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_read_audio),   MP_ROM_PTR(&machine_iqadc_read_audio_obj) },
@@ -603,6 +660,8 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_agc),          MP_ROM_PTR(&machine_iqadc_agc_obj) },
     { MP_ROM_QSTR(MP_QSTR_agc_status),   MP_ROM_PTR(&machine_iqadc_agc_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_volume),       MP_ROM_PTR(&machine_iqadc_volume_obj) },
+    { MP_ROM_QSTR(MP_QSTR_bandwidth),    MP_ROM_PTR(&machine_iqadc_bandwidth_obj) },
+    { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),     MP_ROM_PTR(&machine_iqadc_spectrum_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_stop), MP_ROM_PTR(&machine_iqadc_spectrum_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_info), MP_ROM_PTR(&machine_iqadc_spectrum_info_obj) },

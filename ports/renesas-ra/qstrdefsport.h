@@ -119,6 +119,12 @@ Q(agc_mode)
 Q(rms_target)
 Q(rms)
 Q(agc_clips)
+// iq_adc channel low-pass filter.  "bandwidth"/"filter_status"/"bypassed"/"fs" are
+// SDR-unique; the method is named "bandwidth" (not "filter", a frozen builtin qstr).
+Q(bandwidth)
+Q(filter_status)
+Q(bypassed)
+Q(fs)
 // iq_adc spectrum (FFT) path.  All SDR-unique; none collide with frozen qstrs.
 Q(spectrum)
 Q(spectrum_stop)
@@ -126,6 +132,14 @@ Q(spectrum_info)
 Q(bins)
 Q(bin_hz)
 Q(center_hz)
+// iq_adc DSP timing (DWT cycle budget)
+Q(timing)
+Q(last_cyc)
+Q(max_cyc)
+Q(avg_cyc)
+Q(block_cyc)
+Q(cpu_hz)
+Q(max_pct)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
