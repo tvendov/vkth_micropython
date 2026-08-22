@@ -116,6 +116,12 @@ uint8_t ra_iq_adc_get_hil_kernel(void);
 void ra_iq_adc_set_chf_kernel(uint8_t use_f32);
 uint8_t ra_iq_adc_get_chf_kernel(void);
 
+/* Hybrid CMSIS-DSP stage 4: select the AM envelope kernel.  0 = integer alpha-max-beta-
+ * min (default, fallback), 1 = f32 arm_cmplx_mag_f32 (exact magnitude, no ~4% ripple).
+ * A/B their per-block cost with iq.timing() on AM.  Control-plane. */
+void ra_iq_adc_set_mag_kernel(uint8_t use_f32);
+uint8_t ra_iq_adc_get_mag_kernel(void);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free

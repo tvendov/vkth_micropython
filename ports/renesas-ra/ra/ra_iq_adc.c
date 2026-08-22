@@ -250,6 +250,16 @@ static volatile uint32_t s_ring_tail;   /* consumer owns */
  * AC-coupled around mid-scale.  Owned by the producer.  AM-only. */
 static int32_t s_env_mean;
 
+/* Hybrid CMSIS-DSP stage 4: the AM envelope as arm_cmplx_mag_f32 (exact sqrt(i^2+q^2))
+ * instead of the integer alpha-max-beta-min approximation (which carries a ~4% ripple).
+ * Selectable at runtime (iq.mag_kernel); the integer approximation stays default and
+ * fallback.  Only the magnitude changes -- the same integer Q8 DC blocker and audio
+ * stage run afterwards, so the output scale is unchanged.  s_mag_in is interleaved
+ * [i0,q0,i1,q1,...] for the CMSIS call; s_mag_out holds the m magnitudes. */
+static uint8_t s_mag_use_f32;    /* 0 = alpha-max-beta-min (default), 1 = arm_cmplx_mag_f32 */
+static float s_mag_in[2U * (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U)];
+static float s_mag_out[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U];
+
 /* Audio-output stages inserted between each demod case and the ring push:
  *   signed audio  ->  RMS AGC  ->  * master volume  ->  peak limiter  ->  DAC code.
  * All integer, all producer-owned (block callback), so no lock is needed on the
@@ -880,14 +890,28 @@ static void ra_iq_demod_produce(uint8_t half) {
 
     switch (s_demod_mode) {
         case RA_IQ_DEMOD_AM:
+            /* CMSIS stage-4 path: exact magnitude for the whole block in one call, then
+             * the same integer DC blocker + audio stage per sample. */
+            if (s_mag_use_f32) {
+                for (uint16_t j = 0U; j < m; ++j) {
+                    s_mag_in[2U * j] = (float)s_i_dc[j];
+                    s_mag_in[2U * j + 1U] = (float)s_q_dc[j];
+                }
+                arm_cmplx_mag_f32(s_mag_in, s_mag_out, m);
+            }
             for (uint16_t j = 0U; j < m; ++j) {
-                int32_t i = s_i_dc[j];
-                int32_t q = s_q_dc[j];
-                int32_t ai = (i < 0) ? -i : i;
-                int32_t aq = (q < 0) ? -q : q;
-                int32_t mx = (ai > aq) ? ai : aq;
-                int32_t mn = (ai > aq) ? aq : ai;
-                int32_t mag = mx + ((3 * mn) >> 3);
+                int32_t mag;
+                if (s_mag_use_f32) {
+                    mag = (int32_t)(s_mag_out[j] + 0.5f);
+                } else {
+                    int32_t i = s_i_dc[j];
+                    int32_t q = s_q_dc[j];
+                    int32_t ai = (i < 0) ? -i : i;
+                    int32_t aq = (q < 0) ? -q : q;
+                    int32_t mx = (ai > aq) ? ai : aq;
+                    int32_t mn = (ai > aq) ? aq : ai;
+                    mag = mx + ((3 * mn) >> 3);
+                }
 
                 /* Q8 slow LPF: s_env_mean tracks (mag << 8). */
                 s_env_mean += (((int32_t)mag << 8) - s_env_mean) >> 8;
@@ -1503,6 +1527,24 @@ void ra_iq_adc_set_chf_kernel(uint8_t use_f32) {
 
 uint8_t ra_iq_adc_get_chf_kernel(void) {
     return s_chf_use_f32;
+}
+
+/* Hybrid CMSIS stage 4: select the AM envelope kernel.  0 = integer alpha-max-beta-min
+ * (default, fallback), 1 = f32 arm_cmplx_mag_f32 (exact sqrt(i^2+q^2), removes the ~4%
+ * approximation ripple).  Stateless, so a live toggle just resets iq.timing() so the
+ * next read reflects the selected kernel.  Control-plane. */
+void ra_iq_adc_set_mag_kernel(uint8_t use_f32) {
+    s_mag_use_f32 = use_f32 ? 1U : 0U;
+    if (s_status.running) {
+        s_proc_last = 0U;
+        s_proc_max = 0U;
+        s_proc_sum = 0U;
+        s_proc_count = 0U;
+    }
+}
+
+uint8_t ra_iq_adc_get_mag_kernel(void) {
+    return s_mag_use_f32;
 }
 
 void ra_iq_adc_set_demod(uint8_t mode) {

@@ -140,10 +140,11 @@ Q(avg_cyc)
 Q(block_cyc)
 Q(cpu_hz)
 Q(max_pct)
-// iq_adc hybrid CMSIS stage-1/2/3 kernel switches
+// iq_adc hybrid CMSIS stage-1/2/3/4 kernel switches
 Q(dec_kernel)
 Q(hil_kernel)
 Q(chf_kernel)
+Q(mag_kernel)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes
