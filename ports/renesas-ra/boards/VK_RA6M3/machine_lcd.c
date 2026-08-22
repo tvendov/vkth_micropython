@@ -184,6 +184,29 @@ void machine_lcd_soft_reset(void) {
 
 static uint8_t s_lcd_lvgl_bridged = 0;   // C LVGL display/indev bridge installed?
 
+#if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
+#define LCD_SPECTRUM_BARS       (27U)
+#define LCD_SPECTRUM_GAP_PX     (4)
+#define LCD_SPECTRUM_MAX_H_PX   (50)
+#define LCD_SPECTRUM_PHASES     (5U)
+#define LCD_SPECTRUM_TICK_MS    (20U)
+static lv_obj_t *s_lcd_spectrum_obj;
+static int16_t s_lcd_spectrum_h[LCD_SPECTRUM_BARS];
+static int16_t s_lcd_spectrum_target[LCD_SPECTRUM_BARS];
+static lv_timer_t *s_lcd_spectrum_timer;
+static lv_color_t s_lcd_spectrum_bg;
+static lv_color_t s_lcd_spectrum_bar;
+static lv_color_t s_lcd_spectrum_center;
+static uint8_t s_lcd_spectrum_valid;
+static uint8_t s_lcd_spectrum_target_valid;
+static uint8_t s_lcd_spectrum_phase;
+static uint32_t s_lcd_render_start_us;
+static uint32_t s_lcd_render_last_us;
+static uint32_t s_lcd_render_max_us;
+static uint32_t s_lcd_render_start_frame;
+static uint32_t s_lcd_render_crossed_frames;
+#endif
+
 void machine_lcd_lvgl_soft_reset(void) {
     #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
     if (lv_is_initialized()) {
@@ -192,6 +215,15 @@ void machine_lcd_lvgl_soft_reset(void) {
         vk_ra6m3_dave2d_prepare_deinit();
         #endif
         lv_deinit();
+        s_lcd_spectrum_obj = NULL;
+        s_lcd_spectrum_timer = NULL;
+        s_lcd_spectrum_valid = 0U;
+        s_lcd_spectrum_target_valid = 0U;
+        s_lcd_render_start_us = 0U;
+        s_lcd_render_last_us = 0U;
+        s_lcd_render_max_us = 0U;
+        s_lcd_render_start_frame = 0U;
+        s_lcd_render_crossed_frames = 0U;
         #if defined(USE_FSP_DRW)
         vk_ra6m3_dave2d_finish_deinit();
         #endif
@@ -632,7 +664,295 @@ static void lcd_lv_render_start_cb(lv_event_t *e) {
             break;
         }
     }
+    s_lcd_render_start_frame = lcd_vsync_counter;
+    s_lcd_render_start_us = (uint32_t)mp_hal_ticks_us();
 }
+
+static void lcd_lv_render_ready_cb(lv_event_t *e) {
+    (void)e;
+    if (s_lcd_render_start_us == 0U) {
+        return;
+    }
+    uint32_t elapsed = (uint32_t)mp_hal_ticks_us() - s_lcd_render_start_us;
+    s_lcd_render_last_us = elapsed;
+    if (elapsed > s_lcd_render_max_us) {
+        s_lcd_render_max_us = elapsed;
+    }
+    if (lcd_vsync_counter != s_lcd_render_start_frame) {
+        s_lcd_render_crossed_frames++;
+    }
+}
+
+/* ---- C spectrum surface ----------------------------------------------------------
+ * A high-rate graph must not be represented by 27 independently laid-out Python
+ * widgets.  This attaches one ordinary LVGL object to a native draw callback, stores
+ * the 27 heights in fixed C memory, and invalidates only the changed bar strips.
+ * There is no Python draw callback, flex re-layout, transient canvas, or heap traffic. */
+static void lcd_lv_spectrum_bar_area(const lv_area_t *obj_area, uint32_t index,
+    int32_t height, lv_area_t *bar_area) {
+    int32_t width = lv_area_get_width(obj_area);
+    int32_t gaps = (int32_t)(LCD_SPECTRUM_BARS - 1U) * LCD_SPECTRUM_GAP_PX;
+    int32_t usable = width - gaps;
+    int32_t base_w = usable / (int32_t)LCD_SPECTRUM_BARS;
+    int32_t extra = usable % (int32_t)LCD_SPECTRUM_BARS;
+    int32_t x = obj_area->x1 + (int32_t)index * (base_w + LCD_SPECTRUM_GAP_PX) +
+        (((int32_t)index < extra) ? (int32_t)index : extra);
+    int32_t bar_w = base_w + (((int32_t)index < extra) ? 1 : 0);
+    if (height < 2) {
+        height = 2;
+    } else if (height > LCD_SPECTRUM_MAX_H_PX) {
+        height = LCD_SPECTRUM_MAX_H_PX;
+    }
+    bar_area->x1 = x;
+    bar_area->x2 = x + bar_w - 1;
+    bar_area->y2 = obj_area->y2;
+    bar_area->y1 = obj_area->y2 - height + 1;
+}
+
+/* Visual cadence is deliberately decoupled from the 10 Hz FFT producer.  Five
+ * interleaved groups are committed on consecutive 20 ms ticks: each individual bar
+ * still represents a 10 Hz stream, but only five or six bars change in one physical
+ * display frame.  The groups are spread across the width (0,5,10... then 1,6,11...)
+ * so the result reads as independent/parallel motion rather than a left-to-right wipe. */
+static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
+    (void)timer;
+    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj) ||
+        !s_lcd_spectrum_target_valid) {
+        return;
+    }
+
+    lv_area_t obj_area;
+    lv_obj_get_coords(s_lcd_spectrum_obj, &obj_area);
+    uint32_t changed = 0U;
+
+    for (uint32_t i = s_lcd_spectrum_phase; i < LCD_SPECTRUM_BARS;
+         i += LCD_SPECTRUM_PHASES) {
+        int16_t old_h = s_lcd_spectrum_h[i];
+        int16_t new_h = s_lcd_spectrum_target[i];
+        if (old_h == new_h) {
+            continue;
+        }
+        s_lcd_spectrum_h[i] = new_h;
+        changed++;
+
+        lv_area_t old_area;
+        lv_area_t new_area;
+        lcd_lv_spectrum_bar_area(&obj_area, i, old_h, &old_area);
+        lcd_lv_spectrum_bar_area(&obj_area, i, new_h, &new_area);
+        if (s_lcd_spectrum_valid) {
+            /* Do not merge the interleaved bars into a nearly screen-wide dirty
+             * rectangle.  Each narrow strip is rendered independently after the
+             * GLCDC line-detect pulse, so framebuffer writes finish well ahead of
+             * the scan reaching the spectrum rows. */
+            lv_area_t dirty = {
+                .x1 = new_area.x1,
+                .x2 = new_area.x2,
+                .y1 = (old_area.y1 < new_area.y1) ? old_area.y1 : new_area.y1,
+                .y2 = (old_area.y1 < new_area.y1) ?
+                    (new_area.y1 - 1) : (old_area.y1 - 1),
+            };
+            if (dirty.y1 <= dirty.y2) {
+                lv_obj_invalidate_area(s_lcd_spectrum_obj, &dirty);
+            }
+        }
+    }
+
+    s_lcd_spectrum_phase++;
+    if (s_lcd_spectrum_phase >= LCD_SPECTRUM_PHASES) {
+        s_lcd_spectrum_phase = 0U;
+    }
+    if (changed != 0U) {
+        if (!s_lcd_spectrum_valid) {
+            lv_obj_invalidate(s_lcd_spectrum_obj);
+            s_lcd_spectrum_valid = 1U;
+        }
+    }
+}
+
+static void lcd_lv_spectrum_event_cb(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+    if (code == LV_EVENT_DELETE) {
+        if (obj == s_lcd_spectrum_obj) {
+            s_lcd_spectrum_obj = NULL;
+            s_lcd_spectrum_valid = 0U;
+            s_lcd_spectrum_target_valid = 0U;
+            if (s_lcd_spectrum_timer != NULL) {
+                lv_timer_delete(s_lcd_spectrum_timer);
+                s_lcd_spectrum_timer = NULL;
+            }
+        }
+        return;
+    }
+    if ((code != LV_EVENT_DRAW_MAIN) || (obj != s_lcd_spectrum_obj)) {
+        return;
+    }
+
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t obj_area;
+    lv_obj_get_coords(obj, &obj_area);
+
+    lv_draw_rect_dsc_t rect;
+    lv_draw_rect_dsc_init(&rect);
+    rect.bg_opa = LV_OPA_COVER;
+    rect.border_opa = LV_OPA_TRANSP;
+    rect.radius = 0;
+
+    /* A height change invalidates only the vertical delta.  A growing delta is
+     * completely covered by its new bar and therefore needs no background clear;
+     * a shrinking delta no longer intersects the new bar and needs only the clear.
+     * Full/foreign invalidations still take the normal background + bars path. */
+    bool clip_inside_bar = false;
+    for (uint32_t i = 0U; i < LCD_SPECTRUM_BARS; ++i) {
+        lv_area_t bar_area;
+        lcd_lv_spectrum_bar_area(&obj_area, i, s_lcd_spectrum_h[i], &bar_area);
+        if ((layer->_clip_area.x1 >= bar_area.x1) &&
+            (layer->_clip_area.x2 <= bar_area.x2) &&
+            (layer->_clip_area.y1 >= bar_area.y1) &&
+            (layer->_clip_area.y2 <= bar_area.y2)) {
+            clip_inside_bar = true;
+            break;
+        }
+    }
+    if (!clip_inside_bar) {
+        rect.bg_color = s_lcd_spectrum_bg;
+        lv_draw_rect(layer, &rect, &obj_area);
+    }
+
+    for (uint32_t i = 0U; i < LCD_SPECTRUM_BARS; ++i) {
+        lv_area_t bar_area;
+        lcd_lv_spectrum_bar_area(&obj_area, i, s_lcd_spectrum_h[i], &bar_area);
+        if ((bar_area.x2 < layer->_clip_area.x1) ||
+            (bar_area.x1 > layer->_clip_area.x2) ||
+            (bar_area.y2 < layer->_clip_area.y1) ||
+            (bar_area.y1 > layer->_clip_area.y2)) {
+            continue;
+        }
+        rect.bg_color = (i == (LCD_SPECTRUM_BARS / 2U)) ?
+            s_lcd_spectrum_center : s_lcd_spectrum_bar;
+        lv_draw_rect(layer, &rect, &bar_area);
+    }
+    s_lcd_spectrum_valid = 1U;
+}
+
+static lv_obj_t *lcd_lv_obj_from_mp(mp_obj_t obj_in) {
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(obj_in, &bi, MP_BUFFER_READ);
+    if (bi.len != sizeof(lv_obj_t *)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected LVGL object"));
+    }
+    lv_obj_t *obj = NULL;
+    memcpy(&obj, bi.buf, sizeof(obj));
+    if ((obj == NULL) || !lv_obj_is_valid(obj)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid LVGL object"));
+    }
+    return obj;
+}
+
+// spectrum_attach(obj[, bg_rgb, bar_rgb, center_rgb]) -> bool
+// Attach the single native spectrum surface and delete the legacy bar children.
+STATIC mp_obj_t lcd_spectrum_attach(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+    if (!lv_is_initialized()) {
+        return mp_const_false;
+    }
+    lv_obj_t *obj = lcd_lv_obj_from_mp(args[1]);
+    uint32_t bg = (n_args > 2U) ? (uint32_t)mp_obj_get_int(args[2]) : 0xFFFFFFU;
+    uint32_t bar = (n_args > 3U) ? (uint32_t)mp_obj_get_int(args[3]) : 0xB6BDC6U;
+    uint32_t center = (n_args > 4U) ? (uint32_t)mp_obj_get_int(args[4]) : 0x0097A7U;
+
+    s_lcd_spectrum_bg = lv_color_hex(bg & 0xFFFFFFU);
+    s_lcd_spectrum_bar = lv_color_hex(bar & 0xFFFFFFU);
+    s_lcd_spectrum_center = lv_color_hex(center & 0xFFFFFFU);
+
+    if (s_lcd_spectrum_obj != obj) {
+        lv_timer_t *new_timer = lv_timer_create(lcd_lv_spectrum_timer_cb,
+            LCD_SPECTRUM_TICK_MS, NULL);
+        if (new_timer == NULL) {
+            return mp_const_false;
+        }
+        if ((s_lcd_spectrum_obj != NULL) && lv_obj_is_valid(s_lcd_spectrum_obj)) {
+            (void)lv_obj_remove_event_cb(s_lcd_spectrum_obj, lcd_lv_spectrum_event_cb);
+        }
+        lv_obj_clean(obj);
+        memset(s_lcd_spectrum_h, 0, sizeof(s_lcd_spectrum_h));
+        memset(s_lcd_spectrum_target, 0, sizeof(s_lcd_spectrum_target));
+        s_lcd_spectrum_valid = 0U;
+        s_lcd_spectrum_target_valid = 0U;
+        s_lcd_spectrum_phase = 0U;
+        s_lcd_spectrum_obj = obj;
+        lv_obj_add_event_cb(obj, lcd_lv_spectrum_event_cb, LV_EVENT_DRAW_MAIN, NULL);
+        lv_obj_add_event_cb(obj, lcd_lv_spectrum_event_cb, LV_EVENT_DELETE, NULL);
+        if (s_lcd_spectrum_timer != NULL) {
+            lv_timer_delete(s_lcd_spectrum_timer);
+        }
+        s_lcd_spectrum_timer = new_timer;
+    }
+    lv_obj_invalidate(obj);
+    return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_spectrum_attach_obj, 2, 5,
+    lcd_spectrum_attach);
+
+// spectrum_update(array('h', 27)) -> number of changed targets, or False if detached.
+// This only publishes the newest FFT targets.  The 20 ms C timer commits five
+// interleaved groups on separate physical frames and queues narrow per-bar dirty
+// strips; the native draw callback then paints through the normal VSYNC-gated path.
+STATIC mp_obj_t lcd_spectrum_update(mp_obj_t self_in, mp_obj_t buf_in) {
+    (void)self_in;
+    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj)) {
+        s_lcd_spectrum_obj = NULL;
+        s_lcd_spectrum_valid = 0U;
+        s_lcd_spectrum_target_valid = 0U;
+        return mp_const_false;
+    }
+
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_READ);
+    if ((bi.typecode != 'h') || (bi.len < LCD_SPECTRUM_BARS * sizeof(int16_t))) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buf must be array('h', >=27)"));
+    }
+    const int16_t *src = (const int16_t *)bi.buf;
+
+    uint32_t changed = 0U;
+    for (uint32_t i = 0U; i < LCD_SPECTRUM_BARS; ++i) {
+        int16_t h = src[i];
+        if (h < 2) {
+            h = 2;
+        } else if (h > LCD_SPECTRUM_MAX_H_PX) {
+            h = LCD_SPECTRUM_MAX_H_PX;
+        }
+        if (!s_lcd_spectrum_target_valid || (h != s_lcd_spectrum_target[i])) {
+            s_lcd_spectrum_target[i] = h;
+            changed++;
+        }
+    }
+    s_lcd_spectrum_target_valid = 1U;
+    return MP_OBJ_NEW_SMALL_INT((mp_int_t)changed);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(machine_lcd_spectrum_update_obj, lcd_spectrum_update);
+
+// render_debug([reset]) -> (last_us, max_us, frame_crossings, line_pulses)
+// frame_crossings must stay zero: a non-zero value means a render ran into the next
+// GLCDC line-detect pulse while the controller was scanning the same framebuffer.
+STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+    mp_obj_t t[4] = {
+        mp_obj_new_int_from_uint(s_lcd_render_last_us),
+        mp_obj_new_int_from_uint(s_lcd_render_max_us),
+        mp_obj_new_int_from_uint(s_lcd_render_crossed_frames),
+        mp_obj_new_int_from_uint(lcd_vsync_counter),
+    };
+    mp_obj_t result = mp_obj_new_tuple(MP_ARRAY_SIZE(t), t);
+    if ((n_args > 1U) && mp_obj_is_true(args[1])) {
+        s_lcd_render_last_us = 0U;
+        s_lcd_render_max_us = 0U;
+        s_lcd_render_crossed_frames = 0U;
+    }
+    return result;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_render_debug_obj, 1, 2,
+    lcd_render_debug);
 
 // lvgl_setup() -- create the LVGL display + pointer indev in C with C callbacks, so no
 // Python wrapper is allocated per frame or per input poll. Call once after lv.init().
@@ -660,6 +980,7 @@ STATIC mp_obj_t lcd_lvgl_setup(mp_obj_t self_in) {
     lv_display_set_flush_cb(disp, lcd_lv_flush_cb);
     lv_display_set_buffers(disp, fb, NULL, sz, LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_add_event_cb(disp, lcd_lv_render_start_cb, LV_EVENT_RENDER_START, NULL);
+    lv_display_add_event_cb(disp, lcd_lv_render_ready_cb, LV_EVENT_RENDER_READY, NULL);
 
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
@@ -681,6 +1002,9 @@ STATIC const mp_rom_map_elem_t lcd_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_touches),             MP_ROM_PTR(&machine_lcd_touches_obj) },
     { MP_ROM_QSTR(MP_QSTR_lvgl_setup),          MP_ROM_PTR(&machine_lcd_lvgl_setup_obj) },
     { MP_ROM_QSTR(MP_QSTR_touch_debug),         MP_ROM_PTR(&machine_lcd_touch_debug_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum_attach),     MP_ROM_PTR(&machine_lcd_spectrum_attach_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spectrum_update),     MP_ROM_PTR(&machine_lcd_spectrum_update_obj) },
+    { MP_ROM_QSTR(MP_QSTR_render_debug),        MP_ROM_PTR(&machine_lcd_render_debug_obj) },
     #if defined(USE_FSP_DRW)
     { MP_ROM_QSTR(MP_QSTR_drw_stats),            MP_ROM_PTR(&machine_lcd_drw_stats_obj) },
     #endif

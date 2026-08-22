@@ -705,7 +705,8 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tune_obj, 1, 2,
 
 /* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
  * array('h', N); the pre-NCO capture FFT is shifted by the current tune offset, then
- * reduced 256->N and dB-scaled in C, filling buf with int16 heights 0..50.  Returns N
+ * reduced 256->N, dB-scaled, and attack/release smoothed in C, filling buf with
+ * int16 heights 0..50.  Returns N
  * when a fresh snapshot was written, else
  * None.  No MicroPython object is allocated -- safe to call in the zero-alloc loop. */
 static mp_obj_t machine_iqadc_spectrum_bars(mp_obj_t self_in, mp_obj_t buf_in) {

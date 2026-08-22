@@ -664,6 +664,16 @@ static float s_spec_win[RA_IQ_SPEC_N];      /* Hann window                      
 static float s_spec_mag[RA_IQ_SPEC_N];      /* |FFT| before fftshift              */
 static uint8_t s_spec_win_init;
 
+/* Display-domain stabilisation.  The former per-frame peak normalisation made every
+ * bar breathe when the largest FFT bin moved by even a small amount.  Keep a slowly
+ * released reference peak and Q8 height state instead: a new signal rises quickly,
+ * while noise and disappearing signals decay without 3-pixel visual jumps.  The state
+ * is producer-independent and is touched only by the foreground spectrum consumer. */
+static float s_spec_ref_peak;
+static int16_t s_spec_smooth_q8[RA_IQ_SPEC_N];
+static size_t s_spec_smooth_n;
+static uint8_t s_spec_smooth_valid;
+
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
     switch (ch) {
         case 0:
@@ -2073,11 +2083,18 @@ void ra_iq_adc_spectrum_enable(uint8_t on) {
             s_spec_wr = 0U;
             s_spec_half = 0U;
             s_spec_ready = -1;
+            s_spec_ref_peak = 0.0f;
+            s_spec_smooth_n = 0U;
+            s_spec_smooth_valid = 0U;
+            memset(s_spec_smooth_q8, 0, sizeof(s_spec_smooth_q8));
             __DMB();
             s_spec_enable = 1U;
         }
     } else {
         s_spec_enable = 0U;
+        s_spec_ref_peak = 0.0f;
+        s_spec_smooth_n = 0U;
+        s_spec_smooth_valid = 0U;
     }
 }
 
@@ -2130,9 +2147,9 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
 
 /* Allocation-free spectrum for the UI: same FFT as ra_iq_adc_spectrum, but the 256
  * fftshifted magnitudes are recentred by the current tuning offset and reduced in C to
- * nbars peak-per-group bars.  Per-frame-peak dB scaling (~50 dB span) writes int16
- * heights 0..max_h into the caller's buffer.  The whole float pipeline stays in C so
- * the Python UI never boxes a float.  Returns false when no snapshot is ready. */
+ * nbars peak-per-group bars.  A fast-attack/slow-release reference plus per-bar Q8
+ * attack/decay removes whole-frame gain pumping and quantised height jumps.  Writes
+ * int16 heights 0..max_h into the caller's buffer; Python never boxes a float. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
     if ((nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N)) {
         return false;
@@ -2165,7 +2182,26 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
             peak = s_spec_mag[k];
         }
     }
-    float inv = 1.0f / peak;
+    /* Reference peak: follow stronger signals quickly, but release over roughly six
+     * seconds at the 10 Hz UI cadence.  Unlike normalising to the instantaneous peak,
+     * this does not rescale all 27 bars together on every noisy FFT frame. */
+    if (!(s_spec_ref_peak > 0.0f)) {
+        s_spec_ref_peak = peak;
+    } else if (peak > s_spec_ref_peak) {
+        s_spec_ref_peak += (peak - s_spec_ref_peak) * 0.5f;
+    } else {
+        s_spec_ref_peak += (peak - s_spec_ref_peak) * (1.0f / 64.0f);
+    }
+    if (s_spec_ref_peak < 1e-6f) {
+        s_spec_ref_peak = 1e-6f;
+    }
+    float inv = 1.0f / s_spec_ref_peak;
+
+    if (s_spec_smooth_n != nbars) {
+        s_spec_smooth_n = nbars;
+        s_spec_smooth_valid = 0U;
+        memset(s_spec_smooth_q8, 0, sizeof(s_spec_smooth_q8));
+    }
 
     /* Shift the raw capture panorama so the selected NCO frequency is at the middle.
      * The alignment is calculated on the 256 FFT bins before the 27-column reduction;
@@ -2199,8 +2235,26 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
         } else if (norm > 1.0f) {
             norm = 1.0f;
         }
-        out[b] = (int16_t)(norm * (float)max_h + 0.5f);
+        int32_t target_q8 = (int32_t)(norm * (float)(max_h * 256) + 0.5f);
+        int32_t smooth_q8 = s_spec_smooth_q8[b];
+        if (!s_spec_smooth_valid) {
+            smooth_q8 = target_q8;
+        } else {
+            int32_t delta = target_q8 - smooth_q8;
+            /* Fast attack (1/2 of the distance per frame), slow decay (1/8).  State
+             * remains Q8 so sub-pixel motion accumulates instead of being discarded. */
+            smooth_q8 += (delta >= 0) ? (delta / 2) : (delta / 8);
+        }
+        s_spec_smooth_q8[b] = (int16_t)smooth_q8;
+        int32_t height = (smooth_q8 + 128) >> 8;
+        if (height < 0) {
+            height = 0;
+        } else if (height > max_h) {
+            height = max_h;
+        }
+        out[b] = (int16_t)height;
     }
+    s_spec_smooth_valid = 1U;
     return true;
 }
 
