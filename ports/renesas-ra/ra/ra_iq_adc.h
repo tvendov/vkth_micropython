@@ -165,6 +165,11 @@ uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs);
  * amplitude ampl in ADC counts, scaled by the current PGA gain) to exercise the chain. */
 void ra_iq_adc_set_inject(uint8_t enable, uint32_t freq_hz, int32_t ampl);
 
+/* Per-block ON/OFF for verification: enable=0 bypasses block id (short to the next),
+ * 1 keeps it in the chain. block id is 1..10 (PGA..VOL). */
+void ra_iq_adc_set_block(uint8_t block, uint8_t enable);
+uint8_t ra_iq_adc_get_block(uint8_t block);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
@@ -246,15 +251,15 @@ void ra_iq_adc_get_agc(uint8_t *mode, int32_t *gain_q15, int32_t *target,
 void ra_iq_adc_set_volume(int32_t vol_q15);
 int32_t ra_iq_adc_get_volume(void);
 
-/* Spectrum (FFT) path.  256-point complex FFT of the DC-removed / IQ-corrected
+/* Spectrum (FFT) path.  512-point complex FFT of the DC-removed / IQ-corrected
  * decimated capture, tapped before the tuning NCO and channel filter.  The block
  * callback (ISR) only copies samples into an integer accumulator,
  * gated by ra_iq_adc_spectrum_enable(); the float window + FFT + magnitude run in
- * ra_iq_adc_spectrum() from the Python control plane (uses the FPU, not ISR-safe).
+ * a foreground control-plane consumer (uses the FPU, not ISR-safe).
  * ra_iq_adc_spectrum() fills out[] with the magnitude spectrum, fftshift-ed so DC
  * is at out[N/2], out[0] = -fs_audio/2 and out[N-1] = +fs_audio/2 - one bin; it
  * writes min(n, N) bins and returns false when no fresh snapshot is ready. */
-#define RA_IQ_SPECTRUM_N (256)
+#define RA_IQ_SPECTRUM_N (512)
 bool ra_iq_adc_spectrum(float *out, size_t n);
 
 /* Allocation-free UI accessors: the tuned-centre FFT->bars reduction (dB-scaled,
@@ -268,6 +273,12 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);
  * shift_bins describe the same tuned-centre scaling used by spectrum_bars(). */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
     int32_t *shift_bins);
+/* Native oscilloscope source.  The DAC DMAC refill callback pushes the exact
+ * unsigned 12-bit samples that it is about to play into an independent static
+ * ping-pong, allowing DAC scope and ADC spectrum to run simultaneously. */
+void ra_iq_adc_scope_enable(uint8_t on);
+void ra_iq_adc_scope_push(const uint16_t *samples, size_t n);
+bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n);
 size_t ra_iq_adc_get_counters(int32_t *out, size_t n);
 void ra_iq_adc_spectrum_enable(uint8_t on);
 size_t ra_iq_adc_spectrum_size(void);

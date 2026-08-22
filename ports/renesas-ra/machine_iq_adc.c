@@ -757,6 +757,20 @@ static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 4, machine_iqadc_inject);
 
+/* block(id[, enable]) -> int.  Per-block ON/OFF for verification: id 1..10 (1=PGA 2=decim
+ * 3=iqcorr 4=nco 5=chfilt 6=demod 7=af 8=squelch 9=agc 10=vol).  enable=0 bypasses the
+ * block (short to the next), 1 keeps it; always returns the current state (1=on, 0=off). */
+static mp_obj_t machine_iqadc_block(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    uint8_t id = (uint8_t)mp_obj_get_int(args[1]);
+    if (n_args >= 3) {
+        ra_iq_adc_set_block(id, mp_obj_is_true(args[2]) ? 1U : 0U);
+    }
+    return mp_obj_new_int(ra_iq_adc_get_block(id));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_block_obj, 2, 3, machine_iqadc_block);
+
 /* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
  * array('h', N); the pre-NCO capture FFT is shifted by the current tune offset, then
  * reduced 256->N, dB-scaled, and attack/release smoothed in C, filling buf with
@@ -887,6 +901,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_gain),         MP_ROM_PTR(&machine_iqadc_pga_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_tap),          MP_ROM_PTR(&machine_iqadc_tap_obj) },
     { MP_ROM_QSTR(MP_QSTR_inject),       MP_ROM_PTR(&machine_iqadc_inject_obj) },
+    { MP_ROM_QSTR(MP_QSTR_block),        MP_ROM_PTR(&machine_iqadc_block_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_bars), MP_ROM_PTR(&machine_iqadc_spectrum_bars_obj) },
     { MP_ROM_QSTR(MP_QSTR_counters),     MP_ROM_PTR(&machine_iqadc_counters_obj) },

@@ -163,9 +163,10 @@ Q(dbfs)
 // iq_adc tuning NCO (digital fine-tune)
 Q(tune)
 // iq_adc RF/PGA front-end gain -> exposed as iq.gain() (reuses the existing "gain" qstr).
-// iq_adc per-stage verification tap + bench signal injection
+// iq_adc per-stage verification tap + bench signal injection + per-block ON/OFF
 Q(tap)
 Q(inject)
+Q(block)
 
 #if MICROPY_HW_ENABLE_USB
 // for usb modes

@@ -354,6 +354,22 @@ static uint32_t ra_iq_isqrt32(uint32_t x) {
  *   AM    - 4th-order Butterworth low-pass at 4.5 kHz (two LP sections).
  *   VOICE - band-pass ~300..2700 Hz for SSB (HP 300 + LP 2700).
  *   CW    - two cascaded band-pass peaks at the 700 Hz BFO, Q=8 (a narrow CW ring). */
+/* Per-block ON/OFF for verification: a set bit BYPASSES that block (short to the
+ * next), so a stage can be removed from the chain to isolate it.  These definitions
+ * must precede ra_iq_audio_stage(), which applies the squelch/AGC/volume bypasses. */
+#define RA_IQ_BLK_PGA     1U
+#define RA_IQ_BLK_DECIM   2U
+#define RA_IQ_BLK_IQCORR  3U
+#define RA_IQ_BLK_NCO     4U
+#define RA_IQ_BLK_CHFILT  5U
+#define RA_IQ_BLK_DEMOD   6U
+#define RA_IQ_BLK_AF      7U
+#define RA_IQ_BLK_SQUELCH 8U
+#define RA_IQ_BLK_AGC     9U
+#define RA_IQ_BLK_VOL     10U
+static volatile uint16_t s_block_bypass;
+#define RA_IQ_BYPASSED(id) ((s_block_bypass & (1U << (id))) != 0U)
+
 /* RA_IQ_AF_OFF/AM/VOICE/CW are defined in ra_iq_adc.h (public preset ids). */
 #define RA_IQ_AF_STAGES (2U)
 
@@ -406,7 +422,7 @@ static void ra_iq_af_reset(void) {
 
 /* Per-sample audio filter: run the active biquad sections.  Bypass returns x. */
 static inline int32_t ra_iq_audio_filter(int32_t x) {
-    if (s_af_active == 0U) {
+    if (s_af_active == 0U || RA_IQ_BYPASSED(RA_IQ_BLK_AF)) {
         return x;
     }
     float xf = (float)x;
@@ -429,7 +445,7 @@ static inline uint16_t ra_iq_audio_stage(int32_t audio) {
      * return early -- which also freezes the AGC servo and its mean-square, so the gain
      * does not ramp up to amplify noise during the quiet.  Hysteresis: open at thresh,
      * close below 3/4 thresh. */
-    if (s_sq_thresh > 0) {
+    if ((s_sq_thresh > 0) && !RA_IQ_BYPASSED(RA_IQ_BLK_SQUELCH)) {
         int32_t a = (audio < 0) ? -audio : audio;
         s_sq_env += (a - s_sq_env) >> RA_IQ_SQ_ENV_SH;
         if (s_sq_open) {
@@ -482,8 +498,12 @@ static inline uint16_t ra_iq_audio_stage(int32_t audio) {
         eff_gain = s_agc_gain_q15;   /* manual: operator-set constant, applied as-is */
     }
 
-    audio = (audio * eff_gain) >> 15;
-    audio = (audio * s_vol_q15) >> 15;
+    if (!RA_IQ_BYPASSED(RA_IQ_BLK_AGC)) {
+        audio = (audio * eff_gain) >> 15;
+    }
+    if (!RA_IQ_BYPASSED(RA_IQ_BLK_VOL)) {
+        audio = (audio * s_vol_q15) >> 15;
+    }
 
     if (audio > 2047) {
         audio = 2047;
@@ -645,11 +665,11 @@ static ra_iq_audio_private_t s_audio;
 /* --------------------------------------------------------------------------
  * Spectrum (FFT) path.  The block callback (ISR) only COPIES decimated I/Q into
  * a ping-pong integer accumulator; the float window + CMSIS FFT + magnitude run
- * later inside the Python iq.spectrum() call (control plane, FPU is fine there).
+ * later in the foreground spectrum consumer (control plane, FPU is fine there).
  * Accumulation is gated by s_spec_enable so there is zero ISR cost when the
  * spectrum is not in use (REQ-RT-002/003: no FPU/alloc/Python in the ISR).
  * ------------------------------------------------------------------------ */
-#define RA_IQ_SPEC_N 256
+#define RA_IQ_SPEC_N RA_IQ_SPECTRUM_N
 
 static int16_t s_spec_i[2][RA_IQ_SPEC_N];
 static int16_t s_spec_q[2][RA_IQ_SPEC_N];
@@ -657,6 +677,16 @@ static volatile uint16_t s_spec_wr;         /* producer-owned fill index        
 static volatile uint8_t s_spec_half;        /* producer-owned active half         */
 static volatile int8_t s_spec_ready = -1;   /* completed half, -1 = none          */
 static volatile uint8_t s_spec_enable;      /* gate: accumulate only when in use  */
+
+/* Simultaneous DAC oscilloscope capture.  Unlike the earlier alternative-view
+ * prototype this has its own 2x512 signed ping-pong: ADC spectrum and played DAC
+ * waveform can now be displayed side by side without two ISR producers sharing
+ * indices.  It is static BSS, not MicroPython heap. */
+static int16_t s_scope_audio[2][RA_IQ_SPEC_N];
+static volatile uint16_t s_scope_wr;
+static volatile uint8_t s_scope_half;
+static volatile int8_t s_scope_ready = -1;
+static volatile uint8_t s_scope_enable;
 
 /* Control-plane FFT work buffers.  s_spec_fft is interleaved complex (re, im). */
 static float s_spec_fft[2 * RA_IQ_SPEC_N];
@@ -893,7 +923,8 @@ static void ra_iq_dsp_process(uint8_t half) {
         ra_adc_pga_mode_t md;
         uint8_t code = 0U;
         (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
-        int32_t a = (int32_t)(((int64_t)s_inject_ampl *
+        int32_t a = RA_IQ_BYPASSED(RA_IQ_BLK_PGA) ? s_inject_ampl
+            : (int32_t)(((int64_t)s_inject_ampl *
             (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
         uint32_t ph = s_inject_phase;
         uint32_t step = s_inject_step;
@@ -971,7 +1002,7 @@ static void ra_iq_dsp_process(uint8_t half) {
     for (uint16_t j = 0U; j < m; ++j) {
         int32_t ci = (int32_t)s_i_dc[j] - mi;
         int32_t cq = (int32_t)s_q_dc[j] - mq;
-        if (iqc) {
+        if (iqc && !RA_IQ_BYPASSED(RA_IQ_BLK_IQCORR)) {
             /* I is the reference; correct Q only.  Q15 fixed point. */
             cq = (amp * cq + phase * ci) >> 15;
             if (cq > 32767) {
@@ -1009,7 +1040,7 @@ static void ra_iq_dsp_process(uint8_t half) {
      * removal + imbalance and BEFORE the channel filter, so a signal offset from the ADC
      * centre lands at 0 Hz for the fixed channel filter + demod.  Skipped when tuning is
      * off (bit-identical to no NCO).  Phase is continuous across blocks. */
-    if (s_tune_hz != 0) {
+    if ((s_tune_hz != 0) && !RA_IQ_BYPASSED(RA_IQ_BLK_NCO)) {
         uint32_t ph = s_tune_phase;
         uint32_t step = s_tune_step;
         for (uint16_t j = 0U; j < m; ++j) {
@@ -1035,7 +1066,7 @@ static void ra_iq_dsp_process(uint8_t half) {
         /* CMSIS stage-3 path: 4-pole Butterworth via arm_biquad_cascade_df1_f32, I and Q
          * through their own state with the shared coefficient set.  int16 -> f32 -> int16
          * with rounding and a 16-bit clamp; bypass leaves s_i_dc/s_q_dc untouched. */
-        if (!s_chf_f32_bypass) {
+        if (!s_chf_f32_bypass && !RA_IQ_BYPASSED(RA_IQ_BLK_CHFILT)) {
             for (uint16_t j = 0U; j < m; ++j) {
                 s_chf_buf_i[j] = (float)s_i_dc[j];
                 s_chf_buf_q[j] = (float)s_q_dc[j];
@@ -1063,7 +1094,7 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
     } else {
         int32_t alpha = s_filt_alpha_q15;
-        if (alpha != 32768) {
+        if ((alpha != 32768) && !RA_IQ_BYPASSED(RA_IQ_BLK_CHFILT)) {
             for (uint16_t j = 0U; j < m; ++j) {
                 int32_t xi = s_i_dc[j];
                 int32_t xq = s_q_dc[j];
@@ -1956,6 +1987,23 @@ void ra_iq_adc_set_inject(uint8_t enable, uint32_t freq_hz, int32_t ampl) {
     s_inject_enable = enable;
 }
 
+/* Per-block ON/OFF: enable != 0 keeps block id in the chain, 0 bypasses it (short to the
+ * next).  block id is RA_IQ_BLK_*.  Control-plane. */
+void ra_iq_adc_set_block(uint8_t block, uint8_t enable) {
+    if (block == 0U || block > 15U) {
+        return;
+    }
+    if (enable) {
+        s_block_bypass &= (uint16_t) ~(1U << block);
+    } else {
+        s_block_bypass |= (uint16_t)(1U << block);
+    }
+}
+
+uint8_t ra_iq_adc_get_block(uint8_t block) {
+    return (block == 0U || block > 15U) ? 1U : (RA_IQ_BYPASSED(block) ? 0U : 1U);
+}
+
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
     if (thresh != NULL) {
         *thresh = s_sq_thresh;
@@ -2224,11 +2272,75 @@ void ra_iq_adc_spectrum_enable(uint8_t on) {
             s_spec_enable = 1U;
         }
     } else {
+        uint32_t irq_state = ra_disable_irq();
         s_spec_enable = 0U;
+        s_scope_enable = 0U;
+        s_spec_wr = 0U;
+        s_spec_half = 0U;
+        s_spec_ready = -1;
+        s_scope_wr = 0U;
+        s_scope_half = 0U;
+        s_scope_ready = -1;
+        ra_enable_irq(irq_state);
         s_spec_ref_peak = 0.0f;
         s_spec_smooth_n = 0U;
         s_spec_smooth_valid = 0U;
     }
+}
+
+/* Gate the independent 2x512 DAC capture.  Spectrum accumulation remains active,
+ * allowing the two native plots to run simultaneously. */
+void ra_iq_adc_scope_enable(uint8_t on) {
+    uint32_t irq_state = ra_disable_irq();
+    s_scope_enable = on ? 1U : 0U;
+    s_scope_wr = 0U;
+    s_scope_half = 0U;
+    s_scope_ready = -1;
+    ra_enable_irq(irq_state);
+}
+
+/* Called only by the DAC DMAC refill callback, immediately after audio_pull has
+ * written the actual buffer to be played.  Convert 0..4095 DAC codes to signed
+ * -2048..2047 samples and append them to the shared capture.  Fixed integer work,
+ * no allocation and no Python in the ISR. */
+void ra_iq_adc_scope_push(const uint16_t *samples, size_t n) {
+    if (!s_spec_enable || !s_scope_enable || (samples == NULL)) {
+        return;
+    }
+
+    uint8_t h = s_scope_half;
+    uint16_t wr = s_scope_wr;
+    for (size_t k = 0U; k < n; ++k) {
+        s_scope_audio[h][wr] = (int16_t)((int32_t)samples[k] - 2048);
+        if (++wr == RA_IQ_SPEC_N) {
+            __DMB();
+            s_scope_ready = (int8_t)h;
+            h ^= 1U;
+            wr = 0U;
+        }
+    }
+    s_scope_half = h;
+    s_scope_wr = wr;
+}
+
+/* Claim the newest completed DAC half.  The renderer reduces it to fixed screen
+ * coordinates immediately, before waiting for VSYNC; the producer fills the
+ * opposite half during that short foreground read. */
+bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n) {
+    if ((samples == NULL) || (n == NULL) || !s_scope_enable) {
+        return false;
+    }
+    uint32_t irq_state = ra_disable_irq();
+    int8_t h = s_scope_ready;
+    if (h < 0) {
+        ra_enable_irq(irq_state);
+        return false;
+    }
+    s_scope_ready = -1;
+    ra_enable_irq(irq_state);
+    *samples = s_scope_audio[(uint8_t)h];
+    *n = (size_t)RA_IQ_SPEC_N;
+    return true;
 }
 
 size_t ra_iq_adc_spectrum_size(void) {
@@ -2268,7 +2380,7 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
         s_spec_fft[2U * k + 1U] = (float)s_spec_q[h][k] * w;
     }
 
-    arm_cfft_f32(&arm_cfft_sR_f32_len256, s_spec_fft, 0, 1);
+    arm_cfft_f32(&arm_cfft_sR_f32_len512, s_spec_fft, 0, 1);
     arm_cmplx_mag_f32(s_spec_fft, s_spec_mag, RA_IQ_SPEC_N);
 
     size_t count = (n < (size_t)RA_IQ_SPEC_N) ? n : (size_t)RA_IQ_SPEC_N;
@@ -2301,7 +2413,7 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
         s_spec_fft[2U * k] = (float)s_spec_i[h][k] * w;
         s_spec_fft[2U * k + 1U] = (float)s_spec_q[h][k] * w;
     }
-    arm_cfft_f32(&arm_cfft_sR_f32_len256, s_spec_fft, 0, 1);
+    arm_cfft_f32(&arm_cfft_sR_f32_len512, s_spec_fft, 0, 1);
     arm_cmplx_mag_f32(s_spec_fft, s_spec_mag, RA_IQ_SPEC_N);
 
     /* Global peak for per-frame normalisation. */
@@ -2343,7 +2455,7 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
     return true;
 }
 
-/* Allocation-free spectrum for the UI: the existing 256-bin magnitude buffer is
+/* Allocation-free spectrum for the UI: the existing 512-bin magnitude buffer is
  * recentred by the current tuning offset and reduced in C to nbars peak-per-group
  * bars.  Python never boxes a float. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
@@ -2409,7 +2521,7 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
 
 /* Native waterfall access to the SAME magnitude buffer used by spectrum_bars().
  * The LCD consumes it synchronously before another FFT can overwrite it, so there is
- * no second 256-bin buffer and no copy through Python/LVGL. */
+ * no second FFT buffer and no copy through Python/LVGL. */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
     int32_t *shift_bins) {
     if ((magnitudes == NULL) || (ref_peak == NULL) || (shift_bins == NULL)) {

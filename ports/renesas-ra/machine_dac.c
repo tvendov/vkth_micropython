@@ -82,6 +82,10 @@ static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[RA_IQ_ADC_MAX_BLO
 static bool machine_dac_iq_fill(void *ctx, uint16_t *buf, size_t n) {
     (void)ctx;
     ra_iq_adc_audio_pull(buf, n);
+    /* Capture after the pull, so SCOPE sees the exact DAC codes including the
+     * 2048 mid-scale silence inserted on an underrun.  The push is a gated no-op
+     * unless the native LCD is currently in SCOPE view. */
+    ra_iq_adc_scope_push(buf, n);
     return true;
 }
 #endif
