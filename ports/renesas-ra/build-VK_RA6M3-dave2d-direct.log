@@ -1,0 +1,2759 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+LVGL-GEN build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c
+GEN build-VK_RA6M3-board-fonts/genhdr/mpversion.h
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.i.last
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.split
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.split
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+Compressed data not updated
+Module registrations not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+Root pointer registrations updated
+QSTR updated
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.h
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.generated.h
+CC ../../py/mpstate.c
+CC ../../py/nlr.c
+CC ../../py/nlrx86.c
+CC ../../py/nlrx64.c
+In file included from ../../py/mpstate.h:208,
+                 from ../../py/mpstate.c:27:
+build-VK_RA6M3-board-fonts/genhdr/root_pointers.h:21:1: error: unknown type name 'vk_ra6m3_drw_allocation_t'
+   21 | vk_ra6m3_drw_allocation_t *vk_ra6m3_drw_allocations;
+      | ^~~~~~~~~~~~~~~~~~~~~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/py/mpstate.o] Error 1
+make: *** Waiting for unfinished jobs....
+In file included from ../../py/mpstate.h:208,
+                 from ../../py/nlr.c:27:
+build-VK_RA6M3-board-fonts/genhdr/root_pointers.h:21:1: error: unknown type name 'vk_ra6m3_drw_allocation_t'
+   21 | vk_ra6m3_drw_allocation_t *vk_ra6m3_drw_allocations;
+      | ^~~~~~~~~~~~~~~~~~~~~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/py/nlr.o] Error 1
+In file included from ../../py/mpstate.h:208,
+                 from ../../py/nlrx86.c:27:
+build-VK_RA6M3-board-fonts/genhdr/root_pointers.h:21:1: error: unknown type name 'vk_ra6m3_drw_allocation_t'
+   21 | vk_ra6m3_drw_allocation_t *vk_ra6m3_drw_allocations;
+      | ^~~~~~~~~~~~~~~~~~~~~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/py/nlrx86.o] Error 1
+In file included from ../../py/mpstate.h:208,
+                 from ../../py/nlrx64.c:27:
+build-VK_RA6M3-board-fonts/genhdr/root_pointers.h:21:1: error: unknown type name 'vk_ra6m3_drw_allocation_t'
+   21 | vk_ra6m3_drw_allocation_t *vk_ra6m3_drw_allocations;
+      | ^~~~~~~~~~~~~~~~~~~~~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/py/nlrx64.o] Error 1
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.i.last
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.split
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.split
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.split
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+Module registrations not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+QSTR not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+Root pointer registrations updated
+Compressed data not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.h
+CC ../../py/mpstate.c
+CC ../../py/nlr.c
+CC ../../py/nlrx86.c
+CC ../../py/nlrx64.c
+CC ../../py/nlrthumb.c
+CC ../../py/nlraarch64.c
+CC ../../py/nlrmips.c
+CC ../../py/nlrpowerpc.c
+CC ../../py/nlrxtensa.c
+CC ../../py/nlrrv32.c
+CC ../../py/nlrrv64.c
+CC ../../py/nlrsetjmp.c
+CC ../../py/malloc.c
+CC ../../py/gc.c
+CC ../../py/pystack.c
+CC ../../py/qstr.c
+CC ../../py/vstr.c
+CC ../../py/mpprint.c
+CC ../../py/unicode.c
+CC ../../py/mpz.c
+CC ../../py/reader.c
+CC ../../py/lexer.c
+CC ../../py/parse.c
+CC ../../py/scope.c
+CC ../../py/compile.c
+CC ../../py/emitcommon.c
+CC ../../py/emitbc.c
+CC ../../py/asmbase.c
+CC ../../py/asmx64.c
+CC ../../py/emitnx64.c
+CC ../../py/asmx86.c
+CC ../../py/emitnx86.c
+CC ../../py/asmthumb.c
+CC ../../py/emitnthumb.c
+CC ../../py/emitinlinethumb.c
+CC ../../py/asmarm.c
+CC ../../py/emitnarm.c
+CC ../../py/asmxtensa.c
+CC ../../py/emitnxtensa.c
+CC ../../py/emitinlinextensa.c
+CC ../../py/emitnxtensawin.c
+CC ../../py/asmrv32.c
+CC ../../py/emitnrv32.c
+CC ../../py/emitinlinerv32.c
+CC ../../py/emitndebug.c
+CC ../../py/formatfloat.c
+CC ../../py/parsenumbase.c
+CC ../../py/parsenum.c
+CC ../../py/emitglue.c
+CC ../../py/persistentcode.c
+CC ../../py/runtime.c
+CC ../../py/runtime_utils.c
+CC ../../py/scheduler.c
+CC ../../py/nativeglue.c
+CC ../../py/pairheap.c
+CC ../../py/ringbuf.c
+CC ../../py/cstack.c
+CC ../../py/stackctrl.c
+CC ../../py/argcheck.c
+CC ../../py/warning.c
+CC ../../py/profile.c
+CC ../../py/map.c
+CC ../../py/obj.c
+CC ../../py/objarray.c
+CC ../../py/objattrtuple.c
+CC ../../py/objbool.c
+CC ../../py/objboundmeth.c
+CC ../../py/objcell.c
+CC ../../py/objclosure.c
+CC ../../py/objcode.c
+CC ../../py/objcomplex.c
+CC ../../py/objdeque.c
+CC ../../py/objdict.c
+CC ../../py/objenumerate.c
+CC ../../py/objexcept.c
+CC ../../py/objfilter.c
+CC ../../py/objfloat.c
+CC ../../py/objfun.c
+CC ../../py/objgenerator.c
+CC ../../py/objgetitemiter.c
+CC ../../py/objint.c
+CC ../../py/objint_longlong.c
+CC ../../py/objint_mpz.c
+CC ../../py/objlist.c
+CC ../../py/objmap.c
+CC ../../py/objmodule.c
+CC ../../py/objobject.c
+CC ../../py/objpolyiter.c
+CC ../../py/objproperty.c
+CC ../../py/objnone.c
+CC ../../py/objnamedtuple.c
+CC ../../py/objrange.c
+CC ../../py/objreversed.c
+CC ../../py/objringio.c
+CC ../../py/objset.c
+CC ../../py/objsingleton.c
+CC ../../py/objslice.c
+CC ../../py/objstr.c
+CC ../../py/objstrunicode.c
+CC ../../py/objstringio.c
+CC ../../py/objtuple.c
+CC ../../py/objtype.c
+CC ../../py/objzip.c
+CC ../../py/opmethods.c
+CC ../../py/sequence.c
+CC ../../py/stream.c
+CC ../../py/binary.c
+CC ../../py/builtinimport.c
+CC ../../py/builtinevex.c
+CC ../../py/builtinhelp.c
+CC ../../py/modarray.c
+CC ../../py/modbuiltins.c
+CC ../../py/modcollections.c
+CC ../../py/modgc.c
+CC ../../py/modio.c
+CC ../../py/modmath.c
+CC ../../py/modcmath.c
+CC ../../py/modmicropython.c
+CC ../../py/modstruct.c
+CC ../../py/modsys.c
+CC ../../py/moderrno.c
+CC ../../py/modthread.c
+CC ../../py/vm.c
+CC ../../py/bc.c
+CC ../../py/showbc.c
+CC ../../py/repl.c
+CC ../../py/smallint.c
+CC ../../py/frozenmod.c
+MPY pRGB.py
+GEN build-VK_RA6M3-board-fonts/frozen_content.c
+CC ../../extmod/machine_adc.c
+CC ../../extmod/machine_adc_block.c
+CC ../../extmod/machine_bitstream.c
+CC ../../extmod/machine_i2c.c
+CC ../../extmod/machine_i2c_target.c
+CC ../../extmod/machine_i2s.c
+CC ../../extmod/machine_mem.c
+CC ../../extmod/machine_pinbase.c
+CC ../../extmod/machine_pulse.c
+CC ../../extmod/machine_pwm.c
+CC ../../extmod/machine_signal.c
+CC ../../extmod/machine_spi.c
+CC ../../extmod/machine_uart.c
+CC ../../extmod/machine_usb_device.c
+CC ../../extmod/machine_wdt.c
+CC ../../extmod/modasyncio.c
+CC ../../extmod/modbinascii.c
+CC ../../extmod/modbluetooth.c
+CC ../../extmod/modbtree.c
+CC ../../extmod/modcryptolib.c
+CC ../../extmod/moddeflate.c
+CC ../../extmod/modframebuf.c
+CC ../../extmod/modhashlib.c
+CC ../../extmod/modheapq.c
+CC ../../extmod/modjson.c
+CC ../../extmod/modlwip.c
+CC ../../extmod/modmachine.c
+CC ../../extmod/modmarshal.c
+CC ../../extmod/modnetwork.c
+CC ../../extmod/modonewire.c
+CC ../../extmod/modopenamp.c
+CC ../../extmod/modopenamp_remoteproc.c
+CC ../../extmod/modopenamp_remoteproc_store.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../extmod/modrandom.c
+CC ../../extmod/modre.c
+CC ../../extmod/modselect.c
+CC ../../extmod/modsocket.c
+CC ../../extmod/modtls_axtls.c
+CC ../../extmod/modtls_mbedtls.c
+CC ../../extmod/mbedtls/mbedtls_alt.c
+CC ../../extmod/modtime.c
+CC ../../extmod/moductypes.c
+CC ../../extmod/modvfs.c
+CC ../../extmod/modwebrepl.c
+CC ../../extmod/modwebsocket.c
+CC ../../extmod/network_cyw43.c
+CC ../../extmod/network_esp_hosted.c
+CC ../../extmod/network_lwip.c
+CC ../../extmod/network_ninaw10.c
+CC ../../extmod/network_ppp_lwip.c
+CC ../../extmod/network_wiznet5k.c
+CC ../../extmod/os_dupterm.c
+CC ../../extmod/vfs.c
+CC ../../extmod/vfs_blockdev.c
+CC ../../extmod/vfs_fat.c
+CC ../../extmod/vfs_fat_diskio.c
+CC ../../extmod/vfs_fat_file.c
+CC ../../extmod/vfs_lfs.c
+CC ../../extmod/vfs_rom.c
+CC ../../extmod/vfs_rom_file.c
+CC ../../extmod/vfs_posix.c
+CC ../../extmod/vfs_posix_file.c
+CC ../../extmod/vfs_reader.c
+CC ../../extmod/virtpin.c
+CC ../../shared/libc/abort_.c
+CC ../../shared/libc/printf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_group.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_class.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_draw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_event.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_id_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_pos.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_property.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_scroll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_style.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_style_gen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_tree.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_refr.c
+CC ../../lib/lv_bindings/lib/lvgl/src/display/lv_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/convert/helium/lv_draw_buf_convert_helium.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/convert/lv_draw_buf_convert.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/convert/neon/lv_draw_buf_convert_neon.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/dma2d/lv_draw_dma2d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/dma2d/lv_draw_dma2d_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/dma2d/lv_draw_dma2d_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa_buf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_letter.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_ram_g.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_eve.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_3d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_buf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_mask.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_rect.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_image_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_layer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_stm32_hal.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_nema_gfx_path.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_buf_g2d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_g2d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_g2d_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_g2d_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_g2d_buf_map.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_g2d_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_buf_pxp.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp_layer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_pxp_cfg.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_pxp_osa.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_pxp_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/opengles/lv_draw_opengles.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c
+../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c: In function 'lv_draw_dave2d_draw_letter_cb':
+../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:157:9: error: implicit declaration of function 'lv_draw_dave2d_fill_single'; did you mean 'lv_draw_dave2d_triangle'? [-Werror=implicit-function-declaration]
+  157 |         lv_draw_dave2d_fill_single(t, fill_draw_dsc, fill_area);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+      |         lv_draw_dave2d_triangle
+cc1.exe: all warnings being treated as errors
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.o] Error 1
+make: *** Waiting for unfinished jobs....
+../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c: In function 'lv_draw_dave2d_line':
+../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c:47:10: error: unused variable 'dashed' [-Werror=unused-variable]
+   47 |     bool dashed = dsc->dash_gap && dsc->dash_width;
+      |          ^~~~~~
+cc1.exe: all warnings being treated as errors
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.o] Error 1
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.i.last
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.split
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.split
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.split
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+Module registrations not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+QSTR not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_mask_rectangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sdl/lv_draw_sdl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_al88.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_argb8888.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_argb8888_premultiplied.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_i1.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_l8.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565_swapped.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_rgb888.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/neon/lv_draw_sw_blend_neon_to_rgb565.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/neon/lv_draw_sw_blend_neon_to_rgb888.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_box_shadow.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_grad.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_letter.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_mask.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_mask_rect.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_transform.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_buf_vg_lite.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_box_shadow.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_layer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_mask_rect.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_grad.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_math.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_path.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_pending.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_stroke.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/drm/lv_linux_drm.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/drm/lv_linux_drm_common.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/drm/lv_linux_drm_egl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/fb/lv_linux_fbdev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/ft81x/lv_ft81x.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/ili9341/lv_ili9341.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/lcd/lv_lcd_generic_mipi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/nv3007/lv_nv3007.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/nxp_elcdif/lv_nxp_elcdif.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/renesas_glcdc/lv_renesas_glcdc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st7735/lv_st7735.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st7789/lv_st7789.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st7796/lv_st7796.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st_ltdc/lv_st_ltdc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/draw/eve/lv_draw_eve_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/evdev/lv_evdev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/libinput/lv_libinput.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/libinput/lv_xkb.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_entry.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_fbdev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_image_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_lcd.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_libuv.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_mouse.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_profiler.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/assets/lv_opengles_shader.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/glad/src/egl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/glad/src/gles2.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_debug.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_driver.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_egl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_glfw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_texture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/opengl_shader/lv_opengl_shader_manager.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/opengl_shader/lv_opengl_shader_program.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/qnx/lv_qnx.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_mouse.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_mousewheel.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_window.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_context.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_indev_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_indev_pointer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_indev_touch.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_private.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wayland.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wayland_smm.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_dmabuf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_pointer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_pointer_axis.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_seat.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_shm.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_touch.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_window.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_window_decorations.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_xdg_shell.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/windows/lv_windows_context.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/windows/lv_windows_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/windows/lv_windows_input.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/x11/lv_x11_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/x11/lv_x11_input.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_binfont_loader.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_dejavu_16_persian_hebrew.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_fmt_txt.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_10.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_12.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_14.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_14_aligned.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_16.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_18.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_20.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_22.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_24.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_26.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_28.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_28_compressed.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_30.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_32.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_34.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_36.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_38.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_40.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_42.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_44.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_46.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_48.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_8.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_source_han_sans_sc_14_cjk.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_source_han_sans_sc_16_cjk.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_unscii_16.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_unscii_8.c
+CC ../../lib/lv_bindings/lib/lvgl/src/indev/lv_indev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/indev/lv_indev_gesture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/indev/lv_indev_scroll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/layouts/flex/lv_flex.c
+CC ../../lib/lv_bindings/lib/lvgl/src/layouts/grid/lv_grid.c
+CC ../../lib/lv_bindings/lib/lvgl/src/layouts/lv_layout.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/barcode/code128.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/barcode/lv_barcode.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/bin_decoder/lv_bin_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/bmp/lv_bmp.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmlparse.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmlrole.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmltok.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmltok_impl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmltok_ns.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/ffmpeg/lv_ffmpeg.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype_glyph.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype_outline.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_ftsystem.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/frogfs/src/decomp_raw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/frogfs/src/frogfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_cbfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_fatfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_frogfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_littlefs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_memfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_posix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_stdio.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_uefi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_win32.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/FT800-FT813/EVE_commands.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/FT800-FT813/EVE_supplemental.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gif/AnimatedGIF/src/gif.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gif/lv_gif.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gltf/gltf_view/assets/chromatic.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gltf/gltf_view/assets/lv_gltf_view_shader.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gltf/gltf_view/ibl/lv_gltf_ibl_sampler.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gstreamer/lv_gstreamer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/libjpeg_turbo/lv_libjpeg_turbo.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/libpng/lv_libpng.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/lodepng/lodepng.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/lodepng/lv_lodepng.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/lz4/lz4.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/qrcode/lv_qrcode.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/qrcode/qrcodegen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/rle/lv_rle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/rlottie/lv_rlottie.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_render.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_token.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/tiny_ttf/lv_tiny_ttf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/tjpgd/lv_tjpgd.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/tjpgd/tjpgd.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/lv_vg_lite_hal/lv_vg_lite_hal.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/lv_vg_lite_hal/vg_lite_os.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_matrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_path.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_stroke.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLiteKernel/vg_lite_kernel.c
+CC ../../lib/lv_bindings/lib/lvgl/src/lv_init.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/class/lv_cache_lru_ll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/class/lv_cache_lru_rb.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/class/lv_cache_sc_da.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/instance/lv_image_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/instance/lv_image_header_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/lv_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/lv_cache_entry.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_anim.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_anim_timeline.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_area.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_array.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_async.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_bidi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_circle_buf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_color.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_color_op.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_event.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_fs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_grad.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_iter.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_ll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_log.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_lru.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_math.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_matrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_palette.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_profiler_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_profiler_builtin_posix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_rb.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_style.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_style_gen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_templ.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_text.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_text_ap.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_timer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_tree.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_cmsis_rtos2.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_freertos.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_linux.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_mqx.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_os.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_os_none.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_pthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_sdl2.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_windows.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/file_explorer/lv_file_explorer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/font_manager/lv_font_manager.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/font_manager/lv_font_manager_recycle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/fragment/lv_fragment.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/fragment/lv_fragment_manager.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/gridnav/lv_gridnav.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/ime/lv_ime_pinyin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/imgfont/lv_imgfont.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/monkey/lv_monkey.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/observer/lv_observer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/snapshot/lv_snapshot.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/sysmon/lv_sysmon.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_helpers.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_indev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_indev_gesture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_screenshot_compare.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/translation/lv_translation.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/vg_lite_tvg/vg_lite_matrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_base_types.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_component.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_load.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_style.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_test.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_translation.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_update.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_widget.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_arc_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_bar_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_buttonmatrix_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_button_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_calendar_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_canvas_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_chart_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_checkbox_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_dropdown_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_image_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_keyboard_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_label_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_obj_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_qrcode_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_roller_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_scale_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_slider_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_spangroup_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_spinbox_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_switch_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_table_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_tabview_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_textarea_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_mem_core_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_sprintf_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_string_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_tlsf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/clib/lv_mem_core_clib.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/clib/lv_sprintf_clib.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/clib/lv_string_clib.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/lv_mem.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/micropython/lv_mem_core_micropython.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/rtthread/lv_mem_core_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/rtthread/lv_sprintf_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/rtthread/lv_string_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/uefi/lv_mem_core_uefi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/default/lv_theme_default.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/lv_theme.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/mono/lv_theme_mono.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/simple/lv_theme_simple.c
+CC ../../lib/lv_bindings/lib/lvgl/src/tick/lv_tick.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/3dtexture/lv_3dtexture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/animimage/lv_animimage.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/arc/lv_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/arclabel/lv_arclabel.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/bar/lv_bar.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/button/lv_button.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar_chinese.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar_header_arrow.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar_header_dropdown.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/canvas/lv_canvas.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/chart/lv_chart.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/checkbox/lv_checkbox.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/dropdown/lv_dropdown.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/image/lv_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/imagebutton/lv_imagebutton.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/keyboard/lv_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/label/lv_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/led/lv_led.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/line/lv_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/list/lv_list.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/lottie/lv_lottie.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/menu/lv_menu.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/msgbox/lv_msgbox.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/objx_templ/lv_objx_templ.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_animimage_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_dropdown_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_image_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_keyboard_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_label_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_obj_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_roller_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_slider_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_style_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_textarea_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/roller/lv_roller.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/scale/lv_scale.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/slider/lv_slider.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/span/lv_span.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/spinbox/lv_spinbox.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/spinner/lv_spinner.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/switch/lv_switch.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/table/lv_table.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/tabview/lv_tabview.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/textarea/lv_textarea.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/tileview/lv_tileview.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/win/lv_win.c
+CC ../../lib/lv_bindings/ext_mod/lvgl/mem_core.c
+CC ../../lib/oofatfs/ff.c
+CC ../../lib/oofatfs/ffunicode.c
+CC ../../lib/mbedtls_errors/mp_mbedtls_errors.c
+CC ../../lib/mbedtls/library/aes.c
+CC ../../lib/mbedtls/library/aesni.c
+CC ../../lib/mbedtls/library/asn1parse.c
+CC ../../lib/mbedtls/library/asn1write.c
+CC ../../lib/mbedtls/library/base64.c
+CC ../../lib/mbedtls/library/bignum_core.c
+CC ../../lib/mbedtls/library/bignum_mod.c
+CC ../../lib/mbedtls/library/bignum_mod_raw.c
+CC ../../lib/mbedtls/library/bignum.c
+CC ../../lib/mbedtls/library/camellia.c
+CC ../../lib/mbedtls/library/ccm.c
+CC ../../lib/mbedtls/library/chacha20.c
+CC ../../lib/mbedtls/library/chachapoly.c
+CC ../../lib/mbedtls/library/cipher.c
+CC ../../lib/mbedtls/library/cipher_wrap.c
+CC ../../lib/mbedtls/library/nist_kw.c
+CC ../../lib/mbedtls/library/aria.c
+CC ../../lib/mbedtls/library/cmac.c
+CC ../../lib/mbedtls/library/constant_time.c
+CC ../../lib/mbedtls/library/mps_reader.c
+CC ../../lib/mbedtls/library/mps_trace.c
+CC ../../lib/mbedtls/library/ctr_drbg.c
+CC ../../lib/mbedtls/library/debug.c
+CC ../../lib/mbedtls/library/des.c
+CC ../../lib/mbedtls/library/dhm.c
+CC ../../lib/mbedtls/library/ecdh.c
+CC ../../lib/mbedtls/library/ecdsa.c
+CC ../../lib/mbedtls/library/ecjpake.c
+CC ../../lib/mbedtls/library/ecp.c
+CC ../../lib/mbedtls/library/ecp_curves.c
+CC ../../lib/mbedtls/library/entropy.c
+CC ../../lib/mbedtls/library/entropy_poll.c
+CC ../../lib/mbedtls/library/gcm.c
+CC ../../lib/mbedtls/library/hmac_drbg.c
+CC ../../lib/mbedtls/library/md5.c
+CC ../../lib/mbedtls/library/md.c
+CC ../../lib/mbedtls/library/oid.c
+CC ../../lib/mbedtls/library/padlock.c
+CC ../../lib/mbedtls/library/pem.c
+CC ../../lib/mbedtls/library/pk.c
+CC ../../lib/mbedtls/library/pkcs12.c
+CC ../../lib/mbedtls/library/pkcs5.c
+CC ../../lib/mbedtls/library/pkparse.c
+CC ../../lib/mbedtls/library/pk_ecc.c
+CC ../../lib/mbedtls/library/pk_wrap.c
+CC ../../lib/mbedtls/library/pkwrite.c
+CC ../../lib/mbedtls/library/platform.c
+CC ../../lib/mbedtls/library/platform_util.c
+CC ../../lib/mbedtls/library/poly1305.c
+CC ../../lib/mbedtls/library/ripemd160.c
+CC ../../lib/mbedtls/library/rsa.c
+CC ../../lib/mbedtls/library/rsa_alt_helpers.c
+CC ../../lib/mbedtls/library/sha1.c
+CC ../../lib/mbedtls/library/sha256.c
+CC ../../lib/mbedtls/library/sha512.c
+CC ../../lib/mbedtls/library/ssl_cache.c
+CC ../../lib/mbedtls/library/ssl_ciphersuites.c
+CC ../../lib/mbedtls/library/ssl_client.c
+CC ../../lib/mbedtls/library/ssl_cookie.c
+CC ../../lib/mbedtls/library/ssl_debug_helpers_generated.c
+CC ../../lib/mbedtls/library/ssl_msg.c
+CC ../../lib/mbedtls/library/ssl_ticket.c
+CC ../../lib/mbedtls/library/ssl_tls.c
+CC ../../lib/mbedtls/library/ssl_tls12_client.c
+CC ../../lib/mbedtls/library/ssl_tls12_server.c
+CC ../../lib/mbedtls/library/timing.c
+CC ../../lib/mbedtls/library/x509.c
+CC ../../lib/mbedtls/library/x509_create.c
+CC ../../lib/mbedtls/library/x509_crl.c
+CC ../../lib/mbedtls/library/x509_crt.c
+CC ../../lib/mbedtls/library/x509_csr.c
+CC ../../lib/mbedtls/library/x509write_crt.c
+CC ../../lib/mbedtls/library/x509write_csr.c
+CC ../../shared/netutils/netutils.c
+CC ../../lib/lwip/src/apps/mdns/mdns.c
+CC ../../lib/lwip/src/apps/mdns/mdns_domain.c
+CC ../../lib/lwip/src/apps/mdns/mdns_out.c
+CC ../../lib/lwip/src/core/def.c
+CC ../../lib/lwip/src/core/dns.c
+CC ../../lib/lwip/src/core/inet_chksum.c
+CC ../../lib/lwip/src/core/init.c
+CC ../../lib/lwip/src/core/ip.c
+CC ../../lib/lwip/src/core/mem.c
+CC ../../lib/lwip/src/core/memp.c
+CC ../../lib/lwip/src/core/netif.c
+CC ../../lib/lwip/src/core/pbuf.c
+CC ../../lib/lwip/src/core/raw.c
+CC ../../lib/lwip/src/core/stats.c
+CC ../../lib/lwip/src/core/sys.c
+CC ../../lib/lwip/src/core/tcp.c
+CC ../../lib/lwip/src/core/tcp_in.c
+CC ../../lib/lwip/src/core/tcp_out.c
+CC ../../lib/lwip/src/core/timeouts.c
+CC ../../lib/lwip/src/core/udp.c
+CC ../../lib/lwip/src/core/ipv4/acd.c
+CC ../../lib/lwip/src/core/ipv4/autoip.c
+CC ../../lib/lwip/src/core/ipv4/dhcp.c
+CC ../../lib/lwip/src/core/ipv4/etharp.c
+CC ../../lib/lwip/src/core/ipv4/icmp.c
+CC ../../lib/lwip/src/core/ipv4/igmp.c
+CC ../../lib/lwip/src/core/ipv4/ip4_addr.c
+CC ../../lib/lwip/src/core/ipv4/ip4.c
+CC ../../lib/lwip/src/core/ipv4/ip4_frag.c
+CC ../../lib/lwip/src/core/ipv6/dhcp6.c
+CC ../../lib/lwip/src/core/ipv6/ethip6.c
+CC ../../lib/lwip/src/core/ipv6/icmp6.c
+CC ../../lib/lwip/src/core/ipv6/inet6.c
+CC ../../lib/lwip/src/core/ipv6/ip6_addr.c
+CC ../../lib/lwip/src/core/ipv6/ip6.c
+CC ../../lib/lwip/src/core/ipv6/ip6_frag.c
+CC ../../lib/lwip/src/core/ipv6/mld6.c
+CC ../../lib/lwip/src/core/ipv6/nd6.c
+CC ../../lib/lwip/src/netif/ethernet.c
+CC ../../lib/lwip/src/netif/ppp/auth.c
+CC ../../lib/lwip/src/netif/ppp/ccp.c
+CC ../../lib/lwip/src/netif/ppp/chap-md5.c
+CC ../../lib/lwip/src/netif/ppp/chap_ms.c
+CC ../../lib/lwip/src/netif/ppp/chap-new.c
+CC ../../lib/lwip/src/netif/ppp/demand.c
+CC ../../lib/lwip/src/netif/ppp/eap.c
+CC ../../lib/lwip/src/netif/ppp/ecp.c
+CC ../../lib/lwip/src/netif/ppp/eui64.c
+CC ../../lib/lwip/src/netif/ppp/fsm.c
+CC ../../lib/lwip/src/netif/ppp/ipcp.c
+CC ../../lib/lwip/src/netif/ppp/ipv6cp.c
+CC ../../lib/lwip/src/netif/ppp/lcp.c
+CC ../../lib/lwip/src/netif/ppp/magic.c
+CC ../../lib/lwip/src/netif/ppp/mppe.c
+CC ../../lib/lwip/src/netif/ppp/multilink.c
+CC ../../lib/lwip/src/netif/ppp/polarssl/md5.c
+CC ../../lib/lwip/src/netif/ppp/pppapi.c
+CC ../../lib/lwip/src/netif/ppp/ppp.c
+CC ../../lib/lwip/src/netif/ppp/pppcrypt.c
+CC ../../lib/lwip/src/netif/ppp/pppoe.c
+CC ../../lib/lwip/src/netif/ppp/pppol2tp.c
+CC ../../lib/lwip/src/netif/ppp/pppos.c
+CC ../../lib/lwip/src/netif/ppp/upap.c
+CC ../../lib/lwip/src/netif/ppp/utils.c
+CC ../../lib/lwip/src/netif/ppp/vj.c
+CC build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c
+CC mbedtls/mbedtls_port.c
+CC ../../lib/libm/acoshf.c
+CC ../../lib/libm/asinfacosf.c
+CC ../../lib/libm/asinhf.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:36905:17: warning: 'mp_lv_funcptr_lv_iter_next_cb' defined but not used [-Wunused-function]
+36905 | static mp_obj_t mp_lv_funcptr_lv_iter_next_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_iter_next_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:36854:17: warning: 'mp_lv_funcptr_cmp' defined but not used [-Wunused-function]
+36854 | static mp_obj_t mp_lv_funcptr_cmp(void *func){ return mp_lv_funcptr(&mp_funcptr_cmp_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:36227:17: warning: 'mp_read_ptr_lv_sqrt_res_t' defined but not used [-Wunused-function]
+36227 | static mp_obj_t mp_read_ptr_lv_sqrt_res_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:33372:17: warning: 'mp_lv_funcptr_lv_iter_inspect_cb' defined but not used [-Wunused-function]
+33372 | static mp_obj_t mp_lv_funcptr_lv_iter_inspect_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_iter_inspect_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:33048:17: warning: 'mp_lv_funcptr_lv_rb_compare_t' defined but not used [-Wunused-function]
+33048 | static mp_obj_t mp_lv_funcptr_lv_rb_compare_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_rb_compare_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:30505:14: warning: 'mp_write_ptr_lv_hit_test_info_t' defined but not used [-Wunused-function]
+30505 | static void* mp_write_ptr_lv_hit_test_info_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:29925:17: warning: 'mp_lv_funcptr_lv_draw_glyph_cb_t' defined but not used [-Wunused-function]
+29925 | static mp_obj_t mp_lv_funcptr_lv_draw_glyph_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_glyph_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26456:17: warning: 'mp_lv_funcptr_lv_draw_buf_width_to_stride_cb_t' defined but not used [-Wunused-function]
+26456 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_width_to_stride_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_width_to_stride_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26420:17: warning: 'mp_lv_funcptr_lv_draw_buf_cache_operation_cb_t' defined but not used [-Wunused-function]
+26420 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_cache_operation_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_cache_operation_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26405:17: warning: 'mp_lv_funcptr_lv_draw_buf_align_cb_t' defined but not used [-Wunused-function]
+26405 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_align_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_align_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26376:17: warning: 'mp_lv_funcptr_lv_draw_buf_copy_cb_t' defined but not used [-Wunused-function]
+26376 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_copy_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_copy_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26361:17: warning: 'mp_lv_funcptr_lv_draw_buf_free_cb_t' defined but not used [-Wunused-function]
+26361 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_free_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_free_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26346:17: warning: 'mp_lv_funcptr_lv_draw_buf_malloc_cb_t' defined but not used [-Wunused-function]
+26346 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_malloc_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_malloc_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:25316:14: warning: 'mp_write_ptr_lv_color_hsv_t' defined but not used [-Wunused-function]
+25316 | static void* mp_write_ptr_lv_color_hsv_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24903:17: warning: 'mp_read_ptr_lv_draw_glyph_dsc_t' defined but not used [-Wunused-function]
+24903 | static mp_obj_t mp_read_ptr_lv_draw_glyph_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24808:17: warning: 'mp_read_ptr_lv_draw_letter_dsc_t' defined but not used [-Wunused-function]
+24808 | static mp_obj_t mp_read_ptr_lv_draw_letter_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24512:17: warning: 'mp_read_ptr_lv_fs_dir_t' defined but not used [-Wunused-function]
+24512 | static mp_obj_t mp_read_ptr_lv_fs_dir_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24447:17: warning: 'mp_read_ptr_lv_fs_path_ex_t' defined but not used [-Wunused-function]
+24447 | static mp_obj_t mp_read_ptr_lv_fs_path_ex_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24348:17: warning: 'mp_read_ptr_lv_fs_file_t' defined but not used [-Wunused-function]
+24348 | static mp_obj_t mp_read_ptr_lv_fs_file_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24176:17: warning: 'mp_lv_funcptr_dir_close_cb' defined but not used [-Wunused-function]
+24176 | static mp_obj_t mp_lv_funcptr_dir_close_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_close_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24167:17: warning: 'mp_lv_funcptr_dir_read_cb' defined but not used [-Wunused-function]
+24167 | static mp_obj_t mp_lv_funcptr_dir_read_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_read_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24142:17: warning: 'mp_lv_funcptr_dir_open_cb' defined but not used [-Wunused-function]
+24142 | static mp_obj_t mp_lv_funcptr_dir_open_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_open_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24119:17: warning: 'mp_lv_funcptr_tell_cb' defined but not used [-Wunused-function]
+24119 | static mp_obj_t mp_lv_funcptr_tell_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_tell_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24095:17: warning: 'mp_lv_funcptr_seek_cb' defined but not used [-Wunused-function]
+24095 | static mp_obj_t mp_lv_funcptr_seek_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_seek_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/atan2f.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24070:17: warning: 'mp_lv_funcptr_write_cb' defined but not used [-Wunused-function]
+24070 | static mp_obj_t mp_lv_funcptr_write_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_write_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24044:17: warning: 'mp_lv_funcptr_read_cb' defined but not used [-Wunused-function]
+24044 | static mp_obj_t mp_lv_funcptr_read_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_read_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24018:17: warning: 'mp_lv_funcptr_close_cb' defined but not used [-Wunused-function]
+24018 | static mp_obj_t mp_lv_funcptr_close_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_close_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23995:17: warning: 'mp_lv_funcptr_open_cb' defined but not used [-Wunused-function]
+23995 | static mp_obj_t mp_lv_funcptr_open_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_open_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23971:17: warning: 'mp_lv_funcptr_ready_cb' defined but not used [-Wunused-function]
+23971 | static mp_obj_t mp_lv_funcptr_ready_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_ready_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23898:17: warning: 'mp_read_ptr_lv_event_list_t' defined but not used [-Wunused-function]
+23898 | static mp_obj_t mp_read_ptr_lv_event_list_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23881:17: warning: 'mp_lv_funcptr_lv_layout_update_cb_t' defined but not used [-Wunused-function]
+23881 | static mp_obj_t mp_lv_funcptr_lv_layout_update_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_layout_update_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23630:17: warning: 'mp_read_ptr_lv_rb_t' defined but not used [-Wunused-function]
+23630 | static mp_obj_t mp_read_ptr_lv_rb_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23613:17: warning: 'mp_lv_funcptr_lv_async_cb_t' defined but not used [-Wunused-function]
+23613 | static mp_obj_t mp_lv_funcptr_lv_async_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_async_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23605:17: warning: 'mp_lv_funcptr_lv_timer_cb_t' defined but not used [-Wunused-function]
+23605 | static mp_obj_t mp_lv_funcptr_lv_timer_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_timer_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23519:17: warning: 'mp_lv_funcptr_lv_timer_handler_resume_cb_t' defined but not used [-Wunused-function]
+23519 | static mp_obj_t mp_lv_funcptr_lv_timer_handler_resume_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_timer_handler_resume_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23490:17: warning: 'mp_lv_funcptr_lv_delay_cb_t' defined but not used [-Wunused-function]
+23490 | static mp_obj_t mp_lv_funcptr_lv_delay_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_delay_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23407:17: warning: 'mp_read_ptr_lv_mem_monitor_t' defined but not used [-Wunused-function]
+23407 | static mp_obj_t mp_read_ptr_lv_mem_monitor_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23338:17: warning: 'mp_read_ptr_lv_color16_t' defined but not used [-Wunused-function]
+23338 | static mp_obj_t mp_read_ptr_lv_color16_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/atanf.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22604:17: warning: 'mp_read_ptr_lv_font_class_t' defined but not used [-Wunused-function]
+22604 | static mp_obj_t mp_read_ptr_lv_font_class_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22596:14: warning: 'mp_write_ptr_lv_font_class_t' defined but not used [-Wunused-function]
+22596 | static void* mp_write_ptr_lv_font_class_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22580:17: warning: 'mp_lv_funcptr_free_src_cb' defined but not used [-Wunused-function]
+22580 | static mp_obj_t mp_lv_funcptr_free_src_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_free_src_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22552:17: warning: 'mp_lv_funcptr_dup_src_cb' defined but not used [-Wunused-function]
+22552 | static mp_obj_t mp_lv_funcptr_dup_src_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dup_src_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22524:17: warning: 'mp_lv_funcptr_delete_cb' defined but not used [-Wunused-function]
+22524 | static mp_obj_t mp_lv_funcptr_delete_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_delete_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22496:17: warning: 'mp_lv_funcptr_create_cb' defined but not used [-Wunused-function]
+22496 | static mp_obj_t mp_lv_funcptr_create_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_create_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22418:17: warning: 'mp_read_ptr_lv_font_info_t' defined but not used [-Wunused-function]
+22418 | static mp_obj_t mp_read_ptr_lv_font_info_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22331:17: warning: 'mp_read_ptr__lv_mp_int_wrapper' defined but not used [-Wunused-function]
+22331 | static mp_obj_t mp_read_ptr__lv_mp_int_wrapper(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22323:14: warning: 'mp_write_ptr__lv_mp_int_wrapper' defined but not used [-Wunused-function]
+22323 | static void* mp_write_ptr__lv_mp_int_wrapper(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22084:17: warning: 'mp_read_ptr_lv_tree_class_t' defined but not used [-Wunused-function]
+22084 | static mp_obj_t mp_read_ptr_lv_tree_class_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22053:17: warning: 'mp_lv_funcptr_lv_tree_constructor_cb_t' defined but not used [-Wunused-function]
+22053 | static mp_obj_t mp_lv_funcptr_lv_tree_constructor_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_tree_constructor_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:20125:14: warning: 'mp_write_ptr_lv_span_coords_t' defined but not used [-Wunused-function]
+20125 | static void* mp_write_ptr_lv_span_coords_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:14189:17: warning: 'mp_read_ptr_lv_image_cache_data_t' defined but not used [-Wunused-function]
+14189 | static mp_obj_t mp_read_ptr_lv_image_cache_data_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:13806:17: warning: 'mp_read_ptr_lv_image_decoder_args_t' defined but not used [-Wunused-function]
+13806 | static mp_obj_t mp_read_ptr_lv_image_decoder_args_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:12310:17: warning: 'mp_lv_funcptr_lv_screen_create_cb_t' defined but not used [-Wunused-function]
+12310 | static mp_obj_t mp_lv_funcptr_lv_screen_create_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_screen_create_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:10689:17: warning: 'mp_read_ptr_lv_draw_rect_dsc_t' defined but not used [-Wunused-function]
+10689 | static mp_obj_t mp_read_ptr_lv_draw_rect_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/atanhf.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6956:17: warning: 'mp_lv_funcptr_lv_anim_get_value_cb_t' defined but not used [-Wunused-function]
+ 6956 | static mp_obj_t mp_lv_funcptr_lv_anim_get_value_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_get_value_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6932:17: warning: 'mp_lv_funcptr_lv_anim_start_cb_t' defined but not used [-Wunused-function]
+ 6932 | static mp_obj_t mp_lv_funcptr_lv_anim_start_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_start_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6910:17: warning: 'mp_lv_funcptr_lv_anim_custom_exec_cb_t' defined but not used [-Wunused-function]
+ 6910 | static mp_obj_t mp_lv_funcptr_lv_anim_custom_exec_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_custom_exec_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6881:17: warning: 'mp_lv_funcptr_lv_anim_exec_xcb_t' defined but not used [-Wunused-function]
+ 6881 | static mp_obj_t mp_lv_funcptr_lv_anim_exec_xcb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_exec_xcb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6761:17: warning: 'mp_lv_funcptr_lv_color_filter_cb_t' defined but not used [-Wunused-function]
+ 6761 | static mp_obj_t mp_lv_funcptr_lv_color_filter_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_color_filter_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6550:17: warning: 'mp_lv_funcptr_release_glyph' defined but not used [-Wunused-function]
+ 6550 | static mp_obj_t mp_lv_funcptr_release_glyph(void *func){ return mp_lv_funcptr(&mp_funcptr_release_glyph_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6521:17: warning: 'mp_lv_funcptr_get_glyph_bitmap' defined but not used [-Wunused-function]
+ 6521 | static mp_obj_t mp_lv_funcptr_get_glyph_bitmap(void *func){ return mp_lv_funcptr(&mp_funcptr_get_glyph_bitmap_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6283:17: warning: 'mp_lv_funcptr_get_glyph_dsc' defined but not used [-Wunused-function]
+ 6283 | static mp_obj_t mp_lv_funcptr_get_glyph_dsc(void *func){ return mp_lv_funcptr(&mp_funcptr_get_glyph_dsc_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/ef_rem_pio2.c
+CC ../../lib/libm/erf_lgamma.c
+CC ../../lib/libm/fmodf.c
+CC ../../lib/libm/kf_cos.c
+CC ../../lib/libm/kf_rem_pio2.c
+CC ../../lib/libm/kf_sin.c
+CC ../../lib/libm/kf_tan.c
+CC ../../lib/libm/log1pf.c
+CC ../../lib/libm/math.c
+CC ../../lib/libm/nearbyintf.c
+CC ../../lib/libm/roundf.c
+CC ../../lib/libm/sf_cos.c
+CC ../../lib/libm/sf_erf.c
+CC ../../lib/libm/sf_frexp.c
+CC ../../lib/libm/sf_ldexp.c
+CC ../../lib/libm/sf_modf.c
+CC ../../lib/libm/sf_sin.c
+CC ../../lib/libm/sf_tan.c
+CC ../../lib/libm/wf_lgamma.c
+CC ../../lib/libm/wf_tgamma.c
+CC ../../lib/libm/thumb_vfp_sqrtf.c
+CC ../../shared/libc/string0.c
+CC ../../shared/netutils/dhcpserver.c
+CC ../../shared/netutils/trace.c
+CC ../../shared/readline/readline.c
+CC ../../shared/runtime/gchelper_native.c
+CC ../../shared/runtime/interrupt_char.c
+CC ../../shared/runtime/mpirq.c
+CC ../../shared/runtime/pyexec.c
+CC ../../shared/runtime/softtimer.c
+CC ../../shared/runtime/stdout_helpers.c
+CC ../../shared/runtime/sys_stdio_mphal.c
+CC ../../shared/timeutils/timeutils.c
+CC ../../shared/tinyusb/mp_usbd.c
+CC ../../shared/tinyusb/mp_usbd_cdc.c
+CC ../../shared/tinyusb/mp_usbd_descriptor.c
+CC ../../drivers/bus/softspi.c
+CC ../../drivers/bus/softqspi.c
+CC ../../drivers/memory/spiflash.c
+CC ../../drivers/dht/dht.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_clocks.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_common.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_delay.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_group_irq.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_guard.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_io.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_irq.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_register_protection.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_rom_registers.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_sbrk.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_security.c
+CC ../../lib/fsp/ra/fsp/src/r_ioport/r_ioport.c
+CC ../../lib/fsp/ra/fsp/src/r_sci_uart/r_sci_uart.c
+CC ../../lib/fsp/ra/fsp/src/r_adc/r_adc.c
+CC ../../lib/fsp/ra/fsp/src/r_qspi/r_qspi.c
+CC ../../lib/fsp/ra/fsp/src/r_ether/r_ether.c
+CC ../../lib/fsp/ra/fsp/src/r_ether_phy/r_ether_phy.c
+CC ../../lib/fsp/ra/fsp/src/r_ether_phy/targets/ICS1894/r_ether_phy_target_ics1894.c
+CC ../../lib/fsp/ra/fsp/src/r_glcdc/r_glcdc.c
+CC ../../lib/fsp/ra/fsp/src/r_sci_i2c/r_sci_i2c.c
+CC ../../lib/fsp/ra/fsp/src/r_icu/r_icu.c
+CC ../../lib/fsp/ra/fsp/src/r_pdc/r_pdc.c
+CC ../../lib/fsp/ra/fsp/src/r_jpeg/r_jpeg.c
+CC ../../lib/fsp/ra/fsp/src/r_sdhi/r_sdhi.c
+CC ../../lib/fsp/ra/fsp/src/r_dtc/r_dtc.c
+CC ../../lib/fsp/ra/fsp/src/r_lpm/r_lpm.c
+CC ../../lib/fsp/ra/fsp/src/r_dmac/r_dmac.c
+CC ../../lib/fsp/ra/fsp/src/r_flash_hp/r_flash_hp.c
+CC ra/ra_adc.c
+CC ra/ra_dac.c
+CC ra/ra_flash.c
+CC ra/ra_gpio.c
+CC ra/ra_i2c.c
+CC ra/ra_i2c_slave.c
+CC ra/ra_icu.c
+CC ra/ra_init.c
+CC ra/ra_int.c
+CC ra/ra_opamp.c
+CC ra/ra_acmplp.c
+CC ra/ra_rtc.c
+CC ra/ra_sci.c
+CC ra/ra_sci_spi.c
+CC ra/ra_sci_ws2812.c
+CC ra/ra_spi.c
+CC ra/ra_timer.c
+CC ra/ra_gpt.c
+CC ra/ra_encoder.c
+CC ra/ra_utils.c
+CC ra/ra_sci_i2c.c
+CC ra/ra_storm_adc.c
+CC ra/ra_storm_detect.c
+CC ../../lib/fsp/ra/fsp/src/r_ctsu/r_ctsu.c
+CC ra/ra_ctsu.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//adaptors/r_sce_adapt.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p00.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p01.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p02.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p20.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func050.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func051.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func052.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func053.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func054.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func100.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func101.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func102.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func103.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_subprc01.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_subprc02.c
+CC ../../lib/tinyusb/src/class/cdc/cdc_device.c
+CC ../../lib/tinyusb/src/class/dfu/dfu_rt_device.c
+CC ../../lib/tinyusb/src/class/hid/hid_device.c
+CC ../../lib/tinyusb/src/class/midi/midi_device.c
+CC ../../lib/tinyusb/src/class/msc/msc_device.c
+CC ../../lib/tinyusb/src/class/usbtmc/usbtmc_device.c
+CC ../../lib/tinyusb/src/class/vendor/vendor_device.c
+CC ../../lib/tinyusb/src/common/tusb_fifo.c
+CC ../../lib/tinyusb/src/device/usbd.c
+CC ../../lib/tinyusb/src/device/usbd_control.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/dcd_rusb2.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/hcd_rusb2.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/rusb2_common.c
+CC ../../lib/tinyusb/src/tusb.c
+CC boardctrl.c
+CC main.c
+CC ra_hal.c
+CC ra_it.c
+CC rng.c
+CC mphalport.c
+CC mpnetworkport.c
+CC eth.c
+CC network_lan.c
+CC mpthreadport.c
+CC irq.c
+CC pendsv.c
+CC systick.c
+CC powerctrl.c
+CC powerctrlboot.c
+CC pybthread.c
+CC factoryreset.c
+CC timer.c
+CC led.c
+CC uart.c
+CC gccollect.c
+CC help.c
+CC machine_timer.c
+CC machine_bitstream.c
+CC machine_dac.c
+CC machine_i2c.c
+CC machine_opamp.c
+CC machine_comparator.c
+CC machine_spi.c
+CC machine_ws2812.c
+CC machine_encoder.c
+CC machine_pin.c
+CC machine_rtc.c
+CC machine_sdcard.c
+CC modaudiomixer.c
+CC modrenesas.c
+CC moddataflash.c
+CC extint.c
+CC usrsw.c
+CC flash.c
+CC flashbdev.c
+CC storage.c
+CC fatfs_port.c
+CC usbd.c
+CC boards/VK_RA6M3/dave2d_port.c
+CC boards/VK_RA6M3/machine_lcd.c
+In file included from boards/VK_RA6M3/dave2d_port.c:79:
+../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c: In function '_dave2d_wait_finish':
+../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:454:29: error: unused variable 'draw_dave2d_unit' [-Werror=unused-variable]
+  454 |     lv_draw_dave2d_unit_t * draw_dave2d_unit = (lv_draw_dave2d_unit_t *) draw_unit;
+      |                             ^~~~~~~~~~~~~~~~
+cc1.exe: all warnings being treated as errors
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o] Error 1
+make: *** Waiting for unfinished jobs....
+CC boards/VK_RA6M3/ra_gen/common_data.c
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+QSTR not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+Module registrations not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC boards/VK_RA6M3/dave2d_port.c
+CC boards/VK_RA6M3/ra_gen/hal_data.c
+CC boards/VK_RA6M3/ra_gen/pin_data.c
+CC boards/VK_RA6M3/ra_gen/vector_data.c
+CC machine_audioadc.c
+CC machine_touchpad.c
+CC ../../lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Source/startup.c
+CC ../../lib/fsp/ra/fsp/src/bsp/cmsis/Device/RENESAS/Source/system.c
+CC build-VK_RA6M3-board-fonts/pins_VK_RA6M3.c
+CC build-VK_RA6M3-board-fonts/frozen_content.c
+LINK build-VK_RA6M3-board-fonts/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.o: in function `lv_draw_dave2d_arc':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c:54:(.text.lv_draw_dave2d_arc+0x6a): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c:56:(.text.lv_draw_dave2d_arc+0x7c): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c:58:(.text.lv_draw_dave2d_arc+0x94): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c:162:(.text.lv_draw_dave2d_arc+0xd8): undefined reference to `d2_rendercircle'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c:133:(.text.lv_draw_dave2d_arc+0x236): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c:153:(.text.lv_draw_dave2d_arc+0x2a6): undefined reference to `d2_rendercircle'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.o: in function `dave2d_draw_border_simple':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:83:(.text.lv_draw_dave2d_border+0x134): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:84:(.text.lv_draw_dave2d_border+0x13c): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:85:(.text.lv_draw_dave2d_border+0x154): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:101:(.text.lv_draw_dave2d_border+0x1aa): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:111:(.text.lv_draw_dave2d_border+0x1f0): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:123:(.text.lv_draw_dave2d_border+0x244): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:133:(.text.lv_draw_dave2d_border+0x280): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.o: in function `dave2d_draw_border_complex':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:184:(.text.lv_draw_dave2d_border+0x2fa): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:185:(.text.lv_draw_dave2d_border+0x302): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:186:(.text.lv_draw_dave2d_border+0x31a): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:210:(.text.lv_draw_dave2d_border+0x3a6): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:222:(.text.lv_draw_dave2d_border+0x3ee): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:234:(.text.lv_draw_dave2d_border+0x436): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:246:(.text.lv_draw_dave2d_border+0x480): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:263:(.text.lv_draw_dave2d_border+0x4a8): undefined reference to `d2_getantialiasing'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:264:(.text.lv_draw_dave2d_border+0x4b2): undefined reference to `d2_setantialiasing'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:384:(.text.lv_draw_dave2d_border+0x502): undefined reference to `d2_setantialiasing'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:276:(.text.lv_draw_dave2d_border+0x538): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:278:(.text.lv_draw_dave2d_border+0x566): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:304:(.text.lv_draw_dave2d_border+0x5a8): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:306:(.text.lv_draw_dave2d_border+0x5dc): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:340:(.text.lv_draw_dave2d_border+0x61a): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:342:(.text.lv_draw_dave2d_border+0x648): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:368:(.text.lv_draw_dave2d_border+0x68e): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c:370:(.text.lv_draw_dave2d_border+0x6be): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.o: in function `lv_draw_dave2d_fill':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:103:(.text.lv_draw_dave2d_fill+0xf2): undefined reference to `d2_setalphagradient'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:107:(.text.lv_draw_dave2d_fill+0xf8): undefined reference to `d2_getalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:108:(.text.lv_draw_dave2d_fill+0x102): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:109:(.text.lv_draw_dave2d_fill+0x114): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:110:(.text.lv_draw_dave2d_fill+0x11c): undefined reference to `d2_setalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:118:(.text.lv_draw_dave2d_fill+0x134): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:123:(.text.lv_draw_dave2d_fill+0x172): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:280:(.text.lv_draw_dave2d_fill+0x182): undefined reference to `d2_setalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:281:(.text.lv_draw_dave2d_fill+0x18a): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:113:(.text.lv_draw_dave2d_fill+0x254): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:114:(.text.lv_draw_dave2d_fill+0x27e): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:115:(.text.lv_draw_dave2d_fill+0x288): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:139:(.text.lv_draw_dave2d_fill+0x2de): undefined reference to `d2_rendercircle'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:160:(.text.lv_draw_dave2d_fill+0x312): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:164:(.text.lv_draw_dave2d_fill+0x33a): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:186:(.text.lv_draw_dave2d_fill+0x376): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:189:(.text.lv_draw_dave2d_fill+0x3a2): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:211:(.text.lv_draw_dave2d_fill+0x3ec): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:214:(.text.lv_draw_dave2d_fill+0x414): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:236:(.text.lv_draw_dave2d_fill+0x450): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:239:(.text.lv_draw_dave2d_fill+0x47c): undefined reference to `d2_renderwedge'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:253:(.text.lv_draw_dave2d_fill+0x498): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:256:(.text.lv_draw_dave2d_fill+0x4d8): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:263:(.text.lv_draw_dave2d_fill+0x51a): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c:270:(.text.lv_draw_dave2d_fill+0x554): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.o: in function `img_draw_core':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:105:(.text.img_draw_core+0x92): undefined reference to `d2_getfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:106:(.text.img_draw_core+0x9a): undefined reference to `d2_gettextureoperationa'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:107:(.text.img_draw_core+0xa2): undefined reference to `d2_gettextureoperationr'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:108:(.text.img_draw_core+0xaa): undefined reference to `d2_gettextureoperationg'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:109:(.text.img_draw_core+0xb2): undefined reference to `d2_gettextureoperationb'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:110:(.text.img_draw_core+0xba): undefined reference to `d2_getblendmodesrc'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:111:(.text.img_draw_core+0xc2): undefined reference to `d2_getblendmodedst'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:137:(.text.img_draw_core+0x106): undefined reference to `d2_framebuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:144:(.text.img_draw_core+0x122): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:147:(.text.img_draw_core+0x130): undefined reference to `d2_settexopparam'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:149:(.text.img_draw_core+0x142): undefined reference to `d2_settextureoperation'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:151:(.text.img_draw_core+0x15c): undefined reference to `d2_settexturemapping'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:153:(.text.img_draw_core+0x164): undefined reference to `d2_settexturemode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:154:(.text.img_draw_core+0x16c): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:156:(.text.img_draw_core+0x19c): undefined reference to `d2_settexture'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:160:(.text.img_draw_core+0x1a6): undefined reference to `d2_setblendmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:162:(.text.img_draw_core+0x1d8): undefined reference to `d2_renderquad'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:173:(.text.img_draw_core+0x1e2): undefined reference to `d2_setblendmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:175:(.text.img_draw_core+0x1ec): undefined reference to `d2_setalphablendmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:177:(.text.img_draw_core+0x1fc): undefined reference to `d2_settextureoperation'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:179:(.text.img_draw_core+0x248): undefined reference to `d2_settexture'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:184:(.text.img_draw_core+0x260): undefined reference to `d2_renderquad'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:203:(.text.img_draw_core+0x296): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:206:(.text.img_draw_core+0x2a4): undefined reference to `d2_settexopparam'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:212:(.text.img_draw_core+0x2b8): undefined reference to `d2_settextureoperation'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:220:(.text.img_draw_core+0x2cc): undefined reference to `d2_setblendmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:236:(.text.img_draw_core+0x324): undefined reference to `d2_settexture'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:240:(.text.img_draw_core+0x32c): undefined reference to `d2_settexturemode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:241:(.text.img_draw_core+0x334): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:287:(.text.img_draw_core+0x44a): undefined reference to `d2_settexturemapping'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:289:(.text.img_draw_core+0x48c): undefined reference to `d2_renderquad'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:300:(.text.img_draw_core+0x494): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:301:(.text.img_draw_core+0x4a4): undefined reference to `d2_settextureoperation'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c:302:(.text.img_draw_core+0x4ae): undefined reference to `d2_setblendmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.o: in function `lv_draw_dave2d_draw_letter_cb':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:48:(.text.lv_draw_dave2d_draw_letter_cb+0x5c): undefined reference to `d2_selectrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:56:(.text.lv_draw_dave2d_draw_letter_cb+0x6c): undefined reference to `d2_getfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:58:(.text.lv_draw_dave2d_draw_letter_cb+0x86): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:96:(.text.lv_draw_dave2d_draw_letter_cb+0xf8): undefined reference to `d2_settexture'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:99:(.text.lv_draw_dave2d_draw_letter_cb+0x104): undefined reference to `d2_settexopparam'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:100:(.text.lv_draw_dave2d_draw_letter_cb+0x110): undefined reference to `d2_settexopparam'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:101:(.text.lv_draw_dave2d_draw_letter_cb+0x11c): undefined reference to `d2_settexopparam'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:102:(.text.lv_draw_dave2d_draw_letter_cb+0x128): undefined reference to `d2_settexopparam'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:104:(.text.lv_draw_dave2d_draw_letter_cb+0x136): undefined reference to `d2_settextureoperation'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:106:(.text.lv_draw_dave2d_draw_letter_cb+0x158): undefined reference to `d2_settexturemapping'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:109:(.text.lv_draw_dave2d_draw_letter_cb+0x160): undefined reference to `d2_settexturemode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:111:(.text.lv_draw_dave2d_draw_letter_cb+0x168): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:113:(.text.lv_draw_dave2d_draw_letter_cb+0x19c): undefined reference to `d2_renderbox'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:118:(.text.lv_draw_dave2d_draw_letter_cb+0x1a4): undefined reference to `d2_setfillmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:146:(.text.lv_draw_dave2d_draw_letter_cb+0x1b4): undefined reference to `d2_executerenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:147:(.text.lv_draw_dave2d_draw_letter_cb+0x1ba): undefined reference to `d2_flushframe'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c:148:(.text.lv_draw_dave2d_draw_letter_cb+0x1c2): undefined reference to `d2_selectrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.o: in function `lv_draw_dave2d_line':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c:54:(.text.lv_draw_dave2d_line+0xbe): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c:56:(.text.lv_draw_dave2d_line+0xc8): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c:58:(.text.lv_draw_dave2d_line+0xe0): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c:67:(.text.lv_draw_dave2d_line+0xf4): undefined reference to `d2_setlinecap'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c:69:(.text.lv_draw_dave2d_line+0x11e): undefined reference to `d2_renderline'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.o: in function `lv_draw_dave2d_triangle':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:89:(.text.lv_draw_dave2d_triangle+0xc6): undefined reference to `d2_getalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:123:(.text.lv_draw_dave2d_triangle+0x17e): undefined reference to `d2_setalphagradient'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:127:(.text.lv_draw_dave2d_triangle+0x192): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:128:(.text.lv_draw_dave2d_triangle+0x19a): undefined reference to `d2_setalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:139:(.text.lv_draw_dave2d_triangle+0x1bc): undefined reference to `d2_cliprect'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:142:(.text.lv_draw_dave2d_triangle+0x1ec): undefined reference to `d2_rendertri'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:151:(.text.lv_draw_dave2d_triangle+0x1f4): undefined reference to `d2_setalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:131:(.text.lv_draw_dave2d_triangle+0x24e): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:132:(.text.lv_draw_dave2d_triangle+0x256): undefined reference to `d2_setalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c:133:(.text.lv_draw_dave2d_triangle+0x26a): undefined reference to `d2_setcolor'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_utils.o: in function `d2_framebuffer_from_layer':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_utils.c:118:(.text.d2_framebuffer_from_layer+0x5a): undefined reference to `d2_framebuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o: in function `vk_ra6m3_drw_int_isr':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/boards/VK_RA6M3/dave2d_port.c:74:(.text.vk_ra6m3_drw_int_isr+0x8): undefined reference to `drw_int_isr'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o: in function `lv_dave2d_init':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:551:(.text.lv_draw_dave2d_init+0x28): undefined reference to `d2_opendevice'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:557:(.text.lv_draw_dave2d_init+0x32): undefined reference to `d2_inithw'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:560:(.text.lv_draw_dave2d_init+0x3c): undefined reference to `d2_closedevice'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:567:(.text.lv_draw_dave2d_init+0x48): undefined reference to `d2_setblendmode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:568:(.text.lv_draw_dave2d_init+0x50): undefined reference to `d2_setalphamode'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:569:(.text.lv_draw_dave2d_init+0x58): undefined reference to `d2_setalpha'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:570:(.text.lv_draw_dave2d_init+0x60): undefined reference to `d2_setantialiasing'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:571:(.text.lv_draw_dave2d_init+0x68): undefined reference to `d2_setlinecap'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:572:(.text.lv_draw_dave2d_init+0x70): undefined reference to `d2_setlinejoin'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:575:(.text.lv_draw_dave2d_init+0x78): undefined reference to `d2_setdlistblocksize'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:578:(.text.lv_draw_dave2d_init+0x80): undefined reference to `d2_closedevice'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:582:(.text.lv_draw_dave2d_init+0x8e): undefined reference to `d2_newrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:585:(.text.lv_draw_dave2d_init+0x98): undefined reference to `d2_closedevice'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:590:(.text.lv_draw_dave2d_init+0xa8): undefined reference to `d2_newrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:593:(.text.lv_draw_dave2d_init+0xb4): undefined reference to `d2_closedevice'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:598:(.text.lv_draw_dave2d_init+0xbe): undefined reference to `d2_selectrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:601:(.text.lv_draw_dave2d_init+0xe0): undefined reference to `d2_closedevice'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o: in function `dave2d_execute_dlist_and_flush':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:620:(.text.dave2d_execute_dlist_and_flush+0xc): undefined reference to `d2_executerenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:623:(.text.dave2d_execute_dlist_and_flush+0x16): undefined reference to `d2_flushframe'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:626:(.text.dave2d_execute_dlist_and_flush+0x22): undefined reference to `d2_selectrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o: in function `lv_draw_dave2d_dispatch':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:435:(.text.lv_draw_dave2d_dispatch+0x96): undefined reference to `d2_selectrenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:437:(.text.lv_draw_dave2d_dispatch+0xa6): undefined reference to `d2_executerenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c:438:(.text.lv_draw_dave2d_dispatch+0xac): undefined reference to `d2_flushframe'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o: in function `vk_ra6m3_dave2d_deinit':
+C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/boards/VK_RA6M3/dave2d_port.c:91:(.text.vk_ra6m3_dave2d_deinit+0x18): undefined reference to `d2_flushframe'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/boards/VK_RA6M3/dave2d_port.c:93:(.text.vk_ra6m3_dave2d_deinit+0x22): undefined reference to `d2_freerenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/boards/VK_RA6M3/dave2d_port.c:96:(.text.vk_ra6m3_dave2d_deinit+0x2e): undefined reference to `d2_freerenderbuffer'
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra/boards/VK_RA6M3/dave2d_port.c:98:(.text.vk_ra6m3_dave2d_deinit+0x34): undefined reference to `d2_closedevice'
+make: *** [Makefile:806: build-VK_RA6M3-board-fonts/firmware.elf] Error 1
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+mkdir -p build-VK_RA6M3-board-fonts/lib/fsp/ra/fsp/src/r_drw/
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+QSTR not updated
+Module registrations not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC ../../lib/fsp/ra/fsp/src/r_drw/r_drw_base.c
+CC ../../lib/fsp/ra/fsp/src/r_drw/r_drw_irq.c
+CC ../../lib/fsp/ra/fsp/src/r_drw/r_drw_memory.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_64bitoperation.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_base.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_blit.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_box.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_circle.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_context.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_curve.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_dlist.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_driver.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_edge.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_errorcodes.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_gradient.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_hardware.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_line.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_math.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_memory.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_pattern.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_perfcount.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_polyline.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_quad.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_rbuffer.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_render.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_texture.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_triangle.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_utility.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_viewport.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_wedge.c
+LINK build-VK_RA6M3-board-fonts/firmware.elf
+   text	   data	    bss	    dec	    hex	filename
+1542972	      0	 622728	2165700	 210bc4	build-VK_RA6M3-board-fonts/firmware.elf
+GEN build-VK_RA6M3-board-fonts/firmware.hex
+GEN build-VK_RA6M3-board-fonts/firmware.bin
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.i.last
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.split
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.split
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.split
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+Root pointer registrations not updated
+QSTR not updated
+Module registrations not updated
+Compressed data not updated
+CC boards/VK_RA6M3/dave2d_port.c
+CC boards/VK_RA6M3/machine_lcd.c
+LINK build-VK_RA6M3-board-fonts/firmware.elf
+   text	   data	    bss	    dec	    hex	filename
+1543012	      0	 622728	2165740	 210bec	build-VK_RA6M3-board-fonts/firmware.elf
+GEN build-VK_RA6M3-board-fonts/firmware.hex
+GEN build-VK_RA6M3-board-fonts/firmware.bin
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+LVGL-GEN build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.i.last
+GEN build-VK_RA6M3-board-fonts/genhdr/qstr.split
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.split
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.split
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+Compressed data not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.collected.h
+Root pointer registrations not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+QSTR updated
+Module registrations not updated
+GEN build-VK_RA6M3-board-fonts/genhdr/qstrdefs.generated.h
+CC ../../py/mpstate.c
+CC ../../py/nlr.c
+CC ../../py/nlrx86.c
+CC ../../py/nlrx64.c
+CC ../../py/nlrthumb.c
+CC ../../py/nlraarch64.c
+CC ../../py/nlrmips.c
+CC ../../py/nlrpowerpc.c
+CC ../../py/nlrxtensa.c
+CC ../../py/nlrrv32.c
+CC ../../py/nlrrv64.c
+CC ../../py/nlrsetjmp.c
+CC ../../py/malloc.c
+CC ../../py/gc.c
+CC ../../py/pystack.c
+CC ../../py/qstr.c
+CC ../../py/vstr.c
+CC ../../py/mpprint.c
+CC ../../py/unicode.c
+CC ../../py/mpz.c
+CC ../../py/reader.c
+CC ../../py/lexer.c
+CC ../../py/parse.c
+CC ../../py/scope.c
+CC ../../py/compile.c
+CC ../../py/emitcommon.c
+CC ../../py/emitbc.c
+CC ../../py/asmbase.c
+CC ../../py/asmx64.c
+CC ../../py/emitnx64.c
+CC ../../py/asmx86.c
+CC ../../py/emitnx86.c
+CC ../../py/asmthumb.c
+CC ../../py/emitnthumb.c
+CC ../../py/emitinlinethumb.c
+CC ../../py/asmarm.c
+CC ../../py/emitnarm.c
+CC ../../py/asmxtensa.c
+CC ../../py/emitnxtensa.c
+CC ../../py/emitinlinextensa.c
+CC ../../py/emitnxtensawin.c
+CC ../../py/asmrv32.c
+CC ../../py/emitnrv32.c
+CC ../../py/emitinlinerv32.c
+CC ../../py/emitndebug.c
+CC ../../py/formatfloat.c
+CC ../../py/parsenumbase.c
+CC ../../py/parsenum.c
+CC ../../py/emitglue.c
+CC ../../py/persistentcode.c
+CC ../../py/runtime.c
+CC ../../py/runtime_utils.c
+CC ../../py/scheduler.c
+CC ../../py/nativeglue.c
+CC ../../py/pairheap.c
+CC ../../py/ringbuf.c
+CC ../../py/cstack.c
+CC ../../py/stackctrl.c
+CC ../../py/argcheck.c
+CC ../../py/warning.c
+CC ../../py/profile.c
+CC ../../py/map.c
+CC ../../py/obj.c
+CC ../../py/objarray.c
+CC ../../py/objattrtuple.c
+CC ../../py/objbool.c
+CC ../../py/objboundmeth.c
+CC ../../py/objcell.c
+CC ../../py/objclosure.c
+CC ../../py/objcode.c
+CC ../../py/objcomplex.c
+CC ../../py/objdeque.c
+CC ../../py/objdict.c
+CC ../../py/objenumerate.c
+CC ../../py/objexcept.c
+CC ../../py/objfilter.c
+CC ../../py/objfloat.c
+CC ../../py/objfun.c
+CC ../../py/objgenerator.c
+CC ../../py/objgetitemiter.c
+CC ../../py/objint.c
+CC ../../py/objint_longlong.c
+CC ../../py/objint_mpz.c
+CC ../../py/objlist.c
+CC ../../py/objmap.c
+CC ../../py/objmodule.c
+CC ../../py/objobject.c
+CC ../../py/objpolyiter.c
+CC ../../py/objproperty.c
+CC ../../py/objnone.c
+CC ../../py/objnamedtuple.c
+CC ../../py/objrange.c
+CC ../../py/objreversed.c
+CC ../../py/objringio.c
+CC ../../py/objset.c
+CC ../../py/objsingleton.c
+CC ../../py/objslice.c
+CC ../../py/objstr.c
+CC ../../py/objstrunicode.c
+CC ../../py/objstringio.c
+CC ../../py/objtuple.c
+CC ../../py/objtype.c
+CC ../../py/objzip.c
+CC ../../py/opmethods.c
+CC ../../py/sequence.c
+CC ../../py/stream.c
+CC ../../py/binary.c
+CC ../../py/builtinimport.c
+CC ../../py/builtinevex.c
+CC ../../py/builtinhelp.c
+CC ../../py/modarray.c
+CC ../../py/modbuiltins.c
+CC ../../py/modcollections.c
+CC ../../py/modgc.c
+CC ../../py/modio.c
+CC ../../py/modmath.c
+CC ../../py/modcmath.c
+CC ../../py/modmicropython.c
+CC ../../py/modstruct.c
+CC ../../py/modsys.c
+CC ../../py/moderrno.c
+CC ../../py/modthread.c
+CC ../../py/vm.c
+CC ../../py/bc.c
+CC ../../py/showbc.c
+CC ../../py/repl.c
+CC ../../py/smallint.c
+CC ../../py/frozenmod.c
+CC ../../extmod/machine_adc.c
+CC ../../extmod/machine_adc_block.c
+CC ../../extmod/machine_bitstream.c
+CC ../../extmod/machine_i2c.c
+CC ../../extmod/machine_i2c_target.c
+CC ../../extmod/machine_i2s.c
+CC ../../extmod/machine_mem.c
+CC ../../extmod/machine_pinbase.c
+CC ../../extmod/machine_pulse.c
+CC ../../extmod/machine_pwm.c
+CC ../../extmod/machine_signal.c
+CC ../../extmod/machine_spi.c
+CC ../../extmod/machine_uart.c
+CC ../../extmod/machine_usb_device.c
+CC ../../extmod/machine_wdt.c
+CC ../../extmod/modasyncio.c
+CC ../../extmod/modbinascii.c
+CC ../../extmod/modbluetooth.c
+CC ../../extmod/modbtree.c
+CC ../../extmod/modcryptolib.c
+CC ../../extmod/moddeflate.c
+CC ../../extmod/modframebuf.c
+CC ../../extmod/modhashlib.c
+CC ../../extmod/modheapq.c
+CC ../../extmod/modjson.c
+CC ../../extmod/modlwip.c
+CC ../../extmod/modmachine.c
+CC ../../extmod/modmarshal.c
+CC ../../extmod/modnetwork.c
+CC ../../extmod/modonewire.c
+CC ../../extmod/modopenamp.c
+CC ../../extmod/modopenamp_remoteproc.c
+CC ../../extmod/modopenamp_remoteproc_store.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../extmod/modrandom.c
+CC ../../extmod/modre.c
+CC ../../extmod/modselect.c
+CC ../../extmod/modsocket.c
+CC ../../extmod/modtls_axtls.c
+CC ../../extmod/modtls_mbedtls.c
+CC ../../extmod/mbedtls/mbedtls_alt.c
+CC ../../extmod/modtime.c
+CC ../../extmod/moductypes.c
+CC ../../extmod/modvfs.c
+CC ../../extmod/modwebrepl.c
+CC ../../extmod/modwebsocket.c
+CC ../../extmod/network_cyw43.c
+CC ../../extmod/network_esp_hosted.c
+CC ../../extmod/network_lwip.c
+CC ../../extmod/network_ninaw10.c
+CC ../../extmod/network_ppp_lwip.c
+CC ../../extmod/network_wiznet5k.c
+CC ../../extmod/os_dupterm.c
+CC ../../extmod/vfs.c
+CC ../../extmod/vfs_blockdev.c
+CC ../../extmod/vfs_fat.c
+CC ../../extmod/vfs_fat_diskio.c
+CC ../../extmod/vfs_fat_file.c
+CC ../../extmod/vfs_lfs.c
+CC ../../extmod/vfs_rom.c
+CC ../../extmod/vfs_rom_file.c
+CC ../../extmod/vfs_posix.c
+CC ../../extmod/vfs_posix_file.c
+CC ../../extmod/vfs_reader.c
+CC ../../extmod/virtpin.c
+CC ../../shared/libc/abort_.c
+CC ../../shared/libc/printf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_group.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_class.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_draw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_event.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_id_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_pos.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_property.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_scroll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_style.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_style_gen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_obj_tree.c
+CC ../../lib/lv_bindings/lib/lvgl/src/core/lv_refr.c
+CC ../../lib/lv_bindings/lib/lvgl/src/display/lv_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/convert/helium/lv_draw_buf_convert_helium.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/convert/lv_draw_buf_convert.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/convert/neon/lv_draw_buf_convert_neon.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/dma2d/lv_draw_dma2d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/dma2d/lv_draw_dma2d_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/dma2d/lv_draw_dma2d_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa_buf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/espressif/ppa/lv_draw_ppa_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_letter.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_ram_g.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_draw_eve_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/eve/lv_eve.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_3d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_buf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_mask.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_rect.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_draw_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/lv_image_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_layer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_stm32_hal.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_draw_nema_gfx_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nema_gfx/lv_nema_gfx_path.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_buf_g2d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_g2d.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_g2d_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_draw_g2d_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_g2d_buf_map.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/g2d/lv_g2d_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_buf_pxp.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_draw_pxp_layer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_pxp_cfg.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_pxp_osa.c
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3-board-fonts/genhdr/moduledefs.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/root_pointers.collected
+GEN build-VK_RA6M3-board-fonts/genhdr/compressed.collected
+Module registrations not updated
+Root pointer registrations not updated
+Compressed data not updated
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/nxp/pxp/lv_pxp_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/opengles/lv_draw_opengles.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_mask_rectangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sdl/lv_draw_sdl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_al88.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_argb8888.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_argb8888_premultiplied.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_i1.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_l8.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565_swapped.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/lv_draw_sw_blend_to_rgb888.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/neon/lv_draw_sw_blend_neon_to_rgb565.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/blend/neon/lv_draw_sw_blend_neon_to_rgb888.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_box_shadow.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_grad.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_letter.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_mask.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_mask_rect.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_transform.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/sw/lv_draw_sw_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_buf_vg_lite.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_border.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_box_shadow.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_fill.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_img.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_layer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_mask_rect.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_triangle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_draw_vg_lite_vector.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_grad.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_math.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_path.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_pending.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_stroke.c
+CC ../../lib/lv_bindings/lib/lvgl/src/draw/vg_lite/lv_vg_lite_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/drm/lv_linux_drm.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/drm/lv_linux_drm_common.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/drm/lv_linux_drm_egl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/fb/lv_linux_fbdev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/ft81x/lv_ft81x.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/ili9341/lv_ili9341.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/lcd/lv_lcd_generic_mipi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/nv3007/lv_nv3007.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/nxp_elcdif/lv_nxp_elcdif.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/renesas_glcdc/lv_renesas_glcdc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st7735/lv_st7735.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st7789/lv_st7789.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st7796/lv_st7796.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/display/st_ltdc/lv_st_ltdc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/draw/eve/lv_draw_eve_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/evdev/lv_evdev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/libinput/lv_libinput.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/libinput/lv_xkb.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_entry.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_fbdev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_image_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_lcd.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_libuv.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_mouse.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_profiler.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/assets/lv_opengles_shader.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/glad/src/egl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/glad/src/gles2.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_debug.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_driver.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_egl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_glfw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/lv_opengles_texture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/opengl_shader/lv_opengl_shader_manager.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/opengles/opengl_shader/lv_opengl_shader_program.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/qnx/lv_qnx.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_mouse.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_mousewheel.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/sdl/lv_sdl_window.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_context.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_indev_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_indev_pointer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_indev_touch.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/uefi/lv_uefi_private.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wayland.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wayland_smm.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_dmabuf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_pointer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_pointer_axis.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_seat.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_shm.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_touch.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_window.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_window_decorations.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/wayland/lv_wl_xdg_shell.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/windows/lv_windows_context.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/windows/lv_windows_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/windows/lv_windows_input.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/x11/lv_x11_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/drivers/x11/lv_x11_input.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_binfont_loader.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_dejavu_16_persian_hebrew.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_fmt_txt.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_10.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_12.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_14.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_14_aligned.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_16.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_18.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_20.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_22.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_24.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_26.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_28.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_28_compressed.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_30.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_32.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_34.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_36.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_38.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_40.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_42.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_44.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_46.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_48.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_montserrat_8.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_source_han_sans_sc_14_cjk.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_source_han_sans_sc_16_cjk.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_unscii_16.c
+CC ../../lib/lv_bindings/lib/lvgl/src/font/lv_font_unscii_8.c
+CC ../../lib/lv_bindings/lib/lvgl/src/indev/lv_indev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/indev/lv_indev_gesture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/indev/lv_indev_scroll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/layouts/flex/lv_flex.c
+CC ../../lib/lv_bindings/lib/lvgl/src/layouts/grid/lv_grid.c
+CC ../../lib/lv_bindings/lib/lvgl/src/layouts/lv_layout.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/barcode/code128.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/barcode/lv_barcode.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/bin_decoder/lv_bin_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/bmp/lv_bmp.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmlparse.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmlrole.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmltok.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmltok_impl.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/expat/xmltok_ns.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/ffmpeg/lv_ffmpeg.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype_glyph.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_freetype_outline.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/freetype/lv_ftsystem.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/frogfs/src/decomp_raw.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/frogfs/src/frogfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_cbfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_fatfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_frogfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_littlefs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_memfs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_posix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_stdio.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_uefi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/fsdrv/lv_fs_win32.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/FT800-FT813/EVE_commands.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/FT800-FT813/EVE_supplemental.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gif/AnimatedGIF/src/gif.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gif/lv_gif.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gltf/gltf_view/assets/chromatic.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gltf/gltf_view/assets/lv_gltf_view_shader.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gltf/gltf_view/ibl/lv_gltf_ibl_sampler.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/gstreamer/lv_gstreamer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/libjpeg_turbo/lv_libjpeg_turbo.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/libpng/lv_libpng.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/lodepng/lodepng.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/lodepng/lv_lodepng.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/lz4/lz4.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/qrcode/lv_qrcode.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/qrcode/qrcodegen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/rle/lv_rle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/rlottie/lv_rlottie.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_decoder.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_render.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/svg/lv_svg_token.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/tiny_ttf/lv_tiny_ttf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/tjpgd/lv_tjpgd.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/tjpgd/tjpgd.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/lv_vg_lite_hal/lv_vg_lite_hal.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/lv_vg_lite_hal/vg_lite_os.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_matrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_path.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLite/vg_lite_stroke.c
+CC ../../lib/lv_bindings/lib/lvgl/src/libs/vg_lite_driver/VGLiteKernel/vg_lite_kernel.c
+CC ../../lib/lv_bindings/lib/lvgl/src/lv_init.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/class/lv_cache_lru_ll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/class/lv_cache_lru_rb.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/class/lv_cache_sc_da.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/instance/lv_image_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/instance/lv_image_header_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/lv_cache.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/cache/lv_cache_entry.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_anim.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_anim_timeline.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_area.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_array.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_async.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_bidi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_circle_buf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_color.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_color_op.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_event.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_fs.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_grad.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_iter.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_ll.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_log.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_lru.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_math.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_matrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_palette.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_profiler_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_profiler_builtin_posix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_rb.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_style.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_style_gen.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_templ.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_text.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_text_ap.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_timer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_tree.c
+CC ../../lib/lv_bindings/lib/lvgl/src/misc/lv_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_cmsis_rtos2.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_freertos.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_linux.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_mqx.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_os.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_os_none.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_pthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_sdl2.c
+CC ../../lib/lv_bindings/lib/lvgl/src/osal/lv_windows.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/file_explorer/lv_file_explorer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/font_manager/lv_font_manager.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/font_manager/lv_font_manager_recycle.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/fragment/lv_fragment.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/fragment/lv_fragment_manager.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/gridnav/lv_gridnav.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/ime/lv_ime_pinyin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/imgfont/lv_imgfont.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/monkey/lv_monkey.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/observer/lv_observer.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/snapshot/lv_snapshot.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/sysmon/lv_sysmon.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_display.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_helpers.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_indev.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_indev_gesture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/test/lv_test_screenshot_compare.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/translation/lv_translation.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/vg_lite_tvg/vg_lite_matrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_base_types.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_component.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_load.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_style.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_test.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_translation.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_update.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_utils.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/lv_xml_widget.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_arc_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_bar_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_buttonmatrix_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_button_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_calendar_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_canvas_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_chart_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_checkbox_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_dropdown_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_image_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_keyboard_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_label_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_obj_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_qrcode_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_roller_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_scale_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_slider_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_spangroup_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_spinbox_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_switch_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_table_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_tabview_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/others/xml/parsers/lv_xml_textarea_parser.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_mem_core_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_sprintf_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_string_builtin.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_tlsf.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/clib/lv_mem_core_clib.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/clib/lv_sprintf_clib.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/clib/lv_string_clib.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/lv_mem.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/micropython/lv_mem_core_micropython.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/rtthread/lv_mem_core_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/rtthread/lv_sprintf_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/rtthread/lv_string_rtthread.c
+CC ../../lib/lv_bindings/lib/lvgl/src/stdlib/uefi/lv_mem_core_uefi.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/default/lv_theme_default.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/lv_theme.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/mono/lv_theme_mono.c
+CC ../../lib/lv_bindings/lib/lvgl/src/themes/simple/lv_theme_simple.c
+CC ../../lib/lv_bindings/lib/lvgl/src/tick/lv_tick.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/3dtexture/lv_3dtexture.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/animimage/lv_animimage.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/arc/lv_arc.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/arclabel/lv_arclabel.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/bar/lv_bar.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/button/lv_button.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar_chinese.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar_header_arrow.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/calendar/lv_calendar_header_dropdown.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/canvas/lv_canvas.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/chart/lv_chart.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/checkbox/lv_checkbox.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/dropdown/lv_dropdown.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/image/lv_image.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/imagebutton/lv_imagebutton.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/keyboard/lv_keyboard.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/label/lv_label.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/led/lv_led.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/line/lv_line.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/list/lv_list.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/lottie/lv_lottie.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/menu/lv_menu.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/msgbox/lv_msgbox.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/objx_templ/lv_objx_templ.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_animimage_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_dropdown_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_image_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_keyboard_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_label_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_obj_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_roller_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_slider_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_style_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/property/lv_textarea_properties.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/roller/lv_roller.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/scale/lv_scale.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/slider/lv_slider.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/span/lv_span.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/spinbox/lv_spinbox.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/spinner/lv_spinner.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/switch/lv_switch.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/table/lv_table.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/tabview/lv_tabview.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/textarea/lv_textarea.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/tileview/lv_tileview.c
+CC ../../lib/lv_bindings/lib/lvgl/src/widgets/win/lv_win.c
+CC ../../lib/lv_bindings/ext_mod/lvgl/mem_core.c
+CC ../../lib/oofatfs/ff.c
+CC ../../lib/oofatfs/ffunicode.c
+CC ../../lib/mbedtls_errors/mp_mbedtls_errors.c
+CC ../../lib/mbedtls/library/aes.c
+CC ../../lib/mbedtls/library/aesni.c
+CC ../../lib/mbedtls/library/asn1parse.c
+CC ../../lib/mbedtls/library/asn1write.c
+CC ../../lib/mbedtls/library/base64.c
+CC ../../lib/mbedtls/library/bignum_core.c
+CC ../../lib/mbedtls/library/bignum_mod.c
+CC ../../lib/mbedtls/library/bignum_mod_raw.c
+CC ../../lib/mbedtls/library/bignum.c
+CC ../../lib/mbedtls/library/camellia.c
+CC ../../lib/mbedtls/library/ccm.c
+CC ../../lib/mbedtls/library/chacha20.c
+CC ../../lib/mbedtls/library/chachapoly.c
+CC ../../lib/mbedtls/library/cipher.c
+CC ../../lib/mbedtls/library/cipher_wrap.c
+CC ../../lib/mbedtls/library/nist_kw.c
+CC ../../lib/mbedtls/library/aria.c
+CC ../../lib/mbedtls/library/cmac.c
+CC ../../lib/mbedtls/library/constant_time.c
+CC ../../lib/mbedtls/library/mps_reader.c
+CC ../../lib/mbedtls/library/mps_trace.c
+CC ../../lib/mbedtls/library/ctr_drbg.c
+CC ../../lib/mbedtls/library/debug.c
+CC ../../lib/mbedtls/library/des.c
+CC ../../lib/mbedtls/library/dhm.c
+CC ../../lib/mbedtls/library/ecdh.c
+CC ../../lib/mbedtls/library/ecdsa.c
+CC ../../lib/mbedtls/library/ecjpake.c
+CC ../../lib/mbedtls/library/ecp.c
+CC ../../lib/mbedtls/library/ecp_curves.c
+CC ../../lib/mbedtls/library/entropy.c
+CC ../../lib/mbedtls/library/entropy_poll.c
+CC ../../lib/mbedtls/library/gcm.c
+CC ../../lib/mbedtls/library/hmac_drbg.c
+CC ../../lib/mbedtls/library/md5.c
+CC ../../lib/mbedtls/library/md.c
+CC ../../lib/mbedtls/library/oid.c
+CC ../../lib/mbedtls/library/padlock.c
+CC ../../lib/mbedtls/library/pem.c
+CC ../../lib/mbedtls/library/pk.c
+CC ../../lib/mbedtls/library/pkcs12.c
+CC ../../lib/mbedtls/library/pkcs5.c
+CC ../../lib/mbedtls/library/pkparse.c
+CC ../../lib/mbedtls/library/pk_ecc.c
+CC ../../lib/mbedtls/library/pk_wrap.c
+CC ../../lib/mbedtls/library/pkwrite.c
+CC ../../lib/mbedtls/library/platform.c
+CC ../../lib/mbedtls/library/platform_util.c
+CC ../../lib/mbedtls/library/poly1305.c
+CC ../../lib/mbedtls/library/ripemd160.c
+CC ../../lib/mbedtls/library/rsa.c
+CC ../../lib/mbedtls/library/rsa_alt_helpers.c
+CC ../../lib/mbedtls/library/sha1.c
+CC ../../lib/mbedtls/library/sha256.c
+CC ../../lib/mbedtls/library/sha512.c
+CC ../../lib/mbedtls/library/ssl_cache.c
+CC ../../lib/mbedtls/library/ssl_ciphersuites.c
+CC ../../lib/mbedtls/library/ssl_client.c
+CC ../../lib/mbedtls/library/ssl_cookie.c
+CC ../../lib/mbedtls/library/ssl_debug_helpers_generated.c
+CC ../../lib/mbedtls/library/ssl_msg.c
+CC ../../lib/mbedtls/library/ssl_ticket.c
+CC ../../lib/mbedtls/library/ssl_tls.c
+CC ../../lib/mbedtls/library/ssl_tls12_client.c
+CC ../../lib/mbedtls/library/ssl_tls12_server.c
+CC ../../lib/mbedtls/library/timing.c
+CC ../../lib/mbedtls/library/x509.c
+CC ../../lib/mbedtls/library/x509_create.c
+CC ../../lib/mbedtls/library/x509_crl.c
+CC ../../lib/mbedtls/library/x509_crt.c
+CC ../../lib/mbedtls/library/x509_csr.c
+CC ../../lib/mbedtls/library/x509write_crt.c
+CC ../../lib/mbedtls/library/x509write_csr.c
+CC ../../shared/netutils/netutils.c
+CC ../../lib/lwip/src/apps/mdns/mdns.c
+CC ../../lib/lwip/src/apps/mdns/mdns_domain.c
+CC ../../lib/lwip/src/apps/mdns/mdns_out.c
+CC ../../lib/lwip/src/core/def.c
+CC ../../lib/lwip/src/core/dns.c
+CC ../../lib/lwip/src/core/inet_chksum.c
+CC ../../lib/lwip/src/core/init.c
+CC ../../lib/lwip/src/core/ip.c
+CC ../../lib/lwip/src/core/mem.c
+CC ../../lib/lwip/src/core/memp.c
+CC ../../lib/lwip/src/core/netif.c
+CC ../../lib/lwip/src/core/pbuf.c
+CC ../../lib/lwip/src/core/raw.c
+CC ../../lib/lwip/src/core/stats.c
+CC ../../lib/lwip/src/core/sys.c
+CC ../../lib/lwip/src/core/tcp.c
+CC ../../lib/lwip/src/core/tcp_in.c
+CC ../../lib/lwip/src/core/tcp_out.c
+CC ../../lib/lwip/src/core/timeouts.c
+CC ../../lib/lwip/src/core/udp.c
+CC ../../lib/lwip/src/core/ipv4/acd.c
+CC ../../lib/lwip/src/core/ipv4/autoip.c
+CC ../../lib/lwip/src/core/ipv4/dhcp.c
+CC ../../lib/lwip/src/core/ipv4/etharp.c
+CC ../../lib/lwip/src/core/ipv4/icmp.c
+CC ../../lib/lwip/src/core/ipv4/igmp.c
+CC ../../lib/lwip/src/core/ipv4/ip4_addr.c
+CC ../../lib/lwip/src/core/ipv4/ip4.c
+CC ../../lib/lwip/src/core/ipv4/ip4_frag.c
+CC ../../lib/lwip/src/core/ipv6/dhcp6.c
+CC ../../lib/lwip/src/core/ipv6/ethip6.c
+CC ../../lib/lwip/src/core/ipv6/icmp6.c
+CC ../../lib/lwip/src/core/ipv6/inet6.c
+CC ../../lib/lwip/src/core/ipv6/ip6_addr.c
+CC ../../lib/lwip/src/core/ipv6/ip6.c
+CC ../../lib/lwip/src/core/ipv6/ip6_frag.c
+CC ../../lib/lwip/src/core/ipv6/mld6.c
+CC ../../lib/lwip/src/core/ipv6/nd6.c
+CC ../../lib/lwip/src/netif/ethernet.c
+CC ../../lib/lwip/src/netif/ppp/auth.c
+CC ../../lib/lwip/src/netif/ppp/ccp.c
+CC ../../lib/lwip/src/netif/ppp/chap-md5.c
+CC ../../lib/lwip/src/netif/ppp/chap_ms.c
+CC ../../lib/lwip/src/netif/ppp/chap-new.c
+CC ../../lib/lwip/src/netif/ppp/demand.c
+CC ../../lib/lwip/src/netif/ppp/eap.c
+CC ../../lib/lwip/src/netif/ppp/ecp.c
+CC ../../lib/lwip/src/netif/ppp/eui64.c
+CC ../../lib/lwip/src/netif/ppp/fsm.c
+CC ../../lib/lwip/src/netif/ppp/ipcp.c
+CC ../../lib/lwip/src/netif/ppp/ipv6cp.c
+CC ../../lib/lwip/src/netif/ppp/lcp.c
+CC ../../lib/lwip/src/netif/ppp/magic.c
+CC ../../lib/lwip/src/netif/ppp/mppe.c
+CC ../../lib/lwip/src/netif/ppp/multilink.c
+CC ../../lib/lwip/src/netif/ppp/polarssl/md5.c
+CC ../../lib/lwip/src/netif/ppp/pppapi.c
+CC ../../lib/lwip/src/netif/ppp/ppp.c
+CC ../../lib/lwip/src/netif/ppp/pppcrypt.c
+CC ../../lib/lwip/src/netif/ppp/pppoe.c
+CC ../../lib/lwip/src/netif/ppp/pppol2tp.c
+CC ../../lib/lwip/src/netif/ppp/pppos.c
+CC ../../lib/lwip/src/netif/ppp/upap.c
+CC ../../lib/lwip/src/netif/ppp/utils.c
+CC ../../lib/lwip/src/netif/ppp/vj.c
+CC build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c
+CC mbedtls/mbedtls_port.c
+CC ../../lib/libm/acoshf.c
+CC ../../lib/libm/asinfacosf.c
+CC ../../lib/libm/asinhf.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:36913:17: warning: 'mp_lv_funcptr_lv_iter_next_cb' defined but not used [-Wunused-function]
+36913 | static mp_obj_t mp_lv_funcptr_lv_iter_next_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_iter_next_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:36862:17: warning: 'mp_lv_funcptr_cmp' defined but not used [-Wunused-function]
+36862 | static mp_obj_t mp_lv_funcptr_cmp(void *func){ return mp_lv_funcptr(&mp_funcptr_cmp_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:36235:17: warning: 'mp_read_ptr_lv_sqrt_res_t' defined but not used [-Wunused-function]
+36235 | static mp_obj_t mp_read_ptr_lv_sqrt_res_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:33372:17: warning: 'mp_lv_funcptr_lv_iter_inspect_cb' defined but not used [-Wunused-function]
+33372 | static mp_obj_t mp_lv_funcptr_lv_iter_inspect_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_iter_inspect_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:33048:17: warning: 'mp_lv_funcptr_lv_rb_compare_t' defined but not used [-Wunused-function]
+33048 | static mp_obj_t mp_lv_funcptr_lv_rb_compare_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_rb_compare_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:30505:14: warning: 'mp_write_ptr_lv_hit_test_info_t' defined but not used [-Wunused-function]
+30505 | static void* mp_write_ptr_lv_hit_test_info_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:29925:17: warning: 'mp_lv_funcptr_lv_draw_glyph_cb_t' defined but not used [-Wunused-function]
+29925 | static mp_obj_t mp_lv_funcptr_lv_draw_glyph_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_glyph_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26456:17: warning: 'mp_lv_funcptr_lv_draw_buf_width_to_stride_cb_t' defined but not used [-Wunused-function]
+26456 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_width_to_stride_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_width_to_stride_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26420:17: warning: 'mp_lv_funcptr_lv_draw_buf_cache_operation_cb_t' defined but not used [-Wunused-function]
+26420 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_cache_operation_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_cache_operation_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26405:17: warning: 'mp_lv_funcptr_lv_draw_buf_align_cb_t' defined but not used [-Wunused-function]
+26405 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_align_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_align_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26376:17: warning: 'mp_lv_funcptr_lv_draw_buf_copy_cb_t' defined but not used [-Wunused-function]
+26376 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_copy_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_copy_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26361:17: warning: 'mp_lv_funcptr_lv_draw_buf_free_cb_t' defined but not used [-Wunused-function]
+26361 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_free_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_free_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:26346:17: warning: 'mp_lv_funcptr_lv_draw_buf_malloc_cb_t' defined but not used [-Wunused-function]
+26346 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_malloc_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_malloc_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:25316:14: warning: 'mp_write_ptr_lv_color_hsv_t' defined but not used [-Wunused-function]
+25316 | static void* mp_write_ptr_lv_color_hsv_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24903:17: warning: 'mp_read_ptr_lv_draw_glyph_dsc_t' defined but not used [-Wunused-function]
+24903 | static mp_obj_t mp_read_ptr_lv_draw_glyph_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24808:17: warning: 'mp_read_ptr_lv_draw_letter_dsc_t' defined but not used [-Wunused-function]
+24808 | static mp_obj_t mp_read_ptr_lv_draw_letter_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24512:17: warning: 'mp_read_ptr_lv_fs_dir_t' defined but not used [-Wunused-function]
+24512 | static mp_obj_t mp_read_ptr_lv_fs_dir_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24447:17: warning: 'mp_read_ptr_lv_fs_path_ex_t' defined but not used [-Wunused-function]
+24447 | static mp_obj_t mp_read_ptr_lv_fs_path_ex_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/atan2f.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24348:17: warning: 'mp_read_ptr_lv_fs_file_t' defined but not used [-Wunused-function]
+24348 | static mp_obj_t mp_read_ptr_lv_fs_file_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24176:17: warning: 'mp_lv_funcptr_dir_close_cb' defined but not used [-Wunused-function]
+24176 | static mp_obj_t mp_lv_funcptr_dir_close_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_close_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24167:17: warning: 'mp_lv_funcptr_dir_read_cb' defined but not used [-Wunused-function]
+24167 | static mp_obj_t mp_lv_funcptr_dir_read_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_read_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24142:17: warning: 'mp_lv_funcptr_dir_open_cb' defined but not used [-Wunused-function]
+24142 | static mp_obj_t mp_lv_funcptr_dir_open_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_open_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24119:17: warning: 'mp_lv_funcptr_tell_cb' defined but not used [-Wunused-function]
+24119 | static mp_obj_t mp_lv_funcptr_tell_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_tell_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24095:17: warning: 'mp_lv_funcptr_seek_cb' defined but not used [-Wunused-function]
+24095 | static mp_obj_t mp_lv_funcptr_seek_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_seek_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24070:17: warning: 'mp_lv_funcptr_write_cb' defined but not used [-Wunused-function]
+24070 | static mp_obj_t mp_lv_funcptr_write_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_write_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24044:17: warning: 'mp_lv_funcptr_read_cb' defined but not used [-Wunused-function]
+24044 | static mp_obj_t mp_lv_funcptr_read_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_read_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:24018:17: warning: 'mp_lv_funcptr_close_cb' defined but not used [-Wunused-function]
+24018 | static mp_obj_t mp_lv_funcptr_close_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_close_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23995:17: warning: 'mp_lv_funcptr_open_cb' defined but not used [-Wunused-function]
+23995 | static mp_obj_t mp_lv_funcptr_open_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_open_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23971:17: warning: 'mp_lv_funcptr_ready_cb' defined but not used [-Wunused-function]
+23971 | static mp_obj_t mp_lv_funcptr_ready_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_ready_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23898:17: warning: 'mp_read_ptr_lv_event_list_t' defined but not used [-Wunused-function]
+23898 | static mp_obj_t mp_read_ptr_lv_event_list_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23881:17: warning: 'mp_lv_funcptr_lv_layout_update_cb_t' defined but not used [-Wunused-function]
+23881 | static mp_obj_t mp_lv_funcptr_lv_layout_update_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_layout_update_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23630:17: warning: 'mp_read_ptr_lv_rb_t' defined but not used [-Wunused-function]
+23630 | static mp_obj_t mp_read_ptr_lv_rb_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/atanf.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23613:17: warning: 'mp_lv_funcptr_lv_async_cb_t' defined but not used [-Wunused-function]
+23613 | static mp_obj_t mp_lv_funcptr_lv_async_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_async_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23605:17: warning: 'mp_lv_funcptr_lv_timer_cb_t' defined but not used [-Wunused-function]
+23605 | static mp_obj_t mp_lv_funcptr_lv_timer_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_timer_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23519:17: warning: 'mp_lv_funcptr_lv_timer_handler_resume_cb_t' defined but not used [-Wunused-function]
+23519 | static mp_obj_t mp_lv_funcptr_lv_timer_handler_resume_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_timer_handler_resume_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23490:17: warning: 'mp_lv_funcptr_lv_delay_cb_t' defined but not used [-Wunused-function]
+23490 | static mp_obj_t mp_lv_funcptr_lv_delay_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_delay_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23407:17: warning: 'mp_read_ptr_lv_mem_monitor_t' defined but not used [-Wunused-function]
+23407 | static mp_obj_t mp_read_ptr_lv_mem_monitor_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:23338:17: warning: 'mp_read_ptr_lv_color16_t' defined but not used [-Wunused-function]
+23338 | static mp_obj_t mp_read_ptr_lv_color16_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22604:17: warning: 'mp_read_ptr_lv_font_class_t' defined but not used [-Wunused-function]
+22604 | static mp_obj_t mp_read_ptr_lv_font_class_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22596:14: warning: 'mp_write_ptr_lv_font_class_t' defined but not used [-Wunused-function]
+22596 | static void* mp_write_ptr_lv_font_class_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22580:17: warning: 'mp_lv_funcptr_free_src_cb' defined but not used [-Wunused-function]
+22580 | static mp_obj_t mp_lv_funcptr_free_src_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_free_src_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22552:17: warning: 'mp_lv_funcptr_dup_src_cb' defined but not used [-Wunused-function]
+22552 | static mp_obj_t mp_lv_funcptr_dup_src_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dup_src_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22524:17: warning: 'mp_lv_funcptr_delete_cb' defined but not used [-Wunused-function]
+22524 | static mp_obj_t mp_lv_funcptr_delete_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_delete_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22496:17: warning: 'mp_lv_funcptr_create_cb' defined but not used [-Wunused-function]
+22496 | static mp_obj_t mp_lv_funcptr_create_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_create_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22418:17: warning: 'mp_read_ptr_lv_font_info_t' defined but not used [-Wunused-function]
+22418 | static mp_obj_t mp_read_ptr_lv_font_info_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22331:17: warning: 'mp_read_ptr__lv_mp_int_wrapper' defined but not used [-Wunused-function]
+22331 | static mp_obj_t mp_read_ptr__lv_mp_int_wrapper(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22323:14: warning: 'mp_write_ptr__lv_mp_int_wrapper' defined but not used [-Wunused-function]
+22323 | static void* mp_write_ptr__lv_mp_int_wrapper(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22084:17: warning: 'mp_read_ptr_lv_tree_class_t' defined but not used [-Wunused-function]
+22084 | static mp_obj_t mp_read_ptr_lv_tree_class_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:22053:17: warning: 'mp_lv_funcptr_lv_tree_constructor_cb_t' defined but not used [-Wunused-function]
+22053 | static mp_obj_t mp_lv_funcptr_lv_tree_constructor_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_tree_constructor_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:20125:14: warning: 'mp_write_ptr_lv_span_coords_t' defined but not used [-Wunused-function]
+20125 | static void* mp_write_ptr_lv_span_coords_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:14189:17: warning: 'mp_read_ptr_lv_image_cache_data_t' defined but not used [-Wunused-function]
+14189 | static mp_obj_t mp_read_ptr_lv_image_cache_data_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:13806:17: warning: 'mp_read_ptr_lv_image_decoder_args_t' defined but not used [-Wunused-function]
+13806 | static mp_obj_t mp_read_ptr_lv_image_decoder_args_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:12310:17: warning: 'mp_lv_funcptr_lv_screen_create_cb_t' defined but not used [-Wunused-function]
+12310 | static mp_obj_t mp_lv_funcptr_lv_screen_create_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_screen_create_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:10689:17: warning: 'mp_read_ptr_lv_draw_rect_dsc_t' defined but not used [-Wunused-function]
+10689 | static mp_obj_t mp_read_ptr_lv_draw_rect_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6956:17: warning: 'mp_lv_funcptr_lv_anim_get_value_cb_t' defined but not used [-Wunused-function]
+ 6956 | static mp_obj_t mp_lv_funcptr_lv_anim_get_value_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_get_value_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/atanhf.c
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6932:17: warning: 'mp_lv_funcptr_lv_anim_start_cb_t' defined but not used [-Wunused-function]
+ 6932 | static mp_obj_t mp_lv_funcptr_lv_anim_start_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_start_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6910:17: warning: 'mp_lv_funcptr_lv_anim_custom_exec_cb_t' defined but not used [-Wunused-function]
+ 6910 | static mp_obj_t mp_lv_funcptr_lv_anim_custom_exec_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_custom_exec_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6881:17: warning: 'mp_lv_funcptr_lv_anim_exec_xcb_t' defined but not used [-Wunused-function]
+ 6881 | static mp_obj_t mp_lv_funcptr_lv_anim_exec_xcb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_exec_xcb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6761:17: warning: 'mp_lv_funcptr_lv_color_filter_cb_t' defined but not used [-Wunused-function]
+ 6761 | static mp_obj_t mp_lv_funcptr_lv_color_filter_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_color_filter_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6550:17: warning: 'mp_lv_funcptr_release_glyph' defined but not used [-Wunused-function]
+ 6550 | static mp_obj_t mp_lv_funcptr_release_glyph(void *func){ return mp_lv_funcptr(&mp_funcptr_release_glyph_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6521:17: warning: 'mp_lv_funcptr_get_glyph_bitmap' defined but not used [-Wunused-function]
+ 6521 | static mp_obj_t mp_lv_funcptr_get_glyph_bitmap(void *func){ return mp_lv_funcptr(&mp_funcptr_get_glyph_bitmap_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3-board-fonts/lvgl/lv_mpy.c:6283:17: warning: 'mp_lv_funcptr_get_glyph_dsc' defined but not used [-Wunused-function]
+ 6283 | static mp_obj_t mp_lv_funcptr_get_glyph_dsc(void *func){ return mp_lv_funcptr(&mp_funcptr_get_glyph_dsc_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../lib/libm/ef_rem_pio2.c
+CC ../../lib/libm/erf_lgamma.c
+CC ../../lib/libm/fmodf.c
+CC ../../lib/libm/kf_cos.c
+CC ../../lib/libm/kf_rem_pio2.c
+CC ../../lib/libm/kf_sin.c
+CC ../../lib/libm/kf_tan.c
+CC ../../lib/libm/log1pf.c
+CC ../../lib/libm/math.c
+CC ../../lib/libm/nearbyintf.c
+CC ../../lib/libm/roundf.c
+CC ../../lib/libm/sf_cos.c
+CC ../../lib/libm/sf_erf.c
+CC ../../lib/libm/sf_frexp.c
+CC ../../lib/libm/sf_ldexp.c
+CC ../../lib/libm/sf_modf.c
+CC ../../lib/libm/sf_sin.c
+CC ../../lib/libm/sf_tan.c
+CC ../../lib/libm/wf_lgamma.c
+CC ../../lib/libm/wf_tgamma.c
+CC ../../lib/libm/thumb_vfp_sqrtf.c
+CC ../../shared/libc/string0.c
+CC ../../shared/netutils/dhcpserver.c
+CC ../../shared/netutils/trace.c
+CC ../../shared/readline/readline.c
+CC ../../shared/runtime/gchelper_native.c
+CC ../../shared/runtime/interrupt_char.c
+CC ../../shared/runtime/mpirq.c
+CC ../../shared/runtime/pyexec.c
+CC ../../shared/runtime/softtimer.c
+CC ../../shared/runtime/stdout_helpers.c
+CC ../../shared/runtime/sys_stdio_mphal.c
+CC ../../shared/timeutils/timeutils.c
+CC ../../shared/tinyusb/mp_usbd.c
+CC ../../shared/tinyusb/mp_usbd_cdc.c
+CC ../../shared/tinyusb/mp_usbd_descriptor.c
+CC ../../drivers/bus/softspi.c
+CC ../../drivers/bus/softqspi.c
+CC ../../drivers/memory/spiflash.c
+CC ../../drivers/dht/dht.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_clocks.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_common.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_delay.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_group_irq.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_guard.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_io.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_irq.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_register_protection.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_rom_registers.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_sbrk.c
+CC ../../lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_security.c
+CC ../../lib/fsp/ra/fsp/src/r_ioport/r_ioport.c
+CC ../../lib/fsp/ra/fsp/src/r_sci_uart/r_sci_uart.c
+CC ../../lib/fsp/ra/fsp/src/r_adc/r_adc.c
+CC ../../lib/fsp/ra/fsp/src/r_qspi/r_qspi.c
+CC ../../lib/fsp/ra/fsp/src/r_ether/r_ether.c
+CC ../../lib/fsp/ra/fsp/src/r_ether_phy/r_ether_phy.c
+CC ../../lib/fsp/ra/fsp/src/r_ether_phy/targets/ICS1894/r_ether_phy_target_ics1894.c
+CC ../../lib/fsp/ra/fsp/src/r_glcdc/r_glcdc.c
+CC ../../lib/fsp/ra/fsp/src/r_sci_i2c/r_sci_i2c.c
+CC ../../lib/fsp/ra/fsp/src/r_icu/r_icu.c
+CC ../../lib/fsp/ra/fsp/src/r_drw/r_drw_base.c
+CC ../../lib/fsp/ra/fsp/src/r_drw/r_drw_irq.c
+CC ../../lib/fsp/ra/fsp/src/r_drw/r_drw_memory.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_64bitoperation.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_base.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_blit.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_box.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_circle.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_context.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_curve.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_dlist.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_driver.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_edge.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_errorcodes.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_gradient.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_hardware.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_line.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_math.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_memory.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_pattern.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_perfcount.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_polyline.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_quad.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_rbuffer.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_render.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_texture.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_triangle.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_utility.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_viewport.c
+CC ../../lib/fsp/ra/tes/dave2d/src/dave_wedge.c
+CC ../../lib/fsp/ra/fsp/src/r_pdc/r_pdc.c
+CC ../../lib/fsp/ra/fsp/src/r_jpeg/r_jpeg.c
+CC ../../lib/fsp/ra/fsp/src/r_sdhi/r_sdhi.c
+CC ../../lib/fsp/ra/fsp/src/r_dtc/r_dtc.c
+CC ../../lib/fsp/ra/fsp/src/r_lpm/r_lpm.c
+CC ../../lib/fsp/ra/fsp/src/r_dmac/r_dmac.c
+CC ../../lib/fsp/ra/fsp/src/r_flash_hp/r_flash_hp.c
+CC ra/ra_adc.c
+CC ra/ra_dac.c
+CC ra/ra_flash.c
+CC ra/ra_gpio.c
+CC ra/ra_i2c.c
+CC ra/ra_i2c_slave.c
+CC ra/ra_icu.c
+CC ra/ra_init.c
+CC ra/ra_int.c
+CC ra/ra_opamp.c
+CC ra/ra_acmplp.c
+CC ra/ra_rtc.c
+CC ra/ra_sci.c
+CC ra/ra_sci_spi.c
+CC ra/ra_sci_ws2812.c
+CC ra/ra_spi.c
+CC ra/ra_timer.c
+CC ra/ra_gpt.c
+CC ra/ra_encoder.c
+CC ra/ra_utils.c
+CC ra/ra_sci_i2c.c
+CC ra/ra_storm_adc.c
+CC ra/ra_storm_detect.c
+CC ../../lib/fsp/ra/fsp/src/r_ctsu/r_ctsu.c
+CC ra/ra_ctsu.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//adaptors/r_sce_adapt.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p00.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p01.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p02.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_p20.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func050.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func051.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func052.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func053.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func054.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func100.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func101.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func102.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_func103.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_subprc01.c
+CC ../../lib/fsp/ra/fsp/src/r_sce/crypto_procedures/src/sce7/plainkey//primitive/hw_sce_p_subprc02.c
+CC ../../lib/tinyusb/src/class/cdc/cdc_device.c
+CC ../../lib/tinyusb/src/class/dfu/dfu_rt_device.c
+CC ../../lib/tinyusb/src/class/hid/hid_device.c
+CC ../../lib/tinyusb/src/class/midi/midi_device.c
+CC ../../lib/tinyusb/src/class/msc/msc_device.c
+CC ../../lib/tinyusb/src/class/usbtmc/usbtmc_device.c
+CC ../../lib/tinyusb/src/class/vendor/vendor_device.c
+CC ../../lib/tinyusb/src/common/tusb_fifo.c
+CC ../../lib/tinyusb/src/device/usbd.c
+CC ../../lib/tinyusb/src/device/usbd_control.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/dcd_rusb2.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/hcd_rusb2.c
+CC ../../lib/tinyusb/src/portable/renesas/rusb2/rusb2_common.c
+CC ../../lib/tinyusb/src/tusb.c
+CC boardctrl.c
+CC main.c
+CC ra_hal.c
+CC ra_it.c
+CC rng.c
+CC mphalport.c
+CC mpnetworkport.c
+CC eth.c
+CC network_lan.c
+CC mpthreadport.c
+CC irq.c
+CC pendsv.c
+CC systick.c
+CC powerctrl.c
+CC powerctrlboot.c
+CC pybthread.c
+CC factoryreset.c
+CC timer.c
+CC led.c
+CC uart.c
+CC gccollect.c
+CC help.c
+CC machine_timer.c
+CC machine_bitstream.c
+CC machine_dac.c
+CC machine_i2c.c
+CC machine_opamp.c
+CC machine_comparator.c
+CC machine_spi.c
+CC machine_ws2812.c
+CC machine_encoder.c
+CC machine_pin.c
+CC machine_rtc.c
+CC machine_sdcard.c
+CC modaudiomixer.c
+CC modrenesas.c
+CC moddataflash.c
+CC extint.c
+CC usrsw.c
+CC flash.c
+CC flashbdev.c
+CC storage.c
+CC fatfs_port.c
+CC usbd.c
+CC boards/VK_RA6M3/dave2d_port.c
+In file included from boards/VK_RA6M3/dave2d_port.c:4:
+boards/VK_RA6M3/dave2d_port.c: In function 'vk_ra6m3_lvgl_gc_init':
+boards/VK_RA6M3/dave2d_port.c:82:53: error: 'lv_global_t' undeclared (first use in this function); did you mean 'lv_label_t'?
+   82 |     mp_lv_roots = MP_STATE_VM(mp_lv_roots) = m_new0(lv_global_t, 1);
+      |                                                     ^~~~~~~~~~~
+../../py/misc.h:102:29: note: in definition of macro 'm_new0'
+  102 | #define m_new0(type, num) ((type *)(m_malloc0(sizeof(type) * (num))))
+      |                             ^~~~
+boards/VK_RA6M3/dave2d_port.c:82:53: note: each undeclared identifier is reported only once for each function it appears in
+   82 |     mp_lv_roots = MP_STATE_VM(mp_lv_roots) = m_new0(lv_global_t, 1);
+      |                                                     ^~~~~~~~~~~
+../../py/misc.h:102:29: note: in definition of macro 'm_new0'
+  102 | #define m_new0(type, num) ((type *)(m_malloc0(sizeof(type) * (num))))
+      |                             ^~~~
+../../py/misc.h:102:35: error: expected expression before ')' token
+  102 | #define m_new0(type, num) ((type *)(m_malloc0(sizeof(type) * (num))))
+      |                                   ^
+boards/VK_RA6M3/dave2d_port.c:82:46: note: in expansion of macro 'm_new0'
+   82 |     mp_lv_roots = MP_STATE_VM(mp_lv_roots) = m_new0(lv_global_t, 1);
+      |                                              ^~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+make: *** [../../py/mkrules.mk:101: build-VK_RA6M3-board-fonts/boards/VK_RA6M3/dave2d_port.o] Error 1
+make: *** Waiting for unfinished jobs....
+CC boards/VK_RA6M3/machine_lcd.c

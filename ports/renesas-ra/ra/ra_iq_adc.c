@@ -912,6 +912,26 @@ static void ra_iq_dsp_process(uint8_t half) {
         s_q_dc[j] = (int16_t)cq;
     }
 
+    /* Wide spectrum tap: copy the DC-removed / IQ-corrected capture BEFORE the tuning
+     * NCO and channel filter.  The UI reducer recentres these raw capture bins around
+     * s_tune_hz, so fine tuning visibly scrolls the panorama under its fixed centre
+     * marker instead of analysing an already-centred, bandwidth-limited channel. */
+    if (s_spec_enable) {
+        uint8_t h = s_spec_half;
+        uint16_t wr = s_spec_wr;
+        for (uint16_t j = 0U; j < m; ++j) {
+            s_spec_i[h][wr] = s_i_dc[j];
+            s_spec_q[h][wr] = s_q_dc[j];
+            if (++wr == RA_IQ_SPEC_N) {
+                s_spec_ready = (int8_t)h;
+                h ^= 1U;
+                wr = 0U;
+            }
+        }
+        s_spec_half = h;
+        s_spec_wr = wr;
+    }
+
     /* Tuning NCO: complex down-conversion of the decimated I/Q, in place, AFTER the DC
      * removal + imbalance and BEFORE the channel filter, so a signal offset from the ADC
      * centre lands at 0 Hz for the fixed channel filter + demod.  Skipped when tuning is
@@ -932,8 +952,8 @@ static void ra_iq_dsp_process(uint8_t half) {
         s_tune_phase = ph;
     }
 
-    /* Channel low-pass filter, in place, AFTER imbalance and BEFORE the demod (and
-     * before the spectrum copy, so the analyser shows the channel actually heard).
+    /* Channel low-pass filter, in place, AFTER imbalance and BEFORE the demod.  The
+     * wide spectrum tap above intentionally precedes this filter.
      * Bypass (alpha == 32768) skips the cascade so s_i_dc/s_q_dc are untouched and
      * the path is bit-identical to no filter.  N one-pole sections per channel,
      * integer only (REQ-RT-002/003). */
@@ -1007,26 +1027,6 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
         int32_t rms = (int32_t)ra_iq_isqrt32((uint32_t)(pow / (int64_t)m));
         s_smeter_rms += (rms - s_smeter_rms) >> RA_IQ_SMETER_SH;
-    }
-
-    /* Spectrum accumulator: gated int16 copy of the decimated I/Q into the active
-     * ping-pong half.  Integer only, no FPU (REQ-RT-002/003).  When a half fills,
-     * publish it as ready and flip to the other half; a not-yet-consumed ready
-     * half is simply overwritten by the flip (newest snapshot wins). */
-    if (s_spec_enable) {
-        uint8_t h = s_spec_half;
-        uint16_t wr = s_spec_wr;
-        for (uint16_t j = 0U; j < m; ++j) {
-            s_spec_i[h][wr] = s_i_dc[j];
-            s_spec_q[h][wr] = s_q_dc[j];
-            if (++wr == RA_IQ_SPEC_N) {
-                s_spec_ready = (int8_t)h;
-                h ^= 1U;
-                wr = 0U;
-            }
-        }
-        s_spec_half = h;
-        s_spec_wr = wr;
     }
 
     s_dsp.i_mean = (int16_t)mi;
@@ -2129,10 +2129,10 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
 }
 
 /* Allocation-free spectrum for the UI: same FFT as ra_iq_adc_spectrum, but the 256
- * fftshifted magnitudes are reduced in C to nbars peak-per-group bars, per-frame-peak
- * dB-scaled (~50 dB span) to int16 heights 0..max_h, written into the caller's int16
- * buffer.  The whole float pipeline stays in C so the Python UI never boxes a float --
- * it only reads small ints out of the array.  Returns false when no snapshot is ready. */
+ * fftshifted magnitudes are recentred by the current tuning offset and reduced in C to
+ * nbars peak-per-group bars.  Per-frame-peak dB scaling (~50 dB span) writes int16
+ * heights 0..max_h into the caller's buffer.  The whole float pipeline stays in C so
+ * the Python UI never boxes a float.  Returns false when no snapshot is ready. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
     if ((nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N)) {
         return false;
@@ -2167,13 +2167,26 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
     }
     float inv = 1.0f / peak;
 
-    /* Peak per bar over the fftshifted spectrum, dB-scaled to 0..max_h. */
+    /* Shift the raw capture panorama so the selected NCO frequency is at the middle.
+     * The alignment is calculated on the 256 FFT bins before the 27-column reduction;
+     * visible horizontal position is still quantised by those 27 physical UI columns. */
+    int32_t shift_bins = 0;
+    int32_t fs = (int32_t)(s_status.sample_rate_hz >> 1);
+    if (fs > 0) {
+        int64_t num = (int64_t)s_tune_hz * (int64_t)RA_IQ_SPEC_N;
+        num += (num >= 0) ? (int64_t)(fs / 2) : -(int64_t)(fs / 2);
+        shift_bins = (int32_t)(num / (int64_t)fs);
+    }
+
+    /* Peak per bar over the tuned, fftshifted spectrum, dB-scaled to 0..max_h. */
     for (size_t b = 0U; b < nbars; ++b) {
         uint32_t lo = (uint32_t)((b * (size_t)RA_IQ_SPEC_N) / nbars);
         uint32_t hi = (uint32_t)(((b + 1U) * (size_t)RA_IQ_SPEC_N) / nbars);
         float mx = 0.0f;
         for (uint32_t k = lo; k < hi; ++k) {
-            float v = s_spec_mag[(k + (RA_IQ_SPEC_N / 2)) & (RA_IQ_SPEC_N - 1)];
+            uint32_t src = (uint32_t)((int32_t)k + (RA_IQ_SPEC_N / 2) + shift_bins) &
+                (RA_IQ_SPEC_N - 1U);
+            float v = s_spec_mag[src];
             if (v > mx) {
                 mx = v;
             }

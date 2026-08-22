@@ -1,0 +1,7 @@
+﻿455df0c37e59f55c1c5d6495b088c28a52282d96|455df0c37|2026-05-10 02:26:17 +0300|2026-05-10 02:26:17 +0300|renesas-ra: fix SCI WS2812 baud scaling
+8b8bec8c05fb39da0b0c3dffad3bd3877f4785d4|8b8bec8c0|2026-04-04 21:17:52 +0300|2026-04-04 21:17:52 +0300|renesas-ra VK_RA4M2: audio spectrum visualizer AudioADC+DSP+WS2812 async
+979e5a2b2846ebcf8d86328ecbd087fbb2eaee10|979e5a2b2|2026-03-17 16:40:50 +0200|2026-03-17 16:40:50 +0200|ports/renesas-ra: stabilize SCI WS2812 framing
+c820a87c5b75f780a5d4ffcc77100146c835101b|c820a87c5|2026-03-15 14:01:37 +0200|2026-03-15 14:01:37 +0200|renesas-ra: fix SCI WS2812 channel indexing on VK_RA4M2
+4527acd4bcebbc53032d9bc3e4420d9d1e345419|4527acd4b|2026-03-15 13:19:06 +0200|2026-03-15 13:19:06 +0200|renesas-ra: refine SCI WS2812 support on VK_RA4M2
+f2f762d46cd253af5a6273051b8a0f6b6ef8cc67|f2f762d46|2026-03-14 19:15:15 +0200|2026-03-14 19:15:15 +0200|Generalize WS2812 SCI pins and update book
+9e2fdfdace7cb89a6c89cbea0619d0797076964f|9e2fdfdac|2026-03-14 15:01:42 +0200|2026-03-14 15:01:42 +0200|Add LED drivers, examples, and book chapter

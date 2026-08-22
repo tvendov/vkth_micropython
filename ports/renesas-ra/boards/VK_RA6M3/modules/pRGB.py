@@ -59,10 +59,19 @@ class pRGB_lvgl(object):
         if len(self.buf1) != bufSize:
             raise RuntimeError('GLCDC framebuffer size does not match the LVGL display.')
         self.buf2 = None
-        self.disp_drv = lv.display_create(self.width, self.height)
-        self.disp_drv.set_color_format(color_format)
-        self.disp_drv.set_flush_cb(self.disp_drv_flush_cb)
-        self.disp_drv.set_buffers(self.buf1, self.buf2, bufSize, lv.DISPLAY_RENDER_MODE.DIRECT)
+        # Prefer the firmware C LVGL bridge (machine.LCD.lvgl_setup): it creates the
+        # display + pointer indev with C flush/read/render-start callbacks, so no
+        # MicroPython wrapper is allocated per render or per ~30 Hz input poll. Fall back
+        # to Python callbacks on firmware without it.
+        self.bridged = bool(getattr(self.display, 'lvgl_setup', lambda: False)())
+        if self.bridged:
+            self.disp_drv = lv.display_get_default()
+            self.indev_drv = None                 # created + read in C
+        else:
+            self.disp_drv = lv.display_create(self.width, self.height)
+            self.disp_drv.set_color_format(color_format)
+            self.disp_drv.set_flush_cb(self.disp_drv_flush_cb)
+            self.disp_drv.set_buffers(self.buf1, self.buf2, bufSize, lv.DISPLAY_RENDER_MODE.DIRECT)
         lv.theme_default_init(
             self.disp_drv,
             lv.palette_main(lv.PALETTE.BLUE),
@@ -72,10 +81,11 @@ class pRGB_lvgl(object):
         )
 
         self.points = 0
-        self.indev_drv = lv.indev_create()
-        self.indev_drv.set_type(lv.INDEV_TYPE.POINTER)
-        self.indev_drv.set_display(self.disp_drv)
-        self.indev_drv.set_read_cb(self.touch_drv_read_cb)
+        if not self.bridged:
+            self.indev_drv = lv.indev_create()
+            self.indev_drv.set_type(lv.INDEV_TYPE.POINTER)
+            self.indev_drv.set_display(self.disp_drv)
+            self.indev_drv.set_read_cb(self.touch_drv_read_cb)
 
 class RGB(pRGB,pRGB_lvgl):
     def __init__(self,res=SuppRes[0],doublebuffer=False,factor=10,**kw):

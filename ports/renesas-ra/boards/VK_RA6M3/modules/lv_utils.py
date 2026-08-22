@@ -33,6 +33,7 @@
 import lvgl as lv
 import micropython
 import usys
+import gc
 
 # Try standard machine.Timer, or custom timer from lv_timer, if available
 
@@ -85,6 +86,7 @@ class event_loop():
         self.delay = 1000 // freq
         self.refresh_cb = refresh_cb
         self.exception_sink = exception_sink if exception_sink else self.default_exception_sink
+        self._nest_stuck = 0   # consecutive ticks the _nesting re-entrancy guard blocked us
 
         self.asynchronous = asynchronous
         if self.asynchronous:
@@ -124,13 +126,34 @@ class event_loop():
 
     def task_handler(self, _):
         try:
-            if lv._nesting.value == 0:
+            # `_nesting` guards against re-entrant task_handler while LVGL is inside a Python
+            # callback. If a callback raises (e.g. a MemoryError from the render/layer path),
+            # the stack unwinds past the binding's `_nesting--`, pinning the guard > 0. Then
+            # `_nesting == 0` is never true again and task_handler stops -- the GUI freezes for
+            # good (proven: calls stall, alive=True, heap still free). The guard is NOT
+            # writable from Python (`_nesting.value = 0` is silently ignored), so instead we
+            # detect the leak: genuine re-entrancy clears within one scheduled tick, a leak
+            # persists. After a few blocked ticks we run anyway -- safe, because task_handler
+            # is only entered from micropython.schedule at a safe point, never on the LVGL C
+            # stack, so a stale counter can't mean we are truly re-entrant.
+            if lv._nesting.value != 0:
+                if self._nest_stuck < 3:
+                    self._nest_stuck += 1
+            else:
+                self._nest_stuck = 0
+            if self._nest_stuck == 0 or self._nest_stuck >= 3:
                 lv.task_handler()
                 if self.refresh_cb: self.refresh_cb()
-            self.scheduled -= 1
         except Exception as e:
+            gc.collect()               # reclaim the transient render buffer so next tick fits
             if self.exception_sink:
                 self.exception_sink(e)
+        finally:
+            # ALWAYS release the schedule slot, even if the render raised. If this only
+            # ran on success, one MemoryError from the internal LVGL draw/layer path (seen
+            # under a fast slider drag) would leave `scheduled` pinned at max_scheduled, so
+            # timer_cb stops scheduling task_handler and the whole GUI freezes for good.
+            self.scheduled -= 1
 
     def timer_cb(self, t):
         # Can be called in Interrupt context
@@ -163,5 +186,7 @@ class event_loop():
             
 
     def default_exception_sink(self, e):
+        # Report but KEEP THE LOOP ALIVE. Deinit-on-exception turned any transient render
+        # allocation failure (e.g. MemoryError from the LVGL draw/layer path during a fast
+        # slider drag) into a permanent GUI freeze. The next tick simply retries.
         usys.print_exception(e)
-        event_loop.current_instance().deinit()

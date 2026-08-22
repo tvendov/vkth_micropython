@@ -1,0 +1,234 @@
+﻿diff --git a/ports/renesas-ra/ra/ra_sci_spi.c b/ports/renesas-ra/ra/ra_sci_spi.c
+index b8d40f41d..0f03c85bc 100644
+--- a/ports/renesas-ra/ra/ra_sci_spi.c
++++ b/ports/renesas-ra/ra/ra_sci_spi.c
+@@ -294,109 +294,123 @@ static void ra_sci_spi_get_pinsets(ra_sci_spi_pinset_t *out, uint32_t *count) {
+     n++;
+     #endif
+     *count = n;
+ }
+ 
+ #define RA_SCI_SPI_MAX_PINSETS  (4)
+ 
+ static bool ra_sci_spi_lookup_pinset(uint32_t mosi, uint32_t miso, uint32_t sck, ra_sci_spi_pinset_t *match) {
+     ra_sci_spi_pinset_t pinsets[RA_SCI_SPI_MAX_PINSETS];
+     uint32_t count = 0;
+     ra_sci_spi_get_pinsets(pinsets, &count);
+     for (uint32_t i = 0; i < count; ++i) {
+         if (pinsets[i].mosi == mosi && pinsets[i].miso == miso && pinsets[i].sck == sck) {
+             *match = pinsets[i];
+             return true;
+         }
+     }
+     return false;
+ }
+ 
+ static bool ra_sci_spi_lookup_by_id(uint8_t spi_id, ra_sci_spi_pinset_t *match) {
+     ra_sci_spi_pinset_t pinsets[RA_SCI_SPI_MAX_PINSETS];
+     uint32_t count = 0;
+     ra_sci_spi_get_pinsets(pinsets, &count);
+     for (uint32_t i = 0; i < count; ++i) {
+         if (pinsets[i].spi_id == spi_id) {
+             *match = pinsets[i];
+             return true;
+         }
+     }
+     return false;
+ }
+ 
+ typedef struct {
+     uint8_t brr;
+     uint8_t cks;
+     uint8_t mddr;
+ } ra_sci_spi_div_setting_t;
+ 
+ static void ra_sci_spi_calc_baud(uint32_t baud, ra_sci_spi_div_setting_t *div) {
+-    int32_t divisor = 0;
++    /* SCI in clock-synchronous (SPI master) mode.  Scope measurements on
++     * VK_RA4M2 show that the SPI clock is generated from:
++     *
++     *   B = PCLK / (2 ├Ч 4^N ├Ч (BRR + 1))
++     *
++     * where N = CKS (0..3), BRR = 0..255.
++     *
++     * BRME/MDDR are not used here; on this SCI clock-synchronous path they
++     * did not affect the measured SCK period, and enabling BRME caused the
++     * register dump to look precise while the real SCK stayed BRR-based.
++     *
++     * Strategy: pick the smallest CKS that fits and round the divider to the
++     * nearest integer.  This gives exact 1 MHz for PCLK=40 MHz (BRR=19) and
++     * PCLK=50 MHz (BRR=24).
++     */
++    int32_t cks = 0;
+     int32_t brr = 0;
+-    int32_t cks = -1;
+ 
+-    for (uint32_t i = 0; i <= 3; ++i) {
+-        cks++;
+-        divisor = (1 << (2 * (i + 1))) * (int32_t)baud;
+-        brr = ((int32_t)PCLK + divisor - 1) / divisor - 1;
+-        if (brr <= UINT8_MAX) {
++    for (int32_t i = 0; i <= 3; ++i) {
++        int32_t factor = 2 * (1 << (2 * i));  /* 2, 8, 32, 128 */
++        int64_t denom = (int64_t)factor * baud;
++        if (denom == 0) {
++            continue;
++        }
++        /* Divider = round(PCLK / denom), then BRR = divider - 1. */
++        int32_t divider = (int32_t)(((int64_t)PCLK + (denom / 2)) / denom);
++        int32_t computed = divider - 1;
++        if (computed < 0) {
++            computed = 0;
++        }
++        if (computed <= UINT8_MAX) {
++            brr = computed;
++            cks = i;
+             break;
+         }
+     }
+-
+-    // Match the Renesas FSP SCI SPI bitrate calculation when MDDR is used.
+-    brr = (int32_t)PCLK / divisor - 1;
+-    if (brr < 0) {
+-        brr = 0;
+-    } else if (brr > UINT8_MAX) {
++    if (brr > UINT8_MAX) {
+         brr = UINT8_MAX;
+     }
+ 
+-    int64_t mddr = (int64_t)divisor * (brr + 1) * (UINT8_MAX + 1) / PCLK;
+-    if (mddr > UINT8_MAX) {
+-        mddr = 0;
+-    }
+-
+     div->brr = (uint8_t)brr;
+     div->cks = (uint8_t)(cks & 3);
+-    div->mddr = (uint8_t)mddr;
++    div->mddr = 0;
+ }
+ 
+ // --- ISR callbacks (owner-matched dispatch from ra_sci.c) ---
+ //
+ // Both DTC channels run with TRANSFER_IRQ_END: only the LAST activation
+ // propagates to NVIC. So each callback fires exactly once per transfer.
+ // The RX-end callback is the canonical completion signal тАФ by the time it
+ // runs, the last byte has already been moved into the user's dst buffer.
+ 
+ static void ra_sci_spi_rxi_cb(uint32_t ch) {
+     // RX DTC has drained FRDR for the last byte. Foreground may now wake.
+     sci_spi_xfer[ch].done = 1;
+ }
+ 
+ static void ra_sci_spi_txi_cb(uint32_t ch) {
+     // TX DTC has fed the last byte into FTDR. Nothing else to do here тАФ
+     // shifting and the RX side completes via the RX callback above.
+     (void)ch;
+ }
+ 
+ // --- DTC helpers ---
+ //
+ // Open one DTC channel for the given activation source. Source/dest are
+ // placeholders here; they get re-armed per transfer via R_DTC_Reset.
+ static bool ra_sci_spi_dtc_open(ra_sci_spi_dtc_t *dtc, IRQn_Type irq,
+     transfer_addr_mode_t src_mode, transfer_addr_mode_t dst_mode) {
+     if (irq < (IRQn_Type)0) {
+         return false;
+     }
+     memset(dtc, 0, sizeof(*dtc));
+     dtc->irq = irq;
+     dtc->info.transfer_settings_word = 0;
+     dtc->info.transfer_settings_word_b.dest_addr_mode = dst_mode;
+     dtc->info.transfer_settings_word_b.repeat_area = TRANSFER_REPEAT_AREA_DESTINATION;
+     dtc->info.transfer_settings_word_b.irq = TRANSFER_IRQ_END;
+     dtc->info.transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
+     dtc->info.transfer_settings_word_b.src_addr_mode = src_mode;
+     dtc->info.transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+     dtc->info.transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+     dtc->info.p_src = NULL;
+@@ -441,83 +455,83 @@ static bool ra_sci_spi_dtc_arm(ra_sci_spi_dtc_t *dtc, void *src, void *dst,
+     if (R_DTC_Reset((transfer_ctrl_t *)&dtc->ctrl, src, dst, len) != FSP_SUCCESS) {
+         return false;
+     }
+     if (R_DTC_Enable((transfer_ctrl_t *)&dtc->ctrl) != FSP_SUCCESS) {
+         return false;
+     }
+     return true;
+ }
+ 
+ bool ra_sci_spi_find_af_ch(uint32_t mosi, uint32_t miso, uint32_t sck, uint8_t *ch) {
+     ra_sci_spi_pinset_t match;
+     if (!ra_sci_spi_lookup_pinset(mosi, miso, sck, &match)) {
+         return false;
+     }
+     if (ch != NULL) {
+         *ch = match.spi_id;
+     }
+     return true;
+ }
+ 
+ bool ra_sci_spi_init(uint32_t ch, uint32_t mosi, uint32_t miso, uint32_t sck, uint32_t baud, uint32_t polarity, uint32_t phase, uint32_t firstbit) {
+     ra_sci_spi_pinset_t match;
+     if (!ra_sci_spi_lookup_pinset(mosi, miso, sck, &match) || match.spi_id != ch) {
+         return false;
+     }
+     if (firstbit != SPI_FIRSTBIT_MSB) {
+         return false;
+     }
+     uint32_t sci_ch = match.sci_ch;
+     if (sci_ch >= SCI_CH_MAX || sci_spi_regs[sci_ch] == NULL) {
+         return false;
+     }
+     if (!ra_sci_owner_acquire(sci_ch, RA_SCI_OWNER_SPI)) {
+         return false;
+     }
+ 
+     R_SCI0_Type *sci_reg = sci_spi_regs[sci_ch];
+     ra_sci_spi_div_setting_t div;
+ 
+     ra_mstpcrb_start(sci_spi_module_mask[sci_ch]);
+-    ra_gpio_config(sck,  GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, match.af);
+-    ra_gpio_config(mosi, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_LOW_POWER, match.af);
+-    ra_gpio_config(miso, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_LOW_POWER, match.af);
++    ra_gpio_config(sck,  GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, match.af);
++    ra_gpio_config(mosi, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_HIGH_POWER, match.af);
++    ra_gpio_config(miso, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_HIGH_POWER, match.af);
+ 
+     sci_reg->SCR = 0;
+     while (sci_reg->SCR != 0) {
+         ;
+     }
+ 
+     ra_sci_spi_calc_baud(baud, &div);
+ 
+     uint8_t smr = R_SCI0_SMR_CM_Msk | (uint8_t)(div.cks << R_SCI0_SMR_CKS_Pos);
+     uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | RA_SCI_SPI_SCMR_RESERVED_MASK);
+     uint8_t semr = 0;
+     uint8_t spmr = 0;
+ 
+     if (div.mddr > INT8_MAX) {
+         semr |= R_SCI0_SEMR_BRME_Msk;
+     }
+     if (phase == 0) {
+         spmr |= R_SCI0_SPMR_CKPH_Msk;
+         if (polarity == 1) {
+             spmr |= R_SCI0_SPMR_CKPOL_Msk;
+         }
+     } else if (polarity == 0) {
+         spmr |= R_SCI0_SPMR_CKPOL_Msk;
+     }
+ 
+     scmr |= R_SCI0_SCMR_SDIR_Msk;
+ 
+     sci_reg->SSR;
+     sci_reg->SSR = (uint8_t)(R_SCI0_SSR_TDRE_Msk | R_SCI0_SSR_TEND_Msk);
+     // Step 1 of FIFO setup: keep FCR.FM=0 while we configure other registers,
+     // then flip to FIFO mode last (datasheet 27.3.6 Note: FM must be set after
+     // BRR/SCMR/SMR for stable triggers).
+     sci_reg->FCR = 0;
+     sci_reg->SMR = smr;
+     sci_reg->SCR = 0;
+     sci_reg->SCMR = scmr;
+     sci_reg->BRR = div.brr;
+     sci_reg->MDDR = div.mddr;
+     sci_reg->SEMR = semr;
+     sci_reg->SPMR = spmr;

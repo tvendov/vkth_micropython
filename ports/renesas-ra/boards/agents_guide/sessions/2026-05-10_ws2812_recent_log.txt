@@ -1,0 +1,7 @@
+455df0c37 renesas-ra: fix SCI WS2812 baud scaling
+8b8bec8c0 renesas-ra VK_RA4M2: audio spectrum visualizer AudioADC+DSP+WS2812 async
+979e5a2b2 ports/renesas-ra: stabilize SCI WS2812 framing
+c820a87c5 renesas-ra: fix SCI WS2812 channel indexing on VK_RA4M2
+4527acd4b renesas-ra: refine SCI WS2812 support on VK_RA4M2
+f2f762d46 Generalize WS2812 SCI pins and update book
+9e2fdfdac Add LED drivers, examples, and book chapter

@@ -1,0 +1,20 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3/genhdr/qstr.i.last
+GEN build-VK_RA6M3/genhdr/qstr.split
+GEN build-VK_RA6M3/genhdr/moduledefs.split
+GEN build-VK_RA6M3/genhdr/root_pointers.split
+GEN build-VK_RA6M3/genhdr/compressed.split
+GEN build-VK_RA6M3/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3/genhdr/moduledefs.collected
+Module registrations not updated
+GEN build-VK_RA6M3/genhdr/root_pointers.collected
+QSTR not updated
+GEN build-VK_RA6M3/genhdr/compressed.collected
+Root pointer registrations not updated
+Compressed data not updated
+CC boards/VK_RA6M3/ra_gen/hal_data.c
+LINK build-VK_RA6M3/firmware.elf
+   text	   data	    bss	    dec	    hex	filename
+1543176	      0	 622728	2165904	 210c90	build-VK_RA6M3/firmware.elf
+GEN build-VK_RA6M3/firmware.hex
+GEN build-VK_RA6M3/firmware.bin

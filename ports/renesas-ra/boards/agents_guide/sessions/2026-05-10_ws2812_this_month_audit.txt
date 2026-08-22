@@ -1,0 +1,68 @@
+﻿WS2812 audit since 2026-05-01
+
+=== 455df0c37 2026-05-10 renesas-ra: fix SCI WS2812 baud scaling
+--- machine_ws2812.c
+#define MACHINE_WS2812_DEFAULT_BAUDRATE (2857143)
+#define MACHINE_WS2812_DEFAULT_LATCH_US (100)
+#define MACHINE_WS2812_TX_PREFIX_BYTES (2)
+#define MACHINE_WS2812_ENCODED_BYTES_PER_DATA (5)
+    size_t tx_prefix_len;
+    size_t tx_suffix_len;
+    uint32_t latch_us;
+    MACHINE_WS2812_DEFAULT_BAUDRATE,
+    MACHINE_WS2812_DEFAULT_LATCH_US,
+        encoded <<= 5;
+        // 0 -> 10000 : T0H ~= 0.35 us, T0L ~= 1.40 us at 2.857143 MHz
+        // 1 -> 11000 : T1H ~= 0.70 us, T1L ~= 1.05 us at 2.857143 MHz
+        encoded |= (value & 0x80) ? 0x18 : 0x10;
+    dst[0] = (uint8_t)(encoded >> 32);
+    dst[1] = (uint8_t)(encoded >> 24);
+    dst[2] = (uint8_t)(encoded >> 16);
+    dst[3] = (uint8_t)(encoded >> 8);
+    dst[4] = (uint8_t)encoded;
+    uint64_t bits_needed = ((uint64_t)self->latch_us * self->baudrate + 999999U) / 1000000U;
+        machine_ws2812_encode_byte(self->buf[i], &self->txbuf[self->tx_prefix_len + (i * MACHINE_WS2812_ENCODED_BYTES_PER_DATA)]);
+    self->tx_prefix_len = MACHINE_WS2812_TX_PREFIX_BYTES;
+    self->tx_suffix_len = machine_ws2812_calc_suffix_bytes(self);
+    size_t tx_len = self->tx_prefix_len + (buf_len * MACHINE_WS2812_ENCODED_BYTES_PER_DATA) + self->tx_suffix_len;
+    enum { ARG_pixel_count, ARG_pin, ARG_channels, ARG_baudrate, ARG_latch_us, ARG_polarity, ARG_phase };
+        { MP_QSTR_baudrate,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MACHINE_WS2812_DEFAULT_BAUDRATE} },
+        { MP_QSTR_latch_us,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MACHINE_WS2812_DEFAULT_LATCH_US} },
+    if (args[ARG_latch_us].u_int < 50) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad latch_us"));
+    self->latch_us = (uint32_t)args[ARG_latch_us].u_int;
+    bool ok = ra_sci_ws2812_write(self->ch, self->pin->pin, self->txbuf, self->tx_len, self->latch_us);
+--- ra_sci_ws2812.c
+    uint8_t brr;
+    uint8_t mddr;
+static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
+    int32_t brr = 0;
+    int32_t mddr = 0;
+        int32_t factor = 1 << (2 * (i + 1));  /* 4, 16, 64, 256 */
+        int64_t denom = (int64_t)factor * baud;
+        if (denom == 0) {
+        /* Pick a base rate >= target, then scale it down with MDDR. */
+        int32_t computed = (int32_t)((int64_t)PCLK / denom) - 1;
+            brr = computed;
+            int64_t mddr_calc = ((int64_t)baud * factor *
+                                 (int64_t)(brr + 1) * 256 + (PCLK / 2)) / PCLK;
+            if (mddr_calc >= 128 && mddr_calc < 256) {
+                mddr = (int32_t)mddr_calc;
+    if (brr < 0) {
+        brr = 0;
+    } else if (brr > UINT8_MAX) {
+        brr = UINT8_MAX;
+    div->brr = (uint8_t)brr;
+    div->mddr = (uint8_t)mddr;
+    ra_sci_ws2812_calc_baud(baudrate, &div);
+    uint8_t scmr = (uint8_t)((2U << R_SCI0_SCMR_CHR1_Pos) | R_SCI0_SCMR_BCP2_Msk | R_SCI0_SCMR_SDIR_Msk);
+    uint8_t semr = 0;
+    uint8_t spmr = 0;
+    if (div.mddr > INT8_MAX) {
+        semr |= R_SCI0_SEMR_BRME_Msk;
+    sci_reg->SCMR = scmr;
+    sci_reg->BRR = div.brr;
+    sci_reg->MDDR = div.mddr;
+    sci_reg->SEMR = semr;
+    sci_reg->SPMR = spmr;
+

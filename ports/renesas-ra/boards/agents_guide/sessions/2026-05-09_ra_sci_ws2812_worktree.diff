@@ -1,0 +1,91 @@
+diff --git a/ports/renesas-ra/ra/ra_sci_ws2812.c b/ports/renesas-ra/ra/ra_sci_ws2812.c
+index b5a844cf6..c7631650e 100644
+--- a/ports/renesas-ra/ra/ra_sci_ws2812.c
++++ b/ports/renesas-ra/ra/ra_sci_ws2812.c
+@@ -291,64 +291,73 @@ static bool ra_sci_ws2812_write_dtc_payload(uint32_t ch, R_SCI0_Type *sci_reg, u
+     } while (mp_hal_ticks_ms() - start_ms < timeout_ms);
+ 
+     R_DTC_Disable((transfer_ctrl_t *)&dtc->ctrl);
+     R_BSP_IrqStatusClear(dtc->txi_irq);
+     sci_reg->SCR &= (uint8_t)~R_SCI0_SCR_TIE_Msk;
+     return false;
+ }
+ 
+ static void ra_sci_ws2812_set_data_pin_af(uint32_t data_pin, uint32_t af) {
+     ra_gpio_config(data_pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_MID_POWER, af);
+ }
+ 
+ static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin) {
+     // Drive low before switching mode so the line never floats during latch/reset.
+     ra_gpio_write(data_pin, 0);
+     ra_gpio_config(data_pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_MID_POWER, AF_GPIO);
+     ra_gpio_write(data_pin, 0);
+ }
+ 
+ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
+-    int32_t divisor = 0;
+     int32_t brr = 0;
+-    int32_t cks = -1;
+-
+-    for (uint32_t i = 0; i <= 3; ++i) {
+-        cks++;
+-        divisor = (1 << (2 * (i + 1))) * (int32_t)baud;
+-        brr = ((int32_t)PCLK + divisor - 1) / divisor - 1;
+-        if (brr <= UINT8_MAX) {
++    int32_t cks = 0;
++    int32_t mddr = 0;
++
++    for (int32_t i = 0; i <= 3; ++i) {
++        int32_t factor = 1 << (2 * (i + 1));  /* 4, 16, 64, 256 */
++        int64_t denom = (int64_t)factor * baud;
++        if (denom == 0) {
++            continue;
++        }
++        /* Pick a base rate >= target, then scale it down with MDDR. */
++        int32_t computed = (int32_t)((int64_t)PCLK / denom) - 1;
++        if (computed < 0) {
++            computed = 0;
++        }
++        if (computed <= UINT8_MAX) {
++            brr = computed;
++            cks = i;
++            int64_t mddr_calc = ((int64_t)baud * factor *
++                                 (int64_t)(brr + 1) * 256 + (PCLK / 2)) / PCLK;
++            if (mddr_calc >= 128 && mddr_calc < 256) {
++                mddr = (int32_t)mddr_calc;
++            }
+             break;
+         }
+     }
+ 
+     if (brr < 0) {
+         brr = 0;
+     } else if (brr > UINT8_MAX) {
+         brr = UINT8_MAX;
+     }
+ 
+-    int64_t mddr = (int64_t)divisor * (brr + 1) * (UINT8_MAX + 1) / PCLK;
+-    if (mddr > UINT8_MAX) {
+-        mddr = 0;
+-    }
+-
+     div->brr = (uint8_t)brr;
+     div->cks = (uint8_t)(cks & 3);
+     div->mddr = (uint8_t)mddr;
+ }
+ 
+ bool ra_sci_ws2812_find_ch(uint32_t data_pin, uint8_t *ch) {
+     uint32_t found_ch;
+     uint32_t af;
+     bool ok = ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af);
+     if (ok && ch != NULL) {
+         *ch = (uint8_t)found_ch;
+     }
+     return ok;
+ }
+ 
+ bool ra_sci_ws2812_init(uint32_t ch, uint32_t data_pin, uint32_t baudrate, uint32_t polarity, uint32_t phase) {
+     uint32_t found_ch = 0xff;
+     uint32_t af = 0;
+     if (!ra_sci_ws2812_find_pin_af_ch(data_pin, &found_ch, &af) || found_ch != ch) {
+         return false;

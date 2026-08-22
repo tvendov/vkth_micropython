@@ -1,0 +1,824 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+mkdir -p build-VK_RA4M2/lorawan/
+mkdir -p build-VK_RA4M2/lorawan/glue/
+GEN build-VK_RA4M2/genhdr/qstr.i.last
+GEN build-VK_RA4M2/genhdr/qstr.split
+GEN build-VK_RA4M2/genhdr/moduledefs.split
+GEN build-VK_RA4M2/genhdr/root_pointers.split
+GEN build-VK_RA4M2/genhdr/compressed.split
+GEN build-VK_RA4M2/genhdr/qstrdefs.collected.h
+GEN build-VK_RA4M2/genhdr/moduledefs.collected
+GEN build-VK_RA4M2/genhdr/root_pointers.collected
+GEN build-VK_RA4M2/genhdr/compressed.collected
+Module registrations not updated
+Root pointer registrations not updated
+Compressed data updated
+QSTR updated
+GEN build-VK_RA4M2/genhdr/compressed.data.h
+GEN build-VK_RA4M2/genhdr/qstrdefs.generated.h
+CC ../../py/mpstate.c
+CC ../../py/nlr.c
+CC ../../py/nlrx86.c
+CC ../../py/nlrx64.c
+CC ../../py/nlrthumb.c
+CC ../../py/nlraarch64.c
+CC ../../py/nlrmips.c
+CC ../../py/nlrpowerpc.c
+CC ../../py/nlrxtensa.c
+CC ../../py/nlrrv32.c
+CC ../../py/nlrrv64.c
+CC ../../py/nlrsetjmp.c
+CC ../../py/malloc.c
+CC ../../py/gc.c
+CC ../../py/pystack.c
+CC ../../py/qstr.c
+CC ../../py/vstr.c
+CC ../../py/mpprint.c
+CC ../../py/unicode.c
+CC ../../py/mpz.c
+CC ../../py/reader.c
+CC ../../py/lexer.c
+CC ../../py/parse.c
+CC ../../py/scope.c
+CC ../../py/compile.c
+CC ../../py/emitcommon.c
+CC ../../py/emitbc.c
+CC ../../py/asmbase.c
+CC ../../py/emitnx86.c
+CC ../../py/asmthumb.c
+CC ../../py/emitnthumb.c
+CC ../../py/emitinlinethumb.c
+CC ../../py/asmxtensa.c
+CC ../../py/emitinlinextensa.c
+CC ../../py/asmrv32.c
+CC ../../py/emitinlinerv32.c
+CC ../../py/formatfloat.c
+CC ../../py/parsenumbase.c
+CC ../../py/parsenum.c
+CC ../../py/emitglue.c
+CC ../../py/persistentcode.c
+CC ../../py/runtime.c
+CC ../../py/runtime_utils.c
+CC ../../py/scheduler.c
+CC ../../py/nativeglue.c
+CC ../../py/pairheap.c
+CC ../../py/cstack.c
+CC ../../py/stackctrl.c
+CC ../../py/argcheck.c
+CC ../../py/warning.c
+CC ../../py/profile.c
+CC ../../py/map.c
+CC ../../py/obj.c
+CC ../../py/objarray.c
+CC ../../py/objattrtuple.c
+CC ../../py/objbool.c
+CC ../../py/objboundmeth.c
+CC ../../py/objcell.c
+CC ../../py/objclosure.c
+CC ../../py/objcode.c
+CC ../../py/objcomplex.c
+CC ../../py/objdeque.c
+CC ../../py/objdict.c
+CC ../../py/objenumerate.c
+CC ../../py/objexcept.c
+CC ../../py/objfilter.c
+CC ../../py/objfloat.c
+CC ../../py/objfun.c
+CC ../../py/objgenerator.c
+CC ../../py/objgetitemiter.c
+CC ../../py/objint.c
+CC ../../py/objint_longlong.c
+CC ../../py/objint_mpz.c
+CC ../../py/objlist.c
+CC ../../py/objmap.c
+CC ../../py/objmodule.c
+CC ../../py/objobject.c
+CC ../../py/objpolyiter.c
+CC ../../py/objproperty.c
+CC ../../py/objnone.c
+CC ../../py/objnamedtuple.c
+CC ../../py/objrange.c
+CC ../../py/objreversed.c
+CC ../../py/objringio.c
+CC ../../py/objset.c
+CC ../../py/objsingleton.c
+CC ../../py/objslice.c
+CC ../../py/objstr.c
+CC ../../py/objstrunicode.c
+CC ../../py/objstringio.c
+CC ../../py/objtuple.c
+CC ../../py/objtype.c
+CC ../../py/objzip.c
+CC ../../py/opmethods.c
+CC ../../py/sequence.c
+CC ../../py/stream.c
+CC ../../py/binary.c
+CC ../../py/builtinimport.c
+CC ../../py/builtinevex.c
+CC ../../py/builtinhelp.c
+CC ../../py/modarray.c
+CC ../../py/modbuiltins.c
+CC ../../py/modcollections.c
+CC ../../py/modgc.c
+CC ../../py/modio.c
+CC ../../py/modmath.c
+CC ../../py/modcmath.c
+CC ../../py/modmicropython.c
+CC ../../py/modstruct.c
+CC ../../py/modsys.c
+CC ../../py/moderrno.c
+CC ../../py/modthread.c
+CC ../../py/vm.c
+CC ../../py/bc.c
+CC ../../py/showbc.c
+CC ../../py/repl.c
+CC ../../py/smallint.c
+CC ../../py/frozenmod.c
+CC ../../extmod/machine_adc.c
+MPY lorawan_async.py
+GEN build-VK_RA4M2/frozen_content.c
+CC ../../extmod/machine_adc_block.c
+CC ../../extmod/machine_bitstream.c
+CC ../../extmod/machine_i2c.c
+CC ../../extmod/machine_i2c_target.c
+CC ../../extmod/machine_i2s.c
+CC ../../extmod/machine_mem.c
+CC ../../extmod/machine_pinbase.c
+CC ../../extmod/machine_pulse.c
+CC ../../extmod/machine_pwm.c
+CC ../../extmod/machine_signal.c
+CC ../../extmod/machine_spi.c
+CC ../../extmod/machine_uart.c
+CC ../../extmod/machine_wdt.c
+CC ../../extmod/modasyncio.c
+CC ../../extmod/modbinascii.c
+CC ../../extmod/modbluetooth.c
+CC ../../extmod/modbtree.c
+CC ../../extmod/modcryptolib.c
+CC ../../extmod/moddeflate.c
+CC ../../extmod/modframebuf.c
+CC ../../extmod/modhashlib.c
+CC ../../extmod/modheapq.c
+CC ../../extmod/modjson.c
+CC ../../extmod/modlwip.c
+CC ../../extmod/modmachine.c
+CC ../../extmod/modmarshal.c
+CC ../../extmod/modnetwork.c
+CC ../../extmod/modonewire.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../extmod/modrandom.c
+CC ../../extmod/modre.c
+CC ../../extmod/modselect.c
+CC ../../extmod/modsocket.c
+CC ../../extmod/modtls_axtls.c
+CC ../../extmod/modtime.c
+CC ../../extmod/moductypes.c
+CC ../../extmod/modvfs.c
+CC ../../extmod/modwebrepl.c
+CC ../../extmod/modwebsocket.c
+CC ../../extmod/network_cyw43.c
+CC ../../extmod/network_esp_hosted.c
+CC ../../extmod/network_lwip.c
+CC ../../extmod/network_ninaw10.c
+CC ../../extmod/network_ppp_lwip.c
+CC ../../extmod/network_wiznet5k.c
+CC ../../extmod/os_dupterm.c
+CC ../../extmod/vfs.c
+CC ../../extmod/vfs_blockdev.c
+CC ../../extmod/vfs_fat.c
+CC ../../extmod/vfs_fat_diskio.c
+CC ../../extmod/vfs_fat_file.c
+CC ../../extmod/vfs_lfs.c
+CC ../../extmod/vfs_rom.c
+CC ../../extmod/vfs_rom_file.c
+CC ../../extmod/vfs_posix.c
+CC ../../extmod/vfs_posix_file.c
+CC ../../extmod/vfs_reader.c
+CC ../../extmod/virtpin.c
+CC ../../shared/libc/abort_.c
+CC ../../shared/libc/printf.c
+CC ../../shared/netutils/dhcpserver.c
+CC ../../shared/netutils/netutils.c
+CC ../../shared/netutils/trace.c
+CC ../../shared/readline/readline.c
+CC ../../shared/runtime/gchelper_native.c
+CC ../../shared/runtime/interrupt_char.c
+CC ../../shared/runtime/mpirq.c
+CC ../../shared/runtime/pyexec.c
+CC ../../shared/runtime/softtimer.c
+CC ../../shared/runtime/stdout_helpers.c
+CC ../../shared/runtime/sys_stdio_mphal.c
+CC ../../shared/timeutils/timeutils.c
+CC ../../shared/tinyusb/mp_usbd.c
+CC ../../shared/tinyusb/mp_usbd_cdc.c
+CC ../../shared/tinyusb/mp_usbd_descriptor.c
+CC ../../drivers/bus/softspi.c
+CC ../../drivers/bus/softqspi.c
+CC ../../drivers/memory/spiflash.c
+CC ../../drivers/dht/dht.c
+CC ra/ra_sci_spi.c
+CC ra/ra_sci_ws2812.c
+CC boardctrl.c
+CC main.c
+CC ra_it.c
+CC rng.c
+CC mphalport.c
+CC mpnetworkport.c
+CC eth.c
+CC network_lan.c
+CC mpthreadport.c
+CC irq.c
+CC pendsv.c
+CC systick.c
+CC powerctrl.c
+CC powerctrlboot.c
+CC pybthread.c
+CC factoryreset.c
+CC timer.c
+CC led.c
+CC uart.c
+CC gccollect.c
+CC help.c
+CC machine_timer.c
+CC machine_bitstream.c
+CC machine_dac.c
+CC machine_i2c.c
+CC machine_opamp.c
+CC machine_comparator.c
+CC machine_spi.c
+CC machine_ws2812.c
+CC machine_encoder.c
+CC machine_audioadc.c
+CC machine_pin.c
+CC machine_rtc.c
+CC machine_sdcard.c
+CC modaudiomixer.c
+CC modrenesas.c
+CC moddataflash.c
+CC extint.c
+CC usrsw.c
+CC flash.c
+CC flashbdev.c
+CC storage.c
+CC fatfs_port.c
+CC usbd.c
+CC lorawan/mod_lorawan.c
+CC lorawan/glue/sx126x_board.c
+CC lorawan/glue/timer_board.c
+lorawan/mod_lorawan.c: In function 'lorawan_mac_make_new':
+lorawan/mod_lorawan.c:152:11: error: 'MP_QSTR_region' undeclared (first use in this function); did you mean 'MP_QSTR_version'?
+  152 |         { MP_QSTR_region,   MP_ARG_KW_ONLY | MP_ARG_OBJ,
+      |           ^~~~~~~~~~~~~~
+      |           MP_QSTR_version
+lorawan/mod_lorawan.c:152:11: note: each undeclared identifier is reported only once for each function it appears in
+In file included from ../../py/mpstate.h:35,
+                 from ../../py/runtime.h:29,
+                 from lorawan/mod_lorawan.c:27:
+lorawan/mod_lorawan.c:153:40: error: 'MP_QSTR_EU868' undeclared (first use in this function); did you mean 'MP_QSTR_U8'?
+  153 |             { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_EU868) } },
+      |                                        ^~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:153:28: note: in expansion of macro 'MP_ROM_QSTR'
+  153 |             { .u_rom_obj = MP_ROM_QSTR(MP_QSTR_EU868) } },
+      |                            ^~~~~~~~~~~
+lorawan/mod_lorawan.c:154:11: error: 'MP_QSTR_spi_id' undeclared (first use in this function); did you mean 'MP_QSTR_cpsid'?
+  154 |         { MP_QSTR_spi_id,   MP_ARG_KW_ONLY | MP_ARG_INT,
+      |           ^~~~~~~~~~~~~~
+      |           MP_QSTR_cpsid
+lorawan/mod_lorawan.c:156:11: error: 'MP_QSTR_spi_baud' undeclared (first use in this function); did you mean 'MP_QSTR_pin_b'?
+  156 |         { MP_QSTR_spi_baud, MP_ARG_KW_ONLY | MP_ARG_INT,
+      |           ^~~~~~~~~~~~~~~~
+      |           MP_QSTR_pin_b
+lorawan/mod_lorawan.c:164:11: error: 'MP_QSTR_dio1' undeclared (first use in this function); did you mean 'MP_QSTR_io'?
+  164 |         { MP_QSTR_dio1,     MP_ARG_KW_ONLY | MP_ARG_OBJ,
+      |           ^~~~~~~~~~~~
+      |           MP_QSTR_io
+lorawan/mod_lorawan.c:166:11: error: 'MP_QSTR_rf_sw' undeclared (first use in this function); did you mean 'MP_QSTR_vfs'?
+  166 |         { MP_QSTR_rf_sw,    MP_ARG_KW_ONLY | MP_ARG_OBJ,
+      |           ^~~~~~~~~~~~~
+      |           MP_QSTR_vfs
+lorawan/mod_lorawan.c: At top level:
+lorawan/mod_lorawan.c:1426:19: error: 'MP_QSTR_radio_reset' undeclared here (not in a function); did you mean 'MP_QSTR_soft_reset'?
+ 1426 |     { MP_ROM_QSTR(MP_QSTR_radio_reset),        MP_ROM_PTR(&lorawan_mac_radio_reset_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1426:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1426 |     { MP_ROM_QSTR(MP_QSTR_radio_reset),        MP_ROM_PTR(&lorawan_mac_radio_reset_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1427:19: error: 'MP_QSTR_radio_get_status' undeclared here (not in a function)
+ 1427 |     { MP_ROM_QSTR(MP_QSTR_radio_get_status),   MP_ROM_PTR(&lorawan_mac_radio_get_status_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1427:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1427 |     { MP_ROM_QSTR(MP_QSTR_radio_get_status),   MP_ROM_PTR(&lorawan_mac_radio_get_status_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1428:19: error: 'MP_QSTR_radio_read_reg' undeclared here (not in a function); did you mean 'MP_QSTR_dht_readinto'?
+ 1428 |     { MP_ROM_QSTR(MP_QSTR_radio_read_reg),     MP_ROM_PTR(&lorawan_mac_radio_read_reg_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1428:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1428 |     { MP_ROM_QSTR(MP_QSTR_radio_read_reg),     MP_ROM_PTR(&lorawan_mac_radio_read_reg_obj) },
+      |       ^~~~~~~~~~~
+CC lorawan/glue/dma_board.c
+lorawan/mod_lorawan.c:1429:19: error: 'MP_QSTR_radio_write_reg' undeclared here (not in a function)
+ 1429 |     { MP_ROM_QSTR(MP_QSTR_radio_write_reg),    MP_ROM_PTR(&lorawan_mac_radio_write_reg_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1429:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1429 |     { MP_ROM_QSTR(MP_QSTR_radio_write_reg),    MP_ROM_PTR(&lorawan_mac_radio_write_reg_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1430:19: error: 'MP_QSTR_radio_busy' undeclared here (not in a function); did you mean 'MP_QSTR_radians'?
+ 1430 |     { MP_ROM_QSTR(MP_QSTR_radio_busy),         MP_ROM_PTR(&lorawan_mac_radio_busy_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1430:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1430 |     { MP_ROM_QSTR(MP_QSTR_radio_busy),         MP_ROM_PTR(&lorawan_mac_radio_busy_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1431:19: error: 'MP_QSTR_set_dio1_callback' undeclared here (not in a function); did you mean 'MP_QSTR_callback'?
+ 1431 |     { MP_ROM_QSTR(MP_QSTR_set_dio1_callback),  MP_ROM_PTR(&lorawan_mac_set_dio1_callback_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1431:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1431 |     { MP_ROM_QSTR(MP_QSTR_set_dio1_callback),  MP_ROM_PTR(&lorawan_mac_set_dio1_callback_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1433:19: error: 'MP_QSTR_enable_busy_irq' undeclared here (not in a function); did you mean 'MP_QSTR_enable_irq'?
+ 1433 |     { MP_ROM_QSTR(MP_QSTR_enable_busy_irq),    MP_ROM_PTR(&lorawan_mac_enable_busy_irq_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1433:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1433 |     { MP_ROM_QSTR(MP_QSTR_enable_busy_irq),    MP_ROM_PTR(&lorawan_mac_enable_busy_irq_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1434:19: error: 'MP_QSTR_disable_busy_irq' undeclared here (not in a function); did you mean 'MP_QSTR_disable_irq'?
+ 1434 |     { MP_ROM_QSTR(MP_QSTR_disable_busy_irq),   MP_ROM_PTR(&lorawan_mac_disable_busy_irq_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1434:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1434 |     { MP_ROM_QSTR(MP_QSTR_disable_busy_irq),   MP_ROM_PTR(&lorawan_mac_disable_busy_irq_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1435:19: error: 'MP_QSTR_set_spi_interbyte_us' undeclared here (not in a function); did you mean 'lorawan_mac_set_spi_interbyte_us'?
+ 1435 |     { MP_ROM_QSTR(MP_QSTR_set_spi_interbyte_us), MP_ROM_PTR(&lorawan_mac_set_spi_interbyte_us_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1435:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1435 |     { MP_ROM_QSTR(MP_QSTR_set_spi_interbyte_us), MP_ROM_PTR(&lorawan_mac_set_spi_interbyte_us_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1436:19: error: 'MP_QSTR_get_spi_interbyte_us' undeclared here (not in a function); did you mean 'lorawan_mac_get_spi_interbyte_us'?
+ 1436 |     { MP_ROM_QSTR(MP_QSTR_get_spi_interbyte_us), MP_ROM_PTR(&lorawan_mac_get_spi_interbyte_us_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1436:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1436 |     { MP_ROM_QSTR(MP_QSTR_get_spi_interbyte_us), MP_ROM_PTR(&lorawan_mac_get_spi_interbyte_us_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1437:19: error: 'MP_QSTR_dbg_spi_id' undeclared here (not in a function)
+ 1437 |     { MP_ROM_QSTR(MP_QSTR_dbg_spi_id),         MP_ROM_PTR(&lorawan_mac_dbg_spi_id_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1437:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1437 |     { MP_ROM_QSTR(MP_QSTR_dbg_spi_id),         MP_ROM_PTR(&lorawan_mac_dbg_spi_id_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1438:19: error: 'MP_QSTR_dbg_xchg' undeclared here (not in a function); did you mean 'MP_QSTR_search'?
+ 1438 |     { MP_ROM_QSTR(MP_QSTR_dbg_xchg),           MP_ROM_PTR(&lorawan_mac_dbg_xchg_obj) },
+      |                   ^~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1438:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1438 |     { MP_ROM_QSTR(MP_QSTR_dbg_xchg),           MP_ROM_PTR(&lorawan_mac_dbg_xchg_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1450:19: error: 'MP_QSTR_now_ms' undeclared here (not in a function); did you mean 'MP_QSTR_age_ms'?
+ 1450 |     { MP_ROM_QSTR(MP_QSTR_now_ms),             MP_ROM_PTR(&lorawan_mac_now_ms_obj) },
+      |                   ^~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1450:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1450 |     { MP_ROM_QSTR(MP_QSTR_now_ms),             MP_ROM_PTR(&lorawan_mac_now_ms_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1451:19: error: 'MP_QSTR_arm_oneshot' undeclared here (not in a function); did you mean 'MP_QSTR_irq_anchor'?
+ 1451 |     { MP_ROM_QSTR(MP_QSTR_arm_oneshot),        MP_ROM_PTR(&lorawan_mac_arm_oneshot_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1451:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1451 |     { MP_ROM_QSTR(MP_QSTR_arm_oneshot),        MP_ROM_PTR(&lorawan_mac_arm_oneshot_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1452:19: error: 'MP_QSTR_arm_oneshot_us' undeclared here (not in a function)
+ 1452 |     { MP_ROM_QSTR(MP_QSTR_arm_oneshot_us),     MP_ROM_PTR(&lorawan_mac_arm_oneshot_us_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1452:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1452 |     { MP_ROM_QSTR(MP_QSTR_arm_oneshot_us),     MP_ROM_PTR(&lorawan_mac_arm_oneshot_us_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1455:19: error: 'MP_QSTR_lorawan_init' undeclared here (not in a function); did you mean 'MP_QSTR_randint'?
+ 1455 |     { MP_ROM_QSTR(MP_QSTR_lorawan_init),       MP_ROM_PTR(&lorawan_mac_lorawan_init_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1455:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1455 |     { MP_ROM_QSTR(MP_QSTR_lorawan_init),       MP_ROM_PTR(&lorawan_mac_lorawan_init_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1456:19: error: 'MP_QSTR_set_keys' undeclared here (not in a function); did you mean 'MP_QSTR_setter'?
+ 1456 |     { MP_ROM_QSTR(MP_QSTR_set_keys),           MP_ROM_PTR(&lorawan_mac_set_keys_obj) },
+      |                   ^~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1456:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1456 |     { MP_ROM_QSTR(MP_QSTR_set_keys),           MP_ROM_PTR(&lorawan_mac_set_keys_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1457:19: error: 'MP_QSTR_process' undeclared here (not in a function); did you mean 'MP_QSTR_renesas'?
+ 1457 |     { MP_ROM_QSTR(MP_QSTR_process),            MP_ROM_PTR(&lorawan_mac_process_obj) },
+      |                   ^~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1457:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1457 |     { MP_ROM_QSTR(MP_QSTR_process),            MP_ROM_PTR(&lorawan_mac_process_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1458:19: error: 'MP_QSTR_set_event_callback' undeclared here (not in a function)
+ 1458 |     { MP_ROM_QSTR(MP_QSTR_set_event_callback), MP_ROM_PTR(&lorawan_mac_set_event_callback_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1458:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1458 |     { MP_ROM_QSTR(MP_QSTR_set_event_callback), MP_ROM_PTR(&lorawan_mac_set_event_callback_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1461:19: error: 'MP_QSTR_is_joined' undeclared here (not in a function); did you mean 'MP_QSTR_isr_count'?
+ 1461 |     { MP_ROM_QSTR(MP_QSTR_is_joined),          MP_ROM_PTR(&lorawan_mac_is_joined_obj) },
+      |                   ^~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1461:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1461 |     { MP_ROM_QSTR(MP_QSTR_is_joined),          MP_ROM_PTR(&lorawan_mac_is_joined_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1462:19: error: 'MP_QSTR_link_check' undeclared here (not in a function); did you mean 'MP_QSTR_tick_hz'?
+ 1462 |     { MP_ROM_QSTR(MP_QSTR_link_check),         MP_ROM_PTR(&lorawan_mac_link_check_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1462:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1462 |     { MP_ROM_QSTR(MP_QSTR_link_check),         MP_ROM_PTR(&lorawan_mac_link_check_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1462:60: error: 'lorawan_mac_link_check_obj' undeclared here (not in a function); did you mean 'lorawan_mac_recv_obj'?
+ 1462 |     { MP_ROM_QSTR(MP_QSTR_link_check),         MP_ROM_PTR(&lorawan_mac_link_check_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1463:19: error: 'MP_QSTR_last_link_check' undeclared here (not in a function); did you mean 'MP_QSTR_last_irq_count'?
+ 1463 |     { MP_ROM_QSTR(MP_QSTR_last_link_check),    MP_ROM_PTR(&lorawan_mac_last_link_check_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1463:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1463 |     { MP_ROM_QSTR(MP_QSTR_last_link_check),    MP_ROM_PTR(&lorawan_mac_last_link_check_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1463:60: error: 'lorawan_mac_last_link_check_obj' undeclared here (not in a function); did you mean 'lorawan_mac_is_joined_obj'?
+ 1463 |     { MP_ROM_QSTR(MP_QSTR_last_link_check),    MP_ROM_PTR(&lorawan_mac_last_link_check_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1464:19: error: 'MP_QSTR_get_datarate' undeclared here (not in a function); did you mean 'MP_QSTR_getattr'?
+ 1464 |     { MP_ROM_QSTR(MP_QSTR_get_datarate),       MP_ROM_PTR(&lorawan_mac_get_datarate_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1464:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1464 |     { MP_ROM_QSTR(MP_QSTR_get_datarate),       MP_ROM_PTR(&lorawan_mac_get_datarate_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1464:60: error: 'lorawan_mac_get_datarate_obj' undeclared here (not in a function); did you mean 'lorawan_mac_set_keys_obj'?
+ 1464 |     { MP_ROM_QSTR(MP_QSTR_get_datarate),       MP_ROM_PTR(&lorawan_mac_get_datarate_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1465:19: error: 'MP_QSTR_device_time_req' undeclared here (not in a function); did you mean 'MP_QSTR_write_timed'?
+ 1465 |     { MP_ROM_QSTR(MP_QSTR_device_time_req),    MP_ROM_PTR(&lorawan_mac_device_time_req_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1465:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1465 |     { MP_ROM_QSTR(MP_QSTR_device_time_req),    MP_ROM_PTR(&lorawan_mac_device_time_req_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1465:60: error: 'lorawan_mac_device_time_req_obj' undeclared here (not in a function); did you mean 'lorawan_mac_radio_write_reg_obj'?
+ 1465 |     { MP_ROM_QSTR(MP_QSTR_device_time_req),    MP_ROM_PTR(&lorawan_mac_device_time_req_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1466:19: error: 'MP_QSTR_get_sys_time' undeclared here (not in a function); did you mean 'MP_QSTR_sysname'?
+ 1466 |     { MP_ROM_QSTR(MP_QSTR_get_sys_time),       MP_ROM_PTR(&lorawan_mac_get_sys_time_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1466:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1466 |     { MP_ROM_QSTR(MP_QSTR_get_sys_time),       MP_ROM_PTR(&lorawan_mac_get_sys_time_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1466:60: error: 'lorawan_mac_get_sys_time_obj' undeclared here (not in a function); did you mean 'lorawan_mac_set_keys_obj'?
+ 1466 |     { MP_ROM_QSTR(MP_QSTR_get_sys_time),       MP_ROM_PTR(&lorawan_mac_get_sys_time_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1467:19: error: 'MP_QSTR_set_class' undeclared here (not in a function); did you mean 'MP_QSTR_issubclass'?
+ 1467 |     { MP_ROM_QSTR(MP_QSTR_set_class),          MP_ROM_PTR(&lorawan_mac_set_class_obj) },
+      |                   ^~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1467:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1467 |     { MP_ROM_QSTR(MP_QSTR_set_class),          MP_ROM_PTR(&lorawan_mac_set_class_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1467:60: error: 'lorawan_mac_set_class_obj' undeclared here (not in a function); did you mean 'lorawan_mac_set_keys_obj'?
+ 1467 |     { MP_ROM_QSTR(MP_QSTR_set_class),          MP_ROM_PTR(&lorawan_mac_set_class_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+CC lorawan/glue/nvm_board.c
+lorawan/mod_lorawan.c:1468:19: error: 'MP_QSTR_get_class' undeclared here (not in a function); did you mean 'MP_QSTR_getvalue'?
+ 1468 |     { MP_ROM_QSTR(MP_QSTR_get_class),          MP_ROM_PTR(&lorawan_mac_get_class_obj) },
+      |                   ^~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1468:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1468 |     { MP_ROM_QSTR(MP_QSTR_get_class),          MP_ROM_PTR(&lorawan_mac_get_class_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1468:60: error: 'lorawan_mac_get_class_obj' undeclared here (not in a function); did you mean 'lorawan_mac_set_keys_obj'?
+ 1468 |     { MP_ROM_QSTR(MP_QSTR_get_class),          MP_ROM_PTR(&lorawan_mac_get_class_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1469:19: error: 'MP_QSTR_beacon_acquisition' undeclared here (not in a function)
+ 1469 |     { MP_ROM_QSTR(MP_QSTR_beacon_acquisition), MP_ROM_PTR(&lorawan_mac_beacon_acquisition_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1469:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1469 |     { MP_ROM_QSTR(MP_QSTR_beacon_acquisition), MP_ROM_PTR(&lorawan_mac_beacon_acquisition_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1469:60: error: 'lorawan_mac_beacon_acquisition_obj' undeclared here (not in a function)
+ 1469 |     { MP_ROM_QSTR(MP_QSTR_beacon_acquisition), MP_ROM_PTR(&lorawan_mac_beacon_acquisition_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+CC lorawan/glue/dflash.c
+lorawan/mod_lorawan.c:1470:19: error: 'MP_QSTR_set_ping_slot_periodicity' undeclared here (not in a function)
+ 1470 |     { MP_ROM_QSTR(MP_QSTR_set_ping_slot_periodicity),
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1470:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1470 |     { MP_ROM_QSTR(MP_QSTR_set_ping_slot_periodicity),
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1471:60: error: 'lorawan_mac_set_ping_slot_periodicity_obj' undeclared here (not in a function)
+ 1471 |                                                MP_ROM_PTR(&lorawan_mac_set_ping_slot_periodicity_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1473:19: error: 'MP_QSTR_set_adr' undeclared here (not in a function); did you mean 'MP_QSTR_setter'?
+ 1473 |     { MP_ROM_QSTR(MP_QSTR_set_adr),            MP_ROM_PTR(&lorawan_mac_set_adr_obj) },
+      |                   ^~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1473:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1473 |     { MP_ROM_QSTR(MP_QSTR_set_adr),            MP_ROM_PTR(&lorawan_mac_set_adr_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1473:60: error: 'lorawan_mac_set_adr_obj' undeclared here (not in a function); did you mean 'lorawan_mac_send_obj'?
+ 1473 |     { MP_ROM_QSTR(MP_QSTR_set_adr),            MP_ROM_PTR(&lorawan_mac_set_adr_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+CC lorawan/glue/utilities.c
+lorawan/mod_lorawan.c:1474:19: error: 'MP_QSTR_get_adr' undeclared here (not in a function); did you mean 'MP_QSTR_getter'?
+ 1474 |     { MP_ROM_QSTR(MP_QSTR_get_adr),            MP_ROM_PTR(&lorawan_mac_get_adr_obj) },
+      |                   ^~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1474:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1474 |     { MP_ROM_QSTR(MP_QSTR_get_adr),            MP_ROM_PTR(&lorawan_mac_get_adr_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1474:60: error: 'lorawan_mac_get_adr_obj' undeclared here (not in a function); did you mean 'lorawan_mac_send_obj'?
+ 1474 |     { MP_ROM_QSTR(MP_QSTR_get_adr),            MP_ROM_PTR(&lorawan_mac_get_adr_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1476:19: error: 'MP_QSTR_set_max_rx_error' undeclared here (not in a function); did you mean 'MP_QSTR_MemoryError'?
+ 1476 |     { MP_ROM_QSTR(MP_QSTR_set_max_rx_error),   MP_ROM_PTR(&lorawan_mac_set_max_rx_error_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1476:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1476 |     { MP_ROM_QSTR(MP_QSTR_set_max_rx_error),   MP_ROM_PTR(&lorawan_mac_set_max_rx_error_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1476:60: error: 'lorawan_mac_set_max_rx_error_obj' undeclared here (not in a function); did you mean 'lorawan_mac_set_keys_obj'?
+ 1476 |     { MP_ROM_QSTR(MP_QSTR_set_max_rx_error),   MP_ROM_PTR(&lorawan_mac_set_max_rx_error_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1477:19: error: 'MP_QSTR_set_min_rx_symbols' undeclared here (not in a function)
+ 1477 |     { MP_ROM_QSTR(MP_QSTR_set_min_rx_symbols), MP_ROM_PTR(&lorawan_mac_set_min_rx_symbols_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1477:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1477 |     { MP_ROM_QSTR(MP_QSTR_set_min_rx_symbols), MP_ROM_PTR(&lorawan_mac_set_min_rx_symbols_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1477:60: error: 'lorawan_mac_set_min_rx_symbols_obj' undeclared here (not in a function); did you mean 'lorawan_mac_set_keys_obj'?
+ 1477 |     { MP_ROM_QSTR(MP_QSTR_set_min_rx_symbols), MP_ROM_PTR(&lorawan_mac_set_min_rx_symbols_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1478:19: error: 'MP_QSTR_rx_diag' undeclared here (not in a function); did you mean 'MP_QSTR_rmdir'?
+ 1478 |     { MP_ROM_QSTR(MP_QSTR_rx_diag),            MP_ROM_PTR(&lorawan_mac_rx_diag_obj) },
+      |                   ^~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1478:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1478 |     { MP_ROM_QSTR(MP_QSTR_rx_diag),            MP_ROM_PTR(&lorawan_mac_rx_diag_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1478:60: error: 'lorawan_mac_rx_diag_obj' undeclared here (not in a function); did you mean 'lorawan_mac_recv_obj'?
+ 1478 |     { MP_ROM_QSTR(MP_QSTR_rx_diag),            MP_ROM_PTR(&lorawan_mac_rx_diag_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1480:19: error: 'MP_QSTR_nvm_store' undeclared here (not in a function); did you mean 'MP_QSTR_vstr'?
+ 1480 |     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
+      |                   ^~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1480:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1480 |     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1480:60: error: 'lorawan_mac_nvm_store_obj' undeclared here (not in a function); did you mean 'lorawan_mac_now_ms_obj'?
+ 1480 |     { MP_ROM_QSTR(MP_QSTR_nvm_store),          MP_ROM_PTR(&lorawan_mac_nvm_store_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1481:19: error: 'MP_QSTR_nvm_restore' undeclared here (not in a function); did you mean 'MP_QSTR_vstr'?
+ 1481 |     { MP_ROM_QSTR(MP_QSTR_nvm_restore),        MP_ROM_PTR(&lorawan_mac_nvm_restore_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1481:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1481 |     { MP_ROM_QSTR(MP_QSTR_nvm_restore),        MP_ROM_PTR(&lorawan_mac_nvm_restore_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1481:60: error: 'lorawan_mac_nvm_restore_obj' undeclared here (not in a function); did you mean 'lorawan_mac_arm_oneshot_obj'?
+ 1481 |     { MP_ROM_QSTR(MP_QSTR_nvm_restore),        MP_ROM_PTR(&lorawan_mac_nvm_restore_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1482:19: error: 'MP_QSTR_nvm_factory_reset' undeclared here (not in a function); did you mean 'MP_QSTR_soft_reset'?
+ 1482 |     { MP_ROM_QSTR(MP_QSTR_nvm_factory_reset),  MP_ROM_PTR(&lorawan_mac_nvm_factory_reset_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1482:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1482 |     { MP_ROM_QSTR(MP_QSTR_nvm_factory_reset),  MP_ROM_PTR(&lorawan_mac_nvm_factory_reset_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1482:60: error: 'lorawan_mac_nvm_factory_reset_obj' undeclared here (not in a function); did you mean 'lorawan_mac_radio_reset_obj'?
+ 1482 |     { MP_ROM_QSTR(MP_QSTR_nvm_factory_reset),  MP_ROM_PTR(&lorawan_mac_nvm_factory_reset_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1483:19: error: 'MP_QSTR_nvm_diag' undeclared here (not in a function); did you mean 'MP_QSTR_rmdir'?
+ 1483 |     { MP_ROM_QSTR(MP_QSTR_nvm_diag),           MP_ROM_PTR(&lorawan_mac_nvm_diag_obj) },
+      |                   ^~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1483:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1483 |     { MP_ROM_QSTR(MP_QSTR_nvm_diag),           MP_ROM_PTR(&lorawan_mac_nvm_diag_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1483:60: error: 'lorawan_mac_nvm_diag_obj' undeclared here (not in a function); did you mean 'lorawan_mac_now_ms_obj'?
+ 1483 |     { MP_ROM_QSTR(MP_QSTR_nvm_diag),           MP_ROM_PTR(&lorawan_mac_nvm_diag_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1484:19: error: 'MP_QSTR_load_credentials' undeclared here (not in a function); did you mean 'dflash_load_credentials'?
+ 1484 |     { MP_ROM_QSTR(MP_QSTR_load_credentials),   MP_ROM_PTR(&lorawan_mac_load_credentials_obj) },
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1484:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1484 |     { MP_ROM_QSTR(MP_QSTR_load_credentials),   MP_ROM_PTR(&lorawan_mac_load_credentials_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1484:60: error: 'lorawan_mac_load_credentials_obj' undeclared here (not in a function); did you mean 'lorawan_mac_lorawan_init_obj'?
+ 1484 |     { MP_ROM_QSTR(MP_QSTR_load_credentials),   MP_ROM_PTR(&lorawan_mac_load_credentials_obj) },
+      |                                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../../py/obj.h:367:24: note: in definition of macro 'MP_ROM_PTR'
+  367 | #define MP_ROM_PTR(p) (p)
+      |                        ^
+lorawan/mod_lorawan.c:1487:19: error: 'MP_QSTR_recv' undeclared here (not in a function); did you mean 'MP_QSTR_rect'?
+ 1487 |     { MP_ROM_QSTR(MP_QSTR_recv),               MP_ROM_PTR(&lorawan_mac_recv_obj) },
+      |                   ^~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1487:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1487 |     { MP_ROM_QSTR(MP_QSTR_recv),               MP_ROM_PTR(&lorawan_mac_recv_obj) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1494:5: error: 'MP_QSTR_Mac' undeclared here (not in a function); did you mean 'MP_QSTR_max'?
+ 1494 |     MP_QSTR_Mac,
+      |     ^~~~~~~~~~~
+../../py/obj.h:812:44: note: in definition of macro 'MP_DEFINE_CONST_OBJ_TYPE_EXPAND'
+  812 | #define MP_DEFINE_CONST_OBJ_TYPE_EXPAND(x) x
+      |                                            ^
+../../py/obj.h:816:179: note: in expansion of macro 'MP_DEFINE_CONST_OBJ_TYPE_NARGS_3'
+  816 | #define MP_DEFINE_CONST_OBJ_TYPE_NARGS(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, N, ...) MP_DEFINE_CONST_OBJ_TYPE_NARGS_##N
+      |                                                                                                                                                                                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+lorawan/mod_lorawan.c:1492:1: note: in expansion of macro 'MP_DEFINE_CONST_OBJ_TYPE'
+ 1492 | MP_DEFINE_CONST_OBJ_TYPE(
+      | ^~~~~~~~~~~~~~~~~~~~~~~~
+lorawan/mod_lorawan.c:1504:50: error: 'MP_QSTR_lorawan' undeclared here (not in a function); did you mean 'MP_QSTR_low'?
+ 1504 |     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_lorawan) },
+      |                                                  ^~~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1504:38: note: in expansion of macro 'MP_ROM_QSTR'
+ 1504 |     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_lorawan) },
+      |                                      ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1506:19: error: 'MP_QSTR__PHASE' undeclared here (not in a function); did you mean 'MP_QSTR_phase'?
+ 1506 |     { MP_ROM_QSTR(MP_QSTR__PHASE),   MP_ROM_INT(LORAWAN_PHASE) },
+      |                   ^~~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1506:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1506 |     { MP_ROM_QSTR(MP_QSTR__PHASE),   MP_ROM_INT(LORAWAN_PHASE) },
+      |       ^~~~~~~~~~~
+lorawan/mod_lorawan.c:1507:19: error: 'MP_QSTR_EU868' undeclared here (not in a function); did you mean 'MP_QSTR_U8'?
+ 1507 |     { MP_ROM_QSTR(MP_QSTR_EU868),    MP_ROM_QSTR(MP_QSTR_EU868) },
+      |                   ^~~~~~~~~~~~~
+../../py/obj.h:96:56: note: in definition of macro 'MP_OBJ_NEW_QSTR'
+   96 | #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
+      |                                                        ^~~
+lorawan/mod_lorawan.c:1507:7: note: in expansion of macro 'MP_ROM_QSTR'
+ 1507 |     { MP_ROM_QSTR(MP_QSTR_EU868),    MP_ROM_QSTR(MP_QSTR_EU868) },
+      |       ^~~~~~~~~~~
+See [1;31mhttps://github.com/micropython/micropython/wiki/Build-Troubleshooting[0m
+CC machine_touchpad.c
+make: *** [../../py/mkrules.mk:101: build-VK_RA4M2/lorawan/mod_lorawan.o] Error 1
+make: *** Waiting for unfinished jobs....

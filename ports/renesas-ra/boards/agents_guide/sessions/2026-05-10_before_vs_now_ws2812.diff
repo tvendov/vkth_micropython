@@ -1,0 +1,54 @@
+﻿diff --git a/ports/renesas-ra/ra/ra_sci_ws2812.c b/ports/renesas-ra/ra/ra_sci_ws2812.c
+index b5a844cf6..c7631650e 100644
+--- a/ports/renesas-ra/ra/ra_sci_ws2812.c
++++ b/ports/renesas-ra/ra/ra_sci_ws2812.c
+@@ -308,15 +308,29 @@ static void ra_sci_ws2812_set_data_pin_gpio_low(uint32_t data_pin) {
+ }
+ 
+ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *div) {
+-    int32_t divisor = 0;
+     int32_t brr = 0;
+-    int32_t cks = -1;
+-
+-    for (uint32_t i = 0; i <= 3; ++i) {
+-        cks++;
+-        divisor = (1 << (2 * (i + 1))) * (int32_t)baud;
+-        brr = ((int32_t)PCLK + divisor - 1) / divisor - 1;
+-        if (brr <= UINT8_MAX) {
++    int32_t cks = 0;
++    int32_t mddr = 0;
++
++    for (int32_t i = 0; i <= 3; ++i) {
++        int32_t factor = 1 << (2 * (i + 1));  /* 4, 16, 64, 256 */
++        int64_t denom = (int64_t)factor * baud;
++        if (denom == 0) {
++            continue;
++        }
++        /* Pick a base rate >= target, then scale it down with MDDR. */
++        int32_t computed = (int32_t)((int64_t)PCLK / denom) - 1;
++        if (computed < 0) {
++            computed = 0;
++        }
++        if (computed <= UINT8_MAX) {
++            brr = computed;
++            cks = i;
++            int64_t mddr_calc = ((int64_t)baud * factor *
++                                 (int64_t)(brr + 1) * 256 + (PCLK / 2)) / PCLK;
++            if (mddr_calc >= 128 && mddr_calc < 256) {
++                mddr = (int32_t)mddr_calc;
++            }
+             break;
+         }
+     }
+@@ -327,11 +341,6 @@ static void ra_sci_ws2812_calc_baud(uint32_t baud, ra_sci_ws2812_div_setting_t *
+         brr = UINT8_MAX;
+     }
+ 
+-    int64_t mddr = (int64_t)divisor * (brr + 1) * (UINT8_MAX + 1) / PCLK;
+-    if (mddr > UINT8_MAX) {
+-        mddr = 0;
+-    }
+-
+     div->brr = (uint8_t)brr;
+     div->cks = (uint8_t)(cks & 3);
+     div->mddr = (uint8_t)mddr;

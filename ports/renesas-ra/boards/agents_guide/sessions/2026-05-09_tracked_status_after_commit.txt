@@ -1,0 +1,7 @@
+ M lib/fsp
+ M ports/renesas-ra/boards/VK_RA4M2/examples/html_project/_static/css/fonts/fontawesome-webfont.eot
+ M ports/renesas-ra/boards/VK_RA4M2/examples/html_project/_static/css/fonts/fontawesome-webfont.ttf
+ M ports/renesas-ra/boards/VK_RA4M2/examples/html_project/_static/fonts/Lato/lato-bolditalic.ttf
+ M ports/renesas-ra/boards/VK_RA4M2/examples/html_project/_static/fonts/RobotoSlab/roboto-slab-v7-bold.ttf
+ M ports/renesas-ra/boards/VK_RA4M2/r01uh0892ej0140-ra4m2.pdf
+ M ports/renesas-ra/mpnetworkport.c

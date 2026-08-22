@@ -1,0 +1,55 @@
+﻿diff --git a/ports/renesas-ra/machine_ws2812.c b/ports/renesas-ra/machine_ws2812.c
+index dfb41d48d..40a1c5540 100644
+--- a/ports/renesas-ra/machine_ws2812.c
++++ b/ports/renesas-ra/machine_ws2812.c
+@@ -37,15 +37,16 @@
+ 
+ #if defined(MICROPY_HW_WS2812_DATA) && defined(MICROPY_HW_WS2812_SCI_CH)
+ 
+-// 2.857143 MHz gives a 350 ns SPI cell, which lets a 5-bit symbol match the
+-// LED timing family we measured on the board: 0 ~= 350/1400 ns, 1 ~= 700/1050 ns.
++// 2.857143 MHz gives a 350 ns target SCI cell.  With 4-bit symbols this keeps
++// the measured high-time ratio and removes one low cell from zero bits:
++// 0 ~= 350/1050 ns, 1 ~= 700/700 ns at the target rate.
+ #define MACHINE_WS2812_DEFAULT_BAUDRATE (2857143)
+ #define MACHINE_WS2812_DEFAULT_LATCH_US (100)
+ #define MACHINE_WS2812_MAX_BPP (4)
+ // Keep the first visible payload byte away from the SCI start transition.
+ #define MACHINE_WS2812_TX_PREFIX_BYTES (2)
+-// 8 WS2812 bits * 5 SPI bits = 40 SPI bits = 5 bytes, so payload bytes stay aligned.
+-#define MACHINE_WS2812_ENCODED_BYTES_PER_DATA (5)
++// 8 WS2812 bits * 4 SCI bits = 32 SCI bits = 4 bytes, so payload bytes stay aligned.
++#define MACHINE_WS2812_ENCODED_BYTES_PER_DATA (4)
+ 
+ typedef struct _machine_ws2812_obj_t {
+     mp_obj_base_t base;
+@@ -122,20 +123,19 @@ static mp_obj_t machine_ws2812_get_pixel(machine_ws2812_obj_t *self, size_t inde
+ }
+ 
+ static void machine_ws2812_encode_byte(uint8_t value, uint8_t *dst) {
+-    uint64_t encoded = 0;
++    uint32_t encoded = 0;
+     for (size_t i = 0; i < 8; ++i) {
+-        encoded <<= 5;
++        encoded <<= 4;
+         // SCI runs MSB-first, so each WS2812 bit must start high on the wire.
+-        // 0 -> 10000 : T0H ~= 0.35 us, T0L ~= 1.40 us at 2.857143 MHz
+-        // 1 -> 11000 : T1H ~= 0.70 us, T1L ~= 1.05 us at 2.857143 MHz
+-        encoded |= (value & 0x80) ? 0x18 : 0x10;
++        // 0 -> 1000 : T0H ~= 0.35 us, T0L ~= 1.05 us at 2.857143 MHz
++        // 1 -> 1100 : T1H ~= 0.70 us, T1L ~= 0.70 us at 2.857143 MHz
++        encoded |= (value & 0x80) ? 0x0c : 0x08;
+         value <<= 1;
+     }
+-    dst[0] = (uint8_t)(encoded >> 32);
+-    dst[1] = (uint8_t)(encoded >> 24);
+-    dst[2] = (uint8_t)(encoded >> 16);
+-    dst[3] = (uint8_t)(encoded >> 8);
+-    dst[4] = (uint8_t)encoded;
++    dst[0] = (uint8_t)(encoded >> 24);
++    dst[1] = (uint8_t)(encoded >> 16);
++    dst[2] = (uint8_t)(encoded >> 8);
++    dst[3] = (uint8_t)encoded;
+ }
+ 
+ static size_t machine_ws2812_calc_suffix_bytes(machine_ws2812_obj_t *self) {

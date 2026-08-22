@@ -231,8 +231,9 @@ void ra_iq_adc_get_agc(uint8_t *mode, int32_t *gain_q15, int32_t *target,
 void ra_iq_adc_set_volume(int32_t vol_q15);
 int32_t ra_iq_adc_get_volume(void);
 
-/* Spectrum (FFT) path.  256-point complex FFT of the decimated I/Q baseband.  The
- * block callback (ISR) only copies decimated samples into an integer accumulator,
+/* Spectrum (FFT) path.  256-point complex FFT of the DC-removed / IQ-corrected
+ * decimated capture, tapped before the tuning NCO and channel filter.  The block
+ * callback (ISR) only copies samples into an integer accumulator,
  * gated by ra_iq_adc_spectrum_enable(); the float window + FFT + magnitude run in
  * ra_iq_adc_spectrum() from the Python control plane (uses the FPU, not ISR-safe).
  * ra_iq_adc_spectrum() fills out[] with the magnitude spectrum, fftshift-ed so DC
@@ -241,8 +242,8 @@ int32_t ra_iq_adc_get_volume(void);
 #define RA_IQ_SPECTRUM_N (256)
 bool ra_iq_adc_spectrum(float *out, size_t n);
 
-/* Allocation-free UI accessors: the FFT->bars reduction (dB-scaled int16 heights) and
- * the counter snapshot are done entirely in C, filling caller-preallocated buffers, so
+/* Allocation-free UI accessors: the tuned-centre FFT->bars reduction (dB-scaled int16
+ * heights) and the counter snapshot are done entirely in C, filling caller buffers, so
  * the Python poll loop never creates a MicroPython object (no boxed floats, no dicts) --
  * required so GC never runs and stalls the realtime ADC ISR. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);

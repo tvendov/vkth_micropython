@@ -1,0 +1,2 @@
+2ec7b598dd47d706b7a023e9ae8114055401cd4f VK_RA4M2: correct PLL divider for 100 MHz clock
+455df0c37e59f55c1c5d6495b088c28a52282d96 renesas-ra: fix SCI WS2812 baud scaling

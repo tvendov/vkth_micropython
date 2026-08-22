@@ -1,0 +1,4 @@
+interface:
+  display_name: "RA6M3 Manual Lookup"
+  short_description: "Grounded RA6M3 manual and board-code lookup"
+  default_prompt: "Use $ra6m3-manual-lookup to answer this RA6M3 question from the local manual and project sources."
