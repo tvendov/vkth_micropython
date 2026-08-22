@@ -108,6 +108,14 @@ uint8_t ra_iq_adc_get_dec_kernel(void);
 void ra_iq_adc_set_hil_kernel(uint8_t use_cmsis);
 uint8_t ra_iq_adc_get_hil_kernel(void);
 
+/* Hybrid CMSIS-DSP stage 3: select the channel-filter kernel.  0 = integer one-pole
+ * cascade (default, fallback), 1 = f32 4-pole Butterworth arm_biquad_cascade_df1_f32.
+ * f32 (not q15) is deliberate: the filter is not the timing bottleneck but needs an
+ * accurate response over a wide cutoff and must not saturate like the integer one-pole
+ * at fc >= ~3820 Hz.  A/B their per-block cost with iq.timing().  Control-plane. */
+void ra_iq_adc_set_chf_kernel(uint8_t use_f32);
+uint8_t ra_iq_adc_get_chf_kernel(void);
+
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
  * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
  * center at mid-scale) and pushed into a single-producer/single-consumer lock-free

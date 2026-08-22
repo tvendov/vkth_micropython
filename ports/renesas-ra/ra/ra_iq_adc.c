@@ -179,6 +179,60 @@ static int32_t s_filt_q[RA_IQ_FILT_SECTIONS];
 static volatile int32_t s_filt_alpha_q15 = 32768;  /* 32768 = unity pole = bypass */
 static volatile uint32_t s_filt_bw_hz;             /* 0 = bypass                   */
 
+/* Hybrid CMSIS-DSP stage 3: the channel low-pass as a 4-pole Butterworth run by
+ * arm_biquad_cascade_df1_f32 (two 2nd-order sections), selectable at runtime
+ * (iq.chf_kernel).  f32 was chosen over q15 here on purpose: the channel filter is not
+ * a timing bottleneck, but it must hold an accurate response across a wide cutoff range
+ * (CW ~1 kHz .. AM ~5 kHz), and a Q15 biquad quantises its near-unit-circle feedback
+ * coefficients badly at the narrow end (limit cycles / instability).  f32 also removes
+ * the integer one-pole's alpha = 2*pi*fc/fs >= 1 saturation at fc >= fs/(2*pi) ~ 3820 Hz,
+ * so a real 5 kHz AM skirt becomes possible.  The integer one-pole cascade stays the
+ * default and the fallback.  I and Q share one coefficient set; each keeps its own df1
+ * state (4 f32 per stage).  Coefficients + bypass are computed in the control plane in
+ * ra_iq_chf_compute (called from ra_iq_filt_compute_alpha), never in the ISR. */
+#define RA_IQ_CHF_STAGES (2U)
+static uint8_t s_chf_use_f32;              /* 0 = integer one-pole cascade (default)     */
+static uint8_t s_chf_f32_bypass = 1U;      /* 1 = f32 path passes through unfiltered      */
+static float s_chf_coeffs[5U * RA_IQ_CHF_STAGES];   /* {b0,b1,b2,a1,a2} per stage        */
+static float s_chf_state_i[4U * RA_IQ_CHF_STAGES];
+static float s_chf_state_q[4U * RA_IQ_CHF_STAGES];
+static arm_biquad_casd_df1_inst_f32 s_chf_bq_i;
+static arm_biquad_casd_df1_inst_f32 s_chf_bq_q;
+static float s_chf_buf_i[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U];
+static float s_chf_buf_q[RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U];
+
+/* Control plane: design the two Butterworth biquad stages for cutoff hz at the audio
+ * rate fs and write them into s_chf_coeffs in CMSIS df1 order {b0,b1,b2,a1,a2} (a1,a2
+ * are the NEGATED normalised denominator, CMSIS convention).  4th-order Butterworth =
+ * two sections with Q = 0.5411961 and 1.3065630.  Sets s_chf_f32_bypass when hz == 0,
+ * hz >= fs/2 or the rate is unknown.  Never called from the ISR. */
+static void ra_iq_chf_compute(uint32_t hz, uint32_t fs) {
+    if ((hz == 0U) || (fs == 0U) || (hz >= (fs >> 1))) {
+        s_chf_f32_bypass = 1U;
+        return;
+    }
+    static const float q[RA_IQ_CHF_STAGES] = { 0.5411961f, 1.3065630f };
+    float w0 = 2.0f * 3.14159265f * (float)hz / (float)fs;
+    float cosw = arm_cos_f32(w0);
+    /* w0 is in (0, pi) here (hz < fs/2), so sin(w0) > 0; derive it from cos to avoid
+     * pulling in arm_sin_f32 (only arm_cos_f32 is in the DSP build). */
+    float sinw = sqrtf(1.0f - (cosw * cosw));
+    for (uint8_t s = 0U; s < RA_IQ_CHF_STAGES; ++s) {
+        float alpha = sinw / (2.0f * q[s]);
+        float a0 = 1.0f + alpha;
+        float b0 = (1.0f - cosw) * 0.5f;
+        float b1 = 1.0f - cosw;
+        float b2 = b0;
+        float *c = &s_chf_coeffs[5U * s];
+        c[0] = b0 / a0;                    /* b0 */
+        c[1] = b1 / a0;                    /* b1 */
+        c[2] = b2 / a0;                    /* b2 */
+        c[3] = (2.0f * cosw) / a0;         /* a1 = -(-2cosw)/a0 */
+        c[4] = -(1.0f - alpha) / a0;       /* a2 = -(1-alpha)/a0 */
+    }
+    s_chf_f32_bypass = 0U;
+}
+
 /* Phase-4 demod audio.  Single-producer (ADC0_SCAN_END block callback) /
  * single-consumer (DAC DMAC fill callback via ra_iq_adc_audio_pull) lock-free ring
  * of DAC codes.  Power of two so count/wrap are masks.  s_ring_head is owned by the
@@ -579,6 +633,10 @@ static bool ra_iq_unit1_alive_and_clear(void) {
 static void ra_iq_filt_reset(void) {
     memset(s_filt_i, 0, sizeof(s_filt_i));
     memset(s_filt_q, 0, sizeof(s_filt_q));
+    /* Also clear the f32 biquad delay lines so a cutoff/demod change on the CMSIS
+     * stage-3 path starts from silence and does not click. */
+    memset(s_chf_state_i, 0, sizeof(s_chf_state_i));
+    memset(s_chf_state_q, 0, sizeof(s_chf_state_q));
 }
 
 /* Control-plane: turn a cutoff in Hz into the one-pole Q15 coefficient at the
@@ -607,6 +665,9 @@ static void ra_iq_filt_compute_alpha(uint32_t hz) {
     }
 
     s_filt_alpha_q15 = alpha;
+    /* Design the f32 Butterworth biquads for the same cutoff so iq.chf_kernel can
+     * toggle between the integer one-pole cascade and the CMSIS path without a recompute. */
+    ra_iq_chf_compute(hz, fs);
     ra_iq_filt_reset();
 }
 
@@ -718,29 +779,61 @@ static void ra_iq_dsp_process(uint8_t half) {
      * Bypass (alpha == 32768) skips the cascade so s_i_dc/s_q_dc are untouched and
      * the path is bit-identical to no filter.  N one-pole sections per channel,
      * integer only (REQ-RT-002/003). */
-    int32_t alpha = s_filt_alpha_q15;
-    if (alpha != 32768) {
-        for (uint16_t j = 0U; j < m; ++j) {
-            int32_t xi = s_i_dc[j];
-            int32_t xq = s_q_dc[j];
-            for (uint8_t s = 0U; s < RA_IQ_FILT_SECTIONS; ++s) {
-                s_filt_i[s] += ((xi - s_filt_i[s]) * alpha) >> 15;
-                xi = s_filt_i[s];
-                s_filt_q[s] += ((xq - s_filt_q[s]) * alpha) >> 15;
-                xq = s_filt_q[s];
+    if (s_chf_use_f32) {
+        /* CMSIS stage-3 path: 4-pole Butterworth via arm_biquad_cascade_df1_f32, I and Q
+         * through their own state with the shared coefficient set.  int16 -> f32 -> int16
+         * with rounding and a 16-bit clamp; bypass leaves s_i_dc/s_q_dc untouched. */
+        if (!s_chf_f32_bypass) {
+            for (uint16_t j = 0U; j < m; ++j) {
+                s_chf_buf_i[j] = (float)s_i_dc[j];
+                s_chf_buf_q[j] = (float)s_q_dc[j];
             }
-            if (xi > 32767) {
-                xi = 32767;
-            } else if (xi < -32768) {
-                xi = -32768;
+            arm_biquad_cascade_df1_f32(&s_chf_bq_i, s_chf_buf_i, s_chf_buf_i, m);
+            arm_biquad_cascade_df1_f32(&s_chf_bq_q, s_chf_buf_q, s_chf_buf_q, m);
+            for (uint16_t j = 0U; j < m; ++j) {
+                float yi = s_chf_buf_i[j];
+                float yq = s_chf_buf_q[j];
+                int32_t oi = (int32_t)(yi + (yi >= 0.0f ? 0.5f : -0.5f));
+                int32_t oq = (int32_t)(yq + (yq >= 0.0f ? 0.5f : -0.5f));
+                if (oi > 32767) {
+                    oi = 32767;
+                } else if (oi < -32768) {
+                    oi = -32768;
+                }
+                if (oq > 32767) {
+                    oq = 32767;
+                } else if (oq < -32768) {
+                    oq = -32768;
+                }
+                s_i_dc[j] = (int16_t)oi;
+                s_q_dc[j] = (int16_t)oq;
             }
-            if (xq > 32767) {
-                xq = 32767;
-            } else if (xq < -32768) {
-                xq = -32768;
+        }
+    } else {
+        int32_t alpha = s_filt_alpha_q15;
+        if (alpha != 32768) {
+            for (uint16_t j = 0U; j < m; ++j) {
+                int32_t xi = s_i_dc[j];
+                int32_t xq = s_q_dc[j];
+                for (uint8_t s = 0U; s < RA_IQ_FILT_SECTIONS; ++s) {
+                    s_filt_i[s] += ((xi - s_filt_i[s]) * alpha) >> 15;
+                    xi = s_filt_i[s];
+                    s_filt_q[s] += ((xq - s_filt_q[s]) * alpha) >> 15;
+                    xq = s_filt_q[s];
+                }
+                if (xi > 32767) {
+                    xi = 32767;
+                } else if (xi < -32768) {
+                    xi = -32768;
+                }
+                if (xq > 32767) {
+                    xq = 32767;
+                } else if (xq < -32768) {
+                    xq = -32768;
+                }
+                s_i_dc[j] = (int16_t)xi;
+                s_q_dc[j] = (int16_t)xq;
             }
-            s_i_dc[j] = (int16_t)xi;
-            s_q_dc[j] = (int16_t)xq;
         }
     }
 
@@ -1232,6 +1325,11 @@ bool ra_iq_adc_start(void) {
     /* Arm the CMSIS decimator for this block length so iq.dec_kernel can toggle it
      * live; its state is cleared here and carried across blocks by the instance. */
     ra_iq_dec_cmsis_init(s_status.block_samples);
+    /* Arm the f32 channel-filter biquads (stage 3).  Coefficients are (re)designed by
+     * set_bandwidth/set_demod; init just binds the shared coeff set + per-channel state
+     * and clears the delay lines so iq.chf_kernel can toggle the path live. */
+    arm_biquad_cascade_df1_init_f32(&s_chf_bq_i, RA_IQ_CHF_STAGES, s_chf_coeffs, s_chf_state_i);
+    arm_biquad_cascade_df1_init_f32(&s_chf_bq_q, RA_IQ_CHF_STAGES, s_chf_coeffs, s_chf_state_q);
 
     /* One-time ring flush at capture start: the ring must be empty before the
      * producer runs, but must NOT be flushed on a mode switch (see set_demod). */
@@ -1384,6 +1482,29 @@ uint8_t ra_iq_adc_get_hil_kernel(void) {
     return s_hil_use_cmsis;
 }
 
+/* Hybrid CMSIS stage 3: select the channel-filter kernel.  0 = integer one-pole
+ * cascade (default, fallback), 1 = f32 Butterworth arm_biquad_cascade_df1_f32.  The
+ * two are NOT bit-identical (a 4-pole Butterworth vs 4 cascaded one-poles), but both
+ * are ~24 dB/oct channel low-passes; the f32 path additionally holds up past the
+ * integer alpha saturation at ~3820 Hz.  Toggling live re-arms the biquad state and
+ * resets iq.timing() so the next read reflects the selected kernel.  Control-plane. */
+void ra_iq_adc_set_chf_kernel(uint8_t use_f32) {
+    s_chf_use_f32 = use_f32 ? 1U : 0U;
+    if (s_status.running) {
+        arm_biquad_cascade_df1_init_f32(&s_chf_bq_i, RA_IQ_CHF_STAGES, s_chf_coeffs, s_chf_state_i);
+        arm_biquad_cascade_df1_init_f32(&s_chf_bq_q, RA_IQ_CHF_STAGES, s_chf_coeffs, s_chf_state_q);
+        ra_iq_filt_reset();
+        s_proc_last = 0U;
+        s_proc_max = 0U;
+        s_proc_sum = 0U;
+        s_proc_count = 0U;
+    }
+}
+
+uint8_t ra_iq_adc_get_chf_kernel(void) {
+    return s_chf_use_f32;
+}
+
 void ra_iq_adc_set_demod(uint8_t mode) {
     if (mode > (uint8_t)RA_IQ_DEMOD_CW) {
         mode = (uint8_t)RA_IQ_DEMOD_OFF;
@@ -1508,6 +1629,12 @@ uint32_t ra_iq_adc_get_bandwidth(void) {
 }
 
 uint8_t ra_iq_adc_filter_bypassed(void) {
+    /* Report bypass for whichever kernel is active: the integer one-pole bypasses at
+     * alpha == unity (which also happens for cutoffs above its ~3820 Hz saturation),
+     * the f32 biquad only at hz == 0 / hz >= fs/2. */
+    if (s_chf_use_f32) {
+        return s_chf_f32_bypass;
+    }
     return (s_filt_alpha_q15 == 32768) ? 1U : 0U;
 }
 
