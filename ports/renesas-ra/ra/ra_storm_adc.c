@@ -15,6 +15,8 @@ typedef struct {
     bool opened;
     bool dtc_open;
     bool timer_reserved;
+    bool pin_enabled;
+    bool elc_enabled;
     uint8_t adc_ch;
     uint8_t timer_ch;
     uint32_t half_sequence[2];
@@ -154,6 +156,7 @@ bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_sampl
     s_storm_status.active_half = 0U;
 
     ra_adc_enable(pin);
+    s_storm_adc.pin_enabled = true;
 
     agt_event = ra_storm_agt_event(s_storm_adc.timer_ch);
     if (agt_event == ELC_EVENT_NONE) {
@@ -182,11 +185,11 @@ bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_sampl
         ra_storm_adc_deinit();
         return false;
     }
+    s_storm_adc.opened = true;
     if (R_ADC_ScanCfg((adc_ctrl_t *)&s_storm_adc.adc_ctrl, &s_storm_adc.adc_channel_cfg) != FSP_SUCCESS) {
         ra_storm_adc_deinit();
         return false;
     }
-    s_storm_adc.opened = true;
 
     memset(&s_storm_adc.dtc_info, 0, sizeof(s_storm_adc.dtc_info));
     memset(&s_storm_adc.dtc_cfg, 0, sizeof(s_storm_adc.dtc_cfg));
@@ -222,34 +225,64 @@ bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_sampl
     R_BSP_IrqDisable(VECTOR_NUMBER_ADC0_SCAN_END);
     R_BSP_IrqStatusClear(VECTOR_NUMBER_ADC0_SCAN_END);
     ra_storm_elc_enable(agt_event);
+    s_storm_adc.elc_enabled = true;
     s_storm_status.initialised = 1U;
     return true;
 }
 
-void ra_storm_adc_deinit(void) {
-    ra_storm_adc_stop();
+bool ra_storm_adc_deinit_checked(void) {
+    /* This producer owns both an AGT and the ADC0_SCAN_END DTC activation
+     * vector.  Confirm the clock is stopped before releasing either resource. */
+    if (s_storm_adc.timer_reserved &&
+        !ra_agt_timer_stop_wait(s_storm_adc.timer_ch)) {
+        return false;
+    }
+    if (s_storm_adc.opened && s_storm_status.running) {
+        if (R_ADC_ScanStop((adc_ctrl_t *)&s_storm_adc.adc_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+    }
+    s_storm_status.running = 0U;
+
+    if (s_storm_adc.elc_enabled) {
+        ra_storm_elc_disable();
+        s_storm_adc.elc_enabled = false;
+    }
 
     if (s_storm_adc.dtc_open) {
-        R_DTC_Disable((transfer_ctrl_t *)&s_storm_adc.dtc_ctrl);
-        R_DTC_Close((transfer_ctrl_t *)&s_storm_adc.dtc_ctrl);
+        if (R_DTC_Disable((transfer_ctrl_t *)&s_storm_adc.dtc_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        if (R_DTC_Close((transfer_ctrl_t *)&s_storm_adc.dtc_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_storm_adc.dtc_open = false;
     }
 
     if (s_storm_adc.opened) {
-        R_ADC_Close((adc_ctrl_t *)&s_storm_adc.adc_ctrl);
+        if (R_ADC_Close((adc_ctrl_t *)&s_storm_adc.adc_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_storm_adc.opened = false;
     }
     if (s_storm_adc.timer_reserved) {
-        ra_agt_timer_deinit(s_storm_adc.timer_ch);
+        if (!ra_agt_timer_deinit_checked(s_storm_adc.timer_ch)) {
+            return false;
+        }
+        s_storm_adc.timer_reserved = false;
     }
-    ra_storm_elc_disable();
-
-    uint8_t adc_ch;
-    if (ra_adc_pin_to_ch(s_storm_status.pin, &adc_ch)) {
-        (void)adc_ch;
+    if (s_storm_adc.pin_enabled) {
         ra_adc_disable(s_storm_status.pin);
+        s_storm_adc.pin_enabled = false;
     }
 
     memset(&s_storm_adc, 0, sizeof(s_storm_adc));
     memset(&s_storm_status, 0, sizeof(s_storm_status));
+    return true;
+}
+
+void ra_storm_adc_deinit(void) {
+    (void)ra_storm_adc_deinit_checked();
 }
 
 bool ra_storm_adc_start(void) {

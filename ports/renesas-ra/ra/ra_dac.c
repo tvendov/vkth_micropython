@@ -51,6 +51,7 @@ and this is (The Lazy way)
 #include "vector_data.h"
 
 #define RA_DAC_OUTPUT_AMP_DELAY_US (4U)
+#define RA_DAC_DMAC_IDLE_SPINS     (100000U)
 
 
 #if defined(RA4M2)
@@ -81,6 +82,8 @@ static const ra_af_pin_t ra_dac_pins[] = {
 
 typedef struct _ra_dac_stream_state_t {
     bool active;
+    bool cleanup_pending;
+    bool stop_notify_pending;
     bool loop;
     bool double_buffered;
     bool timer_reserved;
@@ -129,14 +132,15 @@ static int32_t ra_dac_last_error[DAC_CH_SIZE];
  * stopped first. */
 static int8_t s_dac_stream_timer_ch = -1;
 static uint8_t s_dac_stream_timer_users;
+static uint32_t s_dac_stream_timer_freq;
 static bool s_dac_stream_timer_iels_detached;
 static IRQn_Type s_dac_stream_timer_irq;
 static uint32_t s_dac_stream_timer_iels_saved;
 
-static void ra_dac_stream_cleanup(uint8_t ch);
+static bool ra_dac_stream_cleanup(uint8_t ch);
 static bool ra_dac_timer_reserve(int8_t requested, uint8_t *timer_ch);
 static bool ra_dac_shared_timer_acquire(ra_dac_stream_state_t *state, int8_t requested, uint32_t freq);
-static void ra_dac_shared_timer_release(void);
+static bool ra_dac_shared_timer_release(void);
 
 #if BSP_FEATURE_DAC_HAS_OUTPUT_AMPLIFIER
 static void ra_dac_output_amp_init(uint8_t ch) {
@@ -363,14 +367,67 @@ static int32_t ra_dac_dmac_runtime_diag(uint8_t dmac_ch) {
     return (int32_t)diag;
 }
 
-static void ra_dac_stream_cleanup(uint8_t ch) {
+/* R_DMAC_Disable clears DTE, but the final bus access may still be in flight while
+ * DMSTS.ACT is set.  The RA6M3 manual forbids rewriting the DMAC descriptors in
+ * that interval.  Keep this wait bounded so a broken peripheral fails closed
+ * instead of hanging the interpreter forever. */
+static bool ra_dac_dmac_wait_idle(ra_dac_stream_state_t *state) {
+    if (state == NULL || state->dmac_ctrl.p_reg == NULL) {
+        return false;
+    }
+
+    for (uint32_t spin = 0U; spin < RA_DAC_DMAC_IDLE_SPINS; ++spin) {
+        __DSB();
+        if (state->dmac_ctrl.p_reg->DMSTS_b.ACT == 0U &&
+            state->dmac_ctrl.p_reg->DMCNT_b.DTE == 0U) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void ra_dac_stream_mark_cleanup_pending(ra_dac_stream_state_t *state) {
+    if (state == NULL) {
+        return;
+    }
+
+    if (state->active && state->double_buffered && state->buffer_stop != NULL) {
+        state->stop_notify_pending = true;
+    }
+    state->active = false;
+    state->cleanup_pending = true;
+    __DMB();
+}
+
+/* FSP's DMAC ISR reads p_ctrl->p_reg after our callback returns.  Therefore an
+ * ISR may only request teardown; Close/release/memset must be deferred to a
+ * foreground stop/is_active/start call. */
+static void ra_dac_stream_request_cleanup_from_isr(uint8_t ch) {
     if (ch >= DAC_CH_SIZE) {
         return;
     }
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
-    bool was_active = state->active;
-    bool notify_double_buffer_stop = state->double_buffered && state->buffer_stop != NULL;
+    ra_dac_stream_mark_cleanup_pending(state);
+    if (state->transfer == RA_DAC_TRANSFER_DMAC && state->transfer_open &&
+        state->dmac_ctrl.p_reg != NULL) {
+        state->dmac_ctrl.p_reg->DMCRB = 0U;
+        __DMB();
+        (void)R_DMAC_Disable((transfer_ctrl_t *)&state->dmac_ctrl);
+        if (state->dmac_ext.irq >= (IRQn_Type)0) {
+            R_BSP_IrqDisable(state->dmac_ext.irq);
+        }
+    }
+}
+
+static bool ra_dac_stream_cleanup(uint8_t ch) {
+    if (ch >= DAC_CH_SIZE) {
+        return false;
+    }
+
+    ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
+    ra_dac_stream_mark_cleanup_pending(state);
+    bool notify_double_buffer_stop = state->stop_notify_pending && state->buffer_stop != NULL;
     ra_dac_stream_double_buffer_stop_t stop_cb = state->buffer_stop;
     void *stop_context = state->buffer_context;
     bool timer_shared = state->timer_shared;
@@ -381,24 +438,57 @@ static void ra_dac_stream_cleanup(uint8_t ch) {
     if (state->timer_initialized && !timer_shared) {
         ra_agt_timer_set_callback(state->timer_ch, NULL, NULL);
     }
-    if (state->active && state->timer_initialized && !timer_shared) {
-        ra_agt_timer_stop(state->timer_ch);
+    bool timer_idle = true;
+    if (state->timer_initialized && !timer_shared) {
+        timer_idle = ra_agt_timer_stop_wait(state->timer_ch);
     }
 
     if (state->transfer_open) {
         if (state->transfer == RA_DAC_TRANSFER_DMAC) {
-            R_DMAC_Disable((transfer_ctrl_t *)&state->dmac_ctrl);
-            R_DMAC_Close((transfer_ctrl_t *)&state->dmac_ctrl);
+            IRQn_Type dmac_irq = state->dmac_ext.irq;
+            if (dmac_irq >= (IRQn_Type)0) {
+                R_BSP_IrqDisable(dmac_irq);
+                R_BSP_IrqClearPending(dmac_irq);
+            }
+            fsp_err_t err = R_DMAC_Disable((transfer_ctrl_t *)&state->dmac_ctrl);
+            if (err != FSP_SUCCESS) {
+                ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, err);
+                goto fail_closed;
+            }
+            if (!ra_dac_dmac_wait_idle(state)) {
+                ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_TIMEOUT);
+                goto fail_closed;
+            }
+            err = R_DMAC_Close((transfer_ctrl_t *)&state->dmac_ctrl);
+            if (err != FSP_SUCCESS) {
+                ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, err);
+                goto fail_closed;
+            }
+            state->transfer_open = false;
         } else if (state->transfer == RA_DAC_TRANSFER_DTC) {
             R_DTC_Disable((transfer_ctrl_t *)&state->dtc_ctrl);
             R_DTC_Close((transfer_ctrl_t *)&state->dtc_ctrl);
+            state->transfer_open = false;
         }
+    }
+
+    if (state->dmac_reserved && !state->transfer_open) {
+        ra_dac_dmac_channel_release(state->dmac_ch);
+        state->dmac_reserved = false;
+    }
+
+    if (!timer_idle) {
+        ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_AGT_RUNTIME, FSP_ERR_TIMEOUT);
+        goto fail_closed;
     }
 
     if (timer_shared) {
         // Drops the refcount; the last user tears the shared AGT down (and restores
         // its IELS) via file-scope owner bookkeeping.
-        ra_dac_shared_timer_release();
+        if (!ra_dac_shared_timer_release()) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_AGT_RUNTIME, FSP_ERR_TIMEOUT);
+            goto fail_closed;
+        }
     } else if (state->timer_initialized) {
         ra_agt_timer_deinit(state->timer_ch);
     } else if (state->timer_reserved) {
@@ -410,15 +500,15 @@ static void ra_dac_stream_cleanup(uint8_t ch) {
         FSP_REGISTER_READ(R_ICU->IELSR[state->agt_irq]);
     }
 
-    if (state->dmac_reserved) {
-        ra_dac_dmac_channel_release(state->dmac_ch);
-    }
-
     memset(state, 0, sizeof(*state));
 
-    if (was_active && notify_double_buffer_stop) {
+    if (notify_double_buffer_stop) {
         stop_cb(stop_context);
     }
+    return true;
+
+fail_closed:
+    return false;
 }
 
 static void ra_dac_elc_enable(void) {
@@ -452,12 +542,17 @@ static void ra_dac_dmac_detach_agt_iels(ra_dac_stream_state_t *state) {
  * get any AGT. */
 static bool ra_dac_shared_timer_acquire(ra_dac_stream_state_t *state, int8_t requested,
     uint32_t freq) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool acquired = false;
+
     if (s_dac_stream_timer_users == 0U) {
         uint8_t ch;
         if (!ra_dac_timer_reserve(requested, &ch)) {
-            return false;
+            goto done;
         }
         s_dac_stream_timer_ch = (int8_t)ch;
+        s_dac_stream_timer_freq = freq;
         s_dac_stream_timer_iels_detached = false;
         state->timer_ch = ch;
         state->timer_shared = true;
@@ -470,15 +565,33 @@ static bool ra_dac_shared_timer_acquire(ra_dac_stream_state_t *state, int8_t req
         // caller's cleanup -> shared_timer_release (1->0), which deinits the AGT.
         s_dac_stream_timer_users = 1U;
         if (ra_agt_timer_get_freq(ch) <= 0.0f) {
-            return false;
+            goto done;
         }
-        return true;
+        acquired = true;
+        goto done;
     }
 
     // Borrower: a specific-channel request that does not match the shared AGT is
     // rejected so the two streams cannot silently split onto different clocks.
     if (requested >= 0 && (uint8_t)requested != (uint8_t)s_dac_stream_timer_ch) {
-        return false;
+        goto done;
+    }
+    if (freq != s_dac_stream_timer_freq) {
+        goto done;
+    }
+    bool live_owner = false;
+    for (uint8_t i = 0U; i < DAC_CH_SIZE; ++i) {
+        ra_dac_stream_state_t *peer = &ra_dac_stream_state[i];
+        if (peer != state && peer->timer_shared && peer->active &&
+            !peer->cleanup_pending && peer->timer_ch == (uint8_t)s_dac_stream_timer_ch) {
+            live_owner = true;
+            break;
+        }
+    }
+    if (!live_owner) {
+        /* A retained ref from fail-closed cleanup is ownership, not a usable
+         * sample clock.  Never let a new stream borrow a stopped/poisoned AGT. */
+        goto done;
     }
     state->timer_ch = (uint8_t)s_dac_stream_timer_ch;
     state->timer_shared = true;
@@ -486,30 +599,53 @@ static bool ra_dac_shared_timer_acquire(ra_dac_stream_state_t *state, int8_t req
     // No reserve, no init, no start: the owner already programmed the period and
     // will start the AGT.  The borrower must not touch the shared clock's state.
     s_dac_stream_timer_users++;
-    return true;
+    acquired = true;
+
+done:
+    __DMB();
+    __set_PRIMASK(primask);
+    return acquired;
 }
 
 /* Drop this stream's reference to the shared AGT.  The stream that brings users
  * back to 0 performs the physical teardown (stop + deinit + IELS restore), even if
  * it is the borrower and the owner already stopped.  IELS restore uses the file-
  * scope record captured by the owner's detach. */
-static void ra_dac_shared_timer_release(void) {
+static bool ra_dac_shared_timer_release(void) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool released = true;
+
     if (s_dac_stream_timer_users == 0U) {
-        return;
+        goto done;
     }
-    if (--s_dac_stream_timer_users != 0U) {
-        return;
+    if (s_dac_stream_timer_users > 1U) {
+        s_dac_stream_timer_users--;
+        goto done;
     }
 
     if (s_dac_stream_timer_ch >= 0) {
+        if (!ra_agt_timer_stop_wait((uint32_t)s_dac_stream_timer_ch)) {
+            released = false;
+            goto done;
+        }
+        s_dac_stream_timer_users = 0U;
         ra_agt_timer_deinit((uint32_t)s_dac_stream_timer_ch);
+    } else {
+        s_dac_stream_timer_users = 0U;
     }
     if (s_dac_stream_timer_iels_detached && s_dac_stream_timer_irq >= (IRQn_Type)0) {
         R_ICU->IELSR[s_dac_stream_timer_irq] = s_dac_stream_timer_iels_saved;
         FSP_REGISTER_READ(R_ICU->IELSR[s_dac_stream_timer_irq]);
     }
     s_dac_stream_timer_ch = -1;
+    s_dac_stream_timer_freq = 0U;
     s_dac_stream_timer_iels_detached = false;
+
+done:
+    __DMB();
+    __set_PRIMASK(primask);
+    return released;
 }
 
 static void ra_dac_dtc_complete_callback(void *param) {
@@ -544,7 +680,7 @@ static void ra_dac_dmac_complete_callback(dmac_callback_args_t *args) {
         uint8_t next = completed ^ 1U;
 
         if (!state->buffer_ready[next] || state->buffers[next] == NULL) {
-            ra_dac_stream_cleanup(ch);
+            ra_dac_stream_request_cleanup_from_isr(ch);
             return;
         }
 
@@ -552,7 +688,7 @@ static void ra_dac_dmac_complete_callback(dmac_callback_args_t *args) {
             (void *)&R_DAC->DADR[ch], (uint16_t)state->buffer_sample_count);
         if (err != FSP_SUCCESS) {
             ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, err);
-            ra_dac_stream_cleanup(ch);
+            ra_dac_stream_request_cleanup_from_isr(ch);
             return;
         }
 
@@ -575,7 +711,7 @@ static void ra_dac_dmac_complete_callback(dmac_callback_args_t *args) {
          * running seamlessly. */
         state->dmac_ctrl.p_reg->DMCRB = UINT16_MAX;
     } else {
-        ra_dac_stream_cleanup(ch);
+        ra_dac_stream_request_cleanup_from_isr(ch);
     }
 }
 
@@ -791,7 +927,9 @@ void ra_dac_init(uint32_t dac_pin, uint8_t ch) {
 
 void ra_dac_deinit(uint32_t dac_pin, uint8_t ch) {
     if (ch < DAC_CH_SIZE) {
-        ra_dac_stream_cleanup(ch);
+        if (!ra_dac_stream_cleanup(ch)) {
+            return;
+        }
         ra_dac_stop(ch);
         ra_dac_release_pin(dac_pin);
 
@@ -862,7 +1000,9 @@ ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_
         return RA_DAC_STREAM_STATUS_INVALID_TIMER;
     }
 
-    ra_dac_stream_cleanup(ch);
+    if (!ra_dac_stream_cleanup(ch)) {
+        return RA_DAC_STREAM_STATUS_HW_ERROR;
+    }
     ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_NONE, FSP_SUCCESS);
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
@@ -946,7 +1086,9 @@ ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *
         return RA_DAC_STREAM_STATUS_INVALID_TIMER;
     }
 
-    ra_dac_stream_cleanup(ch);
+    if (!ra_dac_stream_cleanup(ch)) {
+        return RA_DAC_STREAM_STATUS_HW_ERROR;
+    }
     ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_NONE, FSP_SUCCESS);
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
@@ -974,6 +1116,11 @@ ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *
         return err;
     }
 
+    /* A shared-clock borrower is enabled while the owner's AGT is already running.
+     * Publish active before enabling its DMAC so an immediate completion IRQ cannot
+     * mistake the new stream for an inactive one and leave its first buffer stuck. */
+    state->active = true;
+    __DMB();
     if (!ra_dac_stream_start_transfer(ch, buf_a, sample_count, false)) {
         ra_dac_stream_status_t err = !state->dmac_reserved ? RA_DAC_STREAM_STATUS_TRANSFER_BUSY : RA_DAC_STREAM_STATUS_HW_ERROR;
         ra_dac_stream_cleanup(ch);
@@ -989,6 +1136,7 @@ ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *
         R_BSP_IrqStatusClear(agt_irq);
     }
     state->active = true;
+    __DMB();
     // Borrower must not start the shared AGT; the owner already runs it.
     if (!state->timer_shared || state->timer_shared_owner) {
         ra_agt_timer_start(state->timer_ch);
@@ -997,8 +1145,181 @@ ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *
     return RA_DAC_STREAM_STATUS_OK;
 }
 
-void ra_dac_stream_stop(uint8_t ch) {
-    ra_dac_stream_cleanup(ch);
+/* Establish a true physical sample boundary for two DAC streams.  Merely borrowing
+ * the same already-running AGT prevents frequency drift but lets the second DMAC
+ * join at an arbitrary sample index.  Here the common AGT is stopped, both DMACs are
+ * reset to buffer 0 while no trigger can occur, both are armed, and the AGT is
+ * started exactly once.  After this barrier DADR0[n] and DADR1[n] advance on the
+ * same ELC event and the paired I/Q rings retain their intended quadrature. */
+bool ra_dac_stream_sync_pair(uint8_t ch_a, uint8_t ch_b) {
+    if (ch_a >= DAC_CH_SIZE || ch_b >= DAC_CH_SIZE || ch_a == ch_b) {
+        return false;
+    }
+
+    bool ok = false;
+    bool destructive = false;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    ra_dac_stream_state_t *a = &ra_dac_stream_state[ch_a];
+    ra_dac_stream_state_t *b = &ra_dac_stream_state[ch_b];
+    if (!a->active || !b->active || !a->double_buffered || !b->double_buffered ||
+        a->transfer != RA_DAC_TRANSFER_DMAC || b->transfer != RA_DAC_TRANSFER_DMAC ||
+        !a->transfer_open || !b->transfer_open || !a->dmac_reserved || !b->dmac_reserved ||
+        a->dmac_ctrl.p_reg == NULL || b->dmac_ctrl.p_reg == NULL ||
+        a->dmac_ch == b->dmac_ch ||
+        a->info.transfer_settings_word_b.mode != TRANSFER_MODE_NORMAL ||
+        b->info.transfer_settings_word_b.mode != TRANSFER_MODE_NORMAL ||
+        !a->timer_shared || !b->timer_shared || s_dac_stream_timer_users != 2U ||
+        s_dac_stream_timer_ch < 0 || a->timer_ch != (uint8_t)s_dac_stream_timer_ch ||
+        a->timer_ch != b->timer_ch || a->freq != b->freq ||
+        a->buffer_sample_count == 0U || a->buffer_sample_count != b->buffer_sample_count ||
+        a->buffers[0] == NULL || a->buffers[1] == NULL ||
+        b->buffers[0] == NULL || b->buffers[1] == NULL ||
+        (((uintptr_t)a->buffers[0] | (uintptr_t)a->buffers[1] |
+          (uintptr_t)b->buffers[0] | (uintptr_t)b->buffers[1]) & 0x3U) != 0U) {
+        goto unlock;
+    }
+
+    IRQn_Type irq_a = a->dmac_ext.irq;
+    IRQn_Type irq_b = b->dmac_ext.irq;
+    if (irq_a < (IRQn_Type)0 || irq_b < (IRQn_Type)0 || irq_a == irq_b) {
+        goto unlock;
+    }
+    bool irq_a_enabled = irq_a >= (IRQn_Type)0 && NVIC_GetEnableIRQ(irq_a) != 0U;
+    bool irq_b_enabled = irq_b >= (IRQn_Type)0 && NVIC_GetEnableIRQ(irq_b) != 0U;
+    uint32_t period = ra_agt_timer_get_period(a->timer_ch);
+    if (!irq_a_enabled || !irq_b_enabled || period == 0U) {
+        goto unlock;
+    }
+
+    /* Mask completion callbacks first, then stop the common activation source and
+     * wait for the hardware stop acknowledgement.  PRIMASK prevents either ISR
+     * from observing half of this transaction. */
+    destructive = true;
+    R_BSP_IrqDisable(irq_a);
+    R_BSP_IrqDisable(irq_b);
+    R_BSP_IrqClearPending(irq_a);
+    R_BSP_IrqClearPending(irq_b);
+    if (!ra_agt_timer_stop_wait(a->timer_ch)) {
+        ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_AGT_RUNTIME, FSP_ERR_TIMEOUT);
+        ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_AGT_RUNTIME, FSP_ERR_TIMEOUT);
+        goto rollback;
+    }
+
+    fsp_err_t err_a = R_DMAC_Disable((transfer_ctrl_t *)&a->dmac_ctrl);
+    fsp_err_t err_b = R_DMAC_Disable((transfer_ctrl_t *)&b->dmac_ctrl);
+    if (err_a != FSP_SUCCESS) {
+        ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_DMAC_RUNTIME, err_a);
+    }
+    if (err_b != FSP_SUCCESS) {
+        ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_DMAC_RUNTIME, err_b);
+    }
+    bool idle_a = err_a == FSP_SUCCESS && ra_dac_dmac_wait_idle(a);
+    bool idle_b = err_b == FSP_SUCCESS && ra_dac_dmac_wait_idle(b);
+    if (!idle_a || !idle_b) {
+        if (err_a == FSP_SUCCESS && !idle_a) {
+            ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_TIMEOUT);
+        }
+        if (err_b == FSP_SUCCESS && !idle_b) {
+            ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_TIMEOUT);
+        }
+        goto rollback;
+    }
+
+    /* Neither DMAC can still read these buffers now. */
+    a->active_buffer = 0U;
+    b->active_buffer = 0U;
+    a->buffer_ready[0] = false;
+    b->buffer_ready[0] = false;
+    a->buffer_ready[1] = true;
+    b->buffer_ready[1] = true;
+    for (size_t k = 0U; k < a->buffer_sample_count; ++k) {
+        a->buffers[0][k] = 2048U;
+        a->buffers[1][k] = 2048U;
+        b->buffers[0][k] = 2048U;
+        b->buffers[1][k] = 2048U;
+    }
+    a->active = true;
+    b->active = true;
+    __DMB();
+
+    /* R_DMAC_Reset rewrites source/destination/count and re-enables DTE. */
+    err_a = R_DMAC_Reset((transfer_ctrl_t *)&a->dmac_ctrl, a->buffers[0],
+        (void *)&R_DAC->DADR[ch_a], (uint16_t)a->buffer_sample_count);
+    if (err_a != FSP_SUCCESS) {
+        ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_DMAC_RUNTIME, err_a);
+        goto rollback;
+    }
+    err_b = R_DMAC_Reset((transfer_ctrl_t *)&b->dmac_ctrl, b->buffers[0],
+        (void *)&R_DAC->DADR[ch_b], (uint16_t)b->buffer_sample_count);
+    if (err_b != FSP_SUCCESS) {
+        ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_DMAC_RUNTIME, err_b);
+        goto rollback;
+    }
+
+    __DSB();
+    if (a->dmac_ctrl.p_reg->DMCNT_b.DTE == 0U ||
+        b->dmac_ctrl.p_reg->DMCNT_b.DTE == 0U ||
+        a->dmac_ctrl.p_reg->DMCRA_b.DMCRAL != (uint16_t)a->buffer_sample_count ||
+        b->dmac_ctrl.p_reg->DMCRA_b.DMCRAL != (uint16_t)b->buffer_sample_count) {
+        ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_ABORTED);
+        ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_ABORTED);
+        goto rollback;
+    }
+
+    if (!ra_agt_timer_set_counter(a->timer_ch, period - 1U)) {
+        ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_AGT_RUNTIME, FSP_ERR_ABORTED);
+        ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_AGT_RUNTIME, FSP_ERR_ABORTED);
+        goto rollback;
+    }
+    R_BSP_IrqClearPending(irq_a);
+    R_BSP_IrqClearPending(irq_b);
+    R_BSP_IrqEnableNoClear(irq_a);
+    R_BSP_IrqEnableNoClear(irq_b);
+    IRQn_Type agt_irq = ra_dac_agt_irq(a->timer_ch);
+    if (agt_irq >= (IRQn_Type)0) {
+        R_BSP_IrqClearPending(agt_irq);
+    }
+    __DMB();
+    ra_agt_timer_start(a->timer_ch);
+    ok = true;
+    goto unlock;
+
+rollback:
+    if (destructive) {
+        /* A partial re-arm is never allowed to continue as a one-sided I/Q stream.
+         * Disable both channels again and prove ACT=0 before Close/release. */
+        (void)ra_agt_timer_stop_wait(a->timer_ch);
+        (void)R_DMAC_Disable((transfer_ctrl_t *)&a->dmac_ctrl);
+        (void)R_DMAC_Disable((transfer_ctrl_t *)&b->dmac_ctrl);
+        bool rollback_idle_a = ra_dac_dmac_wait_idle(a);
+        bool rollback_idle_b = ra_dac_dmac_wait_idle(b);
+        R_BSP_IrqClearPending(irq_a);
+        R_BSP_IrqClearPending(irq_b);
+        if (rollback_idle_a && rollback_idle_b) {
+            (void)ra_dac_stream_cleanup(ch_b);
+            (void)ra_dac_stream_cleanup(ch_a);
+        } else {
+            /* Ownership and open handles stay intact for a later stop retry. */
+            if (!rollback_idle_a) {
+                ra_dac_set_last_error(ch_a, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_TIMEOUT);
+            }
+            if (!rollback_idle_b) {
+                ra_dac_set_last_error(ch_b, RA_DAC_HW_STAGE_DMAC_RUNTIME, FSP_ERR_TIMEOUT);
+            }
+            ra_dac_stream_mark_cleanup_pending(b);
+            ra_dac_stream_mark_cleanup_pending(a);
+        }
+    }
+
+unlock:
+    __set_PRIMASK(primask);
+    return ok;
+}
+
+bool ra_dac_stream_stop(uint8_t ch) {
+    return ra_dac_stream_cleanup(ch);
 }
 
 bool ra_dac_stream_is_active(uint8_t ch) {
@@ -1008,6 +1329,12 @@ bool ra_dac_stream_is_active(uint8_t ch) {
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
     if (!state->active) {
+        if (state->cleanup_pending) {
+            /* Report busy while fail-closed ownership is still retained.  This
+             * prevents Python/audio owners from dropping rooted source buffers
+             * before the deferred Close actually succeeds. */
+            return !ra_dac_stream_cleanup(ch);
+        }
         return false;
     }
     if (state->loop || !state->transfer_open) {
@@ -1035,8 +1362,13 @@ bool ra_dac_stream_is_active(uint8_t ch) {
 
         if (runtime_error) {
             ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME, ra_dac_dmac_runtime_diag(state->dmac_ch));
-            ra_dac_stream_cleanup(ch);
-            return false;
+            return !ra_dac_stream_cleanup(ch);
+        }
+
+        if (state->double_buffered && done && !dte) {
+            ra_dac_set_last_error(ch, RA_DAC_HW_STAGE_DMAC_RUNTIME,
+                ra_dac_dmac_runtime_diag(state->dmac_ch));
+            return !ra_dac_stream_cleanup(ch);
         }
 
         if (state->double_buffered) {
@@ -1044,8 +1376,7 @@ bool ra_dac_stream_is_active(uint8_t ch) {
         }
 
         if (done) {
-            ra_dac_stream_cleanup(ch);
-            return false;
+            return !ra_dac_stream_cleanup(ch);
         }
     }
 
@@ -1061,8 +1392,7 @@ bool ra_dac_stream_is_active(uint8_t ch) {
         return true;
     }
 
-    ra_dac_stream_cleanup(ch);
-    return false;
+    return !ra_dac_stream_cleanup(ch);
 }
 
 int8_t ra_dac_stream_timer(uint8_t ch) {
@@ -1071,7 +1401,7 @@ int8_t ra_dac_stream_timer(uint8_t ch) {
     }
 
     ra_dac_stream_state_t *state = &ra_dac_stream_state[ch];
-    if (!state->timer_reserved) {
+    if (!state->timer_reserved && !state->timer_shared) {
         return -1;
     }
 

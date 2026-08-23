@@ -66,7 +66,9 @@ typedef enum {
  * and RA_ADC_PGA_OFF is rejected because ADC12 does not work in that state. */
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     size_t block_samples, ra_adc_pga_mode_t pga_mode, uint8_t pga_gain);
+const char *ra_iq_adc_init_error_name(void);
 void ra_iq_adc_deinit(void);
+bool ra_iq_adc_deinit_checked(void);
 
 bool ra_iq_adc_start(void);
 void ra_iq_adc_stop(void);
@@ -290,8 +292,9 @@ bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n);
  * DAC hardware so it can be watched on a real oscilloscope).  A single selector
  * (0 = off, else RA_IQ_BLK_* block id 1..RA_IQ_BLK_LIMITER):
  *   - pre-demod block (PGA/decim/iqcorr/nco/chfilt, complex I/Q): the decimated
- *     I is fed to the DAC0 audio ring and Q to the parallel scope Q ring, so
- *     DAC0 shows I and DAC1 shows Q, both at the decimated rate.
+ *     I is fed to the DAC0 audio ring.  If DAC1 is streaming from this IQADC, Q is
+ *     fed to the parallel scope Q ring and the I/Q pair is published atomically;
+ *     otherwise DAC0 remains a fully independent mono output.
  *   - post-demod block (demod..limiter, mono audio): the mono sample flows to
  *     the DAC0 audio ring as it does today; the Q ring stays idle (mid-scale).
  * When a pre-demod stage is routed the demod producer is skipped for that block
@@ -302,6 +305,13 @@ bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n);
  * leaves the ISR cost at zero.  set_scope also resets both ring indices. */
 void ra_iq_adc_set_scope(uint8_t stage);
 uint8_t ra_iq_adc_get_scope(void);
+
+/* machine.DAC lifecycle hooks for the optional DAC1/Q consumer.  The normal setter
+ * is control-plane and resets both rings at a common boundary.  The stopped hook is
+ * ISR-safe and only withdraws the consumer after an asynchronous stream failure. */
+void ra_iq_adc_scope_q_consumer(uint8_t active);
+void ra_iq_adc_scope_q_consumer_stopped(void);
+uint8_t ra_iq_adc_scope_q_consumer_active(void);
 
 /* SPSC consumer of the routed Q ring, mirroring ra_iq_adc_audio_pull: pops n
  * DAC codes into buf, writing 2048 (mid-scale) on an empty ring so DAC1 never

@@ -77,7 +77,16 @@
 
 // Forward declarations for deinit functions
 #if MICROPY_PY_MACHINE_DAC
-void dac_deinit_all(void);
+bool dac_deinit_all(void);
+#endif
+#if MICROPY_HW_ENABLE_DAC
+bool audiomixer_deinit_all(void);
+#endif
+#if MICROPY_HW_ENABLE_IQ_ADC
+bool machine_iqadc_deinit_all(void);
+#endif
+#if MICROPY_HW_ENABLE_AUDIOADC
+bool machine_audioadc_deinit_all(void);
 #endif
 #if MICROPY_PY_MACHINE_I2C
 void machine_i2c_deinit_all(void);
@@ -458,13 +467,35 @@ soft_reset_exit:
     mod_network_deinit();
     #endif
     soft_timer_deinit();
+    /* DAC DMACs own Python buffers/contexts and AGT reservations.  Tear them down
+     * before timer_deinit clears reservation maps and before mp_deinit sweeps GC.
+     * A bounded quiesce timeout cannot safely continue as a soft reset: force a
+     * hardware reset while all retained pointers are still rooted. */
+    bool dac_cleanup_ok = true;
+    #if MICROPY_HW_ENABLE_DAC
+    dac_cleanup_ok = audiomixer_deinit_all();
+    #endif
+    #if MICROPY_PY_MACHINE_DAC
+    dac_cleanup_ok = dac_deinit_all() && dac_cleanup_ok;
+    #endif
+    /* Stop the ADC/ELC producer after its DAC consumers, but before the generic
+     * timer teardown clears internal AGT reservation bookkeeping. */
+    #if MICROPY_HW_ENABLE_AUDIOADC
+    dac_cleanup_ok = machine_audioadc_deinit_all() && dac_cleanup_ok;
+    #endif
+    #if MICROPY_HW_ENABLE_IQ_ADC
+    dac_cleanup_ok = machine_iqadc_deinit_all() && dac_cleanup_ok;
+    #endif
+    if (!dac_cleanup_ok) {
+        NVIC_SystemReset();
+        for (;;) {
+            __WFI();
+        }
+    }
     timer_deinit();
     uart_deinit_all();
     #if MICROPY_PY_MACHINE_I2C
     machine_i2c_deinit_all();
-    #endif
-    #if MICROPY_PY_MACHINE_DAC
-    dac_deinit_all();
     #endif
     machine_pin_deinit();
     machine_deinit();

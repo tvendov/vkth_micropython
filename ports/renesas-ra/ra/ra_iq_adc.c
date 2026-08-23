@@ -46,6 +46,7 @@ typedef struct {
     bool timer_reserved;
     bool i_pin_enabled;
     bool q_pin_enabled;
+    bool elc_enabled;
     uint8_t timer_ch;
     uint8_t i_ch;               /* 0..2   */
     uint8_t q_ch;               /* 32..34 */
@@ -66,6 +67,12 @@ typedef struct {
 
 static ra_iq_adc_private_t s_iq;
 static ra_iq_adc_status_t s_status;
+/* IRQ-side ownership gate.  Kept separate and volatile so teardown can stop a
+ * pending scan-end callback before closing the DTC descriptor it would re-arm. */
+static volatile uint8_t s_capture_irq_armed;
+/* Static diagnostic only; points at string literals and therefore survives the
+ * cleanup performed on an init failure without allocating or touching the heap. */
+static const char *s_init_error = "none";
 
 /* Per-block DSP processing time, measured with the DWT cycle counter around the
  * dsp_process + demod_produce work in the block callback.  This is the budget gate
@@ -302,18 +309,18 @@ static volatile uint32_t s_ring_tail;   /* consumer owns */
 /* Per-block scope ROUTING to the DACs.  s_scope_stage selects one DSP block whose
  * output is streamed to the DAC hardware for oscilloscope inspection (0 = off).
  * For a PRE-demod block (1..RA_IQ_LAST_PREDEMOD_BLK) the decimated I is written to
- * s_audio_ring (DAC0) and Q to s_scope_ring_q (DAC1) at the decimated rate, and the
- * demod producer is skipped so it does not double-write s_audio_ring.  For a
- * POST-demod block the mono audio uses s_audio_ring as it does today and the Q ring
- * is left idle (its consumer reads mid-scale).  The Q ring is a second SPSC ring with
- * the identical head/tail discipline as s_audio_ring: producer owns head, consumer
- * (DAC1 fill callback via ra_iq_adc_scope_pull_q) owns tail.  All producer writes
- * happen in the one block-callback ISR, so I->audio_ring and Q->scope_ring_q come
- * from a single producer context. */
+ * s_audio_ring (DAC0).  Q is written to s_scope_ring_q only while a DAC1 IQADC
+ * consumer is active.  This is deliberately a two-mode contract:
+ *   - mono DAC0: I advances independently and an absent DAC1 can never back-pressure it;
+ *   - dual DAC0/DAC1: I/Q are published atomically, so the pair cannot desynchronise.
+ * For a POST-demod block the mono audio uses s_audio_ring as it does today and the Q
+ * ring is left idle (its consumer reads mid-scale).  All producer writes happen in
+ * the one block-callback ISR. */
 static volatile uint8_t s_scope_stage;  /* 0 = off, else RA_IQ_BLK_* */
 static uint16_t s_scope_ring_q[RA_IQ_AUDIO_RING];
 static volatile uint32_t s_scope_q_head;   /* producer owns */
 static volatile uint32_t s_scope_q_tail;   /* consumer owns */
+static volatile uint8_t s_scope_q_consumer_active;
 
 /* Convert a signed baseband/audio sample to a 0..4095 DAC code centred at mid-scale,
  * the same 2048 + clamp mapping the audio tail uses.  Producer-side, integer only. */
@@ -764,19 +771,34 @@ typedef struct {
 
 static ra_iq_audio_private_t s_audio;
 
-/* Push one routed pre-demod I/Q PAIR into the DAC0 (I) and DAC1 (Q) rings as DAC
- * codes.  SPSC: I and Q must advance together or not at all — if only one head moved
- * when its partner ring was full, the two heads would drift by one sample and the
- * scope constellation would rotate.  So probe BOTH rings first; if either is full,
- * drop the whole pair (count one overrun) and leave both heads unchanged.  Producer-
- * owned heads passed by pointer so the caller batches a whole block, publishes once. */
+/* Push one routed pre-demod sample into the active DAC topology.  With a live DAC1
+ * consumer this is a strict I/Q pair: probe both rings first and advance both or
+ * neither.  In mono mode only the I ring participates, so an unconsumed Q ring cannot
+ * stop DAC0.  q_active is snapshotted once per DSP block; a lifecycle change therefore
+ * cannot switch publication policy halfway through a block. */
 static inline void ra_iq_scope_push_iq(uint32_t *i_head, uint32_t *q_head,
-    int32_t i, int32_t q) {
+    int32_t i, int32_t q, bool q_active) {
     uint32_t ni = (*i_head + 1U) & RA_IQ_AUDIO_RING_MASK;
-    uint32_t nq = (*q_head + 1U) & RA_IQ_AUDIO_RING_MASK;
-    if (ni == (s_ring_tail & RA_IQ_AUDIO_RING_MASK) ||
-        nq == (s_scope_q_tail & RA_IQ_AUDIO_RING_MASK)) {
+    if (ni == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
         s_audio.ring_overruns++;
+        return;
+    }
+
+    if (!q_active) {
+        s_audio_ring[*i_head & RA_IQ_AUDIO_RING_MASK] = ra_iq_scope_code(i);
+        *i_head = ni;
+        return;
+    }
+
+    uint32_t nq = (*q_head + 1U) & RA_IQ_AUDIO_RING_MASK;
+    if (nq == (s_scope_q_tail & RA_IQ_AUDIO_RING_MASK)) {
+        s_audio.ring_overruns++;
+        /* A stalled/failed DAC1 must never keep back-pressuring the mono I path.
+         * This block retains its paired snapshot, but the next DSP block falls
+         * back to I-only publication; Q drains to mid-scale and OVR records the
+         * lost dual-output contract for the control plane. */
+        s_scope_q_consumer_active = 0U;
+        __DMB();
         return;
     }
     s_audio_ring[*i_head & RA_IQ_AUDIO_RING_MASK] = ra_iq_scope_code(i);
@@ -865,12 +887,15 @@ static inline void ra_iq_scope_capture_iq(uint8_t blk, uint16_t m) {
     }
     uint32_t ih = s_ring_head;
     uint32_t qh = s_scope_q_head;
+    bool q_active = s_scope_q_consumer_active != 0U;
     for (uint16_t j = 0U; j < m; ++j) {
-        ra_iq_scope_push_iq(&ih, &qh, s_i_dc[j], s_q_dc[j]);
+        ra_iq_scope_push_iq(&ih, &qh, s_i_dc[j], s_q_dc[j], q_active);
     }
     __DMB();
     s_ring_head = ih;
-    s_scope_q_head = qh;
+    if (q_active) {
+        s_scope_q_head = qh;
+    }
 }
 
 /* Bench signal injection: a synthetic complex tone written into the raw block in place of
@@ -1144,13 +1169,17 @@ static void ra_iq_dsp_process(uint8_t half) {
     if (s_scope_stage == RA_IQ_BLK_PGA) {
         uint32_t ih = s_ring_head;
         uint32_t qh = s_scope_q_head;
+        bool q_active = s_scope_q_consumer_active != 0U;
         for (uint16_t j = 0U; j < m; ++j) {
             ra_iq_scope_push_iq(&ih, &qh,
-                (int32_t)ip[2U * j] - 2048, (int32_t)qp[2U * j] - 2048);
+                (int32_t)ip[2U * j] - 2048, (int32_t)qp[2U * j] - 2048,
+                q_active);
         }
         __DMB();
         s_ring_head = ih;
-        s_scope_q_head = qh;
+        if (q_active) {
+            s_scope_q_head = qh;
+        }
     }
 
     uint8_t iqc = s_iqc_enable;
@@ -1555,10 +1584,14 @@ static void ra_iq_demod_produce(uint8_t half) {
  * only when the chain has filled a whole block.  No allocation, no Python, no
  * I/O here (REQ-RT-002, REQ-RT-003). */
 static void ra_iq_block_callback(adc_callback_args_t *p_args) {
+    (void)p_args;
+
+    if (s_capture_irq_armed == 0U) {
+        return;
+    }
+
     uint8_t finished = s_status.active_half;
     uint8_t next = (uint8_t)(finished ^ 1U);
-
-    (void)p_args;
 
     /* Point the chain at the other half and reload both counters, then re-arm.
      * In normal mode the DTC has just completed and cleared its own DTCE, so
@@ -1710,28 +1743,34 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     const ra_sdr_caps_t *caps = ra_sdr_caps_get();
     uint8_t channels_per_unit = caps->mcu->adc_channels_per_unit;
 
+    s_init_error = "args";
     if ((block_samples < RA_IQ_ADC_MIN_BLOCK_SAMPLES)
         || (block_samples > RA_IQ_ADC_MAX_BLOCK_SAMPLES)
         || ((block_samples & 1U) != 0U)
         || (sample_rate_hz == 0U)) {
         return false;
     }
+    s_init_error = "pin_map";
     if (!ra_adc_pin_to_ch(i_pin, &i_ch) || !ra_adc_pin_to_ch(q_pin, &q_ch)) {
         return false;
     }
     /* ARCH-ADC-001 and ARCH-ADC-002: I on unit 0, Q on unit 1, both on channels
      * that carry a dedicated sample-and-hold. */
+    s_init_error = "unit_map";
     if ((i_ch >= channels_per_unit) || (q_ch < channels_per_unit)) {
         return false;
     }
+    s_init_error = "pga_channel";
     if (!ra_adc_pga_supported_ch(i_ch) || !ra_adc_pga_supported_ch(q_ch)) {
         return false;
     }
     /* ADC12 does not work on these six channels with ADPGACR at its initial
      * value (Table 47.14), so OFF is not a usable request here. */
+    s_init_error = "pga_mode";
     if (pga_mode == RA_ADC_PGA_OFF) {
         return false;
     }
+    s_init_error = "agt_reserve";
     if (!ra_iq_reserve_timer(&timer_ch)) {
         return false;
     }
@@ -1767,6 +1806,7 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_status.sample_rate_hz = sample_rate_hz;
     s_status.block_samples = (uint16_t)block_samples;
 
+    s_init_error = "agt_event";
     agt_event = ra_iq_agt_event(timer_ch);
     if (agt_event == ELC_EVENT_NONE) {
         ra_iq_adc_deinit();
@@ -1778,11 +1818,13 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     ra_adc_enable(q_pin);
     s_iq.q_pin_enabled = true;
 
+    s_init_error = "adc0_open";
     if (!ra_iq_adc_open_unit(false, i_ch)) {
         ra_iq_adc_deinit();
         return false;
     }
     s_iq.opened0 = true;
+    s_init_error = "adc1_open";
     if (!ra_iq_adc_open_unit(true, q_ch)) {
         ra_iq_adc_deinit();
         return false;
@@ -1791,6 +1833,7 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
 
     /* The PGA path has to be selected after the units are open, because the
      * module-stop bits must already be clear. */
+    s_init_error = "pga_config";
     if (!ra_adc_pga_config_ch(i_ch, pga_mode, pga_gain)
         || !ra_adc_pga_config_ch(q_ch, pga_mode, pga_gain)) {
         ra_iq_adc_deinit();
@@ -1801,6 +1844,7 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     ra_iq_sh_setup(R_ADC1, (uint8_t)(q_ch % RA_IQ_ADC_CHANNELS_PER_UNIT));
 
     ra_iq_dtc_build();
+    s_init_error = "dtc_open";
     if (R_DTC_Open((transfer_ctrl_t *)&s_iq.dtc_ctrl, &s_iq.dtc_cfg) != FSP_SUCCESS) {
         ra_iq_adc_deinit();
         return false;
@@ -1817,41 +1861,110 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     R_BSP_IrqDisable(VECTOR_NUMBER_ADC1_SCAN_END);
 
     ra_iq_elc_enable(agt_event);
+    s_iq.elc_enabled = true;
     s_status.initialised = 1U;
+    s_init_error = "none";
     return true;
 }
 
-void ra_iq_adc_deinit(void) {
-    ra_iq_adc_stop();
+const char *ra_iq_adc_init_error_name(void) {
+    return s_init_error;
+}
+
+static void ra_iq_adc_irq_quiesce(void) {
+    R_BSP_IrqDisable(VECTOR_NUMBER_ADC0_SCAN_END);
+    R_BSP_IrqClearPending(VECTOR_NUMBER_ADC0_SCAN_END);
+    R_BSP_IrqDisable(VECTOR_NUMBER_ADC1_SCAN_END);
+    R_BSP_IrqClearPending(VECTOR_NUMBER_ADC1_SCAN_END);
+}
+
+bool ra_iq_adc_deinit_checked(void) {
+    bool was_running = s_status.running != 0U;
+
+    /* Stop acknowledgement must precede closing ADC/DTC state.  On timeout leave
+     * every owner intact so the soft-reset path can choose a hardware reset. */
+    if (s_iq.timer_reserved && !ra_agt_timer_stop_wait(s_iq.timer_ch)) {
+        return false;
+    }
+    s_demod_mode = RA_IQ_DEMOD_OFF;
+
+    /* No new AGT event can now start a conversion.  Gate the callback and clear
+     * any final scan-end IRQ before touching DTC/ADC ownership.  Keep the public
+     * running flag set until both ScanStop calls succeed so a failed teardown is
+     * retryable rather than silently skipping the scan stop next time. */
+    s_capture_irq_armed = 0U;
+    __DMB();
+    if (s_iq.opened0 || s_iq.dtc_open) {
+        ra_iq_adc_irq_quiesce();
+    }
+    if (s_iq.opened0 && was_running &&
+        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
+        return false;
+    }
+    if (s_iq.opened1 && was_running &&
+        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
+        return false;
+    }
+    s_status.running = 0U;
+    s_status.ready = 0U;
+
+    if (s_iq.elc_enabled) {
+        ra_iq_elc_disable();
+        s_iq.elc_enabled = false;
+    }
 
     if (s_iq.dtc_open) {
-        R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
-        R_DTC_Close((transfer_ctrl_t *)&s_iq.dtc_ctrl);
+        if (R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        if (R_DTC_Close((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.dtc_open = false;
     }
     if (s_iq.opened0) {
         ra_iq_sh_teardown(R_ADC0, (uint8_t)(s_iq.i_ch % RA_IQ_ADC_CHANNELS_PER_UNIT));
-        ra_adc_pga_config_ch(s_iq.i_ch, RA_ADC_PGA_OFF, 0U);
-        R_ADC_Close((adc_ctrl_t *)&s_iq.adc0_ctrl);
+        if (!ra_adc_pga_config_ch(s_iq.i_ch, RA_ADC_PGA_OFF, 0U)) {
+            return false;
+        }
+        if (R_ADC_Close((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.opened0 = false;
     }
     if (s_iq.opened1) {
         ra_iq_sh_teardown(R_ADC1, (uint8_t)(s_iq.q_ch % RA_IQ_ADC_CHANNELS_PER_UNIT));
-        ra_adc_pga_config_ch(s_iq.q_ch, RA_ADC_PGA_OFF, 0U);
-        R_ADC_Close((adc_ctrl_t *)&s_iq.adc1_ctrl);
+        if (!ra_adc_pga_config_ch(s_iq.q_ch, RA_ADC_PGA_OFF, 0U)) {
+            return false;
+        }
+        if (R_ADC_Close((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.opened1 = false;
     }
     if (s_iq.timer_reserved) {
-        ra_agt_timer_deinit(s_iq.timer_ch);
+        if (!ra_agt_timer_deinit_checked(s_iq.timer_ch)) {
+            return false;
+        }
+        s_iq.timer_reserved = false;
     }
-    ra_iq_elc_disable();
 
     if (s_iq.i_pin_enabled) {
         ra_adc_disable(s_status.i_pin);
+        s_iq.i_pin_enabled = false;
     }
     if (s_iq.q_pin_enabled) {
         ra_adc_disable(s_status.q_pin);
+        s_iq.q_pin_enabled = false;
     }
 
     memset(&s_iq, 0, sizeof(s_iq));
     memset(&s_status, 0, sizeof(s_status));
+    return true;
+}
+
+void ra_iq_adc_deinit(void) {
+    (void)ra_iq_adc_deinit_checked();
 }
 
 bool ra_iq_adc_start(void) {
@@ -1934,7 +2047,11 @@ bool ra_iq_adc_start(void) {
         return false;
     }
 
+    s_capture_irq_armed = 1U;
     s_status.running = 1U;
+    __DMB();
+    R_BSP_IrqClearPending(VECTOR_NUMBER_ADC0_SCAN_END);
+    R_BSP_IrqEnableNoClear(VECTOR_NUMBER_ADC0_SCAN_END);
     ra_agt_timer_start(s_iq.timer_ch);
     return true;
 }
@@ -1948,12 +2065,17 @@ void ra_iq_adc_stop(void) {
      * owned by machine.DAC and its consumer (ra_iq_adc_audio_pull) tolerates an
      * empty ring, so it is left for machine.DAC to stop. */
     s_demod_mode = RA_IQ_DEMOD_OFF;
-    ra_agt_timer_stop(s_iq.timer_ch);
-    if (s_iq.opened0) {
-        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl);
+    if (!ra_agt_timer_stop_wait(s_iq.timer_ch)) {
+        return;
     }
-    if (s_iq.opened1) {
-        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl);
+    s_capture_irq_armed = 0U;
+    __DMB();
+    ra_iq_adc_irq_quiesce();
+    if (s_iq.opened0 && R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
+        return;
+    }
+    if (s_iq.opened1 && R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
+        return;
     }
     R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
     s_status.running = 0U;
@@ -1965,15 +2087,20 @@ bool ra_iq_adc_acquire(const uint16_t **i_block, const uint16_t **q_block,
     uint8_t half;
     uint32_t seq;
 
+    if (!s_status.running) {
+        return false;
+    }
     R_BSP_IrqDisable(VECTOR_NUMBER_ADC0_SCAN_END);
     if (!s_status.ready) {
-        R_BSP_IrqEnable(VECTOR_NUMBER_ADC0_SCAN_END);
+        /* Keep a block completion that became pending inside this tiny snapshot;
+         * ordinary R_BSP_IrqEnable() clears it before enabling. */
+        R_BSP_IrqEnableNoClear(VECTOR_NUMBER_ADC0_SCAN_END);
         return false;
     }
     half = s_iq.ready_half;
     seq = s_iq.sequence;
     s_status.ready = 0U;
-    R_BSP_IrqEnable(VECTOR_NUMBER_ADC0_SCAN_END);
+    R_BSP_IrqEnableNoClear(VECTOR_NUMBER_ADC0_SCAN_END);
 
     if (i_block != NULL) {
         *i_block = s_i_buf[half];
@@ -2449,12 +2576,18 @@ void ra_iq_adc_set_scope(uint8_t stage) {
     if (stage > RA_IQ_BLK_LIMITER) {
         stage = 0U;
     }
-    s_ring_head = 0U;
-    s_ring_tail = 0U;
-    s_scope_q_head = 0U;
-    s_scope_q_tail = 0U;
+
+    /* Do not rewrite producer-owned heads while the ADC callback may hold local
+     * copies.  Quiesce all maskable IRQs, discard queued data by catching each
+     * consumer tail up to its published head, then publish the new route. */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_ring_tail = s_ring_head;
+    s_scope_q_tail = s_scope_q_head;
     __DMB();
     s_scope_stage = stage;
+    __DMB();
+    __set_PRIMASK(primask);
 }
 
 uint8_t ra_iq_adc_get_scope(void) {
@@ -2481,6 +2614,44 @@ size_t ra_iq_adc_scope_pull_q(uint16_t *buf, size_t n) {
     __DMB();
     s_scope_q_tail = tail;
     return n;
+}
+
+/* Select the physical output topology for pre-demod scope routing.  machine.DAC
+ * calls this before starting/stopping an IQADC stream on DAC1.  On enable, discard
+ * queued samples by moving consumer-owned tails to the current published heads;
+ * never rewrite a producer-owned head while the ADC callback may hold a local copy.
+ * On disable, withdrawing the flag is enough: mono publication never inspects Q and
+ * the next enable discards any stale Q. */
+void ra_iq_adc_scope_q_consumer(uint8_t active) {
+    if (!active) {
+        s_scope_q_consumer_active = 0U;
+        __DMB();
+        return;
+    }
+
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_scope_q_consumer_active = 0U;
+    if (s_scope_stage != 0U && s_scope_stage <= RA_IQ_LAST_PREDEMOD_BLK) {
+        s_ring_tail = s_ring_head;
+    }
+    s_scope_q_tail = s_scope_q_head;
+    __DMB();
+    s_scope_q_consumer_active = 1U;
+    __DMB();
+    __set_PRIMASK(primask);
+}
+
+/* Runtime DMAC cleanup can call the stream-stop callback from an ISR which may have
+ * pre-empted the ADC block callback.  In that context only withdraw the consumer;
+ * the next explicit start performs the fully quiesced ring reset above. */
+void ra_iq_adc_scope_q_consumer_stopped(void) {
+    s_scope_q_consumer_active = 0U;
+    __DMB();
+}
+
+uint8_t ra_iq_adc_scope_q_consumer_active(void) {
+    return s_scope_q_consumer_active;
 }
 
 void ra_iq_adc_get_audio_status(ra_iq_audio_status_t *status) {

@@ -78,6 +78,8 @@ typedef enum {
 
 bool ra_agt_timer_is_valid(uint32_t ch);
 bool ra_agt_timer_reserve(uint32_t ch);
+/* Last reservation result for diagnostics: 0=success, non-zero=reject branch. */
+uint8_t ra_agt_timer_reserve_error(uint32_t ch);
 void ra_agt_timer_release_reservation(uint32_t ch);
 void ra_agt_timer_clear_all_reservations(void);
 bool ra_agt_timer_is_reserved(uint32_t ch);
@@ -88,6 +90,8 @@ void ra_agt_timer_set_mode(uint32_t ch, ra_agt_timer_mode_t mode);
 ra_agt_timer_mode_t ra_agt_timer_get_mode(uint32_t ch);
 void ra_agt_timer_start(uint32_t ch);
 void ra_agt_timer_stop(uint32_t ch);
+/* Request stop and wait (with a fixed finite bound) until AGTCR.TCSTF clears. */
+bool ra_agt_timer_stop_wait(uint32_t ch);
 void ra_agt_timer_set_freq(uint32_t ch, float freq);
 bool ra_agt_timer_set_freq_ex(uint32_t ch, float freq, ra_agt_clock_source_t source);
 float ra_agt_timer_get_freq(uint32_t ch);
@@ -114,6 +118,8 @@ void *ra_agt_timer_get_fast_entry(uint32_t ch);
 uintptr_t ra_agt_timer_get_fast_param(uint32_t ch);
 void ra_agt_timer_init(uint32_t ch, float freq);
 void ra_agt_timer_deinit(uint32_t ch);
+/* Checked teardown for internal drivers that must fail closed on a stop timeout. */
+bool ra_agt_timer_deinit_checked(uint32_t ch);
 void ra_port_agt_int_isr(void);
 uint32_t mtick();
 

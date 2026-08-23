@@ -44,10 +44,15 @@ typedef struct _machine_dac_obj_t {
     mp_obj_base_t base;
     uint8_t active;
     uint8_t ch;
+    volatile uint8_t iq_stream;
     uint16_t mv;
     mp_hal_pin_obj_t dac;
-    mp_obj_t buffer_obj;
 } machine_dac_obj_t;
+
+/* machine_dac_obj[] lives in ordinary C .bss, which the MicroPython GC does not
+ * scan.  Timed DMA source objects therefore need explicit VM roots until the
+ * low-level stream has been quiesced and closed. */
+MP_REGISTER_ROOT_POINTER(mp_obj_t machine_dac_buffer_roots[2]);
 
 enum {
     MACHINE_DAC_MODE_NORMAL = 0,
@@ -56,15 +61,21 @@ enum {
 
 static machine_dac_obj_t machine_dac_obj[] = {
     #if defined(MICROPY_HW_DAC0)
-    {{&machine_dac_type}, 0, 0, 0, MICROPY_HW_DAC0, MP_OBJ_NULL},
+    {{&machine_dac_type}, 0, 0, 0, 0, MICROPY_HW_DAC0},
     #endif
     #if defined(MICROPY_HW_DAC1)
-    {{&machine_dac_type}, 0, 1, 0, MICROPY_HW_DAC1, MP_OBJ_NULL}
+    {{&machine_dac_type}, 0, 1, 0, 0, MICROPY_HW_DAC1}
     #endif
 };
 
 static uint16_t machine_dac_raw_to_mv(uint16_t raw) {
     return (uint16_t)((raw * 3300U) / 4095U);
+}
+
+static void machine_dac_buffer_root_set(machine_dac_obj_t *self, mp_obj_t obj) {
+    if (self->ch < 2U) {
+        MP_STATE_PORT(machine_dac_buffer_roots)[self->ch] = obj;
+    }
 }
 
 #if MICROPY_HW_ENABLE_IQ_ADC
@@ -85,7 +96,8 @@ static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[MACHINE_DAC_STREA
  * otherwise.  Both pulls write mid-scale on underrun so the stream never stops.  No
  * allocation, no Python (REQ-RT-002/003). */
 static bool machine_dac_iq_fill(void *ctx, uint16_t *buf, size_t n) {
-    uint8_t ch = (uint8_t)(uintptr_t)ctx;
+    machine_dac_obj_t *self = (machine_dac_obj_t *)ctx;
+    uint8_t ch = self->ch;
     if (ch == 1U) {
         ra_iq_adc_scope_pull_q(buf, n);
         return true;
@@ -97,13 +109,55 @@ static bool machine_dac_iq_fill(void *ctx, uint16_t *buf, size_t n) {
     ra_iq_adc_scope_push(buf, n);
     return true;
 }
+
+/* May run from the DMAC ISR after a runtime stream failure.  Withdraw Q immediately
+ * so an absent DAC1 cannot back-pressure the mono I producer.  The next explicit
+ * lifecycle operation performs the quiesced ring reset. */
+static void machine_dac_iq_stopped(void *ctx) {
+    machine_dac_obj_t *self = (machine_dac_obj_t *)ctx;
+    if (self->ch == 1U) {
+        ra_iq_adc_scope_q_consumer_stopped();
+    }
+    self->iq_stream = 0U;
+}
 #endif
 
-static void machine_dac_stop_stream(machine_dac_obj_t *self) {
-    if (ra_dac_stream_is_active(self->ch)) {
-        ra_dac_stream_stop(self->ch);
+static machine_dac_obj_t *machine_dac_find_channel(uint8_t ch) {
+    for (size_t i = 0; i < MP_ARRAY_SIZE(machine_dac_obj); ++i) {
+        if (machine_dac_obj[i].ch == ch) {
+            return &machine_dac_obj[i];
+        }
     }
-    self->buffer_obj = MP_OBJ_NULL;
+    return NULL;
+}
+
+static bool machine_dac_stop_one(machine_dac_obj_t *self) {
+    bool was_iq_stream = self->iq_stream != 0U;
+    if (!ra_dac_stream_stop(self->ch)) {
+        return false;
+    }
+    #if MICROPY_HW_ENABLE_IQ_ADC
+    if (was_iq_stream && self->ch == 1U) {
+        /* Full control-plane transition: flush I and Q to a common boundary. */
+        ra_iq_adc_scope_q_consumer(0U);
+    }
+    #endif
+    self->iq_stream = 0U;
+    machine_dac_buffer_root_set(self, MP_OBJ_NULL);
+    return true;
+}
+
+static bool machine_dac_stop_stream(machine_dac_obj_t *self) {
+    /* DAC0 is the I owner.  It may not be stopped/restarted while DAC1 keeps a
+     * stale Q stream alive: stop Q first, then I.  Stopping Q alone intentionally
+     * leaves DAC0 running as the supported mono mode. */
+    if (self->ch == 0U) {
+        machine_dac_obj_t *q = machine_dac_find_channel(1U);
+        if (q != NULL && q->iq_stream && !machine_dac_stop_one(q)) {
+            return false;
+        }
+    }
+    return machine_dac_stop_one(self);
 }
 
 static void machine_dac_raise_stream_error(machine_dac_obj_t *self, ra_dac_stream_status_t status) {
@@ -188,7 +242,9 @@ static mp_obj_t machine_dac_make_new(const mp_obj_type_t *type, size_t n_args, s
 static mp_obj_t machine_dac_deinit(mp_obj_t self_in) {
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-    machine_dac_stop_stream(self);
+    if (!machine_dac_stop_stream(self)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
     ra_dac_deinit(self->dac->pin, self->ch);
     self->active = ra_dac_is_running(self->ch);
     self->mv = 0;
@@ -205,7 +261,9 @@ static mp_obj_t machine_dac_write(mp_obj_t self_in, mp_obj_t data) { // mp_obj_t
         mp_raise_ValueError(MP_ERROR_TEXT("value should be 0-4095"));
     } else
     if (self->active) {
-        machine_dac_stop_stream(self);
+        if (!machine_dac_stop_stream(self)) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+        }
         ra_dac_write(self->ch, value);
         self->mv = machine_dac_raw_to_mv((uint16_t)value);
     }
@@ -230,7 +288,9 @@ static mp_obj_t machine_dac_write_mv(mp_obj_t self_in, mp_obj_t data) {  // mp_o
         mp_raise_ValueError(MP_ERROR_TEXT("value should be 0-3300"));
     } else
     if (self->active) {
-        machine_dac_stop_stream(self);
+        if (!machine_dac_stop_stream(self)) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+        }
         uint16_t Dout = (Vout * 4095) / 3300;
         ra_dac_write(self->ch, Dout);
         self->mv = machine_dac_raw_to_mv(Dout);
@@ -263,6 +323,10 @@ static mp_obj_t machine_dac_write_timed(size_t n_args, const mp_obj_t *pos_args,
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
+    if (args[ARG_freq].u_int <= 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("freq should be > 0"));
+    }
+
     mp_buffer_info_t bufinfo;
     mp_get_buffer_raise(args[ARG_data].u_obj, &bufinfo, MP_BUFFER_READ);
 
@@ -293,19 +357,27 @@ static mp_obj_t machine_dac_write_timed(size_t n_args, const mp_obj_t *pos_args,
     int timer_ch = -1;
     if (args[ARG_timer].u_obj != mp_const_none) {
         timer_ch = mp_obj_get_int(args[ARG_timer].u_obj);
-        if (timer_ch < 0) {
+        if (timer_ch < 0 || timer_ch > INT8_MAX) {
             mp_raise_ValueError(MP_ERROR_TEXT("invalid AGT timer"));
         }
     }
 
+    if (!machine_dac_stop_stream(self)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
+    /* Root before handing the raw pointer to C.  A hardware start can fail after
+     * partial setup and retain ownership for deferred cleanup. */
+    machine_dac_buffer_root_set(self, args[ARG_data].u_obj);
     ra_dac_stream_status_t status = ra_dac_write_timed(self->ch, (const uint16_t *)bufinfo.buf,
         sample_count, (uint32_t)args[ARG_freq].u_int, loop,
         (ra_dac_transfer_t)args[ARG_transfer].u_int, (int8_t)timer_ch);
     if (status != RA_DAC_STREAM_STATUS_OK) {
+        if (!ra_dac_stream_is_active(self->ch)) {
+            machine_dac_buffer_root_set(self, MP_OBJ_NULL);
+        }
         machine_dac_raise_stream_error(self, status);
     }
 
-    self->buffer_obj = args[ARG_data].u_obj;
     self->active = ra_dac_is_running(self->ch);
     self->mv = machine_dac_raw_to_mv(ra_dac_read(self->ch));
     return mp_const_none;
@@ -343,12 +415,28 @@ static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_m
         }
         freq = (uint32_t)f;
     }
+    if (freq == 0U) {
+        mp_raise_ValueError(MP_ERROR_TEXT("freq should be > 0"));
+    }
     if (sample_count == 0 || sample_count > (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2)) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid audio block"));
     }
 
     if (self->ch >= MACHINE_DAC_STREAM_CH) {
         mp_raise_ValueError(MP_ERROR_TEXT("channel cannot stream"));
+    }
+    if (self->ch == 1U) {
+        bool dac0_iq_active = false;
+        for (size_t i = 0; i < MP_ARRAY_SIZE(machine_dac_obj); ++i) {
+            machine_dac_obj_t *peer = &machine_dac_obj[i];
+            if (peer->ch == 0U && peer->iq_stream && ra_dac_stream_is_active(0U)) {
+                dac0_iq_active = true;
+                break;
+            }
+        }
+        if (!dac0_iq_active) {
+            mp_raise_ValueError(MP_ERROR_TEXT("DAC1 IQ stream needs DAC0 stream"));
+        }
     }
     uint16_t *buf_a = machine_dac_stream_buf_a[self->ch];
     uint16_t *buf_b = machine_dac_stream_buf_b[self->ch];
@@ -357,14 +445,52 @@ static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_m
         buf_b[i] = 2048U;
     }
 
-    ra_dac_stream_status_t status = ra_dac_write_timed_double_buffered(
-        self->ch, buf_a, buf_b, true,
-        sample_count, freq, machine_dac_iq_fill, (void *)(uintptr_t)self->ch, NULL, -1);
-    if (status != RA_DAC_STREAM_STATUS_OK) {
-        machine_dac_raise_stream_error(self, status);
+    if (!machine_dac_stop_stream(self)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
+    self->iq_stream = 1U;
+    uint32_t pair_primask = 0U;
+    bool pair_guard = self->ch == 1U;
+    if (pair_guard) {
+        /* Keep ADC and DAC refill callbacks quiescent from the ring-tail flush until
+         * both hardware DMACs have crossed the native pair-start barrier. */
+        pair_primask = __get_PRIMASK();
+        __disable_irq();
+    }
+    if (self->ch == 1U) {
+        /* Enable paired publication before DAC1 starts consuming.  This resets both
+         * rings at one boundary; mono DAC0 remains independent until this point. */
+        ra_iq_adc_scope_q_consumer(1U);
     }
 
-    self->buffer_obj = MP_OBJ_NULL;
+    ra_dac_stream_status_t status = ra_dac_write_timed_double_buffered(
+        self->ch, buf_a, buf_b, true,
+        sample_count, freq, machine_dac_iq_fill, machine_dac_iq_stopped, self, -1);
+    bool pair_synced = true;
+    if (status == RA_DAC_STREAM_STATUS_OK && self->ch == 1U) {
+        pair_synced = ra_dac_stream_sync_pair(0U, 1U);
+    }
+    if (pair_guard) {
+        __DMB();
+        __set_PRIMASK(pair_primask);
+    }
+    if (status != RA_DAC_STREAM_STATUS_OK) {
+        if (self->ch == 1U) {
+            ra_iq_adc_scope_q_consumer(0U);
+        }
+        self->iq_stream = 0U;
+        machine_dac_raise_stream_error(self, status);
+    }
+    if (!pair_synced) {
+        machine_dac_obj_t *i_owner = machine_dac_find_channel(0U);
+        bool stopped = i_owner != NULL ? machine_dac_stop_stream(i_owner) : machine_dac_stop_stream(self);
+        if (!stopped) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC I/Q sync cleanup timeout"));
+        }
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC I/Q sync failed"));
+    }
+
+    machine_dac_buffer_root_set(self, MP_OBJ_NULL);
     self->active = ra_dac_is_running(self->ch);
     self->mv = machine_dac_raw_to_mv(ra_dac_read(self->ch));
     return mp_const_none;
@@ -375,7 +501,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(machine_dac_stream_obj, 1, machine_dac_stream)
 // DAC.stop()
 static mp_obj_t machine_dac_stop(mp_obj_t self_in) {
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    machine_dac_stop_stream(self);
+    if (!machine_dac_stop_stream(self)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
     self->active = ra_dac_is_running(self->ch);
     self->mv = machine_dac_raw_to_mv(ra_dac_read(self->ch));
     return mp_const_none;
@@ -386,8 +514,22 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_dac_stop_obj, machine_dac_stop);
 static mp_obj_t machine_dac_playing(mp_obj_t self_in) {
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
     bool active = ra_dac_stream_is_active(self->ch);
+    #if MICROPY_HW_ENABLE_IQ_ADC
+    if (active && self->ch == 1U && self->iq_stream &&
+        ra_iq_adc_scope_q_consumer_active() == 0U) {
+        /* Q overflow/failure demotes the producer to mono so I cannot stall.
+         * Reflect that failover in playing(): stop the stale Q transport and let
+         * the UI's normal health poll perform an ordered DAC0->DAC1 restart. */
+        active = !machine_dac_stop_stream(self);
+    }
+    #endif
     if (!active) {
-        self->buffer_obj = MP_OBJ_NULL;
+        if (self->iq_stream) {
+            if (!machine_dac_stop_stream(self)) {
+                return mp_const_false;
+            }
+        }
+        machine_dac_buffer_root_set(self, MP_OBJ_NULL);
     }
     return mp_obj_new_bool(active);
 }
@@ -426,15 +568,20 @@ MP_DEFINE_CONST_OBJ_TYPE(
     );
 
 // Deinitialize all DAC instances
-void dac_deinit_all(void) {
+bool dac_deinit_all(void) {
+    bool all_stopped = true;
     for (int i = 0; i < MP_ARRAY_SIZE(machine_dac_obj); i++) {
+        if (!machine_dac_stop_stream(&machine_dac_obj[i])) {
+            all_stopped = false;
+            continue;
+        }
         if (machine_dac_obj[i].active) {
-            machine_dac_stop_stream(&machine_dac_obj[i]);
             ra_dac_deinit(machine_dac_obj[i].dac->pin, machine_dac_obj[i].ch);
             machine_dac_obj[i].active = 0;
             machine_dac_obj[i].mv = 0;
         }
     }
+    return all_stopped;
 }
 
 #endif // MICROPY_PY_MACHINE_DAC

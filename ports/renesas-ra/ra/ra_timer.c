@@ -62,6 +62,11 @@
 #define AGT_MODE_EVENT_COUNTER        (0x2U)
 #define AGT_MODE_PULSE_WIDTH          (0x3U)
 #define AGT_MODE_PULSE_PERIOD         (0x4U)
+/* Stop is synchronized to the AGT count clock.  At the slowest supported
+ * 32.768 kHz / 128 source, three cycles take 11.72 ms nominal (under 14 ms at
+ * the LOCO tolerance limit), so use a real-time bound rather than a CPU-spin
+ * count whose duration changes with compiler and core clock. */
+#define AGT_STOP_WAIT_MS              (20U)
 
 enum AGT_SOURCE {
     AGT_PCLKB = 0,
@@ -219,6 +224,8 @@ typedef struct _ra_agt_timer_state_t {
 
 static ra_agt_timer_state_t ra_agt_timer_state[AGT_CH_SIZE];
 static bool agt_reserved[AGT_CH_SIZE];
+static uint8_t agt_reserve_error[AGT_CH_SIZE];
+static void ra_agt_timer_module_start(uint32_t ch);
 
 typedef struct _ra_agt_output_pin_t {
     uint8_t timer;
@@ -290,46 +297,68 @@ bool ra_agt_timer_is_valid(uint32_t ch) {
 }
 
 bool ra_agt_timer_reserve(uint32_t ch) {
+    if (ch >= AGT_CH_SIZE) {
+        return false;
+    }
+    agt_reserve_error[ch] = 0U;
     #ifdef MICROPY_HW_AGT_RESERVED_MASK
     /* Board-level reservation: channels permanently owned by another
      * driver (e.g. LoRaWAN renesas stack on VK_RA4M2: AGT4/AGT5). Reject
      * before any state inspection so a stuck/half-open hardware state on
      * the LoRaWAN channels cannot accidentally be surfaced to Python. */
     if ((MICROPY_HW_AGT_RESERVED_MASK >> ch) & 1U) {
+        agt_reserve_error[ch] = 1U; /* board-reserved */
         return false;
     }
     #endif
-    if (ch >= AGT_CH_SIZE || agt_reserved[ch]) {
+    if (agt_reserved[ch]) {
+        agt_reserve_error[ch] = 2U; /* software reservation bit */
         return false;
     }
     // A live SOFTWARE owner means the channel is genuinely in use -> reject. These
     // checks come FIRST so a channel with no owner can be reclaimed below.
     ra_agt_timer_state_t *st = &ra_agt_timer_state[ch];
-    if (st->callback != NULL || st->freq != 0.0f || st->period_counts != 0U) {
+    if (st->callback != NULL) {
+        agt_reserve_error[ch] = 3U;
+        return false;
+    }
+    if (st->freq != 0.0f) {
+        agt_reserve_error[ch] = 4U;
+        return false;
+    }
+    if (st->period_counts != 0U) {
+        agt_reserve_error[ch] = 5U;
         return false;
     }
     if (st->input_enabled) {
+        agt_reserve_error[ch] = 6U;
         return false;
     }
     for (size_t i = 0; i < AGT_OUTPUT_CHANNELS; ++i) {
-        if (st->output_enabled[i] || st->compare_irq_enabled[i]) {
+        if (st->output_enabled[i]) {
+            agt_reserve_error[ch] = 7U;
+            return false;
+        }
+        if (st->compare_irq_enabled[i]) {
+            agt_reserve_error[ch] = 8U;
             return false;
         }
     }
-    // No software owner. If the hardware timer is still RUNNING it is an ORPHAN left
-    // by a session killed without deinit -- its running state (AGTCR.TCSTF) survives a
-    // warm reset, so reserve would otherwise reject it forever until a cold reset.
-    // Reclaim it: stop the count, then take the channel (init reconfigures it fully).
-    if (agt_regs[ch] != NULL && agt_regs[ch]->CTRL.AGTCR_b.TCSTF != 0U) {
-        agt_regs[ch]->CTRL.AGTCR_b.TSTART = 0U;         // request stop
-        for (uint32_t spin = 0U; spin < 10000U; ++spin) {
-            if (agt_regs[ch]->CTRL.AGTCR_b.TCSTF == 0U) {
-                break;                                   // counter has stopped
-            }
-        }
+    /* No software owner.  Reclaim any hardware state left by a session killed
+     * without deinit.  stop_wait() deliberately owns the module-clock ordering:
+     * AGT registers must not be read while MSTP is asserted, and deinit uses the
+     * same helper.  The pre-fix HIL diagnostic recorded reject code 9 on both
+     * AGT0 and AGT1 at this point. */
+    if (!ra_agt_timer_stop_wait(ch)) {
+        agt_reserve_error[ch] = 9U; /* normal + forced stop both failed */
+        return false;
     }
     agt_reserved[ch] = true;
     return true;
+}
+
+uint8_t ra_agt_timer_reserve_error(uint32_t ch) {
+    return ch < AGT_CH_SIZE ? agt_reserve_error[ch] : 0xffU;
 }
 
 void ra_agt_timer_release_reservation(uint32_t ch) {
@@ -594,55 +623,12 @@ static bool ra_agt_timer_set_period_internal(uint32_t ch, uint32_t period_counts
 }
 
 static void ra_agt_timer_module_start(uint32_t ch) {
-    #if defined(RA4M2)
-    if (ch < 4) {
-        static const uint32_t mstpcrd_masks[4] = {
-            R_MSTP_MSTPCRD_MSTPD3_Msk,
-            R_MSTP_MSTPCRD_MSTPD2_Msk,
-            R_MSTP_MSTPCRD_MSTPD1_Msk,
-            R_MSTP_MSTPCRD_MSTPD0_Msk,
-        };
-        ra_mstpcrd_start(mstpcrd_masks[ch]);
-    } else {
-        static const uint32_t mstpcre_masks[2] = {
-            R_MSTP_MSTPCRE_MSTPE15_Msk,
-            R_MSTP_MSTPCRE_MSTPE14_Msk,
-        };
-        ra_mstpcre_start(mstpcre_masks[ch - 4]);
-    }
-    #else
-    if (ch == 0) {
-        ra_mstpcrd_start(R_MSTP_MSTPCRD_MSTPD3_Msk);
-    } else {
-        ra_mstpcrd_start(R_MSTP_MSTPCRD_MSTPD2_Msk);
-    }
-    #endif
+    /* Canonical FSP operation: protected RMW plus posted-write readback. */
+    R_BSP_MODULE_START(FSP_IP_AGT, ch);
 }
 
 static void ra_agt_timer_module_stop(uint32_t ch) {
-    #if defined(RA4M2)
-    if (ch < 4) {
-        static const uint32_t mstpcrd_masks[4] = {
-            R_MSTP_MSTPCRD_MSTPD3_Msk,
-            R_MSTP_MSTPCRD_MSTPD2_Msk,
-            R_MSTP_MSTPCRD_MSTPD1_Msk,
-            R_MSTP_MSTPCRD_MSTPD0_Msk,
-        };
-        ra_mstpcrd_stop(mstpcrd_masks[ch]);
-    } else {
-        static const uint32_t mstpcre_masks[2] = {
-            R_MSTP_MSTPCRE_MSTPE15_Msk,
-            R_MSTP_MSTPCRE_MSTPE14_Msk,
-        };
-        ra_mstpcre_stop(mstpcre_masks[ch - 4]);
-    }
-    #else
-    if (ch == 0) {
-        ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD3_Msk);
-    } else {
-        ra_mstpcrd_stop(R_MSTP_MSTPCRD_MSTPD2_Msk);
-    }
-    #endif
+    R_BSP_MODULE_STOP(FSP_IP_AGT, ch);
 }
 
 void ra_agt_timer_set_callback(uint32_t ch, AGT_TIMER_CB cb, void *param) {
@@ -775,6 +761,37 @@ void ra_agt_timer_stop(uint32_t ch) {
         return;
     }
     agt_regs[ch]->CTRL.AGTCR_b.TSTART = 0; /* stop counter */
+}
+
+bool ra_agt_timer_stop_wait(uint32_t ch) {
+    if (!ra_agt_timer_is_valid(ch)) {
+        return false;
+    }
+
+    /* Register access is not guaranteed while the AGT module-stop bit is set.
+     * Keep this ordering inside the common helper so reserve, checked teardown,
+     * and future callers cannot read a frozen TCSTF value or issue an ignored
+     * TSTART write. */
+    ra_agt_timer_module_start(ch);
+    __DSB();
+
+    agt_regs[ch]->CTRL.AGTCR_b.TSTART = 0U; /* request synchronized stop */
+    __DSB();
+    for (uint32_t elapsed_ms = 0U; elapsed_ms < AGT_STOP_WAIT_MS; ++elapsed_ms) {
+        if (agt_regs[ch]->CTRL.AGTCR_b.TCSTF == 0U) {
+            return true;
+        }
+        R_BSP_SoftwareDelay(1U, BSP_DELAY_UNITS_MILLISECONDS);
+    }
+    if (agt_regs[ch]->CTRL.AGTCR_b.TCSTF == 0U) {
+        return true;
+    }
+
+    /* Do not pretend an MSTP toggle resets AGT: the module retains its state.
+     * TSTOP also completes only on the selected count source and forbids AGT
+     * register access until that cycle occurs.  If the source is absent, no
+     * finite CPU delay proves recovery, so preserve ownership and fail closed. */
+    return false;
 }
 
 bool ra_agt_timer_set_freq_ex(uint32_t ch, float freq, ra_agt_clock_source_t clk_src) {
@@ -1138,21 +1155,34 @@ void ra_agt_timer_init(uint32_t ch, float freq) {
     R_BSP_IrqCfgEnable(ch_to_irq[ch], RA_PRI_TIM5, NULL);
 }
 
-void ra_agt_timer_deinit(uint32_t ch) {
+bool ra_agt_timer_deinit_checked(uint32_t ch) {
     if (!ra_agt_timer_is_valid(ch)) {
-        return;
+        return false;
     }
     for (uint32_t output = 1; output <= AGT_OUTPUT_CHANNELS; ++output) {
         ra_agt_timer_set_compare_irq(ch, output, false);
     }
     R_BSP_IrqDisable(ch_to_irq[ch]);
     R_BSP_IrqStatusClear(ch_to_irq[ch]);
-    ra_agt_timer_stop(ch);
+    /* TSTART is synchronized to the AGT count clock.  Do not gate the module
+     * clock while TCSTF is still asserted: doing so freezes a half-completed
+     * stop and makes the next bounded reservation correctly reject the channel. */
+    if (!ra_agt_timer_stop_wait(ch)) {
+        /* Keep the software owner and reservation intact.  A caller that owns
+         * memory reachable from this timer can now force a hardware reset rather
+         * than letting another subsystem claim a still-running channel. */
+        return false;
+    }
     ra_agt_timer_release_input_pin(ch);
     ra_agt_timer_release_all_output_pins(ch);
     ra_agt_timer_release_reservation(ch);
     memset(&ra_agt_timer_state[ch], 0, sizeof(ra_agt_timer_state[ch]));
     ra_agt_timer_module_stop(ch);
+    return true;
+}
+
+void ra_agt_timer_deinit(uint32_t ch) {
+    (void)ra_agt_timer_deinit_checked(ch);
 }
 
 void ra_port_agt_int_isr(void) {

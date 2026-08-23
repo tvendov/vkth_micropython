@@ -73,7 +73,9 @@ static mp_obj_t machine_audioadc_make_new(const mp_obj_type_t *type,
     machine_audioadc_obj_t *self = &machine_audioadc_obj;
 
     if (self->active) {
-        ra_storm_adc_deinit();
+        if (!ra_storm_adc_deinit_checked()) {
+            mp_raise_OSError(MP_EIO);
+        }
         self->active = false;
     }
 
@@ -150,12 +152,26 @@ static MP_DEFINE_CONST_FUN_OBJ_2(machine_audioadc_read_f32_obj, machine_audioadc
 static mp_obj_t machine_audioadc_deinit(mp_obj_t self_in) {
     machine_audioadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->active) {
-        ra_storm_adc_deinit();
+        if (!ra_storm_adc_deinit_checked()) {
+            mp_raise_OSError(MP_EIO);
+        }
         self->active = false;
     }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_audioadc_deinit_obj, machine_audioadc_deinit);
+
+/* Static singleton cleanup for the soft-reset boundary.  This releases both
+ * its AGT reservation and the ADC0_SCAN_END DTC activation vector. */
+bool machine_audioadc_deinit_all(void) {
+    /* Call through even when Python never reached active=true: a failed
+     * constructor may still own an AGT, ADC or DTC activation vector. */
+    if (!ra_storm_adc_deinit_checked()) {
+        return false;
+    }
+    machine_audioadc_obj.active = false;
+    return true;
+}
 
 /* ------------------------------------------------------------------ */
 /* Type                                                                 */

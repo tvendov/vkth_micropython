@@ -300,10 +300,16 @@ static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
         self->requested_timer_ch);
 
     if (status != RA_DAC_STREAM_STATUS_OK) {
-        audiomixer_root_clear(self);
-        self->output_active = false;
-        self->timer_ch = self->requested_timer_ch;
-        ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
+        /* A bounded hardware cleanup may fail closed while the low-level state
+         * still owns this context and its buffers.  Keep the mixer rooted until a
+         * later stop/is_active retry completes the Close. */
+        bool ownership_retained = ra_dac_stream_is_active(self->dac_ch);
+        self->output_active = ownership_retained;
+        if (!ownership_retained) {
+            audiomixer_root_clear(self);
+            self->timer_ch = self->requested_timer_ch;
+            ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
+        }
         return false;
     }
 
@@ -312,13 +318,15 @@ static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
     return true;
 }
 
-static void audiomixer_stop_output_locked(audiomixer_mixer_obj_t *self, bool center_output) {
+static bool audiomixer_stop_output_locked(audiomixer_mixer_obj_t *self, bool center_output) {
     if (self == NULL) {
-        return;
+        return false;
     }
 
     if (self->output_active || ra_dac_stream_is_active(self->dac_ch)) {
-        ra_dac_stream_stop(self->dac_ch);
+        if (!ra_dac_stream_stop(self->dac_ch)) {
+            return false;
+        }
     }
 
     self->output_active = false;
@@ -327,6 +335,7 @@ static void audiomixer_stop_output_locked(audiomixer_mixer_obj_t *self, bool cen
     if (center_output) {
         ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
     }
+    return true;
 }
 
 static void audiomixer_stop_all_voices_locked(audiomixer_mixer_obj_t *self) {
@@ -335,20 +344,39 @@ static void audiomixer_stop_all_voices_locked(audiomixer_mixer_obj_t *self) {
     }
 }
 
-static void audiomixer_mixer_cleanup(audiomixer_mixer_obj_t *self) {
+static bool audiomixer_mixer_cleanup(audiomixer_mixer_obj_t *self) {
     if (self == NULL) {
-        return;
+        return false;
     }
 
     mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
     audiomixer_stop_all_voices_locked(self);
     MICROPY_END_ATOMIC_SECTION(atomic_state);
-    audiomixer_stop_output_locked(self, true);
+    if (!audiomixer_stop_output_locked(self, true)) {
+        return false;
+    }
 
     if (!self->deinitialized) {
         ra_dac_deinit(self->dac_pin, self->dac_ch);
         self->deinitialized = true;
     }
+    return true;
+}
+
+/* Soft-reset hook: mixer buffers and callback contexts live on the GC heap and
+ * must be detached from DMAC before mp_deinit can sweep them. */
+bool audiomixer_deinit_all(void) {
+    bool all_stopped = true;
+    for (size_t ch = 0U; ch < AUDIOMIXER_DAC_MAX; ++ch) {
+        mp_obj_t active = MP_STATE_PORT(audiomixer_active_mixers)[ch];
+        if (active != MP_OBJ_NULL) {
+            audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(active);
+            if (!audiomixer_mixer_cleanup(self)) {
+                all_stopped = false;
+            }
+        }
+    }
+    return all_stopped;
 }
 
 static void audiomixer_raise_busy(void) {
@@ -518,7 +546,9 @@ static mp_obj_t audiomixer_mixer_stop(mp_obj_t self_in) {
     mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
     audiomixer_stop_all_voices_locked(self);
     MICROPY_END_ATOMIC_SECTION(atomic_state);
-    audiomixer_stop_output_locked(self, true);
+    if (!audiomixer_stop_output_locked(self, true)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_stop_obj, audiomixer_mixer_stop);
@@ -534,7 +564,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_playing_obj, audiomixer_mixer_
 
 static mp_obj_t audiomixer_mixer_deinit(mp_obj_t self_in) {
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiomixer_mixer_cleanup(self);
+    if (!audiomixer_mixer_cleanup(self)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_deinit_obj, audiomixer_mixer_deinit);
@@ -650,7 +682,9 @@ static mp_obj_t audiomixer_voice_stop(mp_obj_t self_in) {
     }
     MICROPY_END_ATOMIC_SECTION(atomic_state);
     if (!any_voice_active) {
-        audiomixer_stop_output_locked(mixer, true);
+        if (!audiomixer_stop_output_locked(mixer, true)) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+        }
     }
     return mp_const_none;
 }

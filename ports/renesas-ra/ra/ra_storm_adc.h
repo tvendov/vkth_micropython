@@ -25,6 +25,7 @@ typedef struct {
 
 bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_samples);
 void ra_storm_adc_deinit(void);
+bool ra_storm_adc_deinit_checked(void);
 bool ra_storm_adc_start(void);
 void ra_storm_adc_stop(void);
 bool ra_storm_adc_ready(void);

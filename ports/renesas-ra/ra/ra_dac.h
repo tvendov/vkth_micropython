@@ -57,6 +57,7 @@ typedef enum {
     RA_DAC_HW_STAGE_DTC_OPEN = 4,
     RA_DAC_HW_STAGE_DTC_ENABLE = 5,
     RA_DAC_HW_STAGE_DMAC_RUNTIME = 6,
+    RA_DAC_HW_STAGE_AGT_RUNTIME = 7,
 } ra_dac_hw_stage_t;
 
 typedef bool (*ra_dac_stream_double_buffer_fill_t)(void *context, uint16_t *buf, size_t sample_count);
@@ -75,7 +76,13 @@ ra_dac_stream_status_t ra_dac_write_timed(uint8_t ch, const uint16_t *buf, size_
 ra_dac_stream_status_t ra_dac_write_timed_double_buffered(uint8_t ch, uint16_t *buf_a, uint16_t *buf_b,
     bool buf_b_ready, size_t sample_count, uint32_t freq, ra_dac_stream_double_buffer_fill_t fill_cb,
     ra_dac_stream_double_buffer_stop_t stop_cb, void *context, int8_t timer_ch);
-void ra_dac_stream_stop(uint8_t ch);
+/* Re-arm two already-open double-buffered DMAC streams at buffer index 0 while
+ * their common AGT is stopped, then start that AGT once.  This is the physical
+ * sample-index barrier required for coherent DAC0=I / DAC1=Q output. */
+bool ra_dac_stream_sync_pair(uint8_t ch_a, uint8_t ch_b);
+/* Stop and release a stream.  False means hardware did not acknowledge the
+ * bounded quiesce; ownership is retained so a later stop can retry safely. */
+bool ra_dac_stream_stop(uint8_t ch);
 bool ra_dac_stream_is_active(uint8_t ch);
 int8_t ra_dac_stream_timer(uint8_t ch);
 ra_dac_hw_stage_t ra_dac_stream_last_stage(uint8_t ch);

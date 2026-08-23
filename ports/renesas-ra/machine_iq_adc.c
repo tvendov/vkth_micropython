@@ -36,6 +36,7 @@
 #include "pin.h"
 #include "ra/ra_adc.h"
 #include "ra/ra_iq_adc.h"
+#include "ra/ra_timer.h"
 #include "ra/ra_sdr_caps.h"
 
 /* ------------------------------------------------------------------ */
@@ -154,7 +155,10 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
     machine_iqadc_obj_t *self = &machine_iqadc_obj;
 
     if (self->active) {
-        ra_iq_adc_deinit();
+        if (!ra_iq_adc_deinit_checked()) {
+            mp_printf(&mp_plat_print, "IQADC_PRE_DEINIT_FAIL\n");
+            mp_raise_OSError(MP_EIO);
+        }
         self->active = false;
     }
 
@@ -167,6 +171,10 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
     if (!ra_iq_adc_init(self->i_pin, self->q_pin, self->rate, self->block,
                         (ra_adc_pga_mode_t)args[ARG_pga].u_int,
                         (uint8_t)args[ARG_gain].u_int)) {
+        mp_printf(&mp_plat_print, "IQADC_INIT_FAIL:%s\n", ra_iq_adc_init_error_name());
+        mp_printf(&mp_plat_print, "IQADC_AGT_REJECT:%u,%u\n",
+            (unsigned)ra_agt_timer_reserve_error(0U),
+            (unsigned)ra_agt_timer_reserve_error(1U));
         mp_raise_OSError(MP_EIO);
     }
 
@@ -880,12 +888,26 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_spectrum_info_obj, machine_iqadc_
 static mp_obj_t machine_iqadc_deinit(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->active) {
-        ra_iq_adc_deinit();
+        if (!ra_iq_adc_deinit_checked()) {
+            mp_raise_OSError(MP_EIO);
+        }
         self->active = false;
     }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_deinit_obj, machine_iqadc_deinit);
+
+/* The object is a static singleton, so GC finalisation cannot provide the
+ * hardware lifecycle boundary.  main.c calls this before timer_deinit() on a
+ * soft reset; DAC consumers have already been quiesced at that point. */
+bool machine_iqadc_deinit_all(void) {
+    /* Also drains a partially constructed low-level singleton. */
+    if (!ra_iq_adc_deinit_checked()) {
+        return false;
+    }
+    machine_iqadc_obj.active = false;
+    return true;
+}
 
 /* ------------------------------------------------------------------ */
 /* Type                                                                 */
