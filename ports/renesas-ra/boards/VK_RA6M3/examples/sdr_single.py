@@ -21,7 +21,10 @@ _KEEP = {}
 _VERIFY_SCROLL_STEP = 31       # one complete VERIFY row per atomic transaction
 
 
-# SDRangel File Input v1.  The two 8-KiB buffers are allocated in start(), before
+# SDRangel File Input v1.  /flash/test.sdriq remains the backwards-compatible
+# default used by the transport HIL; TESTER passes an explicit allow-listed path
+# for the AM/USB/LSB/CW receiver bank.  The two 8-KiB buffers are allocated in
+# start(), before
 # the LVGL tree fragments the MicroPython heap, then rooted on SdrApp for its full
 # lifetime.  The native IQADC player owns only borrowed buffer pointers; Python
 # performs file I/O from a scheduled callback, never from the ADC/DSP interrupt.
@@ -83,6 +86,7 @@ class _IqFileSource:
         self.sample_bits = 0
         self.center_hz = 0
         self.timestamp_ms = 0
+        self.path = _IQ_FILE_PATH
         self.error = None
         self.eof = False
         self._file_free_state = 0
@@ -159,7 +163,7 @@ class _IqFileSource:
         self._payload_bytes = payload
         self._total_samples = payload // 4
 
-    def start(self, iq, point, expected_rate, loop):
+    def start(self, iq, point, expected_rate, loop, path=_IQ_FILE_PATH):
         """Validate, attach, synchronously prefill both FREE buffers, then start."""
         self.stop()
         self.error = None
@@ -172,6 +176,7 @@ class _IqFileSource:
         self.sample_bits = 0
         self.center_hz = 0
         self.timestamp_ms = 0
+        self.path = path
         if iq is None:
             self.error = "RX is off"
             raise RuntimeError(self.error)
@@ -192,7 +197,7 @@ class _IqFileSource:
         self._file_free_state = states[0]
         f = None
         try:
-            f = open(_IQ_FILE_PATH, "rb")
+            f = open(path, "rb")
             self._read_header(f, expected_rate)
             if loop and self._payload_bytes < len(self._bufs[0]):
                 raise ValueError("SDRIQ LOOP NEEDS >=%d PAYLOAD BYTES" %
@@ -1541,12 +1546,31 @@ class SdrApp:
         # there is no Python sample timer.
         self._inj_ampl = 500
         self._inj_on = False
-        self._inj_point = 0          # 0=raw IN, 1=post-IQ-correction MID, 2=post-filter OUT
+        self._inj_point = 0          # 0=raw IN, 1=movable 24-kS/s MID, 2=post-filter OUT
+        self._inj_mid = 1            # _INJ_MIDS index; default NCO preserves legacy MID
         self._inj_mode = 0           # index into _INJ_PRESETS (AM/USB/LSB/CW/IQ)
         self._inj_wave = 0           # SIN/SQR/TRI/PULSE; PULSE also uses the 2-Hz gate
         self._inj_live = False       # deterministic C phase jitter for a live scope trace
-        self._inj_prev_scope = None  # route replaced by TESTER's stage-5 I/Q observation
+        # TESTER never rewrites SCOPE: no route means normal mono demod audio;
+        # a selected complex block gives DA0=I/DA1=Q; a selected audio block is mono.
+        self._inj_prev_scope = None  # retained only for fail-safe legacy restoration
         self._inj_source = 0         # 0=native generator, 1=/flash/test.sdriq player
+        self._iq_file_preset = 0     # independent FILE bank selection
+        # Real off-air recordings are optional local assets.  Expose R:* only when
+        # every paired 48/24-kS/s file is present; the project-owned four always work.
+        real_bank = True
+        for _profile in self._IQ_FILE_REAL_PRESETS:
+            for _path in (_profile[2], _profile[3]):
+                try:
+                    _probe = open(_path, "rb")
+                    _probe.close()
+                except OSError:
+                    real_bank = False
+                    break
+            if not real_bank:
+                break
+        self._iq_file_profiles = (self._IQ_FILE_PRESETS +
+                                  (self._IQ_FILE_REAL_PRESETS if real_bank else ()))
         self._iq_file_loop = True
         self._iq_file_ui_pct = -1
         if iq_file_mem is None:
@@ -1569,11 +1593,13 @@ class SdrApp:
         self._kernels = {"dec_kernel": 0, "hil_kernel": 0,
                          "chf_kernel": 0, "mag_kernel": 0}
         # Per-block DSP verification table (bench-only, never persisted). _blk_on maps
-        # block id 1..11 -> bool (all True = every block active by default). _scope_id is
+        # block id 1..11 -> bool. PGA is fixed BYP because this app constructs IQADC with
+        # PGA_BYPASS; the remaining processing blocks start active. _scope_id is
         # the ONE block whose output is routed to the DAC(s) via iq.scope() (0 = none).
         # _tap_stage (0..3) stays the one-of UART tap; only blocks 2/4/5 map to stages
         # 1/2/3, every other block's tap control is rendered disabled (firmware has no tap).
         self._blk_on = {i: True for i in range(1, 12)}
+        self._blk_on[1] = False
         self._scope_id = 0
         self._tap_id = 0             # block id currently holding the one-of UART tap (0 = none)
         self._set_lbls = {}
@@ -2540,6 +2566,20 @@ class SdrApp:
                     ("LSB", "LSB", "INJECT_LSB", 1500, 0, 0),
                     ("CW", "CW", "INJECT_CW", 10, 10, 0),
                     ("IQ", None, "INJECT_IQ", 1000, 0, 0))
+    # label, receiver mode, 48-kS/s IN asset, 24-kS/s MID/OUT asset.  The first
+    # four entries are deterministic project-owned vectors.  R:* entries are
+    # optional local conversions of real ZS-1 recordings and are never embedded
+    # in firmware or committed as third-party sample data.
+    _IQ_FILE_PRESETS = (
+        ("AM", "AM", "/flash/iqbank/am48.sdriq", "/flash/iqbank/am24.sdriq"),
+        ("USB", "USB", "/flash/iqbank/usb48.sdriq", "/flash/iqbank/usb24.sdriq"),
+        ("LSB", "LSB", "/flash/iqbank/lsb48.sdriq", "/flash/iqbank/lsb24.sdriq"),
+        ("CW", "CW", "/flash/iqbank/cw48.sdriq", "/flash/iqbank/cw24.sdriq"))
+    _IQ_FILE_REAL_PRESETS = (
+        ("R:AM", "AM", "/flash/iqbank/zam48.sdriq", "/flash/iqbank/zam24.sdriq"),
+        ("R:USB", "USB", "/flash/iqbank/zusb48.sdriq", "/flash/iqbank/zusb24.sdriq"),
+        ("R:LSB", "LSB", "/flash/iqbank/zlsb48.sdriq", "/flash/iqbank/zlsb24.sdriq"),
+        ("R:CW", "CW", "/flash/iqbank/zcw48.sdriq", "/flash/iqbank/zcw24.sdriq"))
     # PULSE is the firmware's sinusoidal analytic source under the existing 2-Hz,
     # 50-percent outer gate.  SQUARE/TRIANGLE are band-limited analytic waveforms.
     _INJ_WAVES = (("SIN", "INJECT_WAVE_SINE", 0),
@@ -2549,6 +2589,13 @@ class SdrApp:
     _INJ_POINTS = (("IN", "INJECT_POINT_IN"),
                    ("MID", "INJECT_POINT_MID"),
                    ("OUT", "INJECT_POINT_OUT"))
+    # Movable MID is still the one 24-kS/s high-level point.  inject_mid() selects
+    # which complex block receives it: immediately before IQ correction, NCO or CHF.
+    # Index 1/NCO is the legacy boundary and therefore remains safe on old firmware.
+    _INJ_MIDS = (("IQC", "INJECT_MID_IQCORR"),
+                 ("NCO", "INJECT_MID_NCO"),
+                 ("CHF", "INJECT_MID_CHFILT"))
+    _INJ_MID_DEFAULT = 1
     _DEMOD_MODES = ("AM", "USB", "LSB", "CW", "THRU")
     _TAP_STAGES = ("OFF", "decim", "nco", "chfilt")
     # The 11-block DSP chain: (id, name, complex?). Pre-demod blocks 1..5 are complex
@@ -2741,8 +2788,8 @@ class SdrApp:
                 return False, None
 
         # -- TESTER source | point | generator/file controls | ON --
-        # The three injection points stay in the complex path: IN replaces raw ADC I/Q,
-        # MID is after decimation/DC/IQ correction, and OUT is after the channel filter.
+        # The three injection classes stay in the complex path: IN replaces raw ADC I/Q,
+        # movable MID enters before IQCORR/NCO/CHF, and OUT is after the channel filter.
         # C publishes point+waveform+generator parameters as one block-atomic tuple.
         # Tapping the left chip selects GEN or FILE without spending another row.
         irow = _base(lv.obj(scr))
@@ -2751,8 +2798,10 @@ class SdrApp:
               lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, 6)
         isb, isl = _sbtn(irow, "TESTER GEN", 82, 12, CYAN_RX)
         ig = _grp(irow, 370)
-        point_name = self._INJ_POINTS[self._inj_point][0]
-        mode_name = self._INJ_PRESETS[self._inj_mode][0]
+        point_name = self._tester_point_label()
+        mode_name = (self._iq_file_profiles[self._iq_file_preset][0]
+                     if self._inj_source else
+                     self._INJ_PRESETS[self._inj_mode][0])
         wave_name = self._INJ_WAVES[self._inj_wave][0]
         ipb, ipl = _sbtn(ig, point_name, 46, 12, DARK_TXT)
         ipb.set_style_bg_color(lv.color_hex(CYAN_RX), 0)
@@ -2778,22 +2827,6 @@ class SdrApp:
                                         iwb, iwl, ilb, ill, iamp,
                                         idn, idnl, iup, iupl, itg, itgl)
 
-        def tester_scope(stage):
-            """Route the DAC pair and keep the one-of SCOPE paint coherent."""
-            previous = self._scope_id
-            if previous == stage:
-                return True
-            if not self.be.set_scope(stage):
-                return False
-            self._scope_id = stage
-            blocks = self._set_widgets.get("blocks")
-            if blocks:
-                if previous and previous in blocks:
-                    _scope_paint(previous, False)
-                if stage and stage in blocks:
-                    _scope_paint(stage, True)
-            return True
-
         def inj_apply():
             iq = self.be.iq
             fn = getattr(iq, "inject", None) if iq is not None else None
@@ -2806,19 +2839,8 @@ class SdrApp:
                     except Exception as e:
                         self.be.err = "inject: %r" % (e,)
                         ok = False
-                if iq is not None:
-                    mode = self.p["m"]
-                    if not self.be.set_mode(mode):   # restore receiver DSP settings
-                        ok = False
-                    if not self.be.set_bandwidth(
-                            self.p["bw"].get(mode, MODE_BW[mode])):
-                        ok = False
-                if self._inj_prev_scope is not None:
-                    restore = self._inj_prev_scope
-                    if tester_scope(restore):
-                        self._inj_prev_scope = None
-                    else:
-                        ok = False
+                if not self._restore_tester_receiver():
+                    ok = False
                 return ok
             if iq is None:
                 self.be.err = "test source unavailable (RX off)"
@@ -2835,12 +2857,14 @@ class SdrApp:
                 self.be.err = "test point: %r" % (e,)
                 return False
 
-            # Stage 5 is the common post-channel-filter complex output for either
-            # source: DA0=I, DA1=Q.  Restore the displaced route on OFF/error/EOF.
-            if self._inj_prev_scope is None:
-                self._inj_prev_scope = self._scope_id
-            if not tester_scope(5):
+            # Publish the movable internal boundary before either native source starts.
+            # Old firmware has the fixed pre-NCO MID and remains valid only for M:NCO.
+            if not self._configure_inject_mid(iq):
                 return False
+
+            # Do not force stage-5 I/Q here.  The one-of SCOPE column is the output
+            # selector: OFF runs the selected demodulator to mono DAC audio, a
+            # pre-demod block sends I/Q to DA0/DA1, and an audio block sends mono.
 
             if self._inj_source:
                 # The native sources are mutually exclusive.  Disable GEN before
@@ -2852,9 +2876,18 @@ class SdrApp:
                         self.be.err = "inject off: %r" % (e,)
                         return False
                 expected_rate = IQ_RATE if self._inj_point == 0 else IQ_RATE // 2
+                profile = self._iq_file_profiles[self._iq_file_preset]
+                _name, receiver_mode, path48, path24 = profile
                 try:
+                    if not self.be.set_mode(receiver_mode):
+                        return False
+                    if not self.be.set_bandwidth(
+                            self.p["bw"].get(receiver_mode,
+                                             MODE_BW[receiver_mode])):
+                        return False
+                    path = path48 if expected_rate == IQ_RATE else path24
                     self._iq_file.start(iq, point, expected_rate,
-                                        self._iq_file_loop)
+                                        self._iq_file_loop, path)
                     self._iq_file_ui_pct = -1
                     self.be.err = None
                     return True
@@ -2909,6 +2942,15 @@ class SdrApp:
 
         def inj_mode_cb(e):
             if self._inj_source:
+                if self._inj_on:
+                    return
+                self._iq_file_preset = ((self._iq_file_preset + 1) %
+                                        len(self._iq_file_profiles))
+                self._iq_file.error = None
+                self._iq_file.sample_rate = 0
+                self._iq_file.sample_bits = 0
+                self._iq_file_ui_pct = -1
+                inj_paint()
                 return
             self._inj_mode = (self._inj_mode + 1) % len(self._INJ_PRESETS)
             if self._INJ_PRESETS[self._inj_mode][0] == "AM" and self._inj_ampl > 1000:
@@ -2962,13 +3004,14 @@ class SdrApp:
             if self._inj_on:                 # borrowed pointers/point stay immutable
                 return
             self._inj_source = 1 - self._inj_source
+            self._iq_file.error = None
+            self._iq_file.sample_rate = 0
+            self._iq_file.sample_bits = 0
             self._iq_file_ui_pct = -1
             inj_paint()
 
         def inj_tg_cb(e):
             want_on = not self._inj_on
-            if want_on and self._inj_prev_scope is None:
-                self._inj_prev_scope = self._scope_id
             self._inj_on = want_on
             if not inj_apply():
                 error = self.be.err
@@ -2987,12 +3030,14 @@ class SdrApp:
             b.add_event_cb(_iac, lv.EVENT.CLICKED, None)
             cbs.append(_iac)
 
-        # column header above the scrollable block table (name | ON | TAP | ->DAC)
+        # Column header above the scrollable block table. PROC is deliberately not
+        # called ON/OFF: BYP means a direct short to the next block, never signal stop.
         hdr = _base(lv.obj(scr))
         hdr.set_size(464, 16)
         _flex(hdr, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER,
               lv.FLEX_ALIGN.CENTER, 0)
-        for txt, wpx in (("BLOCK", 176), ("ON", 62), ("TAP", 92), ("SCOPE", 92)):
+        for txt, wpx in (("MID / BLOCK", 176), ("PROC", 62),
+                         ("TAP", 92), ("SCOPE", 92)):
             hl = lv.label(hdr)
             hl.set_text(txt)
             hl.set_size(wpx, 14)
@@ -3044,10 +3089,12 @@ class SdrApp:
             r.set_size(448, 28)
             return r
 
-        # blk_w[id] = (row, on_btn, on_lbl, scope_btn, scope_lbl, tap_btn, tap_lbl)
-        # so _refresh_settings can repaint every ON/OFF, the one-of scope and one-of tap.
+        # blk_w[id] = (row, proc_btn, proc_lbl, scope_btn, scope_lbl, tap_btn, tap_lbl)
+        # so _refresh_settings can repaint every ON/BYP, the one-of scope and one-of tap.
         blk_w = {}
         self._set_widgets["blocks"] = blk_w
+        mid_labels = {}
+        self._set_widgets["mid_labels"] = mid_labels
 
         def _scope_paint(bid, on):
             r, _ob, _ol, sb, sl, _tb, _tl = blk_w[bid]
@@ -3063,21 +3110,42 @@ class SdrApp:
         for bid, name, cplx in self._BLOCKS:
             r = _brow()
             nl = lv.label(r)
-            nl.set_text(name)
+            mid_idx = bid - 3 if 3 <= bid <= 5 else -1
+            nl.set_text((("[x] " if mid_idx == self._inj_mid else "[ ] ") + name)
+                        if mid_idx >= 0 else name)
             nl.set_size(168, 20)
             nl.add_style(st["name"], 0)
+            if mid_idx >= 0:
+                # Reuse the existing name label as the one-of radio: zero new LVGL
+                # widgets and no extra row. The mark means "inject BEFORE this block".
+                mid_labels[bid] = (nl, name, mid_idx)
+                if not self._inj_on:
+                    nl.add_flag(lv.obj.FLAG.CLICKABLE)
 
+                def mid_cb(e, idx=mid_idx):
+                    if self._inj_on:
+                        return
+                    self._inj_mid = idx
+                    self._inj_point = 1
+                    self._paint_tester()
+                nl.add_event_cb(mid_cb, lv.EVENT.CLICKED, None)
+                cbs.append(mid_cb)
+
+            fixed_pga = bid == 1
             safety_limiter = bid == 11
-            on0 = True if safety_limiter else self._blk_on.get(bid, True)
-            ob, ol = _sbtn(r, "SAFE" if safety_limiter else ("ON" if on0 else "OFF"),
-                           58, 12, GRAY2 if safety_limiter else
+            on0 = True if safety_limiter else (False if fixed_pga else
+                                                self._blk_on.get(bid, True))
+            proc_text = "SAFE" if safety_limiter else ("ON" if on0 else "BYP")
+            ob, ol = _sbtn(r, proc_text, 58, 12,
+                           GRAY2 if (fixed_pga or safety_limiter) else
                            (DARK_TXT if on0 else WHITE))
             ob.set_style_bg_color(
-                lv.color_hex(PANEL2 if safety_limiter else
+                lv.color_hex(PANEL2 if (fixed_pga or safety_limiter) else
                              (GREEN if on0 else PANEL2)), 0)
-            if safety_limiter:
+            if fixed_pga or safety_limiter:
                 # The DAC-range clamp is intentionally unconditional in C.  Keep its
                 # SCOPE route, but never claim that this safety boundary can be bypassed.
+                # PGA is likewise read-only: IQADC was constructed in PGA_BYPASS.
                 ob.remove_flag(lv.obj.FLAG.CLICKABLE)
 
             tap_stage = self._BLK_TAP.get(bid, 0)   # 0 => this block has no firmware tap
@@ -3092,16 +3160,19 @@ class SdrApp:
 
             blk_w[bid] = (r, ob, ol, sb, sl, tb2, tl)
 
-            if not safety_limiter:
+            if not fixed_pga and not safety_limiter:
                 def on_cb(e, i=bid, b=ob, bl=ol):
                     v = 0 if self._blk_on.get(i, True) else 1
-                    ok, _ = iq_call("block", i, v)
+                    ok, current = iq_call("block", i, v)
                     if not ok:
                         return
-                    self._blk_on[i] = bool(v)
-                    bl.set_text("ON" if v else "OFF")
-                    bl.set_style_text_color(lv.color_hex(DARK_TXT if v else WHITE), 0)
-                    b.set_style_bg_color(lv.color_hex(GREEN if v else PANEL2), 0)
+                    actual = bool(v if current is None else current)
+                    self._blk_on[i] = actual
+                    bl.set_text("ON" if actual else "BYP")
+                    bl.set_style_text_color(
+                        lv.color_hex(DARK_TXT if actual else WHITE), 0)
+                    b.set_style_bg_color(
+                        lv.color_hex(GREEN if actual else PANEL2), 0)
                 ob.add_event_cb(on_cb, lv.EVENT.CLICKED, None)
                 cbs.append(on_cb)
 
@@ -3287,7 +3358,8 @@ class SdrApp:
                 return False
 
         _r, iqeg = _krow("IQ CORR")
-        iqeb, iqel = _sbtn(iqeg, "ON" if self._iqc_on else "OFF", 64, 12,
+        # This is processing enable, not signal enable: BYP passes I/Q unchanged.
+        iqeb, iqel = _sbtn(iqeg, "ON" if self._iqc_on else "BYP", 64, 12,
                             DARK_TXT if self._iqc_on else WHITE)
         iqeb.set_style_bg_color(lv.color_hex(GREEN if self._iqc_on else PANEL2), 0)
         iqrst, _ = _sbtn(iqeg, "RESET", 72, 12, CYAN_RX)
@@ -3312,7 +3384,7 @@ class SdrApp:
         self._set_widgets["iqc_phase"] = ipval
 
         def iqc_paint():
-            iqel.set_text("ON" if self._iqc_on else "OFF")
+            iqel.set_text("ON" if self._iqc_on else "BYP")
             iqel.set_style_text_color(
                 lv.color_hex(DARK_TXT if self._iqc_on else WHITE), 0)
             iqeb.set_style_bg_color(
@@ -3389,6 +3461,53 @@ class SdrApp:
         self._set_scr_partial = None
         return scr
 
+    def _tester_point_label(self):
+        if self._inj_point == 1:
+            return "M:" + self._INJ_MIDS[self._inj_mid][0]
+        return self._INJ_POINTS[self._inj_point][0]
+
+    def _configure_inject_mid(self, iq):
+        """Publish the one movable MID boundary, preserving legacy pre-NCO MID."""
+        if self._inj_point != 1:
+            return True
+        label, attr = self._INJ_MIDS[self._inj_mid]
+        fn = getattr(iq, "inject_mid", None)
+        api = getattr(iq, "INJECT_MID_API_VERSION", 0)
+        attrs = tuple(getattr(iq, item[1], None) for item in self._INJ_MIDS)
+        complete = fn is not None and api >= 1 and attrs == (3, 4, 5)
+        legacy = fn is None and api == 0 and attrs == (None, None, None)
+        if not complete:
+            if legacy and self._inj_mid == self._INJ_MID_DEFAULT:
+                return True
+            self.be.err = "MID %s unavailable (need INJECT_MID_API_VERSION>=1 + stages)" % label
+            return False
+        stage = attrs[self._inj_mid]
+        try:
+            current = fn(stage)
+            if current is not None and int(current) != stage:
+                self.be.err = "inject_mid readback %r != %d" % (current, stage)
+                return False
+            return True
+        except Exception as e:
+            self.be.err = "inject_mid: %r" % (e,)
+            return False
+
+    def _paint_mid_labels(self):
+        """Repaint/lock the three zero-widget ASCII radios in block-name labels."""
+        entries = self._set_widgets.get("mid_labels")
+        if not entries:
+            return
+        for _bid, item in entries.items():
+            label, name, idx = item
+            selected = idx == self._inj_mid
+            label.set_text(("[x] " if selected else "[ ] ") + name)
+            label.set_style_text_color(
+                lv.color_hex(CYAN_RX if selected and self._inj_point == 1 else WHITE), 0)
+            if self._inj_on:
+                label.remove_flag(lv.obj.FLAG.CLICKABLE)
+            else:
+                label.add_flag(lv.obj.FLAG.CLICKABLE)
+
     def _restore_tester_scope(self):
         """Restore the route displaced by TESTER, including VERIFY row paint."""
         if self._inj_prev_scope is None:
@@ -3411,6 +3530,16 @@ class SdrApp:
                 r.set_style_bg_color(lv.color_hex(BORDER if on else PANEL2), 0)
         return True
 
+    def _restore_tester_receiver(self):
+        """Restore persisted demodulator and bandwidth after a TESTER source."""
+        if self.be.iq is None:
+            return True
+        mode = self.p["m"]
+        ok = self.be.set_mode(mode)
+        if not self.be.set_bandwidth(self.p["bw"].get(mode, MODE_BW[mode])):
+            ok = False
+        return ok
+
     def _paint_tester(self):
         w = self._set_widgets.get("inject")
         if not w:
@@ -3419,7 +3548,7 @@ class SdrApp:
          idn, idnl, iup, iupl, itg, itgl) = w
         file_mode = bool(self._inj_source)
         isl.set_text("TESTER FILE" if file_mode else "TESTER GEN")
-        ipl.set_text(self._INJ_POINTS[self._inj_point][0])
+        ipl.set_text(self._tester_point_label())
 
         # Source and injection point own native buffer/rate semantics and are locked
         # for the complete ON interval.  Other GEN controls remain live-editable.
@@ -3447,7 +3576,7 @@ class SdrApp:
             elif ferr:
                 iml.set_text("FILE!")
             else:
-                iml.set_text("TEST")   # /flash/test.sdriq (fixed v1 path)
+                iml.set_text(self._iq_file_profiles[self._iq_file_preset][0])
             rate = self._iq_file.sample_rate
             bits = self._iq_file.sample_bits or 16
             if rate <= 0:
@@ -3468,7 +3597,10 @@ class SdrApp:
             idnl.set_text("|<")
             iupl.set_text("")
             iup.add_flag(lv.obj.FLAG.HIDDEN)
-            imb.remove_flag(lv.obj.FLAG.CLICKABLE)
+            if self._inj_on:
+                imb.remove_flag(lv.obj.FLAG.CLICKABLE)
+            else:
+                imb.add_flag(lv.obj.FLAG.CLICKABLE)
             iwb.remove_flag(lv.obj.FLAG.CLICKABLE)
         else:
             ilb.add_flag(lv.obj.FLAG.CLICKABLE)
@@ -3491,12 +3623,17 @@ class SdrApp:
             lv.color_hex(DARK_TXT if self._inj_on else WHITE), 0)
         itg.set_style_bg_color(
             lv.color_hex(GREEN if self._inj_on else PANEL2), 0)
+        self._paint_mid_labels()
 
     def _finish_iq_file(self, error=None):
-        """Fail closed, then restore the route displaced by FILE playback."""
+        """Fail closed, then restore the receiver settings used before FILE."""
         self._iq_file.stop()
         self._inj_on = False
+        receiver_restored = self._restore_tester_receiver()
         restored = self._restore_tester_scope()
+        if not receiver_restored:
+            restore_error = self.be.err or "receiver restore failed"
+            error = ((error + "; ") if error else "") + restore_error
         if not restored:
             restore_error = self.be.err or "scope restore failed"
             error = ((error + "; ") if error else "") + restore_error
@@ -3544,19 +3681,35 @@ class SdrApp:
         read-outs (AGC gain, S-meter) keep updating via _consume_status while open."""
         w = self._set_widgets
 
-        # Per-block table: repaint every ON/OFF, and re-apply the ONE-OF scope + tap
+        # Read back the real block mask while IQADC is live. Getter-only block(id) is
+        # control-context safe; PGA stays the truthful fixed BYP of this application.
+        iq = self.be.iq
+        block_fn = getattr(iq, "block", None) if iq is not None else None
+        if block_fn is not None:
+            for bid in range(2, 11):
+                try:
+                    self._blk_on[bid] = bool(block_fn(bid))
+                except Exception:
+                    pass
+        self._blk_on[1] = False
+
+        # Per-block table: repaint every ON/BYP, and re-apply the ONE-OF scope + tap
         # highlight so a re-shown screen matches the current routing exactly. _tap_id /
         # _scope_id are the single armed rows (0 = none); every other row is cleared.
         blk_w = w["blocks"]
         for bid, tpl in blk_w.items():
             r, ob, ol, sb, sl, tb2, tl = tpl
-            if bid == 11:
+            if bid == 1:
+                ol.set_text("BYP")
+                ol.set_style_text_color(lv.color_hex(GRAY2), 0)
+                ob.set_style_bg_color(lv.color_hex(PANEL2), 0)
+            elif bid == 11:
                 ol.set_text("SAFE")
                 ol.set_style_text_color(lv.color_hex(GRAY2), 0)
                 ob.set_style_bg_color(lv.color_hex(PANEL2), 0)
             else:
                 on0 = self._blk_on.get(bid, True)
-                ol.set_text("ON" if on0 else "OFF")
+                ol.set_text("ON" if on0 else "BYP")
                 ol.set_style_text_color(lv.color_hex(DARK_TXT if on0 else WHITE), 0)
                 ob.set_style_bg_color(lv.color_hex(GREEN if on0 else PANEL2), 0)
 
@@ -3603,7 +3756,7 @@ class SdrApp:
                     pass
 
         iqeb, iqel = w["iqc_enable"]
-        iqel.set_text("ON" if self._iqc_on else "OFF")
+        iqel.set_text("ON" if self._iqc_on else "BYP")
         iqel.set_style_text_color(
             lv.color_hex(DARK_TXT if self._iqc_on else WHITE), 0)
         iqeb.set_style_bg_color(lv.color_hex(GREEN if self._iqc_on else PANEL2), 0)

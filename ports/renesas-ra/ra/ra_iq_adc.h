@@ -183,9 +183,19 @@ typedef enum {
  * boundary (channel-filter output), not the later mono audio output. */
 typedef enum {
     RA_IQ_INJECT_POINT_IN = 0,    /* raw unsigned ADC pair, before x2 decimation */
-    RA_IQ_INJECT_POINT_MID = 1,   /* post decimation/DC/IQ correction, pre NCO  */
+    RA_IQ_INJECT_POINT_MID = 1,   /* selected internal decimated-I/Q boundary   */
     RA_IQ_INJECT_POINT_OUT = 2,   /* post channel filter, before demodulation    */
 } ra_iq_inject_point_t;
+
+/* The internal boundary selected when point == MID.  Values intentionally match
+ * the corresponding RA_IQ_BLK_* ids used by block()/scope(): injection happens
+ * at that block's input, then its tap/scope observes the processed result.
+ * NCO preserves the historical MID behavior and is the reset default. */
+typedef enum {
+    RA_IQ_INJECT_MID_IQCORR = 3,  /* after DC removal, before I/Q correction */
+    RA_IQ_INJECT_MID_NCO = 4,     /* after I/Q correction, before NCO        */
+    RA_IQ_INJECT_MID_CHFILT = 5,  /* after NCO, before channel filter        */
+} ra_iq_inject_mid_t;
 
 /* SQUARE and TRIANGLE are generated as bounded, band-limited analytic harmonic
  * sums whenever the selected mode represents a complex test waveform.  PULSE
@@ -207,6 +217,11 @@ typedef enum {
 void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
     uint8_t phase_noise, uint8_t point, uint8_t wave);
+
+/* Select/query the internal MID boundary.  The request joins the existing
+ * injection seqlock and becomes active only at a DSP block boundary. */
+void ra_iq_adc_set_inject_mid(uint8_t stage);
+uint8_t ra_iq_adc_get_inject_mid(void);
 
 /* Allocation-free file-I/Q source.  The two buffers are owned and filled by the
  * control plane but consumed directly by the block ISR, so their addresses and
@@ -246,8 +261,12 @@ void ra_iq_adc_file_stop(void);
 void ra_iq_adc_file_detach(void);
 void ra_iq_adc_file_get_status(ra_iq_file_status_t *status);
 
-/* Per-block ON/OFF for verification: enable=0 bypasses block id (short to the next),
- * 1 keeps it in the chain. block id is 1..10 (PGA..VOL). */
+/* Per-block ON/OFF for verification, block id 1..11 (PGA..LIMITER).
+ * Most enable=0 paths short the block to the next.  DECIM keeps the mandatory
+ * Fs/2 rate adapter and selects every other raw sample (no FIR; not bit-identical
+ * across the rate change).  DEMOD bypass maps I directly to mono audio.  PGA is
+ * a read-only reflection of the constructor's hardware mode, and LIMITER is a
+ * fixed safety stage; set_block cannot change either one. */
 void ra_iq_adc_set_block(uint8_t block, uint8_t enable);
 uint8_t ra_iq_adc_get_block(uint8_t block);
 

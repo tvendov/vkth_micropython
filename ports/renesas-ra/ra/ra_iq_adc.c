@@ -177,6 +177,7 @@ static int16_t s_dec_hist_q[RA_IQ_DEC_TAPS - 1U];
  * reconfigured: (re)initialised in ra_iq_adc_start and on the control-plane toggle. */
 static uint8_t s_dec_use_cmsis;             /* producer-active kernel */
 static volatile uint8_t s_dec_requested_cmsis; /* control-plane request */
+static uint8_t s_dec_bypassed_last;         /* re-seed CMSIS state after rate-adapter bypass */
 static arm_fir_decimate_instance_q15 s_dec_cmsis_i;
 static arm_fir_decimate_instance_q15 s_dec_cmsis_q;
 static q15_t s_dec_state_i[RA_IQ_DEC_TAPS + RA_IQ_ADC_MAX_BLOCK_SAMPLES - 1U];
@@ -864,7 +865,7 @@ static uint8_t s_spec_smooth_valid;
  * compare numerically.  ISR cost is one copy of the decimated block only when the stage
  * matches; disarmed (OFF) it is free.  Control-plane arms/reads it. */
 #define RA_IQ_TAP_OFF    0U
-#define RA_IQ_TAP_DECIM  1U   /* after x2 decimation + DC removal + I/Q correction */
+#define RA_IQ_TAP_DECIM  1U   /* after x2 rate adaptation + DC removal, pre-IQCORR */
 #define RA_IQ_TAP_NCO    2U   /* after the tuning NCO down-conversion               */
 #define RA_IQ_TAP_CHFILT 3U   /* after the channel low-pass filter (pre-demod)      */
 static volatile uint8_t s_tap_stage = RA_IQ_TAP_OFF;
@@ -943,15 +944,18 @@ static inline void ra_iq_scope_capture_iq(uint8_t blk, uint16_t m) {
 }
 
 /* Bench signal injection: one block-atomic synthetic complex source can replace the
- * stream at raw IN, corrected/decimated MID, or filtered complex OUT.  IN emulates a
- * pre-PGA amplitude by applying the current gain; MID/OUT use centred int16 counts.
- * Control-plane publishes configuration; the ISR generates only at the chosen point. */
+ * stream at raw IN, a selectable signed/decimated MID block input, or filtered complex
+ * OUT.  IN emulates a pre-PGA amplitude by applying the configured hardware gain;
+ * MID/OUT use centred int16 counts.  Control-plane publishes the complete point + MID
+ * selector configuration; the ISR generates only at the chosen boundary. */
 static volatile uint8_t s_inject_enable;
 static volatile uint8_t s_inject_requested_enable;
 static volatile uint8_t s_inject_kind;
 static volatile uint8_t s_inject_requested_kind;
 static volatile uint8_t s_inject_point;
 static volatile uint8_t s_inject_requested_point;
+static volatile uint8_t s_inject_mid_stage;
+static volatile uint8_t s_inject_requested_mid_stage;
 static volatile uint8_t s_inject_wave;
 static volatile uint8_t s_inject_requested_wave;
 static volatile uint8_t s_inject_harmonic_max;
@@ -1452,6 +1456,23 @@ static void ra_iq_file_fill_complex(uint16_t n) {
     ++s_file.source_blocks;
 }
 
+/* Replace one signed, decimated-I/Q boundary from the sole active TEST owner.
+ * MID additionally matches the block-atomic internal-stage selector; OUT ignores
+ * mid_stage.  FILE has defensive precedence, although the control plane normally
+ * makes FILE and GEN mutually exclusive before this producer boundary. */
+static inline void ra_iq_apply_complex_source(uint8_t point, uint8_t mid_stage,
+    uint16_t n) {
+    if ((point == (uint8_t)RA_IQ_INJECT_POINT_MID) &&
+        (s_inject_mid_stage != mid_stage)) {
+        return;
+    }
+    if (s_file.active_on && (s_file.point == point)) {
+        ra_iq_file_fill_complex(n);
+    } else if (s_inject_enable && (s_inject_point == point)) {
+        ra_iq_inject_fill_complex(n);
+    }
+}
+
 /* Apply start/stop at the same producer boundary used by synthetic injection.
  * Stop discards any partial/queued data and returns it to Python; EOF uses a
  * separate path above and deliberately suppresses that refill notification. */
@@ -1700,6 +1721,7 @@ static void ra_iq_dsp_process(uint8_t half) {
         uint8_t requested_inject = s_inject_requested_enable;
         uint8_t requested_kind = s_inject_requested_kind;
         uint8_t requested_point = s_inject_requested_point;
+        uint8_t requested_mid_stage = s_inject_requested_mid_stage;
         uint8_t requested_wave = s_inject_requested_wave;
         uint8_t requested_harmonic_max = s_inject_requested_harmonic_max;
         uint32_t requested_step = s_inject_requested_step;
@@ -1712,6 +1734,12 @@ static void ra_iq_dsp_process(uint8_t half) {
         if (inject_seq0 == s_inject_config_seq) {
             bool source_transition = requested_inject != s_inject_enable;
             bool point_transition = requested_point != s_inject_point;
+            bool mid_transition = requested_mid_stage != s_inject_mid_stage;
+            bool active_mid_source =
+                (s_inject_enable &&
+                 (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_MID)) ||
+                (s_file.active_on &&
+                 (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_MID));
             bool raw_path_changes = (source_transition &&
                 ((requested_inject &&
                   (requested_point == (uint8_t)RA_IQ_INJECT_POINT_IN)) ||
@@ -1724,10 +1752,14 @@ static void ra_iq_dsp_process(uint8_t half) {
                 s_dc_i_q16 = 0;
                 s_dc_q_q16 = 0;
             }
-            if (source_transition) {
+            if (source_transition ||
+                (point_transition && s_inject_enable) ||
+                (mid_transition && active_mid_source)) {
                 /* Normal RX is captured before NCO; every TEST point is captured at
                  * the common complex OUT.  Never publish a half assembled from both. */
                 ra_iq_spec_discard_partial();
+            }
+            if (source_transition) {
                 /* A real source transition starts from one deterministic phase origin.
                  * Live frequency/amplitude/mode changes do NOT enter here, so they keep
                  * every oscillator continuous across this and subsequent blocks. */
@@ -1736,6 +1768,7 @@ static void ra_iq_dsp_process(uint8_t half) {
             }
             s_inject_kind = requested_kind;
             s_inject_point = requested_point;
+            s_inject_mid_stage = requested_mid_stage;
             s_inject_wave = requested_wave;
             s_inject_harmonic_max = requested_harmonic_max;
             s_inject_step = requested_step;
@@ -1787,12 +1820,30 @@ static void ra_iq_dsp_process(uint8_t half) {
     int32_t amp = s_iqc_amp_q15;
     int32_t phase = s_iqc_phase_q15;
 
-    /* Pass 1: decimate raw -> Q0 into s_i_dc/s_q_dc.
+    /* Pass 1: adapt raw Fs -> Fs/2 Q0 into s_i_dc/s_q_dc.
      * Two interchangeable kernels produce identical output (same symmetric half-band
      * taps, same causal cross-block state); the hand loop is the default/fallback and
      * the CMSIS kernel is the hybrid stage-1 A/B path.  raw is 0..4095 so the uint16
-     * block reinterprets as non-negative q15 for the CMSIS call without saturation. */
-    if (s_dec_use_cmsis) {
+     * block reinterprets as non-negative q15 for the CMSIS call without saturation.
+     * DECIM bypass cannot be bit-identical because this boundary must still change
+     * rate: it is the explicitly defined no-FIR adapter y[j] = x[2*j]. */
+    bool dec_bypassed = RA_IQ_BYPASSED(RA_IQ_BLK_DECIM);
+    if (!dec_bypassed && s_dec_bypassed_last && s_dec_use_cmsis) {
+        /* CMSIS was intentionally not run while bypassed.  Its first taps-1
+         * state entries are precisely the preceding raw history, so re-seed
+         * those entries directly before the next call; the instance geometry
+         * and coefficient pointers remain valid and need no ISR-side init. */
+        for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
+            s_dec_state_i[k] = (q15_t)s_dec_hist_i[k];
+            s_dec_state_q[k] = (q15_t)s_dec_hist_q[k];
+        }
+    }
+    if (dec_bypassed) {
+        for (uint16_t j = 0U; j < m; ++j) {
+            s_i_dc[j] = (int16_t)ip[2U * j];
+            s_q_dc[j] = (int16_t)qp[2U * j];
+        }
+    } else if (s_dec_use_cmsis) {
         arm_fir_decimate_q15(&s_dec_cmsis_i, (const q15_t *)ip, s_i_dc, n);
         arm_fir_decimate_q15(&s_dec_cmsis_q, (const q15_t *)qp, s_q_dc, n);
     } else {
@@ -1815,6 +1866,7 @@ static void ra_iq_dsp_process(uint8_t half) {
             s_q_dc[j] = (int16_t)dq;
         }
     }
+    s_dec_bypassed_last = dec_bypassed ? 1U : 0U;
 
     /* Carry the last RA_IQ_DEC_TAPS-1 raw samples of this block into the history for
      * the next call, so the FIR support is continuous across the block boundary.
@@ -1827,10 +1879,11 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
     }
 
-    /* Pass 2: continuous DC removal, then Q imbalance correction.  The output uses
-     * the PREVIOUS estimate and only then advances it, giving the standard one-pole
-     * high-pass H(z)=(1-z^-1)/(1-(1-alpha)z^-1).  Q16 keeps sub-count estimator
-     * precision while every output remains Q0 int16.  No state is reset here. */
+    /* Pass 2: continuous DC removal.  The output uses the PREVIOUS estimate and
+     * only then advances it, giving the standard one-pole high-pass
+     * H(z)=(1-z^-1)/(1-(1-alpha)z^-1).  Q16 keeps sub-count estimator precision
+     * while every output remains centred Q0 int16.  Keep this boundary separate
+     * from IQCORR so MID_IQCORR is a real block input, not a label alias. */
     int32_t dc_i = s_dc_i_q16;
     int32_t dc_q = s_dc_q_q16;
     for (uint16_t j = 0U; j < m; ++j) {
@@ -1844,34 +1897,39 @@ static void ra_iq_dsp_process(uint8_t half) {
         int32_t cq = ra_iq_dc_shift_toward_zero(error_q, RA_IQ_DC_FRAC_BITS);
         dc_i += ra_iq_dc_shift_toward_zero(error_i, RA_IQ_DC_ALPHA_SHIFT);
         dc_q += ra_iq_dc_shift_toward_zero(error_q, RA_IQ_DC_ALPHA_SHIFT);
-        if (iqc && !RA_IQ_BYPASSED(RA_IQ_BLK_IQCORR)) {
-            /* I is the reference; correct Q only.  Q15 fixed point. */
-            cq = (amp * cq + phase * ci) >> 15;
-            if (cq > 32767) {
-                cq = 32767;
-            } else if (cq < -32768) {
-                cq = -32768;
-            }
-        }
         s_i_dc[j] = (int16_t)ci;
         s_q_dc[j] = (int16_t)cq;
     }
     s_dc_i_q16 = dc_i;
     s_dc_q_q16 = dc_q;
-    if (s_file.active_on &&
-        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_MID)) {
-        ra_iq_file_fill_complex(m);
-    } else if (s_inject_enable &&
-        (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_MID)) {
-        /* MID replaces the centred decimated pair after DC/IQ correction. */
-        ra_iq_inject_fill_complex(m);
-    }
+
+    /* DECIM's observable output includes the mandatory centring/DC removal, but
+     * precedes both MID_IQCORR replacement and the correction itself. */
     ra_iq_tap_capture(RA_IQ_TAP_DECIM, m);
-    /* Decim and iqcorr share this boundary: the DC-removed, IQ-corrected decimated
-     * pair.  With correction disabled the two are numerically identical, which is the
-     * expected scope view (iqcorr routes the same samples decim does). */
     ra_iq_scope_capture_iq(RA_IQ_BLK_DECIM, m);
+
+    ra_iq_apply_complex_source((uint8_t)RA_IQ_INJECT_POINT_MID,
+        (uint8_t)RA_IQ_INJECT_MID_IQCORR, m);
+
+    /* Pass 3: optional Q imbalance correction.  OFF is a true short at this
+     * signed-I/Q boundary; I is always the reference and remains untouched. */
+    if (iqc && !RA_IQ_BYPASSED(RA_IQ_BLK_IQCORR)) {
+        for (uint16_t j = 0U; j < m; ++j) {
+            int32_t ci = s_i_dc[j];
+            int32_t cq = (amp * (int32_t)s_q_dc[j] + phase * ci) >> 15;
+            if (cq > 32767) {
+                cq = 32767;
+            } else if (cq < -32768) {
+                cq = -32768;
+            }
+            s_q_dc[j] = (int16_t)cq;
+        }
+    }
     ra_iq_scope_capture_iq(RA_IQ_BLK_IQCORR, m);
+
+    /* Historical MID default: replace the corrected pair at NCO input. */
+    ra_iq_apply_complex_source((uint8_t)RA_IQ_INJECT_POINT_MID,
+        (uint8_t)RA_IQ_INJECT_MID_NCO, m);
 
     /* Normal RX keeps the wide pre-NCO panorama.  TEST frames are deliberately
      * captured later at the one common complex OUT boundary. */
@@ -1900,6 +1958,11 @@ static void ra_iq_dsp_process(uint8_t half) {
     }
     ra_iq_tap_capture(RA_IQ_TAP_NCO, m);
     ra_iq_scope_capture_iq(RA_IQ_BLK_NCO, m);
+
+    /* Replace the NCO output at the channel-filter input.  The CHFILT tap/scope
+     * below therefore observes the replacement after the selected filter path. */
+    ra_iq_apply_complex_source((uint8_t)RA_IQ_INJECT_POINT_MID,
+        (uint8_t)RA_IQ_INJECT_MID_CHFILT, m);
 
     /* Channel low-pass filter, in place, AFTER imbalance and BEFORE the demod.  The
      * wide spectrum tap above intentionally precedes this filter.
@@ -1963,14 +2026,8 @@ static void ra_iq_dsp_process(uint8_t half) {
             }
         }
     }
-    if (s_file.active_on &&
-        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_OUT)) {
-        ra_iq_file_fill_complex(m);
-    } else if (s_inject_enable &&
-        (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_OUT)) {
-        /* OUT is the final complex boundary, still upstream of demod/audio. */
-        ra_iq_inject_fill_complex(m);
-    }
+    /* OUT replaces the final complex block output, still before demod/audio. */
+    ra_iq_apply_complex_source((uint8_t)RA_IQ_INJECT_POINT_OUT, 0U, m);
     if (s_inject_enable || s_file.active_on) {
         /* Spectrum and constellation now consume the exact same post-CHFILT I/Q
          * block that stage-5 scope routing sends to DAC0/DAC1. */
@@ -2019,10 +2076,12 @@ static void ra_iq_dsp_process(uint8_t half) {
 static void ra_iq_demod_produce(uint8_t half) {
     uint16_t m = s_dsp.dsp_samples;
     uint32_t head = s_ring_head;
+    uint8_t mode = RA_IQ_BYPASSED(RA_IQ_BLK_DEMOD) ?
+        (uint8_t)RA_IQ_DEMOD_PASS : s_demod_mode;
 
     (void)half;
 
-    switch (s_demod_mode) {
+    switch (mode) {
         case RA_IQ_DEMOD_AM:
             /* CMSIS stage-4 path: exact magnitude for the whole block in one call, then
              * the same integer DC blocker + audio stage per sample. */
@@ -2064,7 +2123,7 @@ static void ra_iq_demod_produce(uint8_t half) {
             break;
         case RA_IQ_DEMOD_USB:
         case RA_IQ_DEMOD_LSB: {
-            uint8_t is_lsb = (s_demod_mode == (uint8_t)RA_IQ_DEMOD_LSB);
+            uint8_t is_lsb = (mode == (uint8_t)RA_IQ_DEMOD_LSB);
             if (s_hil_use_cmsis) {
                 /* CMSIS stage-2 path: H(Q) for the whole block in one arm_fir_q15, then
                  * combine with I delayed by RA_IQ_HIL_DELAY across the s_hil_i_hist line.
@@ -2233,7 +2292,8 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
     uint32_t t0 = DWT->CYCCNT;
     ra_iq_dsp_process(finished);
 
-    /* Phase-4 demod producer, only when a demod mode is selected.  Reads the
+    /* Phase-4 demod producer when a demod mode is selected or block 6 is bypassed
+     * into its defined I-pass path.  Reads the
      * s_i_dc/s_q_dc the DSP call above just filled.  Skipped while a PRE-demod stage
      * is routed to the DACs: that scope capture is then the sole producer of the audio
      * ring (I) and the Q ring, and running the demod too would double-write s_audio_ring
@@ -2241,7 +2301,8 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
      * (its output is what feeds the audio ring). */
     uint8_t scope = s_scope_stage;
     bool predemod_routed = (scope != 0U) && (scope <= RA_IQ_LAST_PREDEMOD_BLK);
-    if ((s_demod_mode != RA_IQ_DEMOD_OFF) && !predemod_routed) {
+    if (((s_demod_mode != RA_IQ_DEMOD_OFF) ||
+         RA_IQ_BYPASSED(RA_IQ_BLK_DEMOD)) && !predemod_routed) {
         ra_iq_demod_produce(finished);
     }
     uint32_t dt = DWT->CYCCNT - t0;
@@ -2395,12 +2456,19 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_dc_q_q16 = 0;
     s_dec_use_cmsis = 0U;
     s_dec_requested_cmsis = 0U;
+    s_dec_bypassed_last = 0U;
+    /* Start from a truthful hardware view, never from a prior object's VERIFY
+     * mask.  PGA is fixed/read-only: BYPASS means block 1 is reported OFF. */
+    s_block_bypass = (pga_mode == RA_ADC_PGA_BYPASS) ?
+        (uint16_t)(1U << RA_IQ_BLK_PGA) : 0U;
     s_inject_enable = 0U;
     s_inject_requested_enable = 0U;
     s_inject_kind = (uint8_t)RA_IQ_INJECT_IQ;
     s_inject_requested_kind = (uint8_t)RA_IQ_INJECT_IQ;
     s_inject_point = (uint8_t)RA_IQ_INJECT_POINT_IN;
     s_inject_requested_point = (uint8_t)RA_IQ_INJECT_POINT_IN;
+    s_inject_mid_stage = (uint8_t)RA_IQ_INJECT_MID_NCO;
+    s_inject_requested_mid_stage = (uint8_t)RA_IQ_INJECT_MID_NCO;
     s_inject_wave = (uint8_t)RA_IQ_INJECT_WAVE_SINE;
     s_inject_requested_wave = (uint8_t)RA_IQ_INJECT_WAVE_SINE;
     s_inject_harmonic_max = 1U;
@@ -2621,9 +2689,11 @@ bool ra_iq_adc_start(void) {
     s_tune_phase = 0U;
     s_dc_i_q16 = 0;
     s_dc_q_q16 = 0;
+    s_dec_bypassed_last = 0U;
     s_inject_enable = s_inject_requested_enable;
     s_inject_kind = s_inject_requested_kind;
     s_inject_point = s_inject_requested_point;
+    s_inject_mid_stage = s_inject_requested_mid_stage;
     s_inject_wave = s_inject_requested_wave;
     s_inject_harmonic_max = s_inject_requested_harmonic_max;
     s_inject_step = s_inject_requested_step;
@@ -3155,6 +3225,29 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     }
 }
 
+/* Select the block input used by the coarse MID point.  This byte joins the same
+ * odd/even publication sequence as the generator tuple, so both GEN and FILE see
+ * one old or one new boundary for an entire DSP block. */
+void ra_iq_adc_set_inject_mid(uint8_t stage) {
+    if ((stage < (uint8_t)RA_IQ_INJECT_MID_IQCORR) ||
+        (stage > (uint8_t)RA_IQ_INJECT_MID_CHFILT)) {
+        stage = (uint8_t)RA_IQ_INJECT_MID_NCO;
+    }
+    uint32_t seq = s_inject_config_seq;
+    s_inject_config_seq = seq + 1U;
+    __DMB();
+    s_inject_requested_mid_stage = stage;
+    __DMB();
+    s_inject_config_seq = seq + 2U;
+    if (!s_status.running) {
+        s_inject_mid_stage = stage;
+    }
+}
+
+uint8_t ra_iq_adc_get_inject_mid(void) {
+    return s_inject_requested_mid_stage;
+}
+
 /* Change only the synthetic enable bit while preserving its full configured
  * tuple.  Used by file_start() to make FILE the sole source owner. */
 static void ra_iq_inject_request_off(void) {
@@ -3304,10 +3397,12 @@ void ra_iq_adc_file_get_status(ra_iq_file_status_t *status) {
     __set_PRIMASK(primask);
 }
 
-/* Per-block ON/OFF: enable != 0 keeps block id in the chain, 0 bypasses it (short to the
- * next).  block id is RA_IQ_BLK_*.  Control-plane. */
+/* Per-block ON/OFF.  PGA is a read-only mirror of the constructor's physical
+ * hardware mode and LIMITER is fixed safe, so neither accepts a software toggle.
+ * DECIM OFF selects its defined no-FIR Fs/2 adapter; DEMOD OFF selects I-pass. */
 void ra_iq_adc_set_block(uint8_t block, uint8_t enable) {
-    if (block == 0U || block > 15U) {
+    if ((block == 0U) || (block > RA_IQ_BLK_LIMITER) ||
+        (block == RA_IQ_BLK_PGA) || (block == RA_IQ_BLK_LIMITER)) {
         return;
     }
     if (enable) {
@@ -3318,7 +3413,13 @@ void ra_iq_adc_set_block(uint8_t block, uint8_t enable) {
 }
 
 uint8_t ra_iq_adc_get_block(uint8_t block) {
-    return (block == 0U || block > 15U) ? 1U : (RA_IQ_BYPASSED(block) ? 0U : 1U);
+    if ((block == 0U) || (block > RA_IQ_BLK_LIMITER)) {
+        return 1U;
+    }
+    if (block == RA_IQ_BLK_LIMITER) {
+        return 1U;
+    }
+    return RA_IQ_BYPASSED(block) ? 0U : 1U;
 }
 
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {

@@ -937,6 +937,25 @@ static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 11, machine_iqadc_inject);
 
+/* inject_mid([stage]) -> int.  Select the internal block input used when the
+ * coarse injection point is MID: IQCORR(3), NCO(4, reset default), or CHFILT(5).
+ * The low-level request commits at a DSP block boundary for both GEN and FILE. */
+static mp_obj_t machine_iqadc_inject_mid(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args >= 2) {
+        mp_int_t stage = mp_obj_get_int(args[1]);
+        if ((stage < RA_IQ_INJECT_MID_IQCORR) ||
+            (stage > RA_IQ_INJECT_MID_CHFILT)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid inject MID stage"));
+        }
+        ra_iq_adc_set_inject_mid((uint8_t)stage);
+    }
+    return MP_OBJ_NEW_SMALL_INT(ra_iq_adc_get_inject_mid());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_mid_obj, 1, 2,
+    machine_iqadc_inject_mid);
+
 /* file_attach(buf0, buf1, point, refill_cb) -> None.
  * Both writable one-byte buffers stay rooted and address-stable until file_free
  * or deinit.  Payload is strict interleaved signed S16LE I,Q (4 bytes/pair). */
@@ -1070,9 +1089,11 @@ static mp_obj_t machine_iqadc_file_status_into(mp_obj_t self_in, mp_obj_t buf_in
 static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_file_status_into_obj,
     machine_iqadc_file_status_into);
 
-/* block(id[, enable]) -> int.  Per-block ON/OFF for verification: id 1..10 (1=PGA 2=decim
- * 3=iqcorr 4=nco 5=chfilt 6=demod 7=af 8=squelch 9=agc 10=vol).  enable=0 bypasses the
- * block (short to the next), 1 keeps it; always returns the current state (1=on, 0=off). */
+/* block(id[, enable]) -> int.  Per-block ON/OFF for verification, ids 1..11.
+ * DECIM OFF keeps the mandatory Fs/2 adapter but selects every other raw pair;
+ * DEMOD OFF selects I-pass.  PGA reflects the constructor's hardware mode and
+ * LIMITER is fixed safe, so writes to ids 1 and 11 are intentionally ignored.
+ * Always returns the effective state (1=on, 0=off). */
 static mp_obj_t machine_iqadc_block(size_t n_args, const mp_obj_t *args) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (!self->active) { mp_raise_OSError(MP_ENODEV); }
@@ -1228,6 +1249,10 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_INJECT_POINT_IN),  MP_ROM_INT(RA_IQ_INJECT_POINT_IN) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_POINT_MID), MP_ROM_INT(RA_IQ_INJECT_POINT_MID) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_POINT_OUT), MP_ROM_INT(RA_IQ_INJECT_POINT_OUT) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_MID_IQCORR), MP_ROM_INT(RA_IQ_INJECT_MID_IQCORR) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_MID_NCO),    MP_ROM_INT(RA_IQ_INJECT_MID_NCO) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_MID_CHFILT), MP_ROM_INT(RA_IQ_INJECT_MID_CHFILT) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_MID_API_VERSION), MP_ROM_INT(1) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_WAVE_SINE),     MP_ROM_INT(RA_IQ_INJECT_WAVE_SINE) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_WAVE_SQUARE),   MP_ROM_INT(RA_IQ_INJECT_WAVE_SQUARE) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_WAVE_TRIANGLE), MP_ROM_INT(RA_IQ_INJECT_WAVE_TRIANGLE) },
@@ -1267,6 +1292,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_gain),         MP_ROM_PTR(&machine_iqadc_pga_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_tap),          MP_ROM_PTR(&machine_iqadc_tap_obj) },
     { MP_ROM_QSTR(MP_QSTR_inject),       MP_ROM_PTR(&machine_iqadc_inject_obj) },
+    { MP_ROM_QSTR(MP_QSTR_inject_mid),   MP_ROM_PTR(&machine_iqadc_inject_mid_obj) },
     { MP_ROM_QSTR(MP_QSTR_file_attach),   MP_ROM_PTR(&machine_iqadc_file_attach_obj) },
     { MP_ROM_QSTR(MP_QSTR_file_commit),   MP_ROM_PTR(&machine_iqadc_file_commit_obj) },
     { MP_ROM_QSTR(MP_QSTR_file_start),    MP_ROM_PTR(&machine_iqadc_file_start_obj) },

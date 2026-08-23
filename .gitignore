@@ -36,4 +36,9 @@ user.props
 # Local generated artefacts for the VK_RA4M2 docs bundle
 /ports/renesas-ra/boards/VK_RA4M2/examples/BOOK_BG.generated.pdf
 /ports/renesas-ra/boards/VK_RA4M2/examples/html_project/.doctrees/
+
+# Local TESTER I/Q fixtures.  Some are derived from third-party off-air
+# recordings without an explicit redistribution licence; keep every generated
+# binary out of Git and commit only the reproducible converter/HIL source.
+/ports/renesas-ra/boards/VK_RA6M3/examples/generated/iqbank/*.sdriq
 secrets_local.py
