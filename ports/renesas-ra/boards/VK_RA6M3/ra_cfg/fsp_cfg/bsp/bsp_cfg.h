@@ -28,7 +28,7 @@ extern "C" {
 #define BSP_CFG_MCU_VCC_MV (3300)
 #define BSP_CFG_STACK_MAIN_BYTES (0x4000)
 #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
-#define BSP_CFG_HEAP_BYTES (0x35800)
+#define BSP_CFG_HEAP_BYTES (0x47000)
 #else
 #define BSP_CFG_HEAP_BYTES (0xA000)
 #endif

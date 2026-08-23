@@ -16,10 +16,12 @@
 #include "r_i2c_master_api.h"
 #include "r_glcdc.h"
 #include "r_display_api.h"
+#if defined(USE_FSP_ETH)
 #include "r_ether_phy.h"
 #include "r_ether_phy_api.h"
 #include "r_ether.h"
 #include "r_ether_api.h"
+#endif
 #include "r_sdhi.h"
 #include "r_sdmmc_api.h"
 #include "r_qspi.h"
@@ -191,6 +193,7 @@ extern uint8_t fb_background[1][DISPLAY_BUFFER_STRIDE_BYTES_INPUT0 * DISPLAY_VSI
 #if GLCDC_CFG_LAYER_2_ENABLE
 extern uint8_t fb_foreground[2][DISPLAY_BUFFER_STRIDE_BYTES_INPUT1 * DISPLAY_VSIZE_INPUT1];
 #endif
+#if defined(USE_FSP_ETH)
 #ifndef ETHER_PHY_LSI_TYPE_KIT_COMPONENT
 #define ETHER_PHY_LSI_TYPE_KIT_COMPONENT ETHER_PHY_LSI_TYPE_DEFAULT
 #endif
@@ -216,6 +219,7 @@ extern const ether_cfg_t g_ether0_cfg;
 
 #ifndef ETH_IRQHandler
 void ETH_IRQHandler(ether_callback_args_t *p_args);
+#endif
 #endif
 /* Transfer on DTC Instance. */
 extern const transfer_instance_t g_transfer2;

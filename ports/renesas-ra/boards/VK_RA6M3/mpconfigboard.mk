@@ -15,15 +15,17 @@ MICROPY_HW_ENABLE_TOUCHPAD = 1
 MICROPY_HW_ENABLE_SCI_I2C = 1
 MICROPY_HW_ENABLE_DSP = 1
 MICROPY_HW_ENABLE_RA_SDR = 1
-MICROPY_PY_LWIP = 1
-MICROPY_PY_SSL = 1
-MICROPY_SSL_MBEDTLS = 1
+# SDR bench profile: Ethernet is deliberately compiled out so its static lwIP,
+# driver and DMA pools can be reassigned to the MicroPython heap.
+MICROPY_PY_LWIP = 0
+MICROPY_PY_SSL = 0
+MICROPY_SSL_MBEDTLS = 0
 MICROPY_PY_LVGL = 1
 
 # FSP settings
 USE_FSP_QSPI = 1
 USE_FSP_SDHI = 1
-USE_FSP_ETH = 1
+USE_FSP_ETH = 0
 USE_FSP_LCD = 1
 USE_FSP_CAM = 1
 USE_FSP_DRW = 1

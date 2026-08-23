@@ -751,20 +751,39 @@ static mp_obj_t machine_iqadc_tap(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tap_obj, 2, 3, machine_iqadc_tap);
 
-/* inject(enable[, freq, ampl]) -> None.  Bench signal injection: replace the ADC input with
- * a synthetic complex tone (freq Hz default 1000, base amplitude ampl in ADC counts default
- * 500) scaled by the current PGA gain, so the whole front end runs on a known, amplitude-
- * controlled input -- vary ampl (or iq.gain) and watch the AGC / S-meter respond. */
+/* inject(enable[, freq, ampl, kind, mod_hz, depth_pct, gate_hz, phase_noise]) -> None.
+ * The first four arguments retain the legacy complex-tone API exactly.  Optional fields
+ * select the persistent AM/USB/LSB/CW test sequences, a 50-percent pulse gate, and small
+ * deterministic phase jitter for a visibly-live scope trace. */
 static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (!self->active) { mp_raise_OSError(MP_ENODEV); }
     uint8_t en = mp_obj_is_true(args[1]) ? 1U : 0U;
-    uint32_t freq = (n_args >= 3) ? (uint32_t)mp_obj_get_int(args[2]) : 1000U;
+    mp_int_t freq_arg = (n_args >= 3) ? mp_obj_get_int(args[2]) : 1000;
     int32_t ampl = (n_args >= 4) ? (int32_t)mp_obj_get_int(args[3]) : 500;
-    ra_iq_adc_set_inject(en, freq, ampl);
+    mp_int_t kind_arg = (n_args >= 5) ? mp_obj_get_int(args[4]) : RA_IQ_INJECT_IQ;
+    mp_int_t mod_arg = (n_args >= 6) ? mp_obj_get_int(args[5]) : 0;
+    mp_int_t depth_arg = (n_args >= 7) ? mp_obj_get_int(args[6]) : 0;
+    mp_int_t gate_arg = (n_args >= 8) ? mp_obj_get_int(args[7]) : 0;
+    mp_int_t noise_arg = (n_args >= 9) ? mp_obj_get_int(args[8]) : 0;
+    if (freq_arg < 0 || mod_arg < 0 || gate_arg < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("frequencies must be >= 0"));
+    }
+    if (kind_arg < RA_IQ_INJECT_IQ || kind_arg > RA_IQ_INJECT_CW) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid inject kind"));
+    }
+    if (depth_arg < 0 || depth_arg > 100) {
+        mp_raise_ValueError(MP_ERROR_TEXT("depth must be 0..100"));
+    }
+    if (noise_arg < 0 || noise_arg > 8) {
+        mp_raise_ValueError(MP_ERROR_TEXT("phase_noise must be 0..8"));
+    }
+    uint16_t depth_q15 = (uint16_t)(((uint32_t)depth_arg * 32768U + 50U) / 100U);
+    ra_iq_adc_set_inject(en, (uint8_t)kind_arg, (uint32_t)freq_arg,
+        (uint32_t)mod_arg, ampl, depth_q15, (uint32_t)gate_arg, (uint8_t)noise_arg);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 4, machine_iqadc_inject);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 9, machine_iqadc_inject);
 
 /* block(id[, enable]) -> int.  Per-block ON/OFF for verification: id 1..10 (1=PGA 2=decim
  * 3=iqcorr 4=nco 5=chfilt 6=demod 7=af 8=squelch 9=agc 10=vol).  enable=0 bypasses the
@@ -914,6 +933,11 @@ bool machine_iqadc_deinit_all(void) {
 /* ------------------------------------------------------------------ */
 
 static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_INJECT_IQ),    MP_ROM_INT(RA_IQ_INJECT_IQ) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_AM),    MP_ROM_INT(RA_IQ_INJECT_AM) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_USB),   MP_ROM_INT(RA_IQ_INJECT_USB) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_LSB),   MP_ROM_INT(RA_IQ_INJECT_LSB) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_CW),    MP_ROM_INT(RA_IQ_INJECT_CW) },
     { MP_ROM_QSTR(MP_QSTR_start),        MP_ROM_PTR(&machine_iqadc_start_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop),         MP_ROM_PTR(&machine_iqadc_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_read_block),   MP_ROM_PTR(&machine_iqadc_read_block_obj) },

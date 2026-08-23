@@ -724,6 +724,7 @@ display_runtime_cfg_t g_display0_runtime_cfg_fg =
 const display_instance_t g_display0 = { .p_ctrl = &g_display0_ctrl, .p_cfg =
                                             (display_cfg_t *)&g_display0_cfg, .p_api =
                                             (display_api_t *)&g_display_on_glcdc };
+#if defined(USE_FSP_ETH)
 ether_phy_instance_ctrl_t g_ether_phy0_ctrl;
 
 const ether_phy_cfg_t g_ether_phy0_cfg = {
@@ -793,6 +794,7 @@ const ether_cfg_t g_ether0_cfg = { .channel = 0, .zerocopy =
 /* Instance structure to use this module. */
 const ether_instance_t g_ether0 = { .p_ctrl = &g_ether0_ctrl, .p_cfg =
                                         &g_ether0_cfg, .p_api = &g_ether_on_ether };
+#endif
 dtc_instance_ctrl_t g_transfer2_ctrl;
 
 transfer_info_t g_transfer2_info = { .transfer_settings_word_b.dest_addr_mode =

@@ -168,9 +168,26 @@ bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
 void ra_iq_adc_set_tap(uint8_t stage);
 uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs);
 
-/* Bench injection: replace the ADC input with a synthetic complex tone (freq_hz, base
- * amplitude ampl in ADC counts, scaled by the current PGA gain) to exercise the chain. */
-void ra_iq_adc_set_inject(uint8_t enable, uint32_t freq_hz, int32_t ampl);
+/* Bench injection modes.  IQ/CW/LSB use the positive complex rotation I=cos,Q=sin;
+ * USB uses the opposite Q sign required by the current phasing demodulator.  AM adds
+ * a sinusoidal envelope before the synthetic raw ADC pair is written. */
+typedef enum {
+    RA_IQ_INJECT_IQ = 0,
+    RA_IQ_INJECT_AM = 1,
+    RA_IQ_INJECT_USB = 2,
+    RA_IQ_INJECT_LSB = 3,
+    RA_IQ_INJECT_CW = 4,
+} ra_iq_inject_kind_t;
+
+/* Replace the ADC input with a deterministic synthetic I/Q source.  freq_hz is the
+ * complex carrier offset, mod_hz/depth_q15 define the AM envelope, gate_hz selects a
+ * 50-percent pulse train (0 = continuous), and phase_noise is 0..8 LUT bins of
+ * deterministic bounded lookup-phase jitter.  The jitter never changes the phase
+ * accumulator, so it cannot create frequency random walk.  All fields commit together
+ * at a block boundary; oscillator phase remains continuous across live changes. */
+void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
+    uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
+    uint8_t phase_noise);
 
 /* Per-block ON/OFF for verification: enable=0 bypasses block id (short to the next),
  * 1 keeps it in the chain. block id is 1..10 (PGA..VOL). */
@@ -274,12 +291,18 @@ bool ra_iq_adc_spectrum(float *out, size_t n);
  * filling caller buffers.  This keeps the GUI heap quiet and makes GC-related UI
  * pauses rarer; the ADC/DAC realtime path remains interrupt/DMA-driven. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);
+/* Apply the same shared 10-Hz Q8 attack/release reducer to a magnitude frame already
+ * returned by ra_iq_adc_spectrum_frame(). */
+bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
+    int32_t shift_bins, int16_t *out, size_t nbars, int16_t max_h);
 /* Consume one fresh FFT snapshot and expose the existing internal magnitude buffer
- * to a synchronous native display consumer.  No buffer is allocated or copied; the
- * returned pointer remains valid until the next spectrum call.  ref_peak and
- * shift_bins describe the same tuned-centre scaling used by spectrum_bars(). */
+ * plus a stable raw I/Q foreground snapshot to a synchronous native display consumer.
+ * No buffer is allocated; all returned pointers remain valid until the next spectrum
+ * call.  ref_peak and shift_bins describe the same tuned-centre scaling used by
+ * spectrum_bars(). */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
-    int32_t *shift_bins);
+    int32_t *shift_bins, const int16_t **i_samples, const int16_t **q_samples,
+    size_t *sample_count);
 /* Native oscilloscope source.  The DAC DMAC refill callback pushes the exact
  * unsigned 12-bit samples that it is about to play into an independent static
  * ping-pong, allowing DAC scope and ADC spectrum to run simultaneously. */

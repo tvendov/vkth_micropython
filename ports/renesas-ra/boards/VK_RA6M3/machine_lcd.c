@@ -205,6 +205,9 @@ static uint8_t s_lcd_lvgl_bridged = 0;   // C LVGL display/indev bridge installe
 #define LCD_WATERFALL_GAP_PX    (2)
 #define LCD_VIEW_SPECTRUM       (0U)
 #define LCD_VIEW_WATERFALL      (1U)
+#define LCD_SCOPE_VIEW_TIME     (0U)
+#define LCD_SCOPE_VIEW_IQ       (1U)
+#define LCD_CONST_POINTS        (64U)
 static lv_obj_t *s_lcd_spectrum_obj;
 static int16_t s_lcd_spectrum_h[LCD_SPECTRUM_BARS];
 static int16_t s_lcd_spectrum_target[LCD_SPECTRUM_BARS];
@@ -226,6 +229,8 @@ static uint32_t s_lcd_waterfall_max_us;
 static uint32_t s_lcd_fft_last_us;
 static uint32_t s_lcd_fft_max_us;
 static int32_t s_lcd_scope_peak;
+static int32_t s_lcd_const_peak;
+static uint8_t s_lcd_scope_view;
 static uint32_t s_lcd_scope_last_ms;
 static uint32_t s_lcd_render_start_us;
 static uint32_t s_lcd_render_last_us;
@@ -256,6 +261,8 @@ void machine_lcd_lvgl_soft_reset(void) {
         s_lcd_fft_last_us = 0U;
         s_lcd_fft_max_us = 0U;
         s_lcd_scope_peak = 32;
+        s_lcd_const_peak = 32;
+        s_lcd_scope_view = LCD_SCOPE_VIEW_TIME;
         s_lcd_scope_last_ms = 0U;
         #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
         ra_iq_adc_spectrum_enable(0U);
@@ -854,6 +861,29 @@ static bool lcd_scope_prepare(const int16_t *samples, size_t n,
     const lv_area_t *obj_area, int16_t *scope_y);
 static void lcd_scope_draw(uint16_t *fb, uint32_t stride,
     const lv_area_t *obj_area, const int16_t *scope_y);
+static bool lcd_constellation_prepare(const int16_t *i_samples,
+    const int16_t *q_samples, size_t n, const lv_area_t *obj_area,
+    int16_t *point_x, int16_t *point_y);
+static void lcd_constellation_draw(uint16_t *fb, uint32_t stride,
+    const lv_area_t *obj_area, const int16_t *point_x, const int16_t *point_y);
+
+/* Every native writer bypasses LVGL and indexes the physical framebuffer directly.
+ * Keep one shared geometry gate so spectrum_attach() cannot turn an off-screen but
+ * otherwise valid LVGL object into an unsigned framebuffer OOB write. */
+static bool lcd_native_geometry_valid(const lv_area_t *obj_area) {
+    int32_t screen_w = (int32_t)g_display0_cfg.input[0].hsize;
+    int32_t screen_h = (int32_t)g_display0_cfg.input[0].vsize;
+    int32_t native_w = (int32_t)LCD_WATERFALL_PIXELS + LCD_NATIVE_GAP_PX +
+        (int32_t)LCD_SCOPE_PIXELS;
+    int64_t native_right = (int64_t)obj_area->x1 + native_w;
+    int64_t native_top = (int64_t)obj_area->y1 + LCD_WATERFALL_TOP_PAD;
+    int64_t split_y = native_top + LCD_WATERFALL_SPEC_H + LCD_WATERFALL_GAP_PX;
+    return (g_display0_cfg.input[0].p_base != NULL) &&
+        (g_display0_cfg.input[0].hstride >= g_display0_cfg.input[0].hsize) &&
+        (lv_area_get_width(obj_area) >= native_w) && (obj_area->x1 >= 0) &&
+        (native_right <= screen_w) && (native_top >= 0) &&
+        (split_y < obj_area->y2) && (obj_area->y2 < screen_h);
+}
 
 /* Direct single-framebuffer waterfall at the far-left 256 pixels.  The FFT is
  * peak-reduced to that width; the framebuffer itself is the history.  When a
@@ -861,7 +891,8 @@ static void lcd_scope_draw(uint16_t *fb, uint32_t stride,
  * before the common VSYNC wait and drawn in the adjacent 128 pixels in the same
  * framebuffer transaction. */
 static void lcd_waterfall_write(const float *magnitudes, float ref_peak,
-    int32_t shift_bins, const int16_t *scope_samples, size_t scope_n) {
+    int32_t shift_bins, const int16_t *scope_samples, size_t scope_n,
+    const int16_t *i_samples, const int16_t *q_samples, size_t iq_n) {
     if ((magnitudes == NULL) || !(ref_peak > 0.0f) ||
         (s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj) ||
         !lv_obj_is_visible(s_lcd_spectrum_obj)) {
@@ -876,18 +907,19 @@ static void lcd_waterfall_write(const float *magnitudes, float ref_peak,
     int32_t y1 = obj_area.y1 + LCD_WATERFALL_TOP_PAD + LCD_WATERFALL_SPEC_H +
         LCD_WATERFALL_GAP_PX;
     int32_t y2 = obj_area.y2;
-    int32_t screen_w = (int32_t)g_display0_cfg.input[0].hsize;
-    int32_t screen_h = (int32_t)g_display0_cfg.input[0].vsize;
-    int32_t native_w = (int32_t)LCD_WATERFALL_PIXELS + LCD_NATIVE_GAP_PX +
-        (int32_t)LCD_SCOPE_PIXELS;
     if ((fft_n < LCD_WATERFALL_PIXELS) || ((fft_n & (fft_n - 1U)) != 0U) ||
-        (obj_w < native_w) || (x1 < 0) || (x1 + native_w > screen_w) || (y1 < 0) ||
-        (y2 >= screen_h) || (y1 >= y2)) {
+        (obj_w <= 0) || !lcd_native_geometry_valid(&obj_area) || (y1 >= y2)) {
         return;
     }
 
     int16_t scope_y[LCD_SCOPE_PIXELS];
-    bool scope_valid = lcd_scope_prepare(scope_samples, scope_n, &obj_area, scope_y);
+    int16_t point_x[LCD_CONST_POINTS];
+    int16_t point_y[LCD_CONST_POINTS];
+    bool iq_view = s_lcd_scope_view == LCD_SCOPE_VIEW_IQ;
+    bool right_valid = iq_view ?
+        lcd_constellation_prepare(i_samples, q_samples, iq_n, &obj_area,
+            point_x, point_y) :
+        lcd_scope_prepare(scope_samples, scope_n, &obj_area, scope_y);
 
     /* Start immediately after a fresh line-detect pulse.  The graph begins around
      * the middle of the panel, leaving several milliseconds for this <40 KB move
@@ -924,7 +956,9 @@ static void lcd_waterfall_write(const float *magnitudes, float ref_peak,
     uint16_t *new_row = fb + (uint32_t)y1 * stride + (uint32_t)x1;
     lcd_waterfall_draw_frame(fb, stride, &obj_area, new_row, magnitudes, fft_n,
         inv, shift_bins);
-    if (scope_valid) {
+    if (right_valid && iq_view) {
+        lcd_constellation_draw(fb, stride, &obj_area, point_x, point_y);
+    } else if (right_valid) {
         lcd_scope_draw(fb, stride, &obj_area, scope_y);
     }
 
@@ -1043,6 +1077,147 @@ static void lcd_scope_draw(uint16_t *fb, uint32_t stride,
     }
 }
 
+/* Convert the newest 64 consecutive complex samples from the spectrum ping-pong into
+ * a square I/Q plot.  Consecutive samples are intentional: regularly reducing 512->64
+ * would strobe coherent test tones (for example 3 kHz at 24 ksps) onto one point. */
+static bool lcd_constellation_prepare(const int16_t *i_samples,
+    const int16_t *q_samples, size_t n, const lv_area_t *obj_area,
+    int16_t *point_x, int16_t *point_y) {
+    if ((i_samples == NULL) || (q_samples == NULL) ||
+        (point_x == NULL) || (point_y == NULL) || (n < LCD_CONST_POINTS)) {
+        return false;
+    }
+
+    size_t start = n - LCD_CONST_POINTS;
+    int32_t frame_peak = 0;
+    for (size_t k = start; k < n; ++k) {
+        int32_t iv = i_samples[k];
+        int32_t qv = q_samples[k];
+        int32_t ai = (iv < 0) ? -iv : iv;
+        int32_t aq = (qv < 0) ? -qv : qv;
+        if (ai > frame_peak) {
+            frame_peak = ai;
+        }
+        if (aq > frame_peak) {
+            frame_peak = aq;
+        }
+    }
+    if (frame_peak > s_lcd_const_peak) {
+        s_lcd_const_peak = frame_peak;
+    } else {
+        s_lcd_const_peak -= (s_lcd_const_peak - frame_peak + 15) / 16;
+    }
+    if (s_lcd_const_peak < 32) {
+        s_lcd_const_peak = 32;
+    }
+
+    int32_t x1 = obj_area->x1 + (int32_t)LCD_WATERFALL_PIXELS + LCD_NATIVE_GAP_PX;
+    int32_t x2 = x1 + (int32_t)LCD_SCOPE_PIXELS - 1;
+    int32_t y1 = obj_area->y1 + LCD_WATERFALL_TOP_PAD;
+    int32_t y2 = obj_area->y2;
+    int32_t center_x = (x1 + x2) / 2;
+    int32_t center_y = obj_area->y1 + LCD_WATERFALL_TOP_PAD +
+        LCD_WATERFALL_SPEC_H + LCD_WATERFALL_GAP_PX;
+    int32_t radius_x = (x2 - x1) / 2 - 2;
+    int32_t radius_y1 = center_y - y1 - 2;
+    int32_t radius_y2 = y2 - center_y - 2;
+    int32_t radius = radius_x;
+    if (radius_y1 < radius) {
+        radius = radius_y1;
+    }
+    if (radius_y2 < radius) {
+        radius = radius_y2;
+    }
+    if (radius < 2) {
+        return false;
+    }
+
+    for (uint32_t p = 0U; p < LCD_CONST_POINTS; ++p) {
+        size_t k = start + p;
+        int32_t x = center_x + ((int32_t)i_samples[k] * radius) / s_lcd_const_peak;
+        int32_t y = center_y - ((int32_t)q_samples[k] * radius) / s_lcd_const_peak;
+        if (x < x1) { x = x1; } else if (x > x2) { x = x2; }
+        if (y < y1) { y = y1; } else if (y > y2) { y = y2; }
+        point_x[p] = (int16_t)x;
+        point_y[p] = (int16_t)y;
+    }
+    return true;
+}
+
+static void lcd_constellation_line(uint16_t *fb, uint32_t stride,
+    int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color,
+    int32_t clip_x1, int32_t clip_y1, int32_t clip_x2, int32_t clip_y2) {
+    int32_t dx = (x1 >= x0) ? (x1 - x0) : (x0 - x1);
+    int32_t sx = (x0 < x1) ? 1 : -1;
+    int32_t dy_abs = (y1 >= y0) ? (y1 - y0) : (y0 - y1);
+    int32_t dy = -dy_abs;
+    int32_t sy = (y0 < y1) ? 1 : -1;
+    int32_t err = dx + dy;
+    for (;;) {
+        if ((x0 >= clip_x1) && (x0 <= clip_x2) &&
+            (y0 >= clip_y1) && (y0 <= clip_y2)) {
+            fb[(uint32_t)y0 * stride + (uint32_t)x0] = color;
+        }
+        if ((x0 == x1) && (y0 == y1)) {
+            break;
+        }
+        int32_t e2 = 2 * err;
+        if (e2 >= dy) {
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+static void lcd_constellation_draw(uint16_t *fb, uint32_t stride,
+    const lv_area_t *obj_area, const int16_t *point_x, const int16_t *point_y) {
+    int32_t x1 = obj_area->x1 + (int32_t)LCD_WATERFALL_PIXELS + LCD_NATIVE_GAP_PX;
+    int32_t x2 = x1 + (int32_t)LCD_SCOPE_PIXELS - 1;
+    int32_t y1 = obj_area->y1 + LCD_WATERFALL_TOP_PAD;
+    int32_t y2 = obj_area->y2;
+    int32_t center_x = (x1 + x2) / 2;
+    int32_t center_y = obj_area->y1 + LCD_WATERFALL_TOP_PAD +
+        LCD_WATERFALL_SPEC_H + LCD_WATERFALL_GAP_PX;
+    uint16_t bg = lv_color_to_u16(s_lcd_spectrum_bg);
+    uint16_t grid = lv_color_to_u16(s_lcd_spectrum_bar);
+    uint16_t trace = lv_color_to_u16(s_lcd_spectrum_center);
+
+    for (int32_t y = y1; y <= y2; ++y) {
+        uint16_t *row = fb + (uint32_t)y * stride + (uint32_t)x1;
+        for (uint32_t x = 0U; x < LCD_SCOPE_PIXELS; ++x) {
+            row[x] = bg;
+        }
+    }
+    uint16_t *center_row = fb + (uint32_t)center_y * stride + (uint32_t)x1;
+    for (uint32_t x = 0U; x < LCD_SCOPE_PIXELS; ++x) {
+        center_row[x] = grid;
+    }
+    for (int32_t y = y1; y <= y2; ++y) {
+        fb[(uint32_t)y * stride + (uint32_t)center_x] = grid;
+    }
+
+    for (uint32_t p = 1U; p < LCD_CONST_POINTS; ++p) {
+        lcd_constellation_line(fb, stride, point_x[p - 1U], point_y[p - 1U],
+            point_x[p], point_y[p], trace, x1, y1, x2, y2);
+    }
+    /* Make each observation visible even when several coherent samples overlap. */
+    for (uint32_t p = 0U; p < LCD_CONST_POINTS; ++p) {
+        int32_t x = point_x[p];
+        int32_t y = point_y[p];
+        fb[(uint32_t)y * stride + (uint32_t)x] = trace;
+        if (x < x2) {
+            fb[(uint32_t)y * stride + (uint32_t)(x + 1)] = trace;
+        }
+        if (y < y2) {
+            fb[(uint32_t)(y + 1) * stride + (uint32_t)x] = trace;
+        }
+    }
+}
+
 /* Draw the 27 smoothed/phased SPEC bars into the far-left 256 pixels.  The timer
  * still changes only one of five interleaved bar groups every 20 ms, but the
  * current stable state is committed together with the right-hand scope after one
@@ -1074,6 +1249,58 @@ static void lcd_spectrum_draw_direct(uint16_t *fb, uint32_t stride,
     }
 }
 
+/* SPEC+I/Q consumes the same 30-Hz FFT frame as the constellation.  Reduce that
+ * already-prepared magnitude vector here so a second consumer never races the single
+ * spectrum-ready half.  The existing five-phase display commit still prevents all bars
+ * from jumping on one physical frame. */
+static void lcd_spectrum_targets_from_frame(const float *magnitudes, float ref_peak,
+    int32_t shift_bins) {
+    if (ra_iq_adc_spectrum_reduce(magnitudes, ref_peak, shift_bins,
+        s_lcd_spectrum_target, LCD_SPECTRUM_BARS, LCD_SPECTRUM_MAX_H_PX)) {
+        s_lcd_spectrum_target_valid = 1U;
+    }
+}
+
+static void lcd_constellation_write(const int16_t *i_samples,
+    const int16_t *q_samples, size_t n) {
+    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj) ||
+        !lv_obj_is_visible(s_lcd_spectrum_obj)) {
+        return;
+    }
+    lv_area_t obj_area;
+    lv_obj_get_coords(s_lcd_spectrum_obj, &obj_area);
+    if (!lcd_native_geometry_valid(&obj_area)) {
+        return;
+    }
+    int16_t point_x[LCD_CONST_POINTS];
+    int16_t point_y[LCD_CONST_POINTS];
+    if (!lcd_constellation_prepare(i_samples, q_samples, n, &obj_area,
+        point_x, point_y)) {
+        return;
+    }
+
+    uint32_t frame = lcd_vsync_counter;
+    uint32_t wait_start = (uint32_t)mp_hal_ticks_ms();
+    while (lcd_vsync_counter == frame) {
+        if ((uint32_t)((uint32_t)mp_hal_ticks_ms() - wait_start) >= 20U) {
+            break;
+        }
+    }
+    uint32_t t0 = (uint32_t)mp_hal_ticks_us();
+    uint32_t stride = g_display0_cfg.input[0].hstride;
+    uint16_t *fb = (uint16_t *)g_display0_cfg.input[0].p_base;
+    if (s_lcd_spectrum_view == LCD_VIEW_SPECTRUM) {
+        lcd_spectrum_draw_direct(fb, stride, &obj_area);
+    }
+    lcd_constellation_draw(fb, stride, &obj_area, point_x, point_y);
+
+    uint32_t elapsed = (uint32_t)mp_hal_ticks_us() - t0;
+    s_lcd_waterfall_last_us = elapsed;
+    if (elapsed > s_lcd_waterfall_max_us) {
+        s_lcd_waterfall_max_us = elapsed;
+    }
+}
+
 /* Scope framebuffer transaction.  SPEC redraws its left panel in the same VSYNC
  * transaction.  A WF tick can reach this helper when the DAC frame is ready but
  * the FFT frame is not; in that case the left framebuffer is the waterfall
@@ -1085,9 +1312,7 @@ static void lcd_scope_write(const int16_t *samples, size_t n) {
     }
     lv_area_t obj_area;
     lv_obj_get_coords(s_lcd_spectrum_obj, &obj_area);
-    int32_t native_w = (int32_t)LCD_WATERFALL_PIXELS + LCD_NATIVE_GAP_PX +
-        (int32_t)LCD_SCOPE_PIXELS;
-    if (lv_area_get_width(&obj_area) < native_w) {
+    if (!lcd_native_geometry_valid(&obj_area)) {
         return;
     }
     int16_t scope_y[LCD_SCOPE_PIXELS];
@@ -1153,9 +1378,15 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
             int32_t shift_bins;
             const int16_t *scope_samples = NULL;
             size_t scope_n = 0U;
-            bool scope_ready = ra_iq_adc_scope_frame(&scope_samples, &scope_n);
+            const int16_t *i_samples = NULL;
+            const int16_t *q_samples = NULL;
+            size_t iq_n = 0U;
+            bool iq_view = s_lcd_scope_view == LCD_SCOPE_VIEW_IQ;
+            bool scope_ready = !iq_view &&
+                ra_iq_adc_scope_frame(&scope_samples, &scope_n);
             uint32_t fft_t0 = (uint32_t)mp_hal_ticks_us();
-            bool ready = ra_iq_adc_spectrum_frame(&magnitudes, &ref_peak, &shift_bins);
+            bool ready = ra_iq_adc_spectrum_frame(&magnitudes, &ref_peak, &shift_bins,
+                &i_samples, &q_samples, &iq_n);
             uint32_t fft_elapsed = (uint32_t)mp_hal_ticks_us() - fft_t0;
             if (ready) {
                 s_lcd_fft_last_us = fft_elapsed;
@@ -1163,7 +1394,8 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
                     s_lcd_fft_max_us = fft_elapsed;
                 }
                 lcd_waterfall_write(magnitudes, ref_peak, shift_bins,
-                    scope_ready ? scope_samples : NULL, scope_n);
+                    scope_ready ? scope_samples : NULL, scope_n,
+                    i_samples, q_samples, iq_n);
             } else if (scope_ready) {
                 lcd_scope_write(scope_samples, scope_n);
             }
@@ -1179,14 +1411,48 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
         } else {
             s_lcd_scope_last_ms += LCD_SCOPE_FRAME_MS;
         }
-        const int16_t *samples;
-        size_t sample_count;
-        if (ra_iq_adc_scope_frame(&samples, &sample_count)) {
-            lcd_scope_write(samples, sample_count);
+        if (s_lcd_scope_view == LCD_SCOPE_VIEW_IQ) {
+            const float *magnitudes;
+            float ref_peak;
+            int32_t shift_bins;
+            const int16_t *i_samples;
+            const int16_t *q_samples;
+            size_t iq_n;
+            uint32_t fft_t0 = (uint32_t)mp_hal_ticks_us();
+            bool ready = ra_iq_adc_spectrum_frame(&magnitudes, &ref_peak, &shift_bins,
+                &i_samples, &q_samples, &iq_n);
+            uint32_t fft_elapsed = (uint32_t)mp_hal_ticks_us() - fft_t0;
+            if (ready) {
+                s_lcd_fft_last_us = fft_elapsed;
+                if (fft_elapsed > s_lcd_fft_max_us) {
+                    s_lcd_fft_max_us = fft_elapsed;
+                }
+                /* The constellation consumes a fresh frame at 30 Hz, but the left
+                 * spectrum keeps the proven 10-Hz shared smoother/cadence. */
+                if ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >=
+                    LCD_SPECTRUM_FRAME_MS) {
+                    if ((s_lcd_spectrum_last_fft_ms == 0U) ||
+                        ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >
+                         (3U * LCD_SPECTRUM_FRAME_MS))) {
+                        s_lcd_spectrum_last_fft_ms = now;
+                    } else {
+                        s_lcd_spectrum_last_fft_ms += LCD_SPECTRUM_FRAME_MS;
+                    }
+                    lcd_spectrum_targets_from_frame(magnitudes, ref_peak, shift_bins);
+                }
+                lcd_constellation_write(i_samples, q_samples, iq_n);
+            }
+        } else {
+            const int16_t *samples;
+            size_t sample_count;
+            if (ra_iq_adc_scope_frame(&samples, &sample_count)) {
+                lcd_scope_write(samples, sample_count);
+            }
         }
     }
 
-    if ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >= LCD_SPECTRUM_FRAME_MS) {
+    if ((s_lcd_scope_view == LCD_SCOPE_VIEW_TIME) &&
+        ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >= LCD_SPECTRUM_FRAME_MS)) {
         if ((s_lcd_spectrum_last_fft_ms == 0U) ||
             ((uint32_t)(now - s_lcd_spectrum_last_fft_ms) >
              (3U * LCD_SPECTRUM_FRAME_MS))) {
@@ -1294,7 +1560,10 @@ static void lcd_lv_spectrum_event_cb(lv_event_t *e) {
     }
     if (!clip_inside_bar) {
         rect.bg_color = s_lcd_spectrum_bg;
-        lv_draw_rect(layer, &rect, &obj_area);
+        /* This LVGL callback owns only the left plot.  The right TIME/I-Q panel is
+         * a separate native framebuffer surface and must survive foreign/full SPEC
+         * invalidations until its next live frame. */
+        lv_draw_rect(layer, &rect, &plot_area);
     }
 
     for (uint32_t i = 0U; i < LCD_SPECTRUM_BARS; ++i) {
@@ -1369,6 +1638,8 @@ STATIC mp_obj_t lcd_spectrum_attach(size_t n_args, const mp_obj_t *args) {
         s_lcd_fft_last_us = 0U;
         s_lcd_fft_max_us = 0U;
         s_lcd_scope_peak = 32;
+        s_lcd_const_peak = 32;
+        s_lcd_scope_view = LCD_SCOPE_VIEW_TIME;
         s_lcd_scope_last_ms = s_lcd_spectrum_last_fft_ms;
         s_lcd_spectrum_obj = obj;
         lv_obj_add_event_cb(obj, lcd_lv_spectrum_event_cb, LV_EVENT_DRAW_MAIN, NULL);
@@ -1462,6 +1733,7 @@ STATIC mp_obj_t lcd_spectrum(size_t n_args, const mp_obj_t *args) {
         s_lcd_spectrum_last_phase_ms = 0U;
         s_lcd_scope_last_ms = 0U;
         s_lcd_scope_peak = 32;
+        s_lcd_const_peak = 32;
         s_lcd_waterfall_rows = 0U;
         s_lcd_waterfall_last_us = 0U;
         s_lcd_waterfall_max_us = 0U;
@@ -1473,6 +1745,35 @@ STATIC mp_obj_t lcd_spectrum(size_t n_args, const mp_obj_t *args) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_spectrum_obj, 1, 2,
     lcd_spectrum);
+
+// scope_view([view]) -- right native panel: 0 = played DAC time trace,
+// 1 = I/Q constellation from the same completed complex frame used by the FFT.
+STATIC mp_obj_t lcd_scope_view(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+    if (n_args == 1U) {
+        return MP_OBJ_NEW_SMALL_INT(s_lcd_scope_view);
+    }
+    mp_int_t view = mp_obj_get_int(args[1]);
+    if ((view != (mp_int_t)LCD_SCOPE_VIEW_TIME) &&
+        (view != (mp_int_t)LCD_SCOPE_VIEW_IQ)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("view must be 0 or 1"));
+    }
+    if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj)) {
+        return mp_const_false;
+    }
+    if ((uint8_t)view != s_lcd_scope_view) {
+        s_lcd_scope_view = (uint8_t)view;
+        s_lcd_scope_last_ms = 0U;
+        s_lcd_scope_peak = 32;
+        s_lcd_const_peak = 32;
+        /* Do not invalidate the whole transparent native object here: in WF mode
+         * its framebuffer pixels are the retained history.  The next 33-ms native
+         * transaction clears and rebuilds only the right panel. */
+    }
+    return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_scope_view_obj, 1, 2,
+    lcd_scope_view);
 
 // spectrum_pause([pause]) -- stop direct framebuffer writes while a same-screen
 // modal overlay covers the receiver.  Inactive full screens are rejected by the
@@ -1575,6 +1876,7 @@ STATIC const mp_rom_map_elem_t lcd_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_spectrum_attach),     MP_ROM_PTR(&machine_lcd_spectrum_attach_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_update),     MP_ROM_PTR(&machine_lcd_spectrum_update_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum),            MP_ROM_PTR(&machine_lcd_spectrum_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scope_view),          MP_ROM_PTR(&machine_lcd_scope_view_obj) },
     { MP_ROM_QSTR(MP_QSTR_spectrum_pause),      MP_ROM_PTR(&machine_lcd_spectrum_pause_obj) },
     { MP_ROM_QSTR(MP_QSTR_render_debug),        MP_ROM_PTR(&machine_lcd_render_debug_obj) },
     #if defined(USE_FSP_DRW)

@@ -28,7 +28,9 @@ void iic_master_eri_isr(void);
 void sdhimmc_accs_isr(void);
 void sdhimmc_card_isr(void);
 void sdhimmc_dma_req_isr(void);
+#if defined(USE_FSP_ETH)
 void ether_eint_isr(void);
+#endif
 void glcdc_line_detect_isr(void);
 void sci_i2c_txi_isr(void);
 void sci_i2c_tei_isr(void);
@@ -116,8 +118,10 @@ void dmac_int_isr(void);
 #define SDHIMMC1_CARD_IRQn          ((IRQn_Type)30)  /* SDHIMMC1 CARD (Card detect) */
 #define VECTOR_NUMBER_SDHIMMC1_DMA_REQ ((IRQn_Type)31)  /* SDHIMMC1 DMA REQ (DMA transfer request) */
 #define SDHIMMC1_DMA_REQ_IRQn          ((IRQn_Type)31)  /* SDHIMMC1 DMA REQ (DMA transfer request) */
+#if defined(USE_FSP_ETH)
 #define VECTOR_NUMBER_EDMAC0_EINT ((IRQn_Type)32)  /* EDMAC0 EINT (EDMAC 0 interrupt) */
 #define EDMAC0_EINT_IRQn          ((IRQn_Type)32)  /* EDMAC0 EINT (EDMAC 0 interrupt) */
+#endif
 #define VECTOR_NUMBER_GLCDC_LINE_DETECT ((IRQn_Type)33)  /* GLCDC LINE DETECT (Specified line) */
 #define GLCDC_LINE_DETECT_IRQn          ((IRQn_Type)33)  /* GLCDC LINE DETECT (Specified line) */
 #define VECTOR_NUMBER_SCI0_TXI ((IRQn_Type)34)  /* SCI0 TXI (Transmit data empty) */

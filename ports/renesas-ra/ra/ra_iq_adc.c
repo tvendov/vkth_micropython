@@ -818,6 +818,12 @@ static inline void ra_iq_scope_push_iq(uint32_t *i_head, uint32_t *q_head,
 
 static int16_t s_spec_i[2][RA_IQ_SPEC_N];
 static int16_t s_spec_q[2][RA_IQ_SPEC_N];
+/* Stable foreground claim.  Copying one completed 2-KiB I/Q half while IRQs are
+ * briefly masked is faster and safer than holding a producer half across the float
+ * FFT: at a 30-Hz consumer cadence the opposite producer half may already be almost
+ * complete when claimed. */
+static int16_t s_spec_snapshot_i[RA_IQ_SPEC_N];
+static int16_t s_spec_snapshot_q[RA_IQ_SPEC_N];
 static volatile uint16_t s_spec_wr;         /* producer-owned fill index         */
 static volatile uint8_t s_spec_half;        /* producer-owned active half         */
 static volatile int8_t s_spec_ready = -1;   /* completed half, -1 = none          */
@@ -905,12 +911,39 @@ static inline void ra_iq_scope_capture_iq(uint8_t blk, uint16_t m) {
  * S-meter / stage taps respond.  Control-plane arms it; the ISR just generates the tone. */
 static volatile uint8_t s_inject_enable;
 static volatile uint8_t s_inject_requested_enable;
+static volatile uint8_t s_inject_kind;
+static volatile uint8_t s_inject_requested_kind;
 static volatile uint32_t s_inject_step;    /* phase increment per raw sample (freq/fs) */
 static volatile int32_t s_inject_ampl;     /* base amplitude in ADC counts (pre-PGA)   */
+static volatile uint32_t s_inject_mod_step;
+static volatile uint16_t s_inject_depth_q15;
+static volatile uint32_t s_inject_gate_step;
+static volatile uint8_t s_inject_phase_noise;
 static volatile uint32_t s_inject_requested_step;
 static volatile int32_t s_inject_requested_ampl;
+static volatile uint32_t s_inject_requested_mod_step;
+static volatile uint16_t s_inject_requested_depth_q15;
+static volatile uint32_t s_inject_requested_gate_step;
+static volatile uint8_t s_inject_requested_phase_noise;
 static volatile uint32_t s_inject_config_seq; /* even=stable, odd=writer in progress */
 static uint32_t s_inject_phase;
+static uint32_t s_inject_mod_phase;
+static uint32_t s_inject_gate_phase;
+static uint16_t s_inject_noise_lfsr;
+static uint8_t s_inject_noise_hold;
+static int8_t s_inject_noise_dir;
+
+#define RA_IQ_INJECT_LFSR_SEED (0xACE1U)
+#define RA_IQ_INJECT_NOISE_HOLD_SAMPLES (32U)
+
+static inline void ra_iq_inject_reset_phase(void) {
+    s_inject_phase = 0U;
+    s_inject_mod_phase = 0U;
+    s_inject_gate_phase = 0U;
+    s_inject_noise_lfsr = RA_IQ_INJECT_LFSR_SEED;
+    s_inject_noise_hold = 0U;
+    s_inject_noise_dir = 0;
+}
 
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
     switch (ch) {
@@ -1118,47 +1151,123 @@ static void ra_iq_dsp_process(uint8_t half) {
     if ((inject_seq0 & 1U) == 0U) {
         __DMB();
         uint8_t requested_inject = s_inject_requested_enable;
+        uint8_t requested_kind = s_inject_requested_kind;
         uint32_t requested_step = s_inject_requested_step;
         int32_t requested_ampl = s_inject_requested_ampl;
+        uint32_t requested_mod_step = s_inject_requested_mod_step;
+        uint16_t requested_depth_q15 = s_inject_requested_depth_q15;
+        uint32_t requested_gate_step = s_inject_requested_gate_step;
+        uint8_t requested_phase_noise = s_inject_requested_phase_noise;
         __DMB();
         if (inject_seq0 == s_inject_config_seq) {
             if (requested_inject != s_inject_enable) {
                 s_dc_i_q16 = 0;
                 s_dc_q_q16 = 0;
-                if (!requested_inject) {
-                    s_inject_phase = 0U;
-                }
+                /* A real source transition starts from one deterministic phase origin.
+                 * Live frequency/amplitude/mode changes do NOT enter here, so they keep
+                 * every oscillator continuous across this and subsequent blocks. */
+                ra_iq_inject_reset_phase();
                 s_inject_enable = requested_inject;
             }
+            s_inject_kind = requested_kind;
             s_inject_step = requested_step;
             s_inject_ampl = requested_ampl;
+            s_inject_mod_step = requested_mod_step;
+            s_inject_depth_q15 = requested_depth_q15;
+            s_inject_gate_step = requested_gate_step;
+            s_inject_phase_noise = requested_phase_noise;
         }
     }
 
     if (s_inject_enable) {
-        /* Overwrite the raw ADC block with a synthetic complex tone scaled by the current
-         * PGA gain, so the whole chain runs on a known, amplitude-controlled input. */
-        ra_adc_pga_mode_t md;
+        /* Overwrite the raw ADC block with one streaming synthetic I/Q source.  Carrier,
+         * AM and gate phases are producer-owned and advance sample-by-sample across every
+         * transport block.  Phase noise perturbs only the lookup phase (the same offset
+         * for I and Q), never the accumulator, so it has zero long-term frequency drift. */
+        ra_adc_pga_mode_t md = RA_ADC_PGA_BYPASS;
         uint8_t code = 0U;
         (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
         int32_t a = RA_IQ_BYPASSED(RA_IQ_BLK_PGA) ? s_inject_ampl
             : (int32_t)(((int64_t)s_inject_ampl *
             (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
         uint32_t ph = s_inject_phase;
+        uint32_t mod_ph = s_inject_mod_phase;
+        uint32_t gate_ph = s_inject_gate_phase;
         uint32_t step = s_inject_step;
+        uint32_t mod_step = s_inject_mod_step;
+        uint32_t gate_step = s_inject_gate_step;
+        uint16_t depth_q15 = s_inject_depth_q15;
+        uint16_t lfsr = s_inject_noise_lfsr;
+        uint8_t noise_hold = s_inject_noise_hold;
+        int8_t noise_dir = s_inject_noise_dir;
+        uint8_t kind = s_inject_kind;
+        uint8_t noise = s_inject_phase_noise;
+        bool am = kind == (uint8_t)RA_IQ_INJECT_AM;
+        bool negative_q = kind == (uint8_t)RA_IQ_INJECT_USB;
         for (uint16_t k = 0U; k < n; ++k) {
-            uint8_t idx = (uint8_t)(ph >> 24);
+            uint32_t lookup_ph = ph;
+            uint32_t jitter_ph = 0U;
+            if (noise != 0U) {
+                /* 16-bit Galois LFSR, polynomial x^16+x^14+x^13+x^11+1.  Map two
+                 * low bits to {-noise,0,0,+noise} LUT bins and hold each bounded
+                 * offset for 32 raw samples.  Adjacent +j/-j jitter would sit near
+                 * raw Nyquist and be rejected by the x2 anti-alias decimator; this
+                 * slower sample-and-hold sequence intentionally survives the DSP
+                 * path.  Only the lookup is perturbed, never the phase accumulator,
+                 * so there is no accumulated frequency random walk. */
+                if (noise_hold == 0U) {
+                    uint16_t lsb = (uint16_t)(lfsr & 1U);
+                    lfsr = (uint16_t)(lfsr >> 1);
+                    if (lsb != 0U) {
+                        lfsr ^= 0xB400U;
+                    }
+                    uint8_t selector = (uint8_t)(lfsr & 3U);
+                    noise_dir = (selector == 0U) ? -1 : ((selector == 3U) ? 1 : 0);
+                    noise_hold = RA_IQ_INJECT_NOISE_HOLD_SAMPLES;
+                }
+                uint32_t jitter = (uint32_t)noise << 24;
+                if (noise_dir < 0) {
+                    jitter_ph = 0U - jitter;
+                } else if (noise_dir > 0) {
+                    jitter_ph = jitter;
+                }
+                lookup_ph += jitter_ph;
+                --noise_hold;
+            }
+            uint8_t idx = (uint8_t)(lookup_ph >> 24);
             int32_t c = s_sin256[(idx + 64U) & 255U];   /* cos, Q15 */
             int32_t s = s_sin256[idx];                  /* sin, Q15 */
-            int32_t iv = 2048 + (int32_t)(((int64_t)a * c) >> 15);
-            int32_t qv = 2048 + (int32_t)(((int64_t)a * s) >> 15);
+            int32_t sample_a = a;
+            if (am) {
+                /* Jitter the audio-envelope phase as well as the carrier so LIVE is
+                 * visible after AM envelope detection; carrier-only phase noise has
+                 * constant magnitude and would correctly disappear in the detector. */
+                uint8_t midx = (uint8_t)((mod_ph + jitter_ph) >> 24);
+                int32_t mc = s_sin256[(midx + 64U) & 255U];
+                int32_t env_q15 = 32768 +
+                    (int32_t)(((int64_t)depth_q15 * mc) >> 15);
+                sample_a = (int32_t)(((int64_t)a * env_q15) >> 15);
+            }
+            if ((gate_step != 0U) && ((gate_ph & 0x80000000U) != 0U)) {
+                sample_a = 0;
+            }
+            int32_t iv = 2048 + (int32_t)(((int64_t)sample_a * c) >> 15);
+            int32_t q = (int32_t)(((int64_t)sample_a * s) >> 15);
+            int32_t qv = 2048 + (negative_q ? -q : q);
             if (iv < 0) { iv = 0; } else if (iv > 4095) { iv = 4095; }
             if (qv < 0) { qv = 0; } else if (qv > 4095) { qv = 4095; }
             s_i_buf[half][k] = (uint16_t)iv;
             s_q_buf[half][k] = (uint16_t)qv;
             ph += step;
+            mod_ph += mod_step;
+            gate_ph += gate_step;
         }
         s_inject_phase = ph;
+        s_inject_mod_phase = mod_ph;
+        s_inject_gate_phase = gate_ph;
+        s_inject_noise_lfsr = lfsr;
+        s_inject_noise_hold = noise_hold;
+        s_inject_noise_dir = noise_dir;
     }
 
     /* Scope routing, PGA stage: the raw front-end block BEFORE decimation.  The scope
@@ -1275,6 +1384,9 @@ static void ra_iq_dsp_process(uint8_t half) {
             s_spec_i[h][wr] = s_i_dc[j];
             s_spec_q[h][wr] = s_q_dc[j];
             if (++wr == RA_IQ_SPEC_N) {
+                /* Publish the completed half only after every sample store is
+                 * globally visible to the foreground FFT consumer. */
+                __DMB();
                 s_spec_ready = (int8_t)h;
                 h ^= 1U;
                 wr = 0U;
@@ -1789,12 +1901,22 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_dec_requested_cmsis = 0U;
     s_inject_enable = 0U;
     s_inject_requested_enable = 0U;
+    s_inject_kind = (uint8_t)RA_IQ_INJECT_IQ;
+    s_inject_requested_kind = (uint8_t)RA_IQ_INJECT_IQ;
     s_inject_step = 0U;
     s_inject_requested_step = 0U;
     s_inject_ampl = 0;
     s_inject_requested_ampl = 0;
+    s_inject_mod_step = 0U;
+    s_inject_requested_mod_step = 0U;
+    s_inject_depth_q15 = 0U;
+    s_inject_requested_depth_q15 = 0U;
+    s_inject_gate_step = 0U;
+    s_inject_requested_gate_step = 0U;
+    s_inject_phase_noise = 0U;
+    s_inject_requested_phase_noise = 0U;
     s_inject_config_seq = 0U;
-    s_inject_phase = 0U;
+    ra_iq_inject_reset_phase();
 
     s_iq.timer_reserved = true;
     s_iq.timer_ch = timer_ch;
@@ -1995,7 +2117,14 @@ bool ra_iq_adc_start(void) {
     s_dc_i_q16 = 0;
     s_dc_q_q16 = 0;
     s_inject_enable = s_inject_requested_enable;
-    s_inject_phase = 0U;
+    s_inject_kind = s_inject_requested_kind;
+    s_inject_step = s_inject_requested_step;
+    s_inject_ampl = s_inject_requested_ampl;
+    s_inject_mod_step = s_inject_requested_mod_step;
+    s_inject_depth_q15 = s_inject_requested_depth_q15;
+    s_inject_gate_step = s_inject_requested_gate_step;
+    s_inject_phase_noise = s_inject_requested_phase_noise;
+    ra_iq_inject_reset_phase();
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -2388,39 +2517,72 @@ uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs) {
     return n;
 }
 
-/* Arm/disarm bench injection: a complex tone at freq_hz, base amplitude ampl (ADC counts),
- * scaled by the current PGA gain inside the ISR.  Control-plane. */
-void ra_iq_adc_set_inject(uint8_t enable, uint32_t freq_hz, int32_t ampl) {
+static uint32_t ra_iq_inject_phase_step(uint32_t hz, uint32_t fs) {
+    if (fs == 0U) {
+        return 0U;
+    }
+    if (hz > (fs >> 1)) {
+        hz = fs >> 1;
+    }
+    return (uint32_t)(((uint64_t)hz << 32) / fs);
+}
+
+/* Arm/disarm the streaming bench source.  The complete tuple is published through one
+ * seqlock transaction and consumed only at a DSP block boundary.  Parameter changes do
+ * not reset carrier/modulation/gate phase; only a real ADC<->synthetic transition does. */
+void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
+    uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
+    uint8_t phase_noise) {
     enable = enable ? 1U : 0U;
+    if (kind > (uint8_t)RA_IQ_INJECT_CW) {
+        kind = (uint8_t)RA_IQ_INJECT_IQ;
+    }
     if (ampl < 0) {
         ampl = 0;
     } else if (ampl > 2047) {
         ampl = 2047;
     }
+    if (depth_q15 > 32768U) {
+        depth_q15 = 32768U;
+    }
+    if (phase_noise > 8U) {
+        phase_noise = 8U;
+    }
     uint32_t fs = s_status.sample_rate_hz;
-    uint32_t step = (fs != 0U) ?
-        (uint32_t)(((uint64_t)freq_hz << 32) / fs) : 0U;
+    uint32_t step = ra_iq_inject_phase_step(freq_hz, fs);
+    uint32_t mod_step = ra_iq_inject_phase_step(mod_hz, fs);
+    uint32_t gate_step = ra_iq_inject_phase_step(gate_hz, fs);
 
-    /* Publish enable/frequency/amplitude as one seqlock transaction.  If the block
-     * ISR preempts this writer while the sequence is odd, it keeps the complete old
+    /* If the block ISR preempts while the sequence is odd, it keeps the complete old
      * tuple for that block and applies the complete new tuple on the next boundary. */
     uint32_t seq = s_inject_config_seq;
     s_inject_config_seq = seq + 1U;
     __DMB();
     s_inject_requested_enable = enable;
+    s_inject_requested_kind = kind;
     s_inject_requested_step = step;
     s_inject_requested_ampl = ampl;
+    s_inject_requested_mod_step = mod_step;
+    s_inject_requested_depth_q15 = depth_q15;
+    s_inject_requested_gate_step = gate_step;
+    s_inject_requested_phase_noise = phase_noise;
     __DMB();
     s_inject_config_seq = seq + 2U;
 
     if (!s_status.running) {
+        bool transition = enable != s_inject_enable;
         s_inject_enable = enable;
+        s_inject_kind = kind;
         s_inject_step = step;
         s_inject_ampl = ampl;
+        s_inject_mod_step = mod_step;
+        s_inject_depth_q15 = depth_q15;
+        s_inject_gate_step = gate_step;
+        s_inject_phase_noise = phase_noise;
         s_dc_i_q16 = 0;
         s_dc_q_q16 = 0;
-        if (!enable) {
-            s_inject_phase = 0U;
+        if (transition) {
+            ra_iq_inject_reset_phase();
         }
     }
 }
@@ -2880,16 +3042,31 @@ uint32_t ra_iq_adc_spectrum_bin_hz(void) {
     return audio_rate / (uint32_t)RA_IQ_SPEC_N;
 }
 
+/* Atomically claim and snapshot the newest completed producer half.  The short
+ * critical section contains two linear 1-KiB copies only; all window/FFT work stays
+ * in foreground with IRQs enabled. */
+static bool ra_iq_adc_spectrum_claim_snapshot(void) {
+    uint32_t irq_state = ra_disable_irq();
+    int8_t h = s_spec_ready;
+    if (h < 0) {
+        ra_enable_irq(irq_state);
+        return false;
+    }
+    s_spec_ready = -1;
+    memcpy(s_spec_snapshot_i, s_spec_i[(uint8_t)h], sizeof(s_spec_snapshot_i));
+    memcpy(s_spec_snapshot_q, s_spec_q[(uint8_t)h], sizeof(s_spec_snapshot_q));
+    ra_enable_irq(irq_state);
+    return true;
+}
+
 /* Control-plane FFT.  Consumes the most recent completed accumulator half, applies
  * a Hann window, runs the CMSIS radix complex FFT, takes the magnitude, and writes
  * it fftshift-ed so DC lands at out[N/2].  Returns false when no fresh snapshot is
  * ready.  Not callable from an ISR (uses the FPU). */
 bool ra_iq_adc_spectrum(float *out, size_t n) {
-    int8_t h = s_spec_ready;
-    if (h < 0) {
+    if (!ra_iq_adc_spectrum_claim_snapshot()) {
         return false;
     }
-    s_spec_ready = -1;
 
     if (!s_spec_win_init) {
         for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
@@ -2901,8 +3078,8 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
 
     for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
         float w = s_spec_win[k];
-        s_spec_fft[2U * k] = (float)s_spec_i[h][k] * w;
-        s_spec_fft[2U * k + 1U] = (float)s_spec_q[h][k] * w;
+        s_spec_fft[2U * k] = (float)s_spec_snapshot_i[k] * w;
+        s_spec_fft[2U * k + 1U] = (float)s_spec_snapshot_q[k] * w;
     }
 
     arm_cfft_f32(&arm_cfft_sR_f32_len512, s_spec_fft, 0, 1);
@@ -2920,11 +3097,9 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
  * roughly the same six-second reference release. */
 static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
     int32_t *shift_bins_out) {
-    int8_t h = s_spec_ready;
-    if (h < 0) {
+    if (!ra_iq_adc_spectrum_claim_snapshot()) {
         return false;
     }
-    s_spec_ready = -1;
 
     if (!s_spec_win_init) {
         for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
@@ -2935,8 +3110,8 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
     }
     for (uint32_t k = 0U; k < (uint32_t)RA_IQ_SPEC_N; ++k) {
         float w = s_spec_win[k];
-        s_spec_fft[2U * k] = (float)s_spec_i[h][k] * w;
-        s_spec_fft[2U * k + 1U] = (float)s_spec_q[h][k] * w;
+        s_spec_fft[2U * k] = (float)s_spec_snapshot_i[k] * w;
+        s_spec_fft[2U * k + 1U] = (float)s_spec_snapshot_q[k] * w;
     }
     arm_cfft_f32(&arm_cfft_sR_f32_len512, s_spec_fft, 0, 1);
     arm_cmplx_mag_f32(s_spec_fft, s_spec_mag, RA_IQ_SPEC_N);
@@ -2980,16 +3155,13 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
     return true;
 }
 
-/* Allocation-free spectrum for the UI: the existing 512-bin magnitude buffer is
- * recentred by the current tuning offset and reduced in C to nbars peak-per-group
- * bars.  Python never boxes a float. */
-bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
-    if ((out == NULL) || (nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N)) {
-        return false;
-    }
-    float ref_peak;
-    int32_t shift_bins;
-    if (!ra_iq_adc_spectrum_prepare(1.0f / 64.0f, &ref_peak, &shift_bins)) {
+/* Reduce one already-prepared magnitude frame through the single shared Q8
+ * attack/release state.  Both TIME and I/Q native views call this at 10 Hz, so
+ * switching the right panel cannot change the left spectrum cadence or smoothing. */
+bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
+    int32_t shift_bins, int16_t *out, size_t nbars, int16_t max_h) {
+    if ((magnitudes == NULL) || !(ref_peak > 0.0f) || (out == NULL) ||
+        (nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N) || (max_h < 0)) {
         return false;
     }
     float inv = 1.0f / ref_peak;
@@ -3008,7 +3180,7 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
         for (uint32_t k = lo; k < hi; ++k) {
             uint32_t src = (uint32_t)((int32_t)k + (RA_IQ_SPEC_N / 2) + shift_bins) &
                 (RA_IQ_SPEC_N - 1U);
-            float v = s_spec_mag[src];
+            float v = magnitudes[src];
             if (v > mx) {
                 mx = v;
             }
@@ -3044,11 +3216,24 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
     return true;
 }
 
+/* Allocation-free spectrum for the UI: prepare a fresh FFT, then run the common
+ * tuned-centre reducer.  Python never boxes a float. */
+bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
+    float ref_peak;
+    int32_t shift_bins;
+    if (!ra_iq_adc_spectrum_prepare(1.0f / 64.0f, &ref_peak, &shift_bins)) {
+        return false;
+    }
+    return ra_iq_adc_spectrum_reduce(s_spec_mag, ref_peak, shift_bins,
+        out, nbars, max_h);
+}
+
 /* Native waterfall access to the SAME magnitude buffer used by spectrum_bars().
  * The LCD consumes it synchronously before another FFT can overwrite it, so there is
  * no second FFT buffer and no copy through Python/LVGL. */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
-    int32_t *shift_bins) {
+    int32_t *shift_bins, const int16_t **i_samples, const int16_t **q_samples,
+    size_t *sample_count) {
     if ((magnitudes == NULL) || (ref_peak == NULL) || (shift_bins == NULL)) {
         return false;
     }
@@ -3056,6 +3241,15 @@ bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
         return false;
     }
     *magnitudes = s_spec_mag;
+    if (i_samples != NULL) {
+        *i_samples = s_spec_snapshot_i;
+    }
+    if (q_samples != NULL) {
+        *q_samples = s_spec_snapshot_q;
+    }
+    if (sample_count != NULL) {
+        *sample_count = (size_t)RA_IQ_SPEC_N;
+    }
     return true;
 }
 
