@@ -247,6 +247,11 @@ def _verify_styles():
     row.set_pad_all(2)
     row.set_pad_column(4)
     row.set_flex_flow(lv.FLEX_FLOW.ROW)
+    # A flex flow stored in a shared style does not enable the layout engine by
+    # itself (lv_obj_set_flex_flow() normally sets both properties).  Without
+    # this, every child in a VERIFY row sits at the same origin and the last
+    # SCOPE chip covers BLOCK / ON / TAP.
+    row.set_layout(lv.LAYOUT.FLEX)
     row.set_flex_main_place(lv.FLEX_ALIGN.START)
     row.set_flex_cross_place(lv.FLEX_ALIGN.CENTER)
     row.set_flex_track_place(lv.FLEX_ALIGN.CENTER)
@@ -290,6 +295,7 @@ def _verify_styles():
     grp.set_pad_all(0)
     grp.set_pad_column(4)
     grp.set_flex_flow(lv.FLEX_FLOW.ROW)
+    grp.set_layout(lv.LAYOUT.FLEX)
     s["grp"] = grp
 
     return s
@@ -1292,6 +1298,11 @@ class SdrApp:
         # the current state on EACH open via _refresh_gains / _refresh_settings.
         self._gain_widgets = {}
         self._set_widgets = {}
+        # Last actually painted VERIFY header values.  The DSP getters return
+        # fresh dicts, but unchanged formatted values must not invalidate LVGL.
+        # Entries: AGC x10, S rms, S dBFS, DSP max percent.
+        self._set_live_cache = [None, None, None, None]
+        self._set_scroll_gate = False
         # bottom bar: 0 normal, 1 modes, 2 filters, 3 tuning controls, 4 steps
         self._mode_expanded = 0
         self._ovr_red = False        # status-indicator "is red" states (change-only paint)
@@ -1317,6 +1328,17 @@ class SdrApp:
                 self._spec_lcd.spectrum_pause(self._modal)
             except Exception as e:
                 self.be.err = "spectrum pause: %r" % (e,)
+
+    def _end_verify_scroll_gate(self):
+        """Commit one final VERIFY-list frame after a drag."""
+        if not self._set_scroll_gate:
+            return
+        self._set_scroll_gate = False
+        if self._gated:
+            self._dd.enable_invalidation(True)
+        rows = self._set_widgets.get("rows")
+        if rows is not None:
+            rows.invalidate()
 
     # ---- formatting ----
     @staticmethod
@@ -1836,7 +1858,7 @@ class SdrApp:
             self.ui.get("spectrum-waterfall").invalidate()
 
     def _consume_status(self):
-        """ZERO-ALLOC 2 Hz counter/status consumer. Never raises."""
+        """2 Hz status consumer; HOME is alloc-free and VERIFY is change-only."""
         if not self.be.running:
             return
         try:
@@ -1896,40 +1918,48 @@ class SdrApp:
                 g = self.be.agc_gain_now()
                 if g is not None:
                     self._gain_vlbls["AGC"].set_text("x%.1f" % g)
-            # SETTINGS view live read-outs: AGC gain + S-meter. Only while the settings
-            # screen is showing (_KEEP["settings"] open-flag; labels in self._set_lbls,
-            # cleared on BACK) and RX is up.
+            # VERIFY live read-outs are outside the scroll subtree.  Paint them
+            # change-only and suspend them during an active drag so a status tick
+            # cannot compete with the touch/scroll frame.  The SQUELCH row itself is
+            # deliberately NOT updated here: its live envelope changes every poll,
+            # forcing a flex/layout pass inside the list every 500 ms.  The row shows
+            # the configured threshold and is updated by its control callback/open.
             if "settings" in _KEEP and self.be.iq is not None:
+                rows = self._set_widgets.get("rows")
+                if self._set_scroll_gate or (rows is not None and rows.is_scrolling()):
+                    return
+                live = self._set_live_cache
                 lb = self._set_lbls.get("agc")
                 if lb is not None:
                     try:
                         g = self.be.iq.agc_status().get("gain")
                         if g is not None:
-                            lb.set_text("x%.1f" % g)
+                            gv = int(float(g) * 10.0 + 0.5)
+                            if gv != live[0]:
+                                live[0] = gv
+                                lb.set_text("x%.1f" % (gv / 10.0))
                     except Exception:
                         pass
                 lb = self._set_lbls.get("smeter")
                 if lb is not None:
                     try:
                         sm = self.be.iq.smeter()
-                        lb.set_text("%d / %ddBFS" % (int(sm.get("rms", 0)),
-                                                     int(sm.get("dbfs", 0))))
+                        rms = int(sm.get("rms", 0))
+                        dbfs = int(sm.get("dbfs", 0))
+                        if rms != live[1] or dbfs != live[2]:
+                            live[1] = rms
+                            live[2] = dbfs
+                            lb.set_text("%d / %ddBFS" % (rms, dbfs))
                     except Exception:
                         pass
                 lb = self._set_lbls.get("timing")
                 if lb is not None:
                     try:
                         tm = self.be.iq.timing()
-                        lb.set_text("%.0f%%" % float(tm.get("max_pct", 0.0)))
-                    except Exception:
-                        pass
-                lb = self._set_widgets.get("squelch")
-                if lb is not None:
-                    try:
-                        sq = self.be.iq.squelch()
-                        lb.set_text("%d/%d %s" % (int(sq.get("thresh", 0)),
-                                                   int(sq.get("env", 0)),
-                                                   "O" if sq.get("open", True) else "C"))
+                        pct = int(float(tm.get("max_pct", 0.0)) + 0.5)
+                        if pct != live[3]:
+                            live[3] = pct
+                            lb.set_text("%d%%" % pct)
                     except Exception:
                         pass
         except Exception as e:
@@ -2137,6 +2167,7 @@ class SdrApp:
         same time exhausts the MicroPython heap, so secondary screens are rebuilt
         on demand and never coexist.
         """
+        self._end_verify_scroll_gate()
         scr = self.ui.w.get("scr-settings")
         if scr is not None:
             lv.screen_load(self.ui.get("scr-receiver"))
@@ -2191,8 +2222,13 @@ class SdrApp:
             self.ui.w["scr-settings"] = scr           # publish only on full success
         _KEEP["settings"] = True     # open-flag: _consume_status refreshes live labels
         self._set_modal(True)
+        # Populate controls before the screen becomes visible: no second full paint
+        # after loading and no apparent jump back to the top of the list.
+        self._refresh_settings()
+        for i in range(4):
+            self._set_live_cache[i] = None
+        self._consume_status()
         lv.screen_load(self.ui.get("scr-settings"))
-        self._refresh_settings()     # re-read live state so a re-shown screen is current
 
     def _build_settings(self):
         # Full-screen backend/DSP VERIFICATION view: a per-block table of the 11-block
@@ -2461,8 +2497,15 @@ class SdrApp:
 
         # -- scrollable rows container: 11 block rows + extra bench knobs below --
         rows = _base(lv.obj(scr))
-        rows.set_size(464, 176)
+        # 28 + 26 + 16 + 174 + three 4-px root gaps = the exact 256-px
+        # content height (272 minus the root's 8-px top/bottom padding).
+        rows.set_size(464, 174)
         rows.add_flag(lv.obj.FLAG.SCROLLABLE)
+        # DIRECT mode has one framebuffer: repainting all 21 rows on every FT5x06
+        # MOVE packet is visible as 5-6 flashes.  No momentum/elastic tail, and
+        # batch the drag into one invalidation on SCROLL_END instead.
+        rows.remove_flag(lv.obj.FLAG.SCROLL_MOMENTUM)
+        rows.remove_flag(lv.obj.FLAG.SCROLL_ELASTIC)
         rows.set_scroll_dir(lv.DIR.VER)
         rows.set_scrollbar_mode(lv.SCROLLBAR_MODE.AUTO)
         rows.set_flex_flow(lv.FLEX_FLOW.COLUMN)
@@ -2470,6 +2513,20 @@ class SdrApp:
                             lv.FLEX_ALIGN.CENTER)
         rows.set_style_pad_row(3, 0)
         rows.set_style_pad_all(0, 0)
+        self._set_widgets["rows"] = rows
+
+        def scroll_begin_cb(e):
+            if self._gated and not self._set_scroll_gate:
+                self._dd.enable_invalidation(False)
+                self._set_scroll_gate = True
+
+        def scroll_end_cb(e):
+            self._end_verify_scroll_gate()
+
+        rows.add_event_cb(scroll_begin_cb, lv.EVENT.SCROLL_BEGIN, None)
+        rows.add_event_cb(scroll_end_cb, lv.EVENT.SCROLL_END, None)
+        cbs.append(scroll_begin_cb)
+        cbs.append(scroll_end_cb)
 
         def _brow():
             r = lv.obj(rows)
@@ -2519,7 +2576,9 @@ class SdrApp:
             if not tap_stage:
                 tb2.remove_flag(lv.obj.FLAG.CLICKABLE)   # honest: no tap in firmware
 
-            scope_lbl = "→I/Q" if cplx else "→DAC"
+            # The compiled Montserrat font has no U+2192 glyph; the column
+            # heading already says SCOPE, so plain ASCII is clearer and smaller.
+            scope_lbl = "I/Q" if cplx else "DAC"
             sb, sl = _sbtn(r, scope_lbl, 88, 12, CYAN_RX)
 
             blk_w[bid] = (r, ob, ol, sb, sl, tb2, tl)
@@ -3382,6 +3441,12 @@ class SdrApp:
         # changes set _hw_pending explicitly.
         def sdr_poll(t):
             try:
+                # Defensive release: a lost touch packet must never leave global
+                # LVGL invalidation disabled after a VERIFY drag.
+                if self._set_scroll_gate:
+                    rows = self._set_widgets.get("rows")
+                    if rows is None or not rows.is_scrolling():
+                        self._end_verify_scroll_gate()
                 if self._hw_pending:
                     self._hw_pending = False
                     self.hw_tune()          # the ONLY place Si5351 I2C happens
