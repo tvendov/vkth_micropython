@@ -168,9 +168,9 @@ bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
 void ra_iq_adc_set_tap(uint8_t stage);
 uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs);
 
-/* Bench injection modes.  IQ/CW/LSB use the positive complex rotation I=cos,Q=sin;
- * USB uses the opposite Q sign required by the current phasing demodulator.  AM adds
- * a sinusoidal envelope before the synthetic raw ADC pair is written. */
+/* Bench injection modes.  IQ/CW/LSB use positive analytic rotation; USB uses the
+ * opposite Q sign required by the current phasing demodulator.  AM applies the
+ * selected modulation waveform to a sinusoidal analytic carrier. */
 typedef enum {
     RA_IQ_INJECT_IQ = 0,
     RA_IQ_INJECT_AM = 1,
@@ -179,15 +179,34 @@ typedef enum {
     RA_IQ_INJECT_CW = 4,
 } ra_iq_inject_kind_t;
 
-/* Replace the ADC input with a deterministic synthetic I/Q source.  freq_hz is the
- * complex carrier offset, mod_hz/depth_q15 define the AM envelope, gate_hz selects a
- * 50-percent pulse train (0 = continuous), and phase_noise is 0..8 LUT bins of
- * deterministic bounded lookup-phase jitter.  The jitter never changes the phase
- * accumulator, so it cannot create frequency random walk.  All fields commit together
- * at a block boundary; oscillator phase remains continuous across live changes. */
+/* Real complex insertion boundaries.  OUT intentionally means the last complex
+ * boundary (channel-filter output), not the later mono audio output. */
+typedef enum {
+    RA_IQ_INJECT_POINT_IN = 0,    /* raw unsigned ADC pair, before x2 decimation */
+    RA_IQ_INJECT_POINT_MID = 1,   /* post decimation/DC/IQ correction, pre NCO  */
+    RA_IQ_INJECT_POINT_OUT = 2,   /* post channel filter, before demodulation    */
+} ra_iq_inject_point_t;
+
+/* SQUARE and TRIANGLE are generated as bounded, band-limited analytic harmonic
+ * sums whenever the selected mode represents a complex test waveform.  PULSE
+ * retains a sinusoidal analytic carrier and uses gate_hz as its 50-percent key. */
+typedef enum {
+    RA_IQ_INJECT_WAVE_SINE = 0,
+    RA_IQ_INJECT_WAVE_SQUARE = 1,
+    RA_IQ_INJECT_WAVE_TRIANGLE = 2,
+    RA_IQ_INJECT_WAVE_PULSE = 3,
+} ra_iq_inject_wave_t;
+
+/* Replace the selected complex boundary with a deterministic synthetic I/Q source.
+ * freq_hz is the complex carrier/message offset, mod_hz/depth_q15 define the AM
+ * envelope, gate_hz selects a 50-percent outer key (0 = continuous), and phase_noise
+ * is 0..8 LUT bins of deterministic bounded lookup-phase jitter.  point selects the
+ * real insertion boundary and therefore also the oscillator domain rate (raw fs for
+ * IN, decimated fs/2 for MID/OUT).  All fields commit together at a block boundary;
+ * oscillator phase remains continuous across live changes. */
 void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
-    uint8_t phase_noise);
+    uint8_t phase_noise, uint8_t point, uint8_t wave);
 
 /* Per-block ON/OFF for verification: enable=0 bypasses block id (short to the next),
  * 1 keeps it in the chain. block id is 1..10 (PGA..VOL). */

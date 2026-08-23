@@ -18,6 +18,7 @@ if '/flash' not in sys.path:
     sys.path.append('/flash')
 
 _KEEP = {}
+_VERIFY_SCROLL_STEP = 31       # one complete VERIFY row per atomic transaction
 
 # ======================================================================
 # Si5351A/MS5351M I2C triple clock generator -- programming scheme of the
@@ -237,7 +238,7 @@ def _verify_styles():
         return _SET_STYLES
     s = _SET_STYLES
 
-    # Row card wrapper (was _brow: bg PANEL2, opa COVER, border 0, radius 4, pad 2).
+    # Row card wrapper (shared across the transient VERIFY rows).
     row = lv.style_t()
     row.init()
     row.set_bg_color(lv.color_hex(PANEL2))
@@ -257,7 +258,7 @@ def _verify_styles():
     row.set_flex_track_place(lv.FLEX_ALIGN.CENTER)
     s["row"] = row
 
-    # Chip base (was _sbtn button: bg PANEL2, radius 6, border 0, shadow 0, centered).
+    # Chip base; applied to a CLICKABLE label so each chip remains one object.
     # Applied to a CLICKABLE lv.label so a chip is ONE object, not button+label.
     chip = lv.style_t()
     chip.init()
@@ -1236,6 +1237,7 @@ class SdrApp:
         # children, stores targets in fixed C memory, and commits five interleaved
         # groups at 20 ms so all columns do not jump in the same physical frame. Old firmware
         # keeps the widget fallback below.
+        self._lcd = None
         self._spec_lcd = None
         self._spec_native = False
         self._spectrum_view = 0       # 0=SPEC, 1=WF on the left native panel
@@ -1243,6 +1245,7 @@ class SdrApp:
         try:
             from machine import LCD
             lcd = LCD()
+            self._lcd = lcd
             if hasattr(lcd, "spectrum_attach") and hasattr(lcd, "spectrum_update"):
                 self._spec_native = bool(lcd.spectrum_attach(
                     self.ui.get("spectrum-waterfall"), PANEL, BIN, CYAN_RX))
@@ -1261,13 +1264,16 @@ class SdrApp:
         self._poll_div = 0           # 100 ms GUI tick; status every fifth tick
         self._modal = False          # non-HOME screen/overlay -> pause native framebuffer writes
         # Settings modal (firmware DSP verification controls).  The test-source preset,
-        # waveform and LIVE flag survive VERIFY screen rebuilds in this App instance, but
-        # are never written to flash.  The source itself runs in C; no Python sample timer.
+        # injection point, waveform and LIVE flag survive VERIFY screen rebuilds in this
+        # App instance, but are never written to flash.  The source itself runs in C;
+        # there is no Python sample timer.
         self._inj_ampl = 500
         self._inj_on = False
-        self._inj_mode = 0           # index into _INJ_PRESETS (AM/USB/LSB/CW)
-        self._inj_shape = 0          # 0=SINE continuous, 1=PULSE 2-Hz/50-percent gate
+        self._inj_point = 0          # 0=raw IN, 1=post-IQ-correction MID, 2=post-filter OUT
+        self._inj_mode = 0           # index into _INJ_PRESETS (AM/USB/LSB/CW/IQ)
+        self._inj_wave = 0           # SIN/SQR/TRI/PULSE; PULSE also uses the 2-Hz gate
         self._inj_live = False       # deterministic C phase jitter for a live scope trace
+        self._inj_prev_scope = None  # route replaced by TESTER's stage-5 I/Q observation
         self._tap_stage = 0
         self._passthru_on = False    # verify-only demod("thru") override (not persisted)
         self._squelch = 0            # verify-only squelch threshold (not persisted)
@@ -1303,6 +1309,10 @@ class SdrApp:
         # Entries: AGC x10, S rms, S dBFS, DSP max percent.
         self._set_live_cache = [None, None, None, None]
         self._set_scroll_gate = False
+        self._set_scroll_adjust = False
+        self._set_scroll_origin = 0
+        self._set_scroll_idle = 0
+        self._set_scroll_quiet = 0       # 100-ms ticks; keep status off the commit frame
         # bottom bar: 0 normal, 1 modes, 2 filters, 3 tuning controls, 4 steps
         self._mode_expanded = 0
         self._ovr_red = False        # status-indicator "is red" states (change-only paint)
@@ -1329,16 +1339,107 @@ class SdrApp:
             except Exception as e:
                 self.be.err = "spectrum pause: %r" % (e,)
 
-    def _end_verify_scroll_gate(self):
-        """Commit one final VERIFY-list frame after a drag."""
-        if not self._set_scroll_gate:
+    def _begin_verify_scroll_gate(self, rows):
+        """Freeze repaint before LVGL moves the VERIFY children."""
+        if (self._set_scroll_adjust or self._set_scroll_gate or
+                not self._gated):
             return
-        self._set_scroll_gate = False
-        if self._gated:
-            self._dd.enable_invalidation(True)
+        view = self._set_widgets.get("scroll_view")
+        if view is None:
+            return
+        rows.get_coords(view)
+        self._set_scroll_origin = rows.get_scroll_y()
+        self._set_scroll_idle = 0
+        self._dd.enable_invalidation(False)
+        self._set_scroll_gate = True
+
+    def _end_verify_scroll_gate(self, commit=True):
+        """Commit one row with a VSYNC framebuffer blit plus strip redraw."""
+        if self._set_scroll_adjust or not self._set_scroll_gate:
+            return
         rows = self._set_widgets.get("rows")
-        if rows is not None:
-            rows.invalidate()
+        view = self._set_widgets.get("scroll_view")
+        dirty = self._set_widgets.get("scroll_dirty")
+        native = False
+        moved = False
+        dy = 0
+
+        try:
+            if commit and rows is not None and view is not None and dirty is not None:
+                origin = self._set_scroll_origin
+                actual = rows.get_scroll_y()
+                max_scroll = actual + rows.get_scroll_bottom()
+                if max_scroll < 0:
+                    max_scroll = 0
+
+                # Cap one gesture to a complete 31-px row.  The viewport is an exact
+                # multiple of that pitch, so the exposed strip intersects one row tree
+                # rather than two. A shorter tail reaches the final boundary.
+                delta = actual - origin
+                target = origin
+                if delta >= 8 and origin < max_scroll:
+                    target = origin + _VERIFY_SCROLL_STEP
+                    if target > max_scroll:
+                        target = max_scroll
+                elif delta <= -8 and origin > 0:
+                    target = origin - _VERIFY_SCROLL_STEP
+                    if target < 0:
+                        target = 0
+
+                if target != actual:
+                    self._set_scroll_adjust = True
+                    try:
+                        rows.scroll_to_y(target, False)
+                    finally:
+                        self._set_scroll_adjust = False
+                # Scrolling a flex container marks the screen layout dirty.  Resolve
+                # all 21 child positions while invalidation is still gated; deferring
+                # this until the render would invalidate every old/new row rectangle
+                # and overflow LVGL's 32-area buffer into a full viewport redraw.
+                rows.update_layout()
+                target = rows.get_scroll_y()       # use LVGL's bounded result
+                dy = origin - target               # framebuffer pixel direction
+                moved = dy != 0
+
+                lcd = self._lcd
+                if moved:
+                    if dy < 0:                     # pixels move up; reveal bottom
+                        dirty.set(view.x1, view.y2 + dy + 1, view.x2, view.y2)
+                    else:                          # pixels move down; reveal top
+                        dirty.set(view.x1, view.y1, view.x2, view.y1 + dy - 1)
+                    view_h = view.y2 - view.y1 + 1
+                    if (-view_h < dy < view_h and lcd is not None and
+                            hasattr(lcd, "scroll_rect")):
+                        native = bool(lcd.scroll_rect(
+                            view.x1, view.y1, view.x2 - view.x1 + 1,
+                            view.y2 - view.y1 + 1, dy))
+        except Exception as e:
+            moved = rows is not None
+            self.be.err = "verify scroll: %r" % (e,)
+        finally:
+            self._set_scroll_adjust = False
+            self._set_scroll_gate = False
+            self._set_scroll_idle = 0
+            if self._gated:
+                self._dd.enable_invalidation(True)
+
+        if rows is not None and moved:
+            # A live AGC/S/DSP header update generates about 12 old/new label
+            # invalidations. If its 2-Hz tick lands on this same transaction the
+            # combined render can cross VSYNC even though the 31-px strip alone has
+            # safe margin. Keep two 100-ms ticks quiet so the strip commits alone.
+            self._set_scroll_quiet = 2
+            if native:
+                try:
+                    rows.invalidate_area(dirty)
+                except Exception:
+                    # The blit is already pending.  A full invalidation keeps the
+                    # next render correct even if a future binding rejects area_t.
+                    rows.invalidate()
+            else:
+                # Older firmware, invalid geometry, or an already pending blit.
+                # Preserve correctness even though this path costs one full repaint.
+                rows.invalidate()
 
     # ---- formatting ----
     @staticmethod
@@ -1405,8 +1506,13 @@ class SdrApp:
     def stop_rx(self):
         self.be.stop_rx()
         # The native IQADC object (and therefore its synthetic source) no longer
-        # exists.  Keep the VERIFY toggle truthful if RX is started again later.
+        # exists.  Keep the VERIFY toggle truthful if RX is started again later,
+        # and restore the route TESTER replaced before the next backend start.
         self._inj_on = False
+        if self._inj_prev_scope is not None:
+            self._scope_id = self._inj_prev_scope
+            self.be.set_scope(self._scope_id)   # RX is down: update the cached route only
+            self._inj_prev_scope = None
         gc.collect()                 # reclaim the run's churn (GC stays enabled)
         self.p["rxauto"] = 0
         for i in range(len(self._last_bars)):    # force a clean live repaint next time
@@ -1926,7 +2032,8 @@ class SdrApp:
             # the configured threshold and is updated by its control callback/open.
             if "settings" in _KEEP and self.be.iq is not None:
                 rows = self._set_widgets.get("rows")
-                if self._set_scroll_gate or (rows is not None and rows.is_scrolling()):
+                if (self._set_scroll_gate or self._set_scroll_quiet or
+                        (rows is not None and rows.is_scrolling())):
                     return
                 live = self._set_live_cache
                 lb = self._set_lbls.get("agc")
@@ -2135,13 +2242,24 @@ class SdrApp:
                    ("VOICE", "voice"), ("CW", "cw"))
     _DSP_BW_PRESETS = (0, 250, 500, 1000, 1800, 2100, 2400,
                        3000, 4000, 6000, 9000)
-    # label, demodulator, C injector kind, carrier Hz, AM modulation Hz, depth percent.
-    # Current Hilbert signs require negative complex rotation for USB and positive for LSB.
-    _INJ_PRESETS = (("AM", "am", 1, 3000, 1000, 50),
-                    ("USB", "usb", 2, 1500, 0, 0),
-                    ("LSB", "lsb", 3, 1500, 0, 0),
-                    ("CW", "cw", 4, 10, 0, 0))
-    _INJ_SHAPES = (("SINE", 0), ("PULSE", 2))
+    # label, receiver mode (None keeps the current demod), firmware constant name,
+    # carrier Hz, modulation Hz, depth percent.  Resolve constants from the live IQADC
+    # object rather than duplicating enum values in Python.  Current Hilbert signs require
+    # negative complex rotation for USB and positive for LSB.
+    _INJ_PRESETS = (("AM", "AM", "INJECT_AM", 3000, 1000, 50),
+                    ("USB", "USB", "INJECT_USB", 1500, 0, 0),
+                    ("LSB", "LSB", "INJECT_LSB", 1500, 0, 0),
+                    ("CW", "CW", "INJECT_CW", 10, 10, 0),
+                    ("IQ", None, "INJECT_IQ", 1000, 0, 0))
+    # PULSE is the firmware's sinusoidal analytic source under the existing 2-Hz,
+    # 50-percent outer gate.  SQUARE/TRIANGLE are band-limited analytic waveforms.
+    _INJ_WAVES = (("SIN", "INJECT_WAVE_SINE", 0),
+                  ("SQR", "INJECT_WAVE_SQUARE", 0),
+                  ("TRI", "INJECT_WAVE_TRIANGLE", 0),
+                  ("PULSE", "INJECT_WAVE_PULSE", 2))
+    _INJ_POINTS = (("IN", "INJECT_POINT_IN"),
+                   ("MID", "INJECT_POINT_MID"),
+                   ("OUT", "INJECT_POINT_OUT"))
     _DEMOD_MODES = ("AM", "USB", "LSB", "CW", "THRU")
     _TAP_STAGES = ("OFF", "decim", "nco", "chfilt")
     # The 11-block DSP chain: (id, name, complex?). Pre-demod blocks 1..5 are complex
@@ -2167,7 +2285,7 @@ class SdrApp:
         same time exhausts the MicroPython heap, so secondary screens are rebuilt
         on demand and never coexist.
         """
-        self._end_verify_scroll_gate()
+        self._end_verify_scroll_gate(False)
         scr = self.ui.w.get("scr-settings")
         if scr is not None:
             lv.screen_load(self.ui.get("scr-receiver"))
@@ -2176,6 +2294,7 @@ class SdrApp:
         self._settings_cbs = []
         self._set_widgets = {}
         self._set_lbls = {}
+        self._set_scroll_quiet = 0
         gc.collect()
 
     def close_settings(self):
@@ -2332,88 +2451,122 @@ class SdrApp:
                 self.be.err = "%s: %r" % (name, e)
                 return False, None
 
-        # -- TEST source: AM/USB/LSB/CW | SINE/PULSE | CLEAN/LIVE | amplitude | ON --
-        # One compact row adds only one LVGL object over the former fixed 1-kHz INJECT
-        # control.  All waveform generation, gating and phase jitter run in the existing
-        # C IQADC injector; callbacks merely publish a new block-atomic configuration.
+        # -- TESTER: point | AM/USB/LSB/CW/IQ | waveform | PN | amplitude | ON --
+        # The three injection points stay in the complex path: IN replaces raw ADC I/Q,
+        # MID is after decimation/DC/IQ correction, and OUT is after the channel filter.
+        # C publishes point+waveform+generator parameters as one block-atomic tuple.
         irow = _base(lv.obj(scr))
         irow.set_size(464, 26)
         _flex(irow, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN,
               lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, 6)
-        _lbl(irow, "TEST", 14, WHITE)
+        _lbl(irow, "TESTER", 14, WHITE)
         ig = _grp(irow, 370)
+        point_name = self._INJ_POINTS[self._inj_point][0]
         mode_name = self._INJ_PRESETS[self._inj_mode][0]
-        shape_name = self._INJ_SHAPES[self._inj_shape][0]
-        imb, iml = _sbtn(ig, mode_name, 48, 12, CYAN_RX)
-        iwb, iwl = _sbtn(ig, shape_name, 58, 12, CYAN_RX)
+        wave_name = self._INJ_WAVES[self._inj_wave][0]
+        ipb, ipl = _sbtn(ig, point_name, 46, 12, DARK_TXT)
+        ipb.set_style_bg_color(lv.color_hex(CYAN_RX), 0)
+        imb, iml = _sbtn(ig, mode_name, 44, 12, CYAN_RX)
+        iwb, iwl = _sbtn(ig, wave_name, 58, 12, CYAN_RX)
         ilb, ill = _sbtn(ig, "LIVE" if self._inj_live else "CLEAN", 54, 12,
                          DARK_TXT if self._inj_live else CYAN_RX)
         if self._inj_live:
             ilb.set_style_bg_color(lv.color_hex(GREEN), 0)
         iamp = lv.label(ig)
         iamp.set_text("%d" % self._inj_ampl)
+        iamp.set_size(40, 20)
         iamp.add_style(st["dim"], 0)
+        iamp.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
         iamp.set_style_text_color(lv.color_hex(CYAN_RX), 0)
-        idn, _ = _sbtn(ig, "-", 26, 20)
-        iup, _ = _sbtn(ig, "+", 26, 20)
-        itg, itgl = _sbtn(ig, "ON" if self._inj_on else "OFF", 48, 12,
+        idn, _ = _sbtn(ig, "-", 24, 20)
+        iup, _ = _sbtn(ig, "+", 24, 20)
+        itg, itgl = _sbtn(ig, "ON" if self._inj_on else "OFF", 46, 12,
                           DARK_TXT if self._inj_on else WHITE)
         if self._inj_on:
             itg.set_style_bg_color(lv.color_hex(GREEN), 0)
-        self._set_widgets["inject"] = (iml, iwl, ilb, ill, iamp, itg, itgl)
+        self._set_widgets["inject"] = (ipl, iml, iwl, ilb, ill,
+                                        iamp, itg, itgl)
+
+        def tester_scope(stage):
+            """Route the DAC pair and keep the one-of SCOPE paint coherent."""
+            previous = self._scope_id
+            if previous == stage:
+                return True
+            if not self.be.set_scope(stage):
+                return False
+            self._scope_id = stage
+            blocks = self._set_widgets.get("blocks")
+            if blocks:
+                if previous and previous in blocks:
+                    _scope_paint(previous, False)
+                if stage and stage in blocks:
+                    _scope_paint(stage, True)
+            return True
 
         def inj_apply():
             iq = self.be.iq
             fn = getattr(iq, "inject", None) if iq is not None else None
             if not self._inj_on:
+                ok = True
                 if fn is not None:
                     try:
                         fn(False)
                     except Exception as e:
                         self.be.err = "inject: %r" % (e,)
-                        return False
+                        ok = False
                 if iq is not None:
                     mode = self.p["m"]
-                    self.be.set_mode(mode)           # restore receiver DSP settings
-                    self.be.set_bandwidth(self.p["bw"].get(mode, MODE_BW[mode]))
-                return True
+                    if not self.be.set_mode(mode):   # restore receiver DSP settings
+                        ok = False
+                    if not self.be.set_bandwidth(
+                            self.p["bw"].get(mode, MODE_BW[mode])):
+                        ok = False
+                if self._inj_prev_scope is not None:
+                    restore = self._inj_prev_scope
+                    if tester_scope(restore):
+                        self._inj_prev_scope = None
+                    else:
+                        ok = False
+                return ok
             if fn is None:
                 self.be.err = "test source unavailable (RX off)"
                 return False
-            # Presence of the new constants is an honest capability probe.  An older
-            # firmware only supports the legacy positive complex tone and cannot fake
-            # true AM, negative-rotation USB, pulse gating or phase noise.
-            if not hasattr(iq, "INJECT_AM"):
-                self.be.err = "extended IQ test source unavailable"
+            # These two terminal constants are the version probe for the complete new
+            # point+waveform API.  Never silently reinterpret the positional arguments
+            # on legacy firmware.
+            if (not hasattr(iq, "INJECT_POINT_OUT") or
+                    not hasattr(iq, "INJECT_WAVE_TRIANGLE")):
+                self.be.err = "multi-point IQ test source unavailable"
                 return False
-            name, demod, kind, carrier, mod_hz, depth = \
+            name, receiver_mode, kind_attr, carrier, mod_hz, depth = \
                 self._INJ_PRESETS[self._inj_mode]
             if name == "AM" and self._inj_ampl > 1000:
                 # AM uses A*(1+depth*cos); at the 50-percent preset A=1000 peaks at
                 # 1500 counts and stays comfortably inside the 12-bit ADC midpoint.
                 self._inj_ampl = 1000
                 iamp.set_text("1000")
-            gate_hz = self._INJ_SHAPES[self._inj_shape][1]
+            _wave_name, wave_attr, gate_hz = self._INJ_WAVES[self._inj_wave]
+            _point_name, point_attr = self._INJ_POINTS[self._inj_point]
             noise = 2 if self._inj_live else 0
             try:
-                if not self.be.set_mode(name):
+                kind = getattr(iq, kind_attr)
+                point = getattr(iq, point_attr)
+                wave = getattr(iq, wave_attr)
+                if receiver_mode is not None:
+                    if not self.be.set_mode(receiver_mode):
+                        return False
+                    if not self.be.set_bandwidth(
+                            self.p["bw"].get(receiver_mode,
+                                             MODE_BW[receiver_mode])):
+                        return False
+                if self._inj_prev_scope is None:
+                    self._inj_prev_scope = self._scope_id
+                # Stage 5 is the common post-channel-filter complex output for every
+                # injection point: DA0=I, DA1=Q.  Restore the displaced route on OFF.
+                if not tester_scope(5):
                     return False
-                if not self.be.set_bandwidth(
-                        self.p["bw"].get(name, MODE_BW[name])):
-                    return False
-                previous = self._scope_id
-                if not self.be.set_scope(6):          # inspect the detected mono output
-                    return False
-                self._scope_id = 6
                 fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
-                   gate_hz, noise)
-                # The table is already complete by the time a user can click this row.
-                blocks = self._set_widgets.get("blocks")
-                if blocks:
-                    if previous and previous != 6 and previous in blocks:
-                        _scope_paint(previous, False)
-                    if 6 in blocks:
-                        _scope_paint(6, True)
+                   gate_hz, noise, point, wave)
                 self.be.err = None
                 return True
             except Exception as e:
@@ -2421,8 +2574,9 @@ class SdrApp:
                 return False
 
         def inj_paint():
+            ipl.set_text(self._INJ_POINTS[self._inj_point][0])
             iml.set_text(self._INJ_PRESETS[self._inj_mode][0])
-            iwl.set_text(self._INJ_SHAPES[self._inj_shape][0])
+            iwl.set_text(self._INJ_WAVES[self._inj_wave][0])
             ill.set_text("LIVE" if self._inj_live else "CLEAN")
             ill.set_style_text_color(
                 lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
@@ -2434,47 +2588,56 @@ class SdrApp:
             itg.set_style_bg_color(
                 lv.color_hex(GREEN if self._inj_on else PANEL2), 0)
 
+        def inj_reapply():
+            """Apply a live edit; on failure disarm and restore the displaced route."""
+            if self._inj_on and not inj_apply():
+                error = self.be.err
+                self._inj_on = False
+                inj_apply()
+                self.be.err = error
+
         def inj_mode_cb(e):
             self._inj_mode = (self._inj_mode + 1) % len(self._INJ_PRESETS)
             if self._INJ_PRESETS[self._inj_mode][0] == "AM" and self._inj_ampl > 1000:
                 self._inj_ampl = 1000
                 iamp.set_text("1000")
-            if self._inj_on and not inj_apply():
-                self._inj_on = False
-                inj_apply()
+            inj_reapply()
             inj_paint()
 
-        def inj_shape_cb(e):
-            self._inj_shape = (self._inj_shape + 1) % len(self._INJ_SHAPES)
-            if self._inj_on and not inj_apply():
-                self._inj_on = False
-                inj_apply()
+        def inj_point_cb(e):
+            self._inj_point = (self._inj_point + 1) % len(self._INJ_POINTS)
+            inj_reapply()
+            inj_paint()
+
+        def inj_wave_cb(e):
+            self._inj_wave = (self._inj_wave + 1) % len(self._INJ_WAVES)
+            inj_reapply()
             inj_paint()
 
         def inj_live_cb(e):
             self._inj_live = not self._inj_live
-            if self._inj_on and not inj_apply():
-                self._inj_on = False
-                inj_apply()
+            inj_reapply()
             inj_paint()
 
         def inj_amp_cb(e, d=0, lbl=iamp):
             max_ampl = 1000 if self._INJ_PRESETS[self._inj_mode][0] == "AM" else 2000
             self._inj_ampl = min(max(self._inj_ampl + d, 0), max_ampl)
             lbl.set_text("%d" % self._inj_ampl)
-            if self._inj_on and not inj_apply():
-                self._inj_on = False
-                inj_apply()
-                inj_paint()
+            inj_reapply()
+            inj_paint()
 
         def inj_tg_cb(e):
             want_on = not self._inj_on
+            if want_on and self._inj_prev_scope is None:
+                self._inj_prev_scope = self._scope_id
             self._inj_on = want_on
             if not inj_apply():
+                error = self.be.err
                 self._inj_on = False
                 inj_apply()
+                self.be.err = error
             inj_paint()
-        for b, cb in ((imb, inj_mode_cb), (iwb, inj_shape_cb),
+        for b, cb in ((ipb, inj_point_cb), (imb, inj_mode_cb), (iwb, inj_wave_cb),
                       (ilb, inj_live_cb), (itg, inj_tg_cb)):
             b.add_event_cb(cb, lv.EVENT.CLICKED, None)
             cbs.append(cb)
@@ -2497,9 +2660,10 @@ class SdrApp:
 
         # -- scrollable rows container: 11 block rows + extra bench knobs below --
         rows = _base(lv.obj(scr))
-        # 28 + 26 + 16 + 174 + three 4-px root gaps = the exact 256-px
-        # content height (272 minus the root's 8-px top/bottom padding).
-        rows.set_size(464, 174)
+        # Five exact 31-px row pitches keep each atomic scroll repaint to one row
+        # tree.  The remaining 19 px stay as a clean bottom margin; a 174-px
+        # viewport exposed fragments of two adjacent rows and took > one frame.
+        rows.set_size(464, 155)
         rows.add_flag(lv.obj.FLAG.SCROLLABLE)
         # DIRECT mode has one framebuffer: repainting all 21 rows on every FT5x06
         # MOVE packet is visible as 5-6 flashes.  No momentum/elastic tail, and
@@ -2507,23 +2671,28 @@ class SdrApp:
         rows.remove_flag(lv.obj.FLAG.SCROLL_MOMENTUM)
         rows.remove_flag(lv.obj.FLAG.SCROLL_ELASTIC)
         rows.set_scroll_dir(lv.DIR.VER)
-        rows.set_scrollbar_mode(lv.SCROLLBAR_MODE.AUTO)
+        # The scrollbar thumb moves at a different ratio than the row pixels and
+        # therefore cannot participate in the framebuffer blit transaction.
+        rows.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF)
         rows.set_flex_flow(lv.FLEX_FLOW.COLUMN)
         rows.set_flex_align(lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER,
                             lv.FLEX_ALIGN.CENTER)
         rows.set_style_pad_row(3, 0)
         rows.set_style_pad_all(0, 0)
         self._set_widgets["rows"] = rows
+        self._set_widgets["scroll_view"] = lv.area_t()
+        self._set_widgets["scroll_dirty"] = lv.area_t()
 
         def scroll_begin_cb(e):
-            if self._gated and not self._set_scroll_gate:
-                self._dd.enable_invalidation(False)
-                self._set_scroll_gate = True
+            self._begin_verify_scroll_gate(rows)
 
         def scroll_end_cb(e):
             self._end_verify_scroll_gate()
 
-        rows.add_event_cb(scroll_begin_cb, lv.EVENT.SCROLL_BEGIN, None)
+        # PREPROCESS runs before LVGL's base handler adds SCROLLED state and
+        # invalidates the complete viewport.
+        rows.add_event_cb(scroll_begin_cb,
+                          lv.EVENT.SCROLL_BEGIN | lv.EVENT.PREPROCESS, None)
         rows.add_event_cb(scroll_end_cb, lv.EVENT.SCROLL_END, None)
         cbs.append(scroll_begin_cb)
         cbs.append(scroll_end_cb)
@@ -2952,10 +3121,11 @@ class SdrApp:
         w["iqc_amp"].set_text("%.2f" % self._iqc_amp)
         w["iqc_phase"].set_text("%+.2f" % self._iqc_phase)
 
-        # TEST source preset, waveform, LIVE phase jitter, amplitude and ON/OFF.
-        iml, iwl, ilb, ill, iamp, itg, itgl = w["inject"]
+        # TESTER injection point, modulation, waveform, phase noise, amplitude and ON/OFF.
+        ipl, iml, iwl, ilb, ill, iamp, itg, itgl = w["inject"]
+        ipl.set_text(self._INJ_POINTS[self._inj_point][0])
         iml.set_text(self._INJ_PRESETS[self._inj_mode][0])
-        iwl.set_text(self._INJ_SHAPES[self._inj_shape][0])
+        iwl.set_text(self._INJ_WAVES[self._inj_wave][0])
         ill.set_text("LIVE" if self._inj_live else "CLEAN")
         ill.set_style_text_color(
             lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
@@ -3445,8 +3615,14 @@ class SdrApp:
                 # LVGL invalidation disabled after a VERIFY drag.
                 if self._set_scroll_gate:
                     rows = self._set_widgets.get("rows")
-                    if rows is None or not rows.is_scrolling():
+                    if rows is None:
                         self._end_verify_scroll_gate()
+                    elif rows.is_scrolling():
+                        self._set_scroll_idle = 0
+                    else:
+                        self._set_scroll_idle += 1
+                        if self._set_scroll_idle >= 10:  # 1-s lost-release fail-safe
+                            self._end_verify_scroll_gate()
                 if self._hw_pending:
                     self._hw_pending = False
                     self.hw_tune()          # the ONLY place Si5351 I2C happens
@@ -3460,6 +3636,8 @@ class SdrApp:
                     self._poll_div = 0
                     self._consume_status()
                 self._consume_spectrum()
+                if self._set_scroll_quiet:
+                    self._set_scroll_quiet -= 1
             except Exception as e:
                 self.be.err = "sdr_poll: %r" % (e,)
         self.sdr_timer = lv.timer_create(sdr_poll, 100, None)
@@ -3554,7 +3732,7 @@ def start():
             ev = getattr(lv.EVENT, "RENDER_START", None) or lv.EVENT.REFR_START
 
             def _vs_cb(e):
-                _lcd.vsync(20)
+                _lcd.vsync(25)
 
             dd.add_event_cb(_vs_cb, ev, None)
             _KEEP.update(vs_lcd=_lcd, vs_cb=_vs_cb)

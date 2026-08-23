@@ -828,6 +828,10 @@ static volatile uint16_t s_spec_wr;         /* producer-owned fill index        
 static volatile uint8_t s_spec_half;        /* producer-owned active half         */
 static volatile int8_t s_spec_ready = -1;   /* completed half, -1 = none          */
 static volatile uint8_t s_spec_enable;      /* gate: accumulate only when in use  */
+/* Per-half capture-domain metadata.  TEST frames are captured after the NCO/channel
+ * filter and must not be shifted a second time by the foreground reducer. */
+static volatile uint8_t s_spec_post_nco[2];
+static uint8_t s_spec_snapshot_post_nco;
 
 /* Simultaneous DAC oscilloscope capture.  Unlike the earlier alternative-view
  * prototype this has its own 2x512 signed ping-pong: ADC spectrum and played DAC
@@ -882,6 +886,40 @@ static inline void ra_iq_tap_capture(uint8_t stage, uint16_t m) {
     s_tap_ready = 1U;
 }
 
+/* Append one decimated complex block to the spectrum ping-pong.  post_nco is
+ * published with the completed half, so the foreground reducer knows whether the
+ * tuning shift has already happened.  The caller selects exactly one boundary per
+ * DSP block: normal RX before NCO, TEST injection after CHFILT. */
+static inline void ra_iq_spec_capture(uint16_t m, uint8_t post_nco) {
+    if (!s_spec_enable) {
+        return;
+    }
+    uint8_t h = s_spec_half;
+    uint16_t wr = s_spec_wr;
+    for (uint16_t j = 0U; j < m; ++j) {
+        s_spec_i[h][wr] = s_i_dc[j];
+        s_spec_q[h][wr] = s_q_dc[j];
+        if (++wr == RA_IQ_SPEC_N) {
+            /* Metadata belongs to this exact completed sample half. */
+            s_spec_post_nco[h] = post_nco ? 1U : 0U;
+            __DMB();
+            s_spec_ready = (int8_t)h;
+            h ^= 1U;
+            wr = 0U;
+        }
+    }
+    s_spec_half = h;
+    s_spec_wr = wr;
+}
+
+/* A source-boundary transition must not complete one 512-sample frame from two
+ * coordinate systems (wide pre-NCO and TEST post-CHFILT).  Producer context only. */
+static inline void ra_iq_spec_discard_partial(void) {
+    s_spec_wr = 0U;
+    s_spec_half = 0U;
+    s_spec_ready = -1;
+}
+
 /* Scope routing capture at a pre-demod boundary.  When s_scope_stage == blk, stream the
  * current decimated s_i_dc/s_q_dc pair-by-pair into the DAC0 (I) and DAC1 (Q) rings as
  * DAC codes and publish both heads once.  Only ONE stage matches per block, so this runs
@@ -904,17 +942,22 @@ static inline void ra_iq_scope_capture_iq(uint8_t blk, uint16_t m) {
     }
 }
 
-/* Bench signal injection: a synthetic complex tone written into the raw block in place of
- * the ADC samples, scaled by the CURRENT PGA gain so the whole front end (PGA -> decimate
- * -> IQ corr -> NCO -> channel filter -> demod -> AGC -> volume) is driven from a known,
- * amplitude-controlled input.  Vary the amplitude (or the PGA gain) and watch the AGC /
- * S-meter / stage taps respond.  Control-plane arms it; the ISR just generates the tone. */
+/* Bench signal injection: one block-atomic synthetic complex source can replace the
+ * stream at raw IN, corrected/decimated MID, or filtered complex OUT.  IN emulates a
+ * pre-PGA amplitude by applying the current gain; MID/OUT use centred int16 counts.
+ * Control-plane publishes configuration; the ISR generates only at the chosen point. */
 static volatile uint8_t s_inject_enable;
 static volatile uint8_t s_inject_requested_enable;
 static volatile uint8_t s_inject_kind;
 static volatile uint8_t s_inject_requested_kind;
-static volatile uint32_t s_inject_step;    /* phase increment per raw sample (freq/fs) */
-static volatile int32_t s_inject_ampl;     /* base amplitude in ADC counts (pre-PGA)   */
+static volatile uint8_t s_inject_point;
+static volatile uint8_t s_inject_requested_point;
+static volatile uint8_t s_inject_wave;
+static volatile uint8_t s_inject_requested_wave;
+static volatile uint8_t s_inject_harmonic_max;
+static volatile uint8_t s_inject_requested_harmonic_max;
+static volatile uint32_t s_inject_step;    /* phase increment at the point's rate */
+static volatile int32_t s_inject_ampl;     /* peak amplitude in insertion counts  */
 static volatile uint32_t s_inject_mod_step;
 static volatile uint16_t s_inject_depth_q15;
 static volatile uint32_t s_inject_gate_step;
@@ -943,6 +986,234 @@ static inline void ra_iq_inject_reset_phase(void) {
     s_inject_noise_lfsr = RA_IQ_INJECT_LFSR_SEED;
     s_inject_noise_hold = 0U;
     s_inject_noise_dir = 0;
+}
+
+/* Q15 harmonic weights are normalised by the sum of their absolute values, so
+ * neither component can overflow even when all four retained harmonics align.
+ * The Q component uses the same coefficients on sin(h*phase): this is a true
+ * analytic/Hilbert partner, not a quarter-period shift of a square waveform. */
+static const int16_t s_inject_square_q15[4] = {19548, -6516, 3910, -2792};
+static const int16_t s_inject_triangle_q15[4] = {27970, 3108, 1119, 570};
+static const uint8_t s_inject_harmonic[4] = {1U, 3U, 5U, 7U};
+
+static inline int16_t ra_iq_inject_sat16(int32_t v) {
+    if (v > 32767) {
+        return 32767;
+    }
+    if (v < -32768) {
+        return -32768;
+    }
+    return (int16_t)v;
+}
+
+/* One bounded analytic waveform sample.  PULSE deliberately uses the sine pair;
+ * its on/off shape is the existing outer gate, which preserves quadrature. */
+static inline void ra_iq_inject_analytic_q15(uint32_t phase, uint8_t wave,
+    uint8_t harmonic_max, int32_t *i_out, int32_t *q_out) {
+    if ((wave == (uint8_t)RA_IQ_INJECT_WAVE_SINE) ||
+        (wave == (uint8_t)RA_IQ_INJECT_WAVE_PULSE) || (harmonic_max <= 1U)) {
+        uint8_t idx = (uint8_t)(phase >> 24);
+        *i_out = s_sin256[(idx + 64U) & 255U];
+        *q_out = s_sin256[idx];
+        return;
+    }
+
+    const int16_t *coeff = (wave == (uint8_t)RA_IQ_INJECT_WAVE_SQUARE) ?
+        s_inject_square_q15 : s_inject_triangle_q15;
+    int64_t ai = 0;
+    int64_t aq = 0;
+    for (uint8_t k = 0U; k < 4U; ++k) {
+        uint8_t h = s_inject_harmonic[k];
+        if (h > harmonic_max) {
+            break;
+        }
+        uint32_t hp = phase * (uint32_t)h;
+        uint8_t idx = (uint8_t)(hp >> 24);
+        ai += (int32_t)coeff[k] * (int32_t)s_sin256[(idx + 64U) & 255U];
+        aq += (int32_t)coeff[k] * (int32_t)s_sin256[idx];
+    }
+    *i_out = (int32_t)(ai >> 15);
+    *q_out = (int32_t)(aq >> 15);
+}
+
+/* Real modulation/key waveform derived from the same band-limited harmonic set.
+ * The analytic coefficients are conservatively bounded for I/Q; rescale only the
+ * real envelope here so SQUARE/TRIANGLE still use the full 0..1 key depth. */
+static inline int32_t ra_iq_inject_mod_q15(uint32_t phase, uint8_t wave,
+    uint8_t harmonic_max) {
+    int32_t mi;
+    int32_t mq;
+    ra_iq_inject_analytic_q15(phase, wave, harmonic_max, &mi, &mq);
+    (void)mq;
+    int32_t scale_q12 = 4096;
+    if ((wave == (uint8_t)RA_IQ_INJECT_WAVE_SQUARE) && (harmonic_max > 1U)) {
+        scale_q12 = (harmonic_max >= 7U) ? 9485 :
+            ((harmonic_max >= 5U) ? 7922 : 10299);
+    } else if ((wave == (uint8_t)RA_IQ_INJECT_WAVE_TRIANGLE) &&
+        (harmonic_max > 1U)) {
+        scale_q12 = (harmonic_max >= 7U) ? 4096 :
+            ((harmonic_max >= 5U) ? 4169 : 4319);
+    }
+    return (int32_t)ra_iq_inject_sat16(
+        (int32_t)(((int64_t)mi * scale_q12) >> 12));
+}
+
+typedef struct {
+    uint32_t phase;
+    uint32_t mod_phase;
+    uint32_t gate_phase;
+    uint32_t step;
+    uint32_t mod_step;
+    uint32_t gate_step;
+    uint16_t depth_q15;
+    uint16_t noise_lfsr;
+    uint8_t noise_hold;
+    int8_t noise_dir;
+    uint8_t kind;
+    uint8_t wave;
+    uint8_t harmonic_max;
+    uint8_t phase_noise;
+    uint8_t noise_reload;
+} ra_iq_inject_run_t;
+
+static inline void ra_iq_inject_run_begin(ra_iq_inject_run_t *r) {
+    r->phase = s_inject_phase;
+    r->mod_phase = s_inject_mod_phase;
+    r->gate_phase = s_inject_gate_phase;
+    r->step = s_inject_step;
+    r->mod_step = s_inject_mod_step;
+    r->gate_step = s_inject_gate_step;
+    r->depth_q15 = s_inject_depth_q15;
+    r->noise_lfsr = s_inject_noise_lfsr;
+    r->noise_hold = s_inject_noise_hold;
+    r->noise_dir = s_inject_noise_dir;
+    r->kind = s_inject_kind;
+    r->wave = s_inject_wave;
+    r->harmonic_max = s_inject_harmonic_max;
+    r->phase_noise = s_inject_phase_noise;
+    /* Keep the original ~0.67-ms noise-hold time in both rate domains. */
+    r->noise_reload = (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN) ?
+        RA_IQ_INJECT_NOISE_HOLD_SAMPLES : (RA_IQ_INJECT_NOISE_HOLD_SAMPLES / 2U);
+}
+
+static inline void ra_iq_inject_run_end(const ra_iq_inject_run_t *r) {
+    s_inject_phase = r->phase;
+    s_inject_mod_phase = r->mod_phase;
+    s_inject_gate_phase = r->gate_phase;
+    s_inject_noise_lfsr = r->noise_lfsr;
+    s_inject_noise_hold = r->noise_hold;
+    s_inject_noise_dir = r->noise_dir;
+}
+
+/* Generate one normalised complex carrier plus an amplitude/key gain.  Keeping the
+ * gain separate preserves the legacy fixed-point order: the insertion amplitude is
+ * scaled first, then multiplied by the carrier.  IQ/USB/LSB use the full analytic
+ * waveform; the USB Q sign is deliberately applied by the fill routine only after
+ * that carrier multiply.  CW SINE/SQUARE/TRIANGLE use an unipolar key envelope at
+ * mod_hz; CW PULSE uses the independent outer gate. */
+static inline void ra_iq_inject_next_q15(ra_iq_inject_run_t *r,
+    int32_t *i_out, int32_t *q_out, int32_t *gain_q15_out) {
+    uint32_t jitter_phase = 0U;
+    if (r->phase_noise != 0U) {
+        if (r->noise_hold == 0U) {
+            uint16_t lsb = (uint16_t)(r->noise_lfsr & 1U);
+            r->noise_lfsr = (uint16_t)(r->noise_lfsr >> 1);
+            if (lsb != 0U) {
+                r->noise_lfsr ^= 0xB400U;
+            }
+            uint8_t selector = (uint8_t)(r->noise_lfsr & 3U);
+            r->noise_dir = (selector == 0U) ? -1 : ((selector == 3U) ? 1 : 0);
+            r->noise_hold = r->noise_reload;
+        }
+        uint32_t jitter = (uint32_t)r->phase_noise << 24;
+        if (r->noise_dir < 0) {
+            jitter_phase = 0U - jitter;
+        } else if (r->noise_dir > 0) {
+            jitter_phase = jitter;
+        }
+        --r->noise_hold;
+    }
+
+    bool am = r->kind == (uint8_t)RA_IQ_INJECT_AM;
+    bool cw = r->kind == (uint8_t)RA_IQ_INJECT_CW;
+    uint8_t carrier_wave = (am || cw) ? (uint8_t)RA_IQ_INJECT_WAVE_SINE : r->wave;
+    int32_t wi;
+    int32_t wq;
+    ra_iq_inject_analytic_q15(r->phase + jitter_phase, carrier_wave,
+        r->harmonic_max, &wi, &wq);
+
+    int32_t gain_q15 = 32768;
+    if (am) {
+        uint8_t env_wave = (r->wave == (uint8_t)RA_IQ_INJECT_WAVE_PULSE) ?
+            (uint8_t)RA_IQ_INJECT_WAVE_SINE : r->wave;
+        int32_t mi = ra_iq_inject_mod_q15(r->mod_phase + jitter_phase,
+            env_wave, r->harmonic_max);
+        gain_q15 = 32768 +
+            (int32_t)(((int64_t)r->depth_q15 * mi) >> 15);
+    } else if (cw && (r->wave != (uint8_t)RA_IQ_INJECT_WAVE_PULSE) &&
+        (r->mod_step != 0U)) {
+        int32_t mi = ra_iq_inject_mod_q15(r->mod_phase + jitter_phase,
+            r->wave, r->harmonic_max);
+        gain_q15 = (32768 + mi) >> 1;  /* bipolar waveform -> 0..1 key */
+    }
+    if ((r->gate_step != 0U) && ((r->gate_phase & 0x80000000U) != 0U)) {
+        gain_q15 = 0;
+    }
+    *i_out = wi;
+    *q_out = wq;
+    *gain_q15_out = gain_q15;
+    r->phase += r->step;
+    r->mod_phase += r->mod_step;
+    r->gate_phase += r->gate_step;
+}
+
+static void ra_iq_inject_fill_raw(uint8_t half, uint16_t n) {
+    ra_adc_pga_mode_t md = RA_ADC_PGA_BYPASS;
+    uint8_t code = 0U;
+    (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
+    int32_t a = RA_IQ_BYPASSED(RA_IQ_BLK_PGA) ? s_inject_ampl :
+        (int32_t)(((int64_t)s_inject_ampl *
+        (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
+    ra_iq_inject_run_t run;
+    ra_iq_inject_run_begin(&run);
+    bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_USB;
+    for (uint16_t k = 0U; k < n; ++k) {
+        int32_t wi;
+        int32_t wq;
+        int32_t gain_q15;
+        ra_iq_inject_next_q15(&run, &wi, &wq, &gain_q15);
+        int32_t sample_a = (int32_t)(((int64_t)a * gain_q15) >> 15);
+        int32_t iv = 2048 + (int32_t)(((int64_t)sample_a * wi) >> 15);
+        int32_t q = (int32_t)(((int64_t)sample_a * wq) >> 15);
+        int32_t qv = 2048 + (negative_q ? -q : q);
+        if (iv < 0) { iv = 0; } else if (iv > 4095) { iv = 4095; }
+        if (qv < 0) { qv = 0; } else if (qv > 4095) { qv = 4095; }
+        s_i_buf[half][k] = (uint16_t)iv;
+        s_q_buf[half][k] = (uint16_t)qv;
+    }
+    ra_iq_inject_run_end(&run);
+}
+
+static void ra_iq_inject_fill_complex(uint16_t n) {
+    int32_t a = s_inject_ampl;
+    ra_iq_inject_run_t run;
+    ra_iq_inject_run_begin(&run);
+    bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_USB;
+    for (uint16_t k = 0U; k < n; ++k) {
+        int32_t wi;
+        int32_t wq;
+        int32_t gain_q15;
+        ra_iq_inject_next_q15(&run, &wi, &wq, &gain_q15);
+        int32_t sample_a = (int32_t)(((int64_t)a * gain_q15) >> 15);
+        int32_t iv = (int32_t)(((int64_t)sample_a * wi) >> 15);
+        int32_t qv = (int32_t)(((int64_t)sample_a * wq) >> 15);
+        if (negative_q) {
+            qv = -qv;
+        }
+        s_i_dc[k] = ra_iq_inject_sat16(iv);
+        s_q_dc[k] = ra_iq_inject_sat16(qv);
+    }
+    ra_iq_inject_run_end(&run);
 }
 
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
@@ -1152,6 +1423,9 @@ static void ra_iq_dsp_process(uint8_t half) {
         __DMB();
         uint8_t requested_inject = s_inject_requested_enable;
         uint8_t requested_kind = s_inject_requested_kind;
+        uint8_t requested_point = s_inject_requested_point;
+        uint8_t requested_wave = s_inject_requested_wave;
+        uint8_t requested_harmonic_max = s_inject_requested_harmonic_max;
         uint32_t requested_step = s_inject_requested_step;
         int32_t requested_ampl = s_inject_requested_ampl;
         uint32_t requested_mod_step = s_inject_requested_mod_step;
@@ -1160,9 +1434,24 @@ static void ra_iq_dsp_process(uint8_t half) {
         uint8_t requested_phase_noise = s_inject_requested_phase_noise;
         __DMB();
         if (inject_seq0 == s_inject_config_seq) {
-            if (requested_inject != s_inject_enable) {
+            bool source_transition = requested_inject != s_inject_enable;
+            bool point_transition = requested_point != s_inject_point;
+            bool raw_path_changes = (source_transition &&
+                ((requested_inject &&
+                  (requested_point == (uint8_t)RA_IQ_INJECT_POINT_IN)) ||
+                 (!requested_inject &&
+                  (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN)))) ||
+                (requested_inject && point_transition &&
+                 ((requested_point == (uint8_t)RA_IQ_INJECT_POINT_IN) ||
+                  (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN)));
+            if (raw_path_changes) {
                 s_dc_i_q16 = 0;
                 s_dc_q_q16 = 0;
+            }
+            if (source_transition) {
+                /* Normal RX is captured before NCO; every TEST point is captured at
+                 * the common complex OUT.  Never publish a half assembled from both. */
+                ra_iq_spec_discard_partial();
                 /* A real source transition starts from one deterministic phase origin.
                  * Live frequency/amplitude/mode changes do NOT enter here, so they keep
                  * every oscillator continuous across this and subsequent blocks. */
@@ -1170,6 +1459,9 @@ static void ra_iq_dsp_process(uint8_t half) {
                 s_inject_enable = requested_inject;
             }
             s_inject_kind = requested_kind;
+            s_inject_point = requested_point;
+            s_inject_wave = requested_wave;
+            s_inject_harmonic_max = requested_harmonic_max;
             s_inject_step = requested_step;
             s_inject_ampl = requested_ampl;
             s_inject_mod_step = requested_mod_step;
@@ -1179,95 +1471,10 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
     }
 
-    if (s_inject_enable) {
-        /* Overwrite the raw ADC block with one streaming synthetic I/Q source.  Carrier,
-         * AM and gate phases are producer-owned and advance sample-by-sample across every
-         * transport block.  Phase noise perturbs only the lookup phase (the same offset
-         * for I and Q), never the accumulator, so it has zero long-term frequency drift. */
-        ra_adc_pga_mode_t md = RA_ADC_PGA_BYPASS;
-        uint8_t code = 0U;
-        (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
-        int32_t a = RA_IQ_BYPASSED(RA_IQ_BLK_PGA) ? s_inject_ampl
-            : (int32_t)(((int64_t)s_inject_ampl *
-            (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
-        uint32_t ph = s_inject_phase;
-        uint32_t mod_ph = s_inject_mod_phase;
-        uint32_t gate_ph = s_inject_gate_phase;
-        uint32_t step = s_inject_step;
-        uint32_t mod_step = s_inject_mod_step;
-        uint32_t gate_step = s_inject_gate_step;
-        uint16_t depth_q15 = s_inject_depth_q15;
-        uint16_t lfsr = s_inject_noise_lfsr;
-        uint8_t noise_hold = s_inject_noise_hold;
-        int8_t noise_dir = s_inject_noise_dir;
-        uint8_t kind = s_inject_kind;
-        uint8_t noise = s_inject_phase_noise;
-        bool am = kind == (uint8_t)RA_IQ_INJECT_AM;
-        bool negative_q = kind == (uint8_t)RA_IQ_INJECT_USB;
-        for (uint16_t k = 0U; k < n; ++k) {
-            uint32_t lookup_ph = ph;
-            uint32_t jitter_ph = 0U;
-            if (noise != 0U) {
-                /* 16-bit Galois LFSR, polynomial x^16+x^14+x^13+x^11+1.  Map two
-                 * low bits to {-noise,0,0,+noise} LUT bins and hold each bounded
-                 * offset for 32 raw samples.  Adjacent +j/-j jitter would sit near
-                 * raw Nyquist and be rejected by the x2 anti-alias decimator; this
-                 * slower sample-and-hold sequence intentionally survives the DSP
-                 * path.  Only the lookup is perturbed, never the phase accumulator,
-                 * so there is no accumulated frequency random walk. */
-                if (noise_hold == 0U) {
-                    uint16_t lsb = (uint16_t)(lfsr & 1U);
-                    lfsr = (uint16_t)(lfsr >> 1);
-                    if (lsb != 0U) {
-                        lfsr ^= 0xB400U;
-                    }
-                    uint8_t selector = (uint8_t)(lfsr & 3U);
-                    noise_dir = (selector == 0U) ? -1 : ((selector == 3U) ? 1 : 0);
-                    noise_hold = RA_IQ_INJECT_NOISE_HOLD_SAMPLES;
-                }
-                uint32_t jitter = (uint32_t)noise << 24;
-                if (noise_dir < 0) {
-                    jitter_ph = 0U - jitter;
-                } else if (noise_dir > 0) {
-                    jitter_ph = jitter;
-                }
-                lookup_ph += jitter_ph;
-                --noise_hold;
-            }
-            uint8_t idx = (uint8_t)(lookup_ph >> 24);
-            int32_t c = s_sin256[(idx + 64U) & 255U];   /* cos, Q15 */
-            int32_t s = s_sin256[idx];                  /* sin, Q15 */
-            int32_t sample_a = a;
-            if (am) {
-                /* Jitter the audio-envelope phase as well as the carrier so LIVE is
-                 * visible after AM envelope detection; carrier-only phase noise has
-                 * constant magnitude and would correctly disappear in the detector. */
-                uint8_t midx = (uint8_t)((mod_ph + jitter_ph) >> 24);
-                int32_t mc = s_sin256[(midx + 64U) & 255U];
-                int32_t env_q15 = 32768 +
-                    (int32_t)(((int64_t)depth_q15 * mc) >> 15);
-                sample_a = (int32_t)(((int64_t)a * env_q15) >> 15);
-            }
-            if ((gate_step != 0U) && ((gate_ph & 0x80000000U) != 0U)) {
-                sample_a = 0;
-            }
-            int32_t iv = 2048 + (int32_t)(((int64_t)sample_a * c) >> 15);
-            int32_t q = (int32_t)(((int64_t)sample_a * s) >> 15);
-            int32_t qv = 2048 + (negative_q ? -q : q);
-            if (iv < 0) { iv = 0; } else if (iv > 4095) { iv = 4095; }
-            if (qv < 0) { qv = 0; } else if (qv > 4095) { qv = 4095; }
-            s_i_buf[half][k] = (uint16_t)iv;
-            s_q_buf[half][k] = (uint16_t)qv;
-            ph += step;
-            mod_ph += mod_step;
-            gate_ph += gate_step;
-        }
-        s_inject_phase = ph;
-        s_inject_mod_phase = mod_ph;
-        s_inject_gate_phase = gate_ph;
-        s_inject_noise_lfsr = lfsr;
-        s_inject_noise_hold = noise_hold;
-        s_inject_noise_dir = noise_dir;
+    if (s_inject_enable &&
+        (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
+        /* IN replaces the captured unsigned pair before the decimator. */
+        ra_iq_inject_fill_raw(half, n);
     }
 
     /* Scope routing, PGA stage: the raw front-end block BEFORE decimation.  The scope
@@ -1366,6 +1573,11 @@ static void ra_iq_dsp_process(uint8_t half) {
     }
     s_dc_i_q16 = dc_i;
     s_dc_q_q16 = dc_q;
+    if (s_inject_enable &&
+        (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_MID)) {
+        /* MID replaces the centred decimated pair after DC/IQ correction. */
+        ra_iq_inject_fill_complex(m);
+    }
     ra_iq_tap_capture(RA_IQ_TAP_DECIM, m);
     /* Decim and iqcorr share this boundary: the DC-removed, IQ-corrected decimated
      * pair.  With correction disabled the two are numerically identical, which is the
@@ -1373,27 +1585,10 @@ static void ra_iq_dsp_process(uint8_t half) {
     ra_iq_scope_capture_iq(RA_IQ_BLK_DECIM, m);
     ra_iq_scope_capture_iq(RA_IQ_BLK_IQCORR, m);
 
-    /* Wide spectrum tap: copy the DC-removed / IQ-corrected capture BEFORE the tuning
-     * NCO and channel filter.  The UI reducer recentres these raw capture bins around
-     * s_tune_hz, so fine tuning visibly scrolls the panorama under its fixed centre
-     * marker instead of analysing an already-centred, bandwidth-limited channel. */
-    if (s_spec_enable) {
-        uint8_t h = s_spec_half;
-        uint16_t wr = s_spec_wr;
-        for (uint16_t j = 0U; j < m; ++j) {
-            s_spec_i[h][wr] = s_i_dc[j];
-            s_spec_q[h][wr] = s_q_dc[j];
-            if (++wr == RA_IQ_SPEC_N) {
-                /* Publish the completed half only after every sample store is
-                 * globally visible to the foreground FFT consumer. */
-                __DMB();
-                s_spec_ready = (int8_t)h;
-                h ^= 1U;
-                wr = 0U;
-            }
-        }
-        s_spec_half = h;
-        s_spec_wr = wr;
+    /* Normal RX keeps the wide pre-NCO panorama.  TEST frames are deliberately
+     * captured later at the one common complex OUT boundary. */
+    if (!s_inject_enable) {
+        ra_iq_spec_capture(m, 0U);
     }
 
     /* Tuning NCO: complex down-conversion of the decimated I/Q, in place, AFTER the DC
@@ -1479,6 +1674,16 @@ static void ra_iq_dsp_process(uint8_t half) {
                 s_q_dc[j] = (int16_t)xq;
             }
         }
+    }
+    if (s_inject_enable &&
+        (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_OUT)) {
+        /* OUT is the final complex boundary, still upstream of demod/audio. */
+        ra_iq_inject_fill_complex(m);
+    }
+    if (s_inject_enable) {
+        /* Spectrum and constellation now consume the exact same post-CHFILT I/Q
+         * block that stage-5 scope routing sends to DAC0/DAC1. */
+        ra_iq_spec_capture(m, 1U);
     }
     ra_iq_tap_capture(RA_IQ_TAP_CHFILT, m);
     ra_iq_scope_capture_iq(RA_IQ_BLK_CHFILT, m);
@@ -1903,6 +2108,12 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_inject_requested_enable = 0U;
     s_inject_kind = (uint8_t)RA_IQ_INJECT_IQ;
     s_inject_requested_kind = (uint8_t)RA_IQ_INJECT_IQ;
+    s_inject_point = (uint8_t)RA_IQ_INJECT_POINT_IN;
+    s_inject_requested_point = (uint8_t)RA_IQ_INJECT_POINT_IN;
+    s_inject_wave = (uint8_t)RA_IQ_INJECT_WAVE_SINE;
+    s_inject_requested_wave = (uint8_t)RA_IQ_INJECT_WAVE_SINE;
+    s_inject_harmonic_max = 1U;
+    s_inject_requested_harmonic_max = 1U;
     s_inject_step = 0U;
     s_inject_requested_step = 0U;
     s_inject_ampl = 0;
@@ -2118,6 +2329,9 @@ bool ra_iq_adc_start(void) {
     s_dc_q_q16 = 0;
     s_inject_enable = s_inject_requested_enable;
     s_inject_kind = s_inject_requested_kind;
+    s_inject_point = s_inject_requested_point;
+    s_inject_wave = s_inject_requested_wave;
+    s_inject_harmonic_max = s_inject_requested_harmonic_max;
     s_inject_step = s_inject_requested_step;
     s_inject_ampl = s_inject_requested_ampl;
     s_inject_mod_step = s_inject_requested_mod_step;
@@ -2527,15 +2741,47 @@ static uint32_t ra_iq_inject_phase_step(uint32_t hz, uint32_t fs) {
     return (uint32_t)(((uint64_t)hz << 32) / fs);
 }
 
+/* Retain at most four odd harmonics and never synthesize one above the point's
+ * Nyquist limit.  For AM, reserve room around the carrier for its sidebands. */
+static uint8_t ra_iq_inject_harmonic_limit(uint8_t kind, uint8_t wave,
+    uint32_t freq_hz, uint32_t mod_hz, uint32_t fs) {
+    if (((wave != (uint8_t)RA_IQ_INJECT_WAVE_SQUARE) &&
+         (wave != (uint8_t)RA_IQ_INJECT_WAVE_TRIANGLE)) || (fs == 0U)) {
+        return 1U;
+    }
+    uint32_t nyquist = fs >> 1;
+    uint32_t base_hz = freq_hz;
+    uint32_t room_hz = nyquist;
+    if ((kind == (uint8_t)RA_IQ_INJECT_AM) ||
+        ((kind == (uint8_t)RA_IQ_INJECT_CW) &&
+         (wave != (uint8_t)RA_IQ_INJECT_WAVE_PULSE))) {
+        base_hz = mod_hz;
+        room_hz = (freq_hz < nyquist) ? (nyquist - freq_hz) : 0U;
+    }
+    if (base_hz == 0U) {
+        return 1U;
+    }
+    if (base_hz <= (room_hz / 7U)) { return 7U; }
+    if (base_hz <= (room_hz / 5U)) { return 5U; }
+    if (base_hz <= (room_hz / 3U)) { return 3U; }
+    return 1U;
+}
+
 /* Arm/disarm the streaming bench source.  The complete tuple is published through one
  * seqlock transaction and consumed only at a DSP block boundary.  Parameter changes do
  * not reset carrier/modulation/gate phase; only a real ADC<->synthetic transition does. */
 void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
-    uint8_t phase_noise) {
+    uint8_t phase_noise, uint8_t point, uint8_t wave) {
     enable = enable ? 1U : 0U;
     if (kind > (uint8_t)RA_IQ_INJECT_CW) {
         kind = (uint8_t)RA_IQ_INJECT_IQ;
+    }
+    if (point > (uint8_t)RA_IQ_INJECT_POINT_OUT) {
+        point = (uint8_t)RA_IQ_INJECT_POINT_IN;
+    }
+    if (wave > (uint8_t)RA_IQ_INJECT_WAVE_PULSE) {
+        wave = (uint8_t)RA_IQ_INJECT_WAVE_SINE;
     }
     if (ampl < 0) {
         ampl = 0;
@@ -2549,9 +2795,25 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
         phase_noise = 8U;
     }
     uint32_t fs = s_status.sample_rate_hz;
+    if (point != (uint8_t)RA_IQ_INJECT_POINT_IN) {
+        fs >>= 1;
+    }
+    uint32_t nyquist = fs >> 1;
+    if (freq_hz > nyquist) {
+        freq_hz = nyquist;
+    }
+    /* Keep every AM fundamental sideband inside this insertion domain. */
+    if (((kind == (uint8_t)RA_IQ_INJECT_AM) ||
+         ((kind == (uint8_t)RA_IQ_INJECT_CW) &&
+          (wave != (uint8_t)RA_IQ_INJECT_WAVE_PULSE))) &&
+        (mod_hz > (nyquist - freq_hz))) {
+        mod_hz = nyquist - freq_hz;
+    }
     uint32_t step = ra_iq_inject_phase_step(freq_hz, fs);
     uint32_t mod_step = ra_iq_inject_phase_step(mod_hz, fs);
     uint32_t gate_step = ra_iq_inject_phase_step(gate_hz, fs);
+    uint8_t harmonic_max = ra_iq_inject_harmonic_limit(kind, wave,
+        freq_hz, mod_hz, fs);
 
     /* If the block ISR preempts while the sequence is odd, it keeps the complete old
      * tuple for that block and applies the complete new tuple on the next boundary. */
@@ -2560,6 +2822,9 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     __DMB();
     s_inject_requested_enable = enable;
     s_inject_requested_kind = kind;
+    s_inject_requested_point = point;
+    s_inject_requested_wave = wave;
+    s_inject_requested_harmonic_max = harmonic_max;
     s_inject_requested_step = step;
     s_inject_requested_ampl = ampl;
     s_inject_requested_mod_step = mod_step;
@@ -2573,6 +2838,9 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
         bool transition = enable != s_inject_enable;
         s_inject_enable = enable;
         s_inject_kind = kind;
+        s_inject_point = point;
+        s_inject_wave = wave;
+        s_inject_harmonic_max = harmonic_max;
         s_inject_step = step;
         s_inject_ampl = ampl;
         s_inject_mod_step = mod_step;
@@ -2951,6 +3219,9 @@ void ra_iq_adc_spectrum_enable(uint8_t on) {
             s_spec_wr = 0U;
             s_spec_half = 0U;
             s_spec_ready = -1;
+            s_spec_post_nco[0] = 0U;
+            s_spec_post_nco[1] = 0U;
+            s_spec_snapshot_post_nco = 0U;
             s_spec_ref_peak = 0.0f;
             s_spec_smooth_n = 0U;
             s_spec_smooth_valid = 0U;
@@ -2965,6 +3236,9 @@ void ra_iq_adc_spectrum_enable(uint8_t on) {
         s_spec_wr = 0U;
         s_spec_half = 0U;
         s_spec_ready = -1;
+        s_spec_post_nco[0] = 0U;
+        s_spec_post_nco[1] = 0U;
+        s_spec_snapshot_post_nco = 0U;
         s_scope_wr = 0U;
         s_scope_half = 0U;
         s_scope_ready = -1;
@@ -3055,6 +3329,7 @@ static bool ra_iq_adc_spectrum_claim_snapshot(void) {
     s_spec_ready = -1;
     memcpy(s_spec_snapshot_i, s_spec_i[(uint8_t)h], sizeof(s_spec_snapshot_i));
     memcpy(s_spec_snapshot_q, s_spec_q[(uint8_t)h], sizeof(s_spec_snapshot_q));
+    s_spec_snapshot_post_nco = s_spec_post_nco[(uint8_t)h];
     ra_enable_irq(irq_state);
     return true;
 }
@@ -3141,7 +3416,7 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
      * Both native consumers use this exact same tuned-centre mapping. */
     int32_t shift_bins = 0;
     int32_t fs = (int32_t)(s_status.sample_rate_hz >> 1);
-    if (fs > 0) {
+    if ((fs > 0) && !s_spec_snapshot_post_nco) {
         int64_t num = (int64_t)s_tune_hz * (int64_t)RA_IQ_SPEC_N;
         num += (num >= 0) ? (int64_t)(fs / 2) : -(int64_t)(fs / 2);
         shift_bins = (int32_t)(num / (int64_t)fs);
