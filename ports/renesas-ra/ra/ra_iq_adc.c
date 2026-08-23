@@ -1216,6 +1216,282 @@ static void ra_iq_inject_fill_complex(uint16_t n) {
     ra_iq_inject_run_end(&run);
 }
 
+/* File-I/Q source.  Sample storage deliberately lives in two Python-owned,
+ * explicitly rooted byte buffers; this low-level layer retains only bounded
+ * descriptors and never allocates a sample ring.  Buffer ownership is changed
+ * only by the FREE -> READY control-plane commit and the READY -> ACTIVE -> FREE
+ * block producer below. */
+typedef struct {
+    uint8_t *buffer[2];
+    uint32_t buffer_len;
+    volatile uint32_t valid_bytes[2];
+    volatile uint32_t ready_order[2];
+    volatile uint32_t commit_order;
+    volatile uint32_t active_offset;
+    volatile uint32_t underruns;
+    volatile uint32_t source_blocks;
+    volatile uint32_t samples_consumed;
+    volatile uint8_t state[2];
+    volatile uint8_t attached;
+    volatile uint8_t requested_on;
+    volatile uint8_t active_on;
+    volatile uint8_t point;
+    volatile int8_t active_index;
+    ra_iq_file_refill_hook_t refill_hook;
+    void *refill_ctx;
+} ra_iq_file_source_t;
+
+static ra_iq_file_source_t s_file;
+
+static inline uint8_t ra_iq_file_free_mask(void) {
+    uint8_t mask = 0U;
+    if (s_file.state[0] == (uint8_t)RA_IQ_FILE_FREE) {
+        mask |= 1U;
+    }
+    if (s_file.state[1] == (uint8_t)RA_IQ_FILE_FREE) {
+        mask |= 2U;
+    }
+    return mask;
+}
+
+static inline void ra_iq_file_notify(uint8_t mask) {
+    ra_iq_file_refill_hook_t hook = s_file.refill_hook;
+    if ((mask != 0U) && (hook != NULL)) {
+        hook(mask, s_file.refill_ctx);
+    }
+}
+
+/* Release queued/partial data.  Called either with IRQs masked by the control
+ * plane or directly from the one ADC block ISR.  Return the buffers that
+ * actually changed ownership so refill notifications are not duplicated. */
+static uint8_t ra_iq_file_release_all(void) {
+    uint8_t became_free = 0U;
+    for (uint8_t i = 0U; i < 2U; ++i) {
+        if (s_file.state[i] != (uint8_t)RA_IQ_FILE_FREE) {
+            became_free |= (uint8_t)(1U << i);
+        }
+        s_file.state[i] = (uint8_t)RA_IQ_FILE_FREE;
+        s_file.valid_bytes[i] = 0U;
+    }
+    s_file.active_index = -1;
+    s_file.active_offset = 0U;
+    __DMB();
+    return became_free;
+}
+
+/* Ordered READY selection matters at initial prefill and at EOF: buffer index is
+ * not an ordering contract.  Signed subtraction is wrap-safe while fewer than
+ * 2^31 commits can be outstanding (only two can be). */
+static int8_t ra_iq_file_oldest_ready(void) {
+    bool r0 = s_file.state[0] == (uint8_t)RA_IQ_FILE_READY;
+    bool r1 = s_file.state[1] == (uint8_t)RA_IQ_FILE_READY;
+    /* Commit publishes valid/order and buffer contents before READY. */
+    __DMB();
+    if (r0 && r1) {
+        return ((int32_t)(s_file.ready_order[0] - s_file.ready_order[1]) <= 0) ? 0 : 1;
+    }
+    if (r0) {
+        return 0;
+    }
+    return r1 ? 1 : -1;
+}
+
+static inline int16_t ra_iq_file_s16le(const uint8_t *p) {
+    uint16_t bits = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+    int32_t value = (int32_t)bits;
+    if ((bits & 0x8000U) != 0U) {
+        value -= 65536;
+    }
+    return (int16_t)value;
+}
+
+static void ra_iq_file_finish_eof(void) {
+    s_file.requested_on = 0U;
+    s_file.active_on = 0U;
+    (void)ra_iq_file_release_all();
+    if (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN) {
+        s_dc_i_q16 = 0;
+        s_dc_q_q16 = 0;
+    }
+    ra_iq_spec_discard_partial();
+}
+
+/* Return the next contiguous chunk, crossing an ACTIVE -> FREE -> READY buffer
+ * boundary without losing sample continuity.  A zero-length READY descriptor
+ * switches back to ADC only at the start of a DSP block; if reached after some
+ * samples in this block it is deferred until the next block.  Return values:
+ * 1=data, 0=no READY continuation, -1=EOF applied, -2=EOF deferred. */
+static int ra_iq_file_begin_chunk(const uint8_t **src, uint16_t needed,
+    uint16_t *available, bool block_start) {
+    int8_t index = s_file.active_index;
+    if ((index < 0) || (index > 1) ||
+        (s_file.state[(uint8_t)index] != (uint8_t)RA_IQ_FILE_ACTIVE)) {
+        index = ra_iq_file_oldest_ready();
+        if (index < 0) {
+            *src = NULL;
+            *available = 0U;
+            return 0;
+        }
+        if (s_file.valid_bytes[(uint8_t)index] == 0U) {
+            *src = NULL;
+            *available = 0U;
+            if (block_start) {
+                /* Do not request another refill after an ordered EOF. */
+                ra_iq_file_finish_eof();
+                return -1;
+            }
+            return -2;
+        }
+        s_file.state[(uint8_t)index] = (uint8_t)RA_IQ_FILE_ACTIVE;
+        s_file.active_index = index;
+        s_file.active_offset = 0U;
+        __DMB();
+    }
+
+    uint32_t remaining = s_file.valid_bytes[(uint8_t)index] - s_file.active_offset;
+    uint32_t pairs = remaining >> 2;
+    if (pairs > (uint32_t)needed) {
+        pairs = needed;
+    }
+    *src = s_file.buffer[(uint8_t)index] + s_file.active_offset;
+    *available = (uint16_t)pairs;
+    return 1;
+}
+
+static void ra_iq_file_consume_chunk(uint16_t used) {
+    int8_t index = s_file.active_index;
+    if ((index >= 0) && (index <= 1)) {
+        s_file.active_offset += (uint32_t)used * 4U;
+        s_file.samples_consumed += used;
+        if (s_file.active_offset >= s_file.valid_bytes[(uint8_t)index]) {
+            s_file.state[(uint8_t)index] = (uint8_t)RA_IQ_FILE_FREE;
+            s_file.valid_bytes[(uint8_t)index] = 0U;
+            s_file.active_index = -1;
+            s_file.active_offset = 0U;
+            __DMB();
+            ra_iq_file_notify((uint8_t)(1U << (uint8_t)index));
+        }
+    }
+}
+
+static void ra_iq_file_fill_raw(uint8_t half, uint16_t n) {
+    uint16_t written = 0U;
+    bool underrun = false;
+    while (written < n) {
+        const uint8_t *src;
+        uint16_t available;
+        int state = ra_iq_file_begin_chunk(&src, (uint16_t)(n - written),
+            &available, written == 0U);
+        if (state < 0) {
+            if ((state == -1) && (written == 0U)) {
+                return;
+            }
+            break;  /* EOF after real data: zero-pad, apply it next block. */
+        }
+        if (state == 0) {
+            underrun = true;
+            ra_iq_file_notify(ra_iq_file_free_mask());
+            break;
+        }
+        for (uint16_t k = 0U; k < available; ++k) {
+            int32_t iv = 2048 +
+                (int32_t)(ra_iq_file_s16le(src + (uint32_t)k * 4U) / 16);
+            int32_t qv = 2048 +
+                (int32_t)(ra_iq_file_s16le(src + (uint32_t)k * 4U + 2U) / 16);
+            if (iv < 0) { iv = 0; } else if (iv > 4095) { iv = 4095; }
+            if (qv < 0) { qv = 0; } else if (qv > 4095) { qv = 4095; }
+            s_i_buf[half][written + k] = (uint16_t)iv;
+            s_q_buf[half][written + k] = (uint16_t)qv;
+        }
+        written = (uint16_t)(written + available);
+        ra_iq_file_consume_chunk(available);
+    }
+    for (uint16_t k = written; k < n; ++k) {
+        s_i_buf[half][k] = RA_IQ_ADC_MIDPOINT;
+        s_q_buf[half][k] = RA_IQ_ADC_MIDPOINT;
+    }
+    if (underrun) {
+        ++s_file.underruns;
+    }
+    ++s_file.source_blocks;
+}
+
+static void ra_iq_file_fill_complex(uint16_t n) {
+    uint16_t written = 0U;
+    bool underrun = false;
+    while (written < n) {
+        const uint8_t *src;
+        uint16_t available;
+        int state = ra_iq_file_begin_chunk(&src, (uint16_t)(n - written),
+            &available, written == 0U);
+        if (state < 0) {
+            if ((state == -1) && (written == 0U)) {
+                return;
+            }
+            break;
+        }
+        if (state == 0) {
+            underrun = true;
+            ra_iq_file_notify(ra_iq_file_free_mask());
+            break;
+        }
+        for (uint16_t k = 0U; k < available; ++k) {
+            s_i_dc[written + k] = ra_iq_file_s16le(src + (uint32_t)k * 4U);
+            s_q_dc[written + k] = ra_iq_file_s16le(src + (uint32_t)k * 4U + 2U);
+        }
+        written = (uint16_t)(written + available);
+        ra_iq_file_consume_chunk(available);
+    }
+    for (uint16_t k = written; k < n; ++k) {
+        s_i_dc[k] = 0;
+        s_q_dc[k] = 0;
+    }
+    if (underrun) {
+        ++s_file.underruns;
+    }
+    ++s_file.source_blocks;
+}
+
+/* Apply start/stop at the same producer boundary used by synthetic injection.
+ * Stop discards any partial/queued data and returns it to Python; EOF uses a
+ * separate path above and deliberately suppresses that refill notification. */
+static void ra_iq_file_apply_request(void) {
+    uint8_t requested = s_file.requested_on;
+    if (requested && s_inject_enable) {
+        /* Defensive tie-breaker for a control-plane race: synthetic source wins
+         * rather than allowing two writers at one insertion boundary. */
+        requested = 0U;
+        s_file.requested_on = 0U;
+    }
+    if (requested == s_file.active_on) {
+        return;
+    }
+    bool raw_changes = s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN;
+    if (raw_changes) {
+        s_dc_i_q16 = 0;
+        s_dc_q_q16 = 0;
+    }
+    ra_iq_spec_discard_partial();
+    s_file.active_on = requested;
+    if (!requested) {
+        uint8_t mask = ra_iq_file_release_all();
+        ra_iq_file_notify(mask);
+    }
+}
+
+/* Consume an ordered EOF before any IN/MID/OUT work for the new DSP block.
+ * This keeps the source transition itself block-atomic even for OUT, whose
+ * insertion point occurs after the normal wide-spectrum tap. */
+static void ra_iq_file_apply_eof_boundary(void) {
+    if (!s_file.active_on || (s_file.active_index >= 0)) {
+        return;
+    }
+    int8_t index = ra_iq_file_oldest_ready();
+    if ((index >= 0) && (s_file.valid_bytes[(uint8_t)index] == 0U)) {
+        ra_iq_file_finish_eof();
+    }
+}
+
 static elc_event_t ra_iq_agt_event(uint32_t ch) {
     switch (ch) {
         case 0:
@@ -1471,7 +1747,16 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
     }
 
-    if (s_inject_enable &&
+    /* File and synthetic generators share the same three insertion boundaries.
+     * Their requested states are made exclusive by the control plane, then
+     * committed here so an entire DSP block has exactly one source owner. */
+    ra_iq_file_apply_request();
+    ra_iq_file_apply_eof_boundary();
+
+    if (s_file.active_on &&
+        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
+        ra_iq_file_fill_raw(half, n);
+    } else if (s_inject_enable &&
         (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
         /* IN replaces the captured unsigned pair before the decimator. */
         ra_iq_inject_fill_raw(half, n);
@@ -1573,7 +1858,10 @@ static void ra_iq_dsp_process(uint8_t half) {
     }
     s_dc_i_q16 = dc_i;
     s_dc_q_q16 = dc_q;
-    if (s_inject_enable &&
+    if (s_file.active_on &&
+        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_MID)) {
+        ra_iq_file_fill_complex(m);
+    } else if (s_inject_enable &&
         (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_MID)) {
         /* MID replaces the centred decimated pair after DC/IQ correction. */
         ra_iq_inject_fill_complex(m);
@@ -1587,7 +1875,7 @@ static void ra_iq_dsp_process(uint8_t half) {
 
     /* Normal RX keeps the wide pre-NCO panorama.  TEST frames are deliberately
      * captured later at the one common complex OUT boundary. */
-    if (!s_inject_enable) {
+    if (!s_inject_enable && !s_file.active_on) {
         ra_iq_spec_capture(m, 0U);
     }
 
@@ -1675,12 +1963,15 @@ static void ra_iq_dsp_process(uint8_t half) {
             }
         }
     }
-    if (s_inject_enable &&
+    if (s_file.active_on &&
+        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_OUT)) {
+        ra_iq_file_fill_complex(m);
+    } else if (s_inject_enable &&
         (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_OUT)) {
         /* OUT is the final complex boundary, still upstream of demod/audio. */
         ra_iq_inject_fill_complex(m);
     }
-    if (s_inject_enable) {
+    if (s_inject_enable || s_file.active_on) {
         /* Spectrum and constellation now consume the exact same post-CHFILT I/Q
          * block that stage-5 scope routing sends to DAC0/DAC1. */
         ra_iq_spec_capture(m, 1U);
@@ -2128,6 +2419,8 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_inject_requested_phase_noise = 0U;
     s_inject_config_seq = 0U;
     ra_iq_inject_reset_phase();
+    memset(&s_file, 0, sizeof(s_file));
+    s_file.active_index = -1;
 
     s_iq.timer_reserved = true;
     s_iq.timer_ch = timer_ch;
@@ -2293,6 +2586,7 @@ bool ra_iq_adc_deinit_checked(void) {
 
     memset(&s_iq, 0, sizeof(s_iq));
     memset(&s_status, 0, sizeof(s_status));
+    ra_iq_adc_file_detach();
     return true;
 }
 
@@ -2339,6 +2633,7 @@ bool ra_iq_adc_start(void) {
     s_inject_gate_step = s_inject_requested_gate_step;
     s_inject_phase_noise = s_inject_requested_phase_noise;
     ra_iq_inject_reset_phase();
+    s_file.active_on = s_file.requested_on;
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -2794,6 +3089,11 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     if (phase_noise > 8U) {
         phase_noise = 8U;
     }
+    if (enable) {
+        /* GEN and FILE are explicit alternative owners of the same boundaries.
+         * Stop FILE first; both requests are then committed by the next ISR block. */
+        ra_iq_adc_file_stop();
+    }
     uint32_t fs = s_status.sample_rate_hz;
     if (point != (uint8_t)RA_IQ_INJECT_POINT_IN) {
         fs >>= 1;
@@ -2853,6 +3153,155 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
             ra_iq_inject_reset_phase();
         }
     }
+}
+
+/* Change only the synthetic enable bit while preserving its full configured
+ * tuple.  Used by file_start() to make FILE the sole source owner. */
+static void ra_iq_inject_request_off(void) {
+    uint32_t seq = s_inject_config_seq;
+    s_inject_config_seq = seq + 1U;
+    __DMB();
+    s_inject_requested_enable = 0U;
+    __DMB();
+    s_inject_config_seq = seq + 2U;
+    if (!s_status.running) {
+        s_inject_enable = 0U;
+    }
+}
+
+bool ra_iq_adc_file_attach(uint8_t *buf0, uint8_t *buf1, size_t buffer_len,
+    uint8_t point, ra_iq_file_refill_hook_t refill_hook, void *refill_ctx) {
+    uintptr_t p0 = (uintptr_t)buf0;
+    uintptr_t p1 = (uintptr_t)buf1;
+    bool overlap = (p0 <= p1) ? ((p1 - p0) < buffer_len) :
+        ((p0 - p1) < buffer_len);
+    if ((buf0 == NULL) || (buf1 == NULL) || overlap ||
+        (buffer_len == 0U) || ((buffer_len & 3U) != 0U) ||
+        (buffer_len > UINT32_MAX) ||
+        (point > (uint8_t)RA_IQ_INJECT_POINT_OUT)) {
+        return false;
+    }
+
+    /* A direct low-level re-attach is also a real source transition. */
+    ra_iq_adc_file_detach();
+
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    memset(&s_file, 0, sizeof(s_file));
+    s_file.buffer[0] = buf0;
+    s_file.buffer[1] = buf1;
+    s_file.buffer_len = (uint32_t)buffer_len;
+    s_file.point = point;
+    s_file.active_index = -1;
+    s_file.refill_hook = refill_hook;
+    s_file.refill_ctx = refill_ctx;
+    s_file.attached = 1U;
+    __DMB();
+    __set_PRIMASK(primask);
+
+    /* Initial prefill is event-driven too.  Python may instead commit both
+     * buffers immediately; its callback must re-check that the index is FREE. */
+    ra_iq_file_notify(3U);
+    return true;
+}
+
+bool ra_iq_adc_file_commit(uint8_t index, size_t valid_bytes) {
+    if ((index > 1U) || ((valid_bytes & 3U) != 0U) ||
+        (valid_bytes > UINT32_MAX)) {
+        return false;
+    }
+    bool ok = false;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (s_file.attached && (valid_bytes <= s_file.buffer_len) &&
+        (s_file.state[index] == (uint8_t)RA_IQ_FILE_FREE)) {
+        s_file.valid_bytes[index] = (uint32_t)valid_bytes;
+        s_file.ready_order[index] = ++s_file.commit_order;
+        __DMB();
+        s_file.state[index] = (uint8_t)RA_IQ_FILE_READY;
+        __DMB();
+        ok = true;
+    }
+    __set_PRIMASK(primask);
+    return ok;
+}
+
+bool ra_iq_adc_file_start(void) {
+    if (!s_file.attached) {
+        return false;
+    }
+    ra_iq_inject_request_off();
+
+    uint8_t free_mask;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_file.underruns = 0U;
+    s_file.source_blocks = 0U;
+    s_file.samples_consumed = 0U;
+    s_file.requested_on = 1U;
+    if (!s_status.running) {
+        s_file.active_on = 1U;
+    }
+    free_mask = ra_iq_file_free_mask();
+    __DMB();
+    __set_PRIMASK(primask);
+    ra_iq_file_notify(free_mask);
+    return true;
+}
+
+void ra_iq_adc_file_stop(void) {
+    uint8_t became_free = 0U;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_file.requested_on = 0U;
+    if (!s_status.running) {
+        s_file.active_on = 0U;
+        became_free = ra_iq_file_release_all();
+    }
+    __DMB();
+    __set_PRIMASK(primask);
+    ra_iq_file_notify(became_free);
+}
+
+void ra_iq_adc_file_detach(void) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool was_active = s_file.active_on != 0U;
+    bool raw_was_active = was_active &&
+        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN);
+    memset(&s_file, 0, sizeof(s_file));
+    s_file.active_index = -1;
+    if (raw_was_active) {
+        s_dc_i_q16 = 0;
+        s_dc_q_q16 = 0;
+    }
+    if (was_active) {
+        ra_iq_spec_discard_partial();
+    }
+    __DMB();
+    __set_PRIMASK(primask);
+}
+
+void ra_iq_adc_file_get_status(ra_iq_file_status_t *status) {
+    if (status == NULL) {
+        return;
+    }
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    status->attached = s_file.attached;
+    status->requested_on = s_file.requested_on;
+    status->active_on = s_file.active_on;
+    status->point = s_file.point;
+    status->state[0] = s_file.state[0];
+    status->state[1] = s_file.state[1];
+    status->active_index = s_file.active_index;
+    status->valid_bytes[0] = s_file.valid_bytes[0];
+    status->valid_bytes[1] = s_file.valid_bytes[1];
+    status->active_offset_bytes = s_file.active_offset;
+    status->underruns = s_file.underruns;
+    status->source_blocks = s_file.source_blocks;
+    status->samples_consumed = s_file.samples_consumed;
+    __set_PRIMASK(primask);
 }
 
 /* Per-block ON/OFF: enable != 0 keeps block id in the chain, 0 bypasses it (short to the

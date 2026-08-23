@@ -50,9 +50,25 @@ typedef struct _machine_iqadc_obj_t {
     uint32_t      q_pin;
     uint32_t      rate;
     uint16_t      block;
+    volatile uint8_t file_refill_pending;
+    volatile uint8_t file_refill_scheduled;
+    volatile uint32_t file_epoch;
+    volatile uint32_t file_scheduled_epoch;
+    volatile uint32_t file_sched_fail;
 } machine_iqadc_obj_t;
 
 static machine_iqadc_obj_t machine_iqadc_obj;
+
+/* The low-level file source retains raw pointers into these objects while its
+ * ISR consumes them.  Ordinary C .bss is not scanned by the GC, so both byte
+ * buffers and the Python refill callback need explicit VM roots. */
+MP_REGISTER_ROOT_POINTER(mp_obj_t machine_iqadc_file_roots[3]);
+
+enum {
+    MACHINE_IQADC_FILE_ROOT_BUF0 = 0,
+    MACHINE_IQADC_FILE_ROOT_BUF1 = 1,
+    MACHINE_IQADC_FILE_ROOT_CALLBACK = 2,
+};
 
 extern const mp_obj_type_t machine_iqadc_type;
 
@@ -61,6 +77,131 @@ static mp_obj_t machine_iqadc_new_small_uint(uint32_t value) {
         mp_raise_msg(&mp_type_OverflowError, MP_ERROR_TEXT("counter overflow"));
     }
     return MP_OBJ_NEW_SMALL_INT((mp_int_t)value);
+}
+
+static void machine_iqadc_file_invalidate(machine_iqadc_obj_t *self) {
+    mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+    uint32_t epoch = self->file_epoch + 1U;
+    if (epoch > (uint32_t)MP_SMALL_INT_MAX || epoch == 0U) {
+        epoch = 1U;
+    }
+    self->file_epoch = epoch;
+    self->file_scheduled_epoch = epoch;
+    self->file_refill_pending = 0U;
+    self->file_refill_scheduled = 0U;
+    MICROPY_END_ATOMIC_SECTION(atomic);
+}
+
+static void machine_iqadc_file_clear(machine_iqadc_obj_t *self) {
+    ra_iq_adc_file_detach();
+    machine_iqadc_file_invalidate(self);
+    MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_CALLBACK] = MP_OBJ_NULL;
+    MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_BUF0] = MP_OBJ_NULL;
+    MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_BUF1] = MP_OBJ_NULL;
+}
+
+/* Deferred refill trampoline.  One fixed scheduler item drains a coalesced FREE
+ * bitmask and calls Python once per still-FREE index.  Epoch checks make queued
+ * work harmless after file_free(), deinit(), or re-attach. */
+static mp_obj_t machine_iqadc_file_refill_trampoline(mp_obj_t epoch_in) {
+    machine_iqadc_obj_t *self = &machine_iqadc_obj;
+    uint32_t epoch = (uint32_t)mp_obj_get_int(epoch_in);
+
+    for (;;) {
+        mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+        if (!self->file_refill_scheduled ||
+            (self->file_scheduled_epoch != epoch) ||
+            (self->file_epoch != epoch)) {
+            MICROPY_END_ATOMIC_SECTION(atomic);
+            return mp_const_none;
+        }
+        uint8_t mask = self->file_refill_pending;
+        self->file_refill_pending = 0U;
+        MICROPY_END_ATOMIC_SECTION(atomic);
+
+        mp_obj_t callback = MP_STATE_PORT(machine_iqadc_file_roots)
+            [MACHINE_IQADC_FILE_ROOT_CALLBACK];
+        for (uint8_t index = 0U; index < 2U; ++index) {
+            if ((mask & (uint8_t)(1U << index)) == 0U) {
+                continue;
+            }
+            ra_iq_file_status_t status;
+            ra_iq_adc_file_get_status(&status);
+            if (!status.attached ||
+                (status.state[index] != (uint8_t)RA_IQ_FILE_FREE) ||
+                (callback == MP_OBJ_NULL) || (callback == mp_const_none)) {
+                continue;
+            }
+            nlr_buf_t nlr;
+            if (nlr_push(&nlr) == 0) {
+                mp_call_function_1(callback, MP_OBJ_NEW_SMALL_INT(index));
+                nlr_pop();
+            } else {
+                /* A refill failure must not become an endless scheduled
+                 * exception storm.  Stop FILE, retain the buffers for status /
+                 * explicit free, and withdraw only the failing callback. */
+                mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val));
+                ra_iq_adc_file_stop();
+                MP_STATE_PORT(machine_iqadc_file_roots)
+                    [MACHINE_IQADC_FILE_ROOT_CALLBACK] = mp_const_none;
+                machine_iqadc_file_invalidate(self);
+                return mp_const_none;
+            }
+            if (self->file_epoch != epoch) {
+                return mp_const_none;
+            }
+        }
+
+        atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+        if ((self->file_epoch != epoch) ||
+            (self->file_scheduled_epoch != epoch)) {
+            MICROPY_END_ATOMIC_SECTION(atomic);
+            return mp_const_none;
+        }
+        if (self->file_refill_pending == 0U) {
+            self->file_refill_scheduled = 0U;
+            MICROPY_END_ATOMIC_SECTION(atomic);
+            return mp_const_none;
+        }
+        MICROPY_END_ATOMIC_SECTION(atomic);
+    }
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_file_refill_trampoline_obj,
+    machine_iqadc_file_refill_trampoline);
+
+/* Low-level hook: callable from the hard ADC block ISR.  It only ORs a two-bit
+ * mask and schedules the fixed trampoline; no Python executes here. */
+static void machine_iqadc_file_refill_hook(uint8_t free_mask, void *ctx) {
+    machine_iqadc_obj_t *self = (machine_iqadc_obj_t *)ctx;
+    if ((self == NULL) || ((free_mask & 3U) == 0U)) {
+        return;
+    }
+
+    bool schedule = false;
+    uint32_t epoch = 0U;
+    mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+    self->file_refill_pending |= (uint8_t)(free_mask & 3U);
+    if (!self->file_refill_scheduled) {
+        self->file_refill_scheduled = 1U;
+        self->file_scheduled_epoch = self->file_epoch;
+        epoch = self->file_epoch;
+        schedule = true;
+    }
+    MICROPY_END_ATOMIC_SECTION(atomic);
+
+    if (schedule && !mp_sched_schedule(
+        MP_OBJ_FROM_PTR(&machine_iqadc_file_refill_trampoline_obj),
+        MP_OBJ_NEW_SMALL_INT((mp_int_t)epoch))) {
+        atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+        if ((self->file_scheduled_epoch == epoch) &&
+            (self->file_epoch == epoch)) {
+            self->file_refill_scheduled = 0U;
+            if (self->file_sched_fail != UINT32_MAX) {
+                ++self->file_sched_fail;
+            }
+        }
+        MICROPY_END_ATOMIC_SECTION(atomic);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -159,6 +300,7 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
             mp_printf(&mp_plat_print, "IQADC_PRE_DEINIT_FAIL\n");
             mp_raise_OSError(MP_EIO);
         }
+        machine_iqadc_file_clear(self);
         self->active = false;
     }
 
@@ -795,6 +937,139 @@ static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 11, machine_iqadc_inject);
 
+/* file_attach(buf0, buf1, point, refill_cb) -> None.
+ * Both writable one-byte buffers stay rooted and address-stable until file_free
+ * or deinit.  Payload is strict interleaved signed S16LE I,Q (4 bytes/pair). */
+static mp_obj_t machine_iqadc_file_attach(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    mp_buffer_info_t b0;
+    mp_buffer_info_t b1;
+    mp_get_buffer_raise(args[1], &b0, MP_BUFFER_RW);
+    mp_get_buffer_raise(args[2], &b1, MP_BUFFER_RW);
+    bool b0_byte = (b0.typecode == BYTEARRAY_TYPECODE) ||
+        (b0.typecode == 'B') || (b0.typecode == 'b');
+    bool b1_byte = (b1.typecode == BYTEARRAY_TYPECODE) ||
+        (b1.typecode == 'B') || (b1.typecode == 'b');
+    if (!b0_byte || !b1_byte) {
+        mp_raise_ValueError(MP_ERROR_TEXT("file buffers must be bytes"));
+    }
+    if ((b0.len == 0U) || (b0.len != b1.len) || ((b0.len & 3U) != 0U) ||
+        (b0.buf == b1.buf)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("file buffers must differ/equal len/4"));
+    }
+    mp_int_t point = mp_obj_get_int(args[3]);
+    if (point < RA_IQ_INJECT_POINT_IN || point > RA_IQ_INJECT_POINT_OUT) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid file point"));
+    }
+    if (!mp_obj_is_callable(args[4])) {
+        mp_raise_ValueError(MP_ERROR_TEXT("refill_cb must be callable"));
+    }
+
+    machine_iqadc_file_clear(self);
+    self->file_sched_fail = 0U;
+    MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_BUF0] = args[1];
+    MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_BUF1] = args[2];
+    MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_CALLBACK] = args[4];
+    if (!ra_iq_adc_file_attach((uint8_t *)b0.buf, (uint8_t *)b1.buf, b0.len,
+        (uint8_t)point, machine_iqadc_file_refill_hook, self)) {
+        machine_iqadc_file_clear(self);
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid file buffers"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_file_attach_obj, 5, 5,
+    machine_iqadc_file_attach);
+
+/* file_commit(index, valid_bytes) -> None.  valid_bytes==0 is an ordered EOF
+ * marker; nonzero data must end on a complete S16LE I,Q pair. */
+static mp_obj_t machine_iqadc_file_commit(mp_obj_t self_in, mp_obj_t index_in,
+    mp_obj_t valid_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    mp_int_t index = mp_obj_get_int(index_in);
+    mp_int_t valid = mp_obj_get_int(valid_in);
+    if ((index < 0) || (index > 1) || (valid < 0) || ((valid & 3) != 0)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad file commit"));
+    }
+    if (!ra_iq_adc_file_commit((uint8_t)index, (size_t)valid)) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("buffer not FREE or valid too large"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(machine_iqadc_file_commit_obj,
+    machine_iqadc_file_commit);
+
+static mp_obj_t machine_iqadc_file_start(mp_obj_t self_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (!ra_iq_adc_file_start()) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("file not attached"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_file_start_obj,
+    machine_iqadc_file_start);
+
+static mp_obj_t machine_iqadc_file_stop(mp_obj_t self_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    ra_iq_adc_file_stop();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_file_stop_obj,
+    machine_iqadc_file_stop);
+
+static mp_obj_t machine_iqadc_file_free(mp_obj_t self_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    machine_iqadc_file_clear(self);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_file_free_obj,
+    machine_iqadc_file_free);
+
+/* Allocation-free status wire layout (15 signed 32-bit slots):
+ * attached, requested_on, active_on, point, state0, state1,
+ * valid0, valid1, active_index, active_offset, underruns, source_blocks,
+ * samples_consumed, refill_pending_mask, scheduler_failures. */
+static mp_obj_t machine_iqadc_file_status_into(mp_obj_t self_in, mp_obj_t buf_in) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_buffer_info_t bi;
+    mp_get_buffer_raise(buf_in, &bi, MP_BUFFER_WRITE);
+    if ((bi.typecode != 'i') || (bi.len < (15U * sizeof(int32_t)))) {
+        mp_raise_ValueError(MP_ERROR_TEXT("status buf must be array('i',15)"));
+    }
+    ra_iq_file_status_t st;
+    ra_iq_adc_file_get_status(&st);
+    uint8_t pending;
+    uint32_t sched_fail;
+    mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+    pending = self->file_refill_pending;
+    sched_fail = self->file_sched_fail;
+    MICROPY_END_ATOMIC_SECTION(atomic);
+    int32_t *out = (int32_t *)bi.buf;
+    out[0] = st.attached;
+    out[1] = st.requested_on;
+    out[2] = st.active_on;
+    out[3] = st.point;
+    out[4] = st.state[0];
+    out[5] = st.state[1];
+    out[6] = (int32_t)st.valid_bytes[0];
+    out[7] = (int32_t)st.valid_bytes[1];
+    out[8] = st.active_index;
+    out[9] = (int32_t)st.active_offset_bytes;
+    out[10] = (int32_t)st.underruns;
+    out[11] = (int32_t)st.source_blocks;
+    out[12] = (int32_t)st.samples_consumed;
+    out[13] = pending;
+    out[14] = (int32_t)sched_fail;
+    return MP_OBJ_NEW_SMALL_INT(15);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_file_status_into_obj,
+    machine_iqadc_file_status_into);
+
 /* block(id[, enable]) -> int.  Per-block ON/OFF for verification: id 1..10 (1=PGA 2=decim
  * 3=iqcorr 4=nco 5=chfilt 6=demod 7=af 8=squelch 9=agc 10=vol).  enable=0 bypasses the
  * block (short to the next), 1 keeps it; always returns the current state (1=on, 0=off). */
@@ -920,6 +1195,7 @@ static mp_obj_t machine_iqadc_deinit(mp_obj_t self_in) {
         if (!ra_iq_adc_deinit_checked()) {
             mp_raise_OSError(MP_EIO);
         }
+        machine_iqadc_file_clear(self);
         self->active = false;
     }
     return mp_const_none;
@@ -934,6 +1210,7 @@ bool machine_iqadc_deinit_all(void) {
     if (!ra_iq_adc_deinit_checked()) {
         return false;
     }
+    machine_iqadc_file_clear(&machine_iqadc_obj);
     machine_iqadc_obj.active = false;
     return true;
 }
@@ -955,6 +1232,10 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_INJECT_WAVE_SQUARE),   MP_ROM_INT(RA_IQ_INJECT_WAVE_SQUARE) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_WAVE_TRIANGLE), MP_ROM_INT(RA_IQ_INJECT_WAVE_TRIANGLE) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_WAVE_PULSE),    MP_ROM_INT(RA_IQ_INJECT_WAVE_PULSE) },
+    { MP_ROM_QSTR(MP_QSTR_FILE_FREE),      MP_ROM_INT(RA_IQ_FILE_FREE) },
+    { MP_ROM_QSTR(MP_QSTR_FILE_READY),     MP_ROM_INT(RA_IQ_FILE_READY) },
+    { MP_ROM_QSTR(MP_QSTR_FILE_ACTIVE),    MP_ROM_INT(RA_IQ_FILE_ACTIVE) },
+    { MP_ROM_QSTR(MP_QSTR_FILE_API_VERSION), MP_ROM_INT(1) },
     { MP_ROM_QSTR(MP_QSTR_start),        MP_ROM_PTR(&machine_iqadc_start_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop),         MP_ROM_PTR(&machine_iqadc_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_read_block),   MP_ROM_PTR(&machine_iqadc_read_block_obj) },
@@ -986,6 +1267,12 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_gain),         MP_ROM_PTR(&machine_iqadc_pga_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_tap),          MP_ROM_PTR(&machine_iqadc_tap_obj) },
     { MP_ROM_QSTR(MP_QSTR_inject),       MP_ROM_PTR(&machine_iqadc_inject_obj) },
+    { MP_ROM_QSTR(MP_QSTR_file_attach),   MP_ROM_PTR(&machine_iqadc_file_attach_obj) },
+    { MP_ROM_QSTR(MP_QSTR_file_commit),   MP_ROM_PTR(&machine_iqadc_file_commit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_file_start),    MP_ROM_PTR(&machine_iqadc_file_start_obj) },
+    { MP_ROM_QSTR(MP_QSTR_file_stop),     MP_ROM_PTR(&machine_iqadc_file_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR_file_free),     MP_ROM_PTR(&machine_iqadc_file_free_obj) },
+    { MP_ROM_QSTR(MP_QSTR_file_status_into), MP_ROM_PTR(&machine_iqadc_file_status_into_obj) },
     { MP_ROM_QSTR(MP_QSTR_block),        MP_ROM_PTR(&machine_iqadc_block_obj) },
     { MP_ROM_QSTR(MP_QSTR_scope),        MP_ROM_PTR(&machine_iqadc_scope_obj) },
     { MP_ROM_QSTR(MP_QSTR_filter_status), MP_ROM_PTR(&machine_iqadc_filter_status_obj) },

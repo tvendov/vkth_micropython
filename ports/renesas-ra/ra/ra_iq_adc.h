@@ -208,6 +208,44 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
     uint8_t phase_noise, uint8_t point, uint8_t wave);
 
+/* Allocation-free file-I/Q source.  The two buffers are owned and filled by the
+ * control plane but consumed directly by the block ISR, so their addresses and
+ * lengths must remain stable until detach.  Contents are signed interleaved
+ * S16LE I,Q.  The state machine is strictly FREE -> READY -> ACTIVE -> FREE;
+ * commit(0 bytes) publishes an ordered EOF marker.  IN converts S16 to the raw
+ * unsigned ADC domain, MID/OUT replace the same centred complex boundaries as
+ * synthetic injection.  A missing READY buffer produces zero/midpoint samples
+ * and increments underruns; stale samples are never repeated. */
+typedef enum {
+    RA_IQ_FILE_FREE = 0,
+    RA_IQ_FILE_READY = 1,
+    RA_IQ_FILE_ACTIVE = 2,
+} ra_iq_file_buffer_state_t;
+
+typedef void (*ra_iq_file_refill_hook_t)(uint8_t free_mask, void *ctx);
+
+typedef struct {
+    uint8_t attached;
+    uint8_t requested_on;
+    uint8_t active_on;
+    uint8_t point;
+    uint8_t state[2];
+    int8_t active_index;
+    uint32_t valid_bytes[2];
+    uint32_t active_offset_bytes;
+    uint32_t underruns;
+    uint32_t source_blocks;
+    uint32_t samples_consumed;
+} ra_iq_file_status_t;
+
+bool ra_iq_adc_file_attach(uint8_t *buf0, uint8_t *buf1, size_t buffer_len,
+    uint8_t point, ra_iq_file_refill_hook_t refill_hook, void *refill_ctx);
+bool ra_iq_adc_file_commit(uint8_t index, size_t valid_bytes);
+bool ra_iq_adc_file_start(void);
+void ra_iq_adc_file_stop(void);
+void ra_iq_adc_file_detach(void);
+void ra_iq_adc_file_get_status(ra_iq_file_status_t *status);
+
 /* Per-block ON/OFF for verification: enable=0 bypasses block id (short to the next),
  * 1 keeps it in the chain. block id is 1..10 (PGA..VOL). */
 void ra_iq_adc_set_block(uint8_t block, uint8_t enable);

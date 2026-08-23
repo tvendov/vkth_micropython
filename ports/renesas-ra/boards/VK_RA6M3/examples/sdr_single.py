@@ -20,6 +20,274 @@ if '/flash' not in sys.path:
 _KEEP = {}
 _VERIFY_SCROLL_STEP = 31       # one complete VERIFY row per atomic transaction
 
+
+# SDRangel File Input v1.  The two 8-KiB buffers are allocated in start(), before
+# the LVGL tree fragments the MicroPython heap, then rooted on SdrApp for its full
+# lifetime.  The native IQADC player owns only borrowed buffer pointers; Python
+# performs file I/O from a scheduled callback, never from the ADC/DSP interrupt.
+_IQ_FILE_PATH = "/flash/test.sdriq"
+_IQ_FILE_HEADER_BYTES = 32
+_IQ_FILE_BUFFER_BYTES = 8192
+_IQ_FILE_STATUS_WORDS = 15
+
+
+def _u32le(b, i):
+    return (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) |
+            (b[i + 3] << 24))
+
+
+def _u64le(b, i):
+    return _u32le(b, i) | (_u32le(b, i + 4) << 32)
+
+
+def _crc32_ieee(b, n):
+    """Table-free reflected CRC-32/ISO-HDLC, identical to SDRangel's header CRC."""
+    crc = 0xFFFFFFFF
+    for i in range(n):
+        crc ^= b[i]
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0xEDB88320 if crc & 1 else 0)
+    return crc ^ 0xFFFFFFFF
+
+
+class _IqFileSource:
+    """Double-buffered, allocation-free steady-state SDRangel S16LE I/Q reader.
+
+    Provisional native contract:
+      file_attach(buf0, buf1, point, refill_cb)
+      file_commit(index, valid_bytes)       # zero bytes is the ordered EOF marker
+      file_start()/file_stop()/file_free()
+      file_status_into(array('i', 15))
+
+    status words are:
+      attached, requested, active, point, state0, state1, valid0, valid1,
+      active_index, active_offset, underruns, source_blocks, samples_consumed,
+      refill_pending_mask, scheduler_failures.
+    """
+
+    def __init__(self, buf0, buf1, header, status):
+        self._bufs = (buf0, buf1)
+        self._header = header
+        self.status = status
+        self._iq = None
+        self._file = None
+        self._attached = False
+        self._feeding = False
+        self._loop = True
+        self._payload_bytes = 0
+        self._total_samples = 0
+        self._consumed_last = 0
+        self._consumed_base = 0
+        self._consumed_total = 0
+        self.sample_rate = 0
+        self.sample_bits = 0
+        self.center_hz = 0
+        self.timestamp_ms = 0
+        self.error = None
+        self.eof = False
+        self._file_free_state = 0
+        # Cache one bound-method object.  file_attach roots it on the native side;
+        # keeping it here also avoids manufacturing another wrapper on each start.
+        self._refill_cb = self._refill
+
+    def _close_file(self):
+        f = self._file
+        self._file = None
+        if f is not None:
+            try:
+                f.close()
+            except Exception:
+                pass
+
+    def stop(self):
+        """Idempotently detach from IQADC and release only the file handle."""
+        self._feeding = False
+        iq = self._iq
+        self._iq = None
+        if iq is not None and self._attached:
+            try:
+                iq.file_stop()
+            except Exception:
+                pass
+            try:
+                iq.file_free()
+            except Exception:
+                pass
+        self._attached = False
+        self._close_file()
+
+    def set_loop(self, enabled):
+        if self._feeding:
+            return False
+        self._loop = bool(enabled)
+        return True
+
+    def _read_header(self, f, expected_rate):
+        h = self._header
+        f.seek(0)
+        got = f.readinto(h)
+        if got != _IQ_FILE_HEADER_BYTES:
+            raise ValueError("SDRIQ header must be exactly 32 bytes")
+        rate = _u32le(h, 0)
+        centre = _u64le(h, 4)
+        timestamp = _u64le(h, 12)
+        bits = _u32le(h, 20)
+        filler = _u32le(h, 24)
+        stored_crc = _u32le(h, 28)
+        actual_crc = _crc32_ieee(h, 28)
+        # Publish parsed metadata even when a later validation rejects the file; the
+        # FILE row can then show the actual rate/word size beside the explicit error.
+        self.sample_rate = rate
+        self.sample_bits = bits
+        self.center_hz = centre
+        self.timestamp_ms = timestamp
+        if stored_crc != actual_crc:
+            raise ValueError("SDRIQ header CRC mismatch")
+        if filler != 0:
+            raise ValueError("SDRIQ reserved word must be zero")
+        if bits != 16:
+            raise ValueError("SDRIQ %dBIT UNSUPPORTED" % bits)
+        if rate != expected_rate:
+            raise ValueError("SDRIQ RATE %d NEEDS RESAMPLE TO %d" %
+                             (rate, expected_rate))
+        f.seek(0, 2)
+        total = f.tell()
+        payload = total - _IQ_FILE_HEADER_BYTES
+        if payload <= 0 or payload & 3:
+            raise ValueError("SDRIQ payload must be nonempty interleaved I/Q")
+        f.seek(_IQ_FILE_HEADER_BYTES)
+        self._payload_bytes = payload
+        self._total_samples = payload // 4
+
+    def start(self, iq, point, expected_rate, loop):
+        """Validate, attach, synchronously prefill both FREE buffers, then start."""
+        self.stop()
+        self.error = None
+        self._payload_bytes = 0
+        self._total_samples = 0
+        self._consumed_last = 0
+        self._consumed_base = 0
+        self._consumed_total = 0
+        self.sample_rate = 0
+        self.sample_bits = 0
+        self.center_hz = 0
+        self.timestamp_ms = 0
+        if iq is None:
+            self.error = "RX is off"
+            raise RuntimeError(self.error)
+        for name in ("file_attach", "file_commit", "file_start", "file_stop",
+                     "file_free", "file_status_into"):
+            if getattr(iq, name, None) is None:
+                self.error = "IQ file API unavailable"
+                raise RuntimeError(self.error)
+        if getattr(iq, "FILE_API_VERSION", 0) != 1:
+            self.error = "IQ file API version mismatch"
+            raise RuntimeError(self.error)
+        states = (getattr(iq, "FILE_FREE", None),
+                  getattr(iq, "FILE_READY", None),
+                  getattr(iq, "FILE_ACTIVE", None))
+        if states != (0, 1, 2):
+            self.error = "IQ file API state contract mismatch"
+            raise RuntimeError(self.error)
+        self._file_free_state = states[0]
+        f = None
+        try:
+            f = open(_IQ_FILE_PATH, "rb")
+            self._read_header(f, expected_rate)
+            if loop and self._payload_bytes < len(self._bufs[0]):
+                raise ValueError("SDRIQ LOOP NEEDS >=%d PAYLOAD BYTES" %
+                                 len(self._bufs[0]))
+            self._file = f
+            f = None
+            self._iq = iq
+            self._loop = bool(loop)
+            self.error = None
+            self.eof = False
+            self._feeding = True
+            iq.file_attach(self._bufs[0], self._bufs[1], point, self._refill_cb)
+            self._attached = True
+            # file_attach also schedules the initial callbacks.  Fill now so start has
+            # READY data; the later callbacks re-check state and simply no-op.
+            self._refill(0)
+            self._refill(1)
+            iq.file_start()
+        except Exception as e:
+            self.error = str(e)
+            if f is not None:
+                try:
+                    f.close()
+                except Exception:
+                    pass
+            self.stop()
+            raise
+
+    def _refill(self, index):
+        """Scheduled by C for a FREE buffer; no LVGL calls and no steady allocations."""
+        if not self._feeding or not self._attached or self._file is None:
+            return
+        try:
+            index = int(index)
+            if index < 0 or index > 1:
+                return
+            iq = self._iq
+            iq.file_status_into(self.status)
+            if self.status[4 + index] != self._file_free_state:
+                return
+            n = self._file.readinto(self._bufs[index])
+            if not n and self._loop:
+                self._file.seek(_IQ_FILE_HEADER_BYTES)
+                n = self._file.readinto(self._bufs[index])
+            if not n:
+                # Ordered behind any already READY/ACTIVE payload, so ONCE mode does
+                # not truncate its last partial buffer.  C stops cleanly at this marker.
+                self.eof = True
+                self._feeding = False
+                iq.file_commit(index, 0)
+                return
+            if n & 3:
+                raise ValueError("SDRIQ short read is not a complete I/Q sample")
+            iq.file_commit(index, n)
+        except Exception as e:
+            self.error = "SDRIQ refill: %r" % (e,)
+            self.eof = True
+            self._feeding = False
+            try:
+                self._iq.file_stop()
+            except Exception:
+                pass
+            # The native trampoline catches this exception, withdraws the failing
+            # callback and independently stops FILE.  A synchronous prefill reaches
+            # start(), whose cleanup also detaches the borrowed pointers.
+            raise
+
+    def poll(self):
+        if not self._attached or self._iq is None:
+            return None
+        try:
+            self._iq.file_status_into(self.status)
+            raw = self.status[12]
+            if raw < 0:
+                raw += 0x100000000
+            if raw < self._consumed_last:
+                self._consumed_base += 0x100000000
+            self._consumed_last = raw
+            self._consumed_total = self._consumed_base + raw
+            return self.status
+        except Exception as e:
+            self.error = "SDRIQ status: %r" % (e,)
+            return None
+
+    def percent(self):
+        total = self._total_samples
+        if total <= 0:
+            return 0
+        done = self._consumed_total
+        if self._loop:
+            done %= total
+        elif done > total:
+            done = total
+        return (done * 100) // total
+
 # ======================================================================
 # Si5351A/MS5351M I2C triple clock generator -- programming scheme of the
 # Etherkit library / Elektor SDR Shield 2.0 (fixed 800 MHz PLLA from a
@@ -914,6 +1182,10 @@ class Ra6m3Backend:
             self.iq = self._IQADC(IQ_PIN_I, IQ_PIN_Q, **kw)
             self.dac = self._DAC(DAC_PIN)
             self.iq.start()
+            # Float 4-pole channel filter has the real wide-band coefficients needed
+            # by 6/9-kHz verification and cursor rejection; the integer kernel clamps
+            # or bypasses above roughly 3.8 kHz.  Optional on older firmware.
+            self._call(self.iq, "chf_kernel", True)
             self.apply_settings()          # demod / agc / bandwidth / volume
             self.dac.stream_from(self.iq)  # autonomous from here on
             self.running = True
@@ -1207,7 +1479,7 @@ class Ra6m3Backend:
 
 class SdrApp:
 
-    def __init__(self, ui):
+    def __init__(self, ui, iq_file_mem=None):
         self.ui = ui
         self.p = load_params()
         self.entry = ""              # keypad buffer (MHz string, e.g. "14.205")
@@ -1274,6 +1546,19 @@ class SdrApp:
         self._inj_wave = 0           # SIN/SQR/TRI/PULSE; PULSE also uses the 2-Hz gate
         self._inj_live = False       # deterministic C phase jitter for a live scope trace
         self._inj_prev_scope = None  # route replaced by TESTER's stage-5 I/Q observation
+        self._inj_source = 0         # 0=native generator, 1=/flash/test.sdriq player
+        self._iq_file_loop = True
+        self._iq_file_ui_pct = -1
+        if iq_file_mem is None:
+            # Fallback for direct test construction.  start() takes the preferred path
+            # and allocates these BEFORE build(), while the heap is still contiguous.
+            iq_file_mem = (bytearray(_IQ_FILE_BUFFER_BYTES),
+                           bytearray(_IQ_FILE_BUFFER_BYTES),
+                           bytearray(_IQ_FILE_HEADER_BYTES),
+                           array.array("i", bytes(4 * _IQ_FILE_STATUS_WORDS)))
+        self._iq_file_mem = iq_file_mem       # explicit GC root for both native buffers
+        self._iq_file = _IqFileSource(iq_file_mem[0], iq_file_mem[1],
+                                      iq_file_mem[2], iq_file_mem[3])
         self._tap_stage = 0
         self._passthru_on = False    # verify-only demod("thru") override (not persisted)
         self._squelch = 0            # verify-only squelch threshold (not persisted)
@@ -1504,6 +1789,9 @@ class SdrApp:
         self.update_rx()
 
     def stop_rx(self):
+        # The FILE reader borrows pointers owned by the live IQADC object.  Detach and
+        # close it before backend teardown destroys that native owner.
+        self._iq_file.stop()
         self.be.stop_rx()
         # The native IQADC object (and therefore its synthetic source) no longer
         # exists.  Keep the VERIFY toggle truthful if RX is started again later,
@@ -2017,6 +2305,7 @@ class SdrApp:
                 pc[3] = c[3]
                 pc[4] = c[4]
                 pc[5] = c[5]
+            self._poll_iq_file()
             # Live AGC readout, only while the gains panel is open and showing AGC. Auto-AGC
             # moves the gain, so the label tracks the real value; guarded so the normal
             # (panel-closed) loop stays alloc-free.
@@ -2451,15 +2740,16 @@ class SdrApp:
                 self.be.err = "%s: %r" % (name, e)
                 return False, None
 
-        # -- TESTER: point | AM/USB/LSB/CW/IQ | waveform | PN | amplitude | ON --
+        # -- TESTER source | point | generator/file controls | ON --
         # The three injection points stay in the complex path: IN replaces raw ADC I/Q,
         # MID is after decimation/DC/IQ correction, and OUT is after the channel filter.
         # C publishes point+waveform+generator parameters as one block-atomic tuple.
+        # Tapping the left chip selects GEN or FILE without spending another row.
         irow = _base(lv.obj(scr))
         irow.set_size(464, 26)
         _flex(irow, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN,
               lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, 6)
-        _lbl(irow, "TESTER", 14, WHITE)
+        isb, isl = _sbtn(irow, "TESTER GEN", 82, 12, CYAN_RX)
         ig = _grp(irow, 370)
         point_name = self._INJ_POINTS[self._inj_point][0]
         mode_name = self._INJ_PRESETS[self._inj_mode][0]
@@ -2478,14 +2768,15 @@ class SdrApp:
         iamp.add_style(st["dim"], 0)
         iamp.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
         iamp.set_style_text_color(lv.color_hex(CYAN_RX), 0)
-        idn, _ = _sbtn(ig, "-", 24, 20)
-        iup, _ = _sbtn(ig, "+", 24, 20)
+        idn, idnl = _sbtn(ig, "-", 24, 20)
+        iup, iupl = _sbtn(ig, "+", 24, 20)
         itg, itgl = _sbtn(ig, "ON" if self._inj_on else "OFF", 46, 12,
                           DARK_TXT if self._inj_on else WHITE)
         if self._inj_on:
             itg.set_style_bg_color(lv.color_hex(GREEN), 0)
-        self._set_widgets["inject"] = (ipl, iml, iwl, ilb, ill,
-                                        iamp, itg, itgl)
+        self._set_widgets["inject"] = (isb, isl, ipb, ipl, imb, iml,
+                                        iwb, iwl, ilb, ill, iamp,
+                                        idn, idnl, iup, iupl, itg, itgl)
 
         def tester_scope(stage):
             """Route the DAC pair and keep the one-of SCOPE paint coherent."""
@@ -2508,6 +2799,7 @@ class SdrApp:
             fn = getattr(iq, "inject", None) if iq is not None else None
             if not self._inj_on:
                 ok = True
+                self._iq_file.stop()
                 if fn is not None:
                     try:
                         fn(False)
@@ -2528,15 +2820,53 @@ class SdrApp:
                     else:
                         ok = False
                 return ok
-            if fn is None:
+            if iq is None:
                 self.be.err = "test source unavailable (RX off)"
                 return False
-            # These two terminal constants are the version probe for the complete new
-            # point+waveform API.  Never silently reinterpret the positional arguments
-            # on legacy firmware.
-            if (not hasattr(iq, "INJECT_POINT_OUT") or
-                    not hasattr(iq, "INJECT_WAVE_TRIANGLE")):
+            # OUT is the version probe for the common three-point contract used by
+            # both GEN and FILE.  Never silently reinterpret a point on old firmware.
+            if not hasattr(iq, "INJECT_POINT_OUT"):
                 self.be.err = "multi-point IQ test source unavailable"
+                return False
+            _point_name, point_attr = self._INJ_POINTS[self._inj_point]
+            try:
+                point = getattr(iq, point_attr)
+            except Exception as e:
+                self.be.err = "test point: %r" % (e,)
+                return False
+
+            # Stage 5 is the common post-channel-filter complex output for either
+            # source: DA0=I, DA1=Q.  Restore the displaced route on OFF/error/EOF.
+            if self._inj_prev_scope is None:
+                self._inj_prev_scope = self._scope_id
+            if not tester_scope(5):
+                return False
+
+            if self._inj_source:
+                # The native sources are mutually exclusive.  Disable GEN before
+                # attaching the borrowed Python buffers to the FILE player.
+                if fn is not None:
+                    try:
+                        fn(False)
+                    except Exception as e:
+                        self.be.err = "inject off: %r" % (e,)
+                        return False
+                expected_rate = IQ_RATE if self._inj_point == 0 else IQ_RATE // 2
+                try:
+                    self._iq_file.start(iq, point, expected_rate,
+                                        self._iq_file_loop)
+                    self._iq_file_ui_pct = -1
+                    self.be.err = None
+                    return True
+                except Exception as e:
+                    self.be.err = "file: %r" % (e,)
+                    return False
+
+            if fn is None:
+                self.be.err = "generator unavailable"
+                return False
+            if not hasattr(iq, "INJECT_WAVE_TRIANGLE"):
+                self.be.err = "multi-wave IQ generator unavailable"
                 return False
             name, receiver_mode, kind_attr, carrier, mod_hz, depth = \
                 self._INJ_PRESETS[self._inj_mode]
@@ -2546,11 +2876,9 @@ class SdrApp:
                 self._inj_ampl = 1000
                 iamp.set_text("1000")
             _wave_name, wave_attr, gate_hz = self._INJ_WAVES[self._inj_wave]
-            _point_name, point_attr = self._INJ_POINTS[self._inj_point]
             noise = 2 if self._inj_live else 0
             try:
                 kind = getattr(iq, kind_attr)
-                point = getattr(iq, point_attr)
                 wave = getattr(iq, wave_attr)
                 if receiver_mode is not None:
                     if not self.be.set_mode(receiver_mode):
@@ -2559,12 +2887,7 @@ class SdrApp:
                             self.p["bw"].get(receiver_mode,
                                              MODE_BW[receiver_mode])):
                         return False
-                if self._inj_prev_scope is None:
-                    self._inj_prev_scope = self._scope_id
-                # Stage 5 is the common post-channel-filter complex output for every
-                # injection point: DA0=I, DA1=Q.  Restore the displaced route on OFF.
-                if not tester_scope(5):
-                    return False
+                self._iq_file.stop()
                 fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
                    gate_hz, noise, point, wave)
                 self.be.err = None
@@ -2574,19 +2897,7 @@ class SdrApp:
                 return False
 
         def inj_paint():
-            ipl.set_text(self._INJ_POINTS[self._inj_point][0])
-            iml.set_text(self._INJ_PRESETS[self._inj_mode][0])
-            iwl.set_text(self._INJ_WAVES[self._inj_wave][0])
-            ill.set_text("LIVE" if self._inj_live else "CLEAN")
-            ill.set_style_text_color(
-                lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
-            ilb.set_style_bg_color(
-                lv.color_hex(GREEN if self._inj_live else PANEL2), 0)
-            itgl.set_text("ON" if self._inj_on else "OFF")
-            itgl.set_style_text_color(
-                lv.color_hex(DARK_TXT if self._inj_on else WHITE), 0)
-            itg.set_style_bg_color(
-                lv.color_hex(GREEN if self._inj_on else PANEL2), 0)
+            self._paint_tester()
 
         def inj_reapply():
             """Apply a live edit; on failure disarm and restore the displaced route."""
@@ -2597,6 +2908,8 @@ class SdrApp:
                 self.be.err = error
 
         def inj_mode_cb(e):
+            if self._inj_source:
+                return
             self._inj_mode = (self._inj_mode + 1) % len(self._INJ_PRESETS)
             if self._INJ_PRESETS[self._inj_mode][0] == "AM" and self._inj_ampl > 1000:
                 self._inj_ampl = 1000
@@ -2605,25 +2918,51 @@ class SdrApp:
             inj_paint()
 
         def inj_point_cb(e):
+            if self._inj_on:                 # file/source rate contract is fixed on start
+                return
             self._inj_point = (self._inj_point + 1) % len(self._INJ_POINTS)
-            inj_reapply()
             inj_paint()
 
         def inj_wave_cb(e):
+            if self._inj_source:
+                return
             self._inj_wave = (self._inj_wave + 1) % len(self._INJ_WAVES)
             inj_reapply()
             inj_paint()
 
         def inj_live_cb(e):
+            if self._inj_source:
+                if self._inj_on:
+                    return                 # ordered EOF/LOOP contract is immutable ON
+                self._iq_file_loop = not self._iq_file_loop
+                self._iq_file.set_loop(self._iq_file_loop)
+                inj_paint()
+                return
             self._inj_live = not self._inj_live
             inj_reapply()
             inj_paint()
 
         def inj_amp_cb(e, d=0, lbl=iamp):
+            if self._inj_source:
+                # In FILE mode the left small chip is rewind/restart; the right one is
+                # hidden.  Restart uses the same strict header/rate validation.
+                if d < 0:
+                    self._iq_file_ui_pct = -1
+                    if self._inj_on:
+                        inj_reapply()
+                    inj_paint()
+                return
             max_ampl = 1000 if self._INJ_PRESETS[self._inj_mode][0] == "AM" else 2000
             self._inj_ampl = min(max(self._inj_ampl + d, 0), max_ampl)
             lbl.set_text("%d" % self._inj_ampl)
             inj_reapply()
+            inj_paint()
+
+        def inj_source_cb(e):
+            if self._inj_on:                 # borrowed pointers/point stay immutable
+                return
+            self._inj_source = 1 - self._inj_source
+            self._iq_file_ui_pct = -1
             inj_paint()
 
         def inj_tg_cb(e):
@@ -2637,7 +2976,8 @@ class SdrApp:
                 inj_apply()
                 self.be.err = error
             inj_paint()
-        for b, cb in ((ipb, inj_point_cb), (imb, inj_mode_cb), (iwb, inj_wave_cb),
+        for b, cb in ((isb, inj_source_cb), (ipb, inj_point_cb),
+                      (imb, inj_mode_cb), (iwb, inj_wave_cb),
                       (ilb, inj_live_cb), (itg, inj_tg_cb)):
             b.add_event_cb(cb, lv.EVENT.CLICKED, None)
             cbs.append(cb)
@@ -3049,6 +3389,155 @@ class SdrApp:
         self._set_scr_partial = None
         return scr
 
+    def _restore_tester_scope(self):
+        """Restore the route displaced by TESTER, including VERIFY row paint."""
+        if self._inj_prev_scope is None:
+            return True
+        restore = self._inj_prev_scope
+        previous = self._scope_id
+        if not self.be.set_scope(restore):
+            return False
+        self._scope_id = restore
+        self._inj_prev_scope = None
+        blocks = self._set_widgets.get("blocks")
+        if blocks:
+            for bid, on in ((previous, False), (restore, True)):
+                if not bid or bid not in blocks:
+                    continue
+                r, _ob, _ol, sb, sl, _tb, _tl = blocks[bid]
+                sb.set_style_bg_color(lv.color_hex(CYAN_RX if on else PANEL2), 0)
+                sl.set_style_text_color(
+                    lv.color_hex(DARK_TXT if on else CYAN_RX), 0)
+                r.set_style_bg_color(lv.color_hex(BORDER if on else PANEL2), 0)
+        return True
+
+    def _paint_tester(self):
+        w = self._set_widgets.get("inject")
+        if not w:
+            return
+        (isb, isl, ipb, ipl, imb, iml, iwb, iwl, ilb, ill, iamp,
+         idn, idnl, iup, iupl, itg, itgl) = w
+        file_mode = bool(self._inj_source)
+        isl.set_text("TESTER FILE" if file_mode else "TESTER GEN")
+        ipl.set_text(self._INJ_POINTS[self._inj_point][0])
+
+        # Source and injection point own native buffer/rate semantics and are locked
+        # for the complete ON interval.  Other GEN controls remain live-editable.
+        if self._inj_on:
+            isb.remove_flag(lv.obj.FLAG.CLICKABLE)
+            ipb.remove_flag(lv.obj.FLAG.CLICKABLE)
+        else:
+            isb.add_flag(lv.obj.FLAG.CLICKABLE)
+            ipb.add_flag(lv.obj.FLAG.CLICKABLE)
+
+        if file_mode:
+            ferr = self._iq_file.error or ""
+            if "BIT UNSUPPORTED" in ferr:
+                iml.set_text("%dBIT" % self._iq_file.sample_bits)
+            elif "NEEDS RESAMPLE" in ferr:
+                iml.set_text("RATE!")
+            elif "CRC" in ferr:
+                iml.set_text("CRC!")
+            elif "LOOP NEEDS" in ferr:
+                iml.set_text("SHORT!")
+            elif "API" in ferr:
+                iml.set_text("API!")
+            elif " UND " in ferr or "SCHED" in ferr:
+                iml.set_text("UND!")
+            elif ferr:
+                iml.set_text("FILE!")
+            else:
+                iml.set_text("TEST")   # /flash/test.sdriq (fixed v1 path)
+            rate = self._iq_file.sample_rate
+            bits = self._iq_file.sample_bits or 16
+            if rate <= 0:
+                rate = IQ_RATE if self._inj_point == 0 else IQ_RATE // 2
+            iwl.set_text("%dK/%d" % (rate // 1000, bits))
+            ill.set_text("LOOP" if self._iq_file_loop else "ONCE")
+            ill.set_style_text_color(
+                lv.color_hex(DARK_TXT if self._iq_file_loop else CYAN_RX), 0)
+            ilb.set_style_bg_color(
+                lv.color_hex(GREEN if self._iq_file_loop else PANEL2), 0)
+            if self._inj_on:
+                ilb.remove_flag(lv.obj.FLAG.CLICKABLE)
+            else:
+                ilb.add_flag(lv.obj.FLAG.CLICKABLE)
+            pct = self._iq_file_ui_pct
+            iamp.set_text("ERR" if ferr else
+                          ("--" if pct < 0 else "%d%%" % pct))
+            idnl.set_text("|<")
+            iupl.set_text("")
+            iup.add_flag(lv.obj.FLAG.HIDDEN)
+            imb.remove_flag(lv.obj.FLAG.CLICKABLE)
+            iwb.remove_flag(lv.obj.FLAG.CLICKABLE)
+        else:
+            ilb.add_flag(lv.obj.FLAG.CLICKABLE)
+            iml.set_text(self._INJ_PRESETS[self._inj_mode][0])
+            iwl.set_text(self._INJ_WAVES[self._inj_wave][0])
+            ill.set_text("LIVE" if self._inj_live else "CLEAN")
+            ill.set_style_text_color(
+                lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
+            ilb.set_style_bg_color(
+                lv.color_hex(GREEN if self._inj_live else PANEL2), 0)
+            iamp.set_text("%d" % self._inj_ampl)
+            idnl.set_text("-")
+            iupl.set_text("+")
+            iup.remove_flag(lv.obj.FLAG.HIDDEN)
+            imb.add_flag(lv.obj.FLAG.CLICKABLE)
+            iwb.add_flag(lv.obj.FLAG.CLICKABLE)
+
+        itgl.set_text("ON" if self._inj_on else "OFF")
+        itgl.set_style_text_color(
+            lv.color_hex(DARK_TXT if self._inj_on else WHITE), 0)
+        itg.set_style_bg_color(
+            lv.color_hex(GREEN if self._inj_on else PANEL2), 0)
+
+    def _finish_iq_file(self, error=None):
+        """Fail closed, then restore the route displaced by FILE playback."""
+        self._iq_file.stop()
+        self._inj_on = False
+        restored = self._restore_tester_scope()
+        if not restored:
+            restore_error = self.be.err or "scope restore failed"
+            error = ((error + "; ") if error else "") + restore_error
+        if error:
+            self.be.err = error
+            self._iq_file.error = error
+        if "settings" in _KEEP:
+            self._paint_tester()
+        return restored
+
+    def _poll_iq_file(self):
+        """2-Hz FILE status paint; the scheduled refill path never touches LVGL."""
+        if not self._inj_on:
+            # A failed native scope setter leaves _inj_prev_scope intact.  Retry on
+            # the slow status cadence instead of painting a false restored state.
+            if self._inj_prev_scope is not None and self.be.running:
+                self._restore_tester_scope()
+            return
+        if not self._inj_source:
+            return
+        st = self._iq_file.poll()
+        if self._iq_file.error is not None:
+            self.be.err = self._iq_file.error
+        if st is None:
+            self._finish_iq_file(self._iq_file.error or "SDRIQ status failed")
+            return
+        if st[10] or st[14]:
+            self._finish_iq_file("SDRIQ UND %d SCHED %d" % (st[10], st[14]))
+            return
+        pct = self._iq_file.percent()
+        if pct != self._iq_file_ui_pct:
+            self._iq_file_ui_pct = pct
+            w = self._set_widgets.get("inject")
+            if "settings" in _KEEP and w:
+                w[10].set_text("%d%%" % pct)
+        # A zero-byte commit is consumed only after every older data commit.  At this
+        # point C has stopped, so closing the file and restoring DA0/DA1 cannot truncate
+        # the tail of an ONCE capture.
+        if self._iq_file.eof and not st[1] and not st[2]:
+            self._finish_iq_file()
+
     def _refresh_settings(self):
         """Re-read the current state into every settings-screen control on each open,
         so a re-shown screen never displays the values captured at build time. Live
@@ -3121,22 +3610,8 @@ class SdrApp:
         w["iqc_amp"].set_text("%.2f" % self._iqc_amp)
         w["iqc_phase"].set_text("%+.2f" % self._iqc_phase)
 
-        # TESTER injection point, modulation, waveform, phase noise, amplitude and ON/OFF.
-        ipl, iml, iwl, ilb, ill, iamp, itg, itgl = w["inject"]
-        ipl.set_text(self._INJ_POINTS[self._inj_point][0])
-        iml.set_text(self._INJ_PRESETS[self._inj_mode][0])
-        iwl.set_text(self._INJ_WAVES[self._inj_wave][0])
-        ill.set_text("LIVE" if self._inj_live else "CLEAN")
-        ill.set_style_text_color(
-            lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
-        ilb.set_style_bg_color(
-            lv.color_hex(GREEN if self._inj_live else PANEL2), 0)
-        iamp.set_text("%d" % self._inj_ampl)
-        itgl.set_text("ON" if self._inj_on else "OFF")
-        itgl.set_style_text_color(
-            lv.color_hex(DARK_TXT if self._inj_on else WHITE), 0)
-        itg.set_style_bg_color(
-            lv.color_hex(GREEN if self._inj_on else PANEL2), 0)
+        # TESTER source/point and source-specific compact row.
+        self._paint_tester()
 
         # KERNELS: four A/B toggles.
         for meth, kb, kbl in w["kernels"]:
@@ -3709,6 +4184,17 @@ def start():
 
     gc.collect()  # release source/compiler temporaries before building the widget tree
 
+    # Reserve the streaming memory while the heap is still contiguous.  The tuple is
+    # temporarily rooted in _KEEP across display/UI construction, then also rooted by
+    # SdrApp.  No second sample ring is hidden in C.
+    iq_file_mem = _KEEP.get("iq_file_mem")
+    if iq_file_mem is None:
+        iq_file_mem = (bytearray(_IQ_FILE_BUFFER_BYTES),
+                       bytearray(_IQ_FILE_BUFFER_BYTES),
+                       bytearray(_IQ_FILE_HEADER_BYTES),
+                       array.array("i", bytes(4 * _IQ_FILE_STATUS_WORDS)))
+        _KEEP["iq_file_mem"] = iq_file_mem
+
     dd = lv.display_get_default()
     if dd is None:
         # bring the DIRECT display up via the board driver (pRGB)
@@ -3740,7 +4226,7 @@ def start():
         print("vsync gate unavailable:", repr(e))
 
     ui = build()
-    app = SdrApp(ui)
+    app = SdrApp(ui, iq_file_mem)
     lv.screen_load(ui.get("scr-receiver"))
     lv.refr_now(dd)
     # event loop LAST
