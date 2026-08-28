@@ -305,6 +305,10 @@ ADDR = 0x60            # replaced at runtime by the detected address
 XTAL = 25_000_000
 PLL = 800_000_000          # PLLA fixed: 25 MHz x 32
 _C = 1048575               # max fractional denominator (20 bit)
+MS_OUT_MIN = 500_000       # this driver does not program the R divider
+MS_OUT_MAX = 100_000_000   # generic fractional path; no DIVBY4/integer planning
+MS_DIV_MIN = 8.0
+MS_DIV_MAX = 2048.0
 # crystal calibration: measured +500 Hz at 28.160790 MHz => chip runs fast by
 # +17.76 ppm; compensate by programming a proportionally lower frequency.
 XTAL_PPM = 17.76
@@ -360,10 +364,26 @@ class SI5351:
         self._w(177, 0xA0)                     # reset both PLLs
 
     def set_freq(self, clk, hz):
-        """clk 0..2, hz 2.5 kHz .. 200 MHz (fractional MultiSynth path)."""
-        if not self.ok or not 2500 <= hz <= 200_000_000:
+        """Program the generic fractional MultiSynth path implemented here.
+
+        Frequencies below 500 kHz require an R divider; frequencies above
+        100 MHz require the special integer/DIVBY4 plan. Neither is encoded by
+        this compact driver, so reject them before the first I2C write.
+        """
+        try:
+            clk = int(clk)
+            hz = int(hz)
+        except Exception:
             return False
-        div = PLL / (hz * (1.0 - XTAL_PPM * 1e-6))
+        if (not self.ok or clk not in (0, 1, 2) or
+                not MS_OUT_MIN <= hz <= MS_OUT_MAX):
+            return False
+        correction = 1.0 - XTAL_PPM * 1e-6
+        if correction <= 0.0:
+            return False
+        div = PLL / (hz * correction)
+        if not MS_DIV_MIN <= div <= MS_DIV_MAX:
+            return False
         a = int(div)
         b = int((div - a) * _C)
         self._burst(42 + 8 * clk, self._ms_params(a, b, _C))
@@ -720,10 +740,9 @@ class SdrUi:
             self.w[name] = b
         tbtn("btn-step-down", "<<", 52, CYAN_RX)
         sd = _box(tr, 190, 40, bg=PANEL, border=BORDER, radius=6)
-        _flex(sd, lv.FLEX_FLOW.COLUMN, lv.FLEX_ALIGN.CENTER, gap=0)
+        _flex(sd, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.CENTER, gap=0)
         sd.set_flex_grow(1)
-        _lbl(sd, "STEP", 12, GRAY2)
-        self.w["step-value"] = _lbl(sd, "1.0 kHz", 16, WHITE)
+        self.w["home-summary"] = _lbl(sd, "AM | 1.8 kHz | 1 kHz", 10, WHITE)
         self.w["step-display"] = sd
         tbtn("btn-step-up", ">>", 52, CYAN_RX)
         tbtn("btn-fine-down", "-", 44, WHITE, 20)
@@ -738,13 +757,15 @@ class SdrUi:
         self.w["mode-bar"] = mb
         for m in ("AM", "FM", "USB", "LSB", "CW"):
             b = _btn(mb, 76, 34, BTN_RX, radius=6, border=BORDER)
+            b.set_flex_grow(1)
             _lbl(b, m, 14, WHITE)
             self.w["btn-" + m] = b
         # Collapsed mode-bar actions.  All objects are created once; runtime only
         # toggles HIDDEN, avoiding widget construction and heap churn on a tap.
-        for name, text in (("mode-step", "STEP"), ("mode-filter", "FILTER"),
+        for name, text in (("mode-filter", "FILTER"), ("mode-step", "STEP"),
                            ("mode-view", "SPEC")):
             b = _btn(mb, 76, 34, BTN_RX, radius=6, border=BORDER)
+            b.set_flex_grow(1)
             _lbl(b, text, 12, WHITE)
             b.add_flag(lv.obj.FLAG.HIDDEN)      # update_mode() reveals them at boot
             self.w["btn-" + name] = b
@@ -758,8 +779,20 @@ class SdrUi:
         vh.set_size(48, 38)
         vh.add_flag(lv.obj.FLAG.CLICKABLE)   # tap the VOL header -> gains panel toggle
         self.w["vol-header"] = vh
-        self.w["vol-label"] = _lbl(vh, "VOL", 14, GRAY2)
-        self.w["vol-value"] = _lbl(vh, "72%", 16, CYAN_RX)
+        vl = _lbl(vh, "VOL", 14, GRAY2)
+        vv = _lbl(vh, "72%", 16, CYAN_RX)
+        # Labels cover almost the whole 48x38 header.  Make them explicit hit
+        # targets so a tap on the ink cannot be swallowed before the parent
+        # receives CLICKED (the slider below keeps its independent drag role).
+        vl.add_flag(lv.obj.FLAG.CLICKABLE)
+        vv.add_flag(lv.obj.FLAG.CLICKABLE)
+        self.w["vol-label"] = vl
+        self.w["vol-value"] = vv
+        pin = lv.checkbox(vh)
+        pin.set_text("")
+        pin.set_size(22, 20)
+        pin.add_flag(lv.obj.FLAG.HIDDEN)
+        self.w["gain-pin"] = pin
         sl = lv.slider(rp)
         sl.set_size(16, 130)
         sl.set_range(0, 100)
@@ -887,8 +920,8 @@ def build():
 #
 # Update discipline (measured on RA6M3, DIRECT + Dave2D: full apply_all ~39 ms
 # vs targeted ~11.5 ms): hot paths call TARGETED updates only -- update_freq /
-# update_mode / update_step / update_vol / update_agc. apply_all() is reserved
-# for one-time full syncs (init, returning from the entry screen).
+# update_mode / update_step / update_vol / update_agc. apply_all() is the one-time
+# full sync used while constructing SdrApp.
 # ======================================================================
 
 MAGIC = b"SDR1"
@@ -900,6 +933,12 @@ SAVE_DELAY_MS = 60000           # 1 min after last change
 # backward-safe: a pre-v3 build rejects a >200 B payload and uses its defaults.
 DF_BLOCK = 64                   # data-flash erase granularity
 DF_LIMIT = 512                  # v3 ceiling (8 blocks)
+DF_HEADER_BYTES = 6             # four-byte magic + uint16 payload length
+DF_PAYLOAD_LIMIT = DF_LIMIT - DF_HEADER_BYTES
+AGC_TARGET_MIN = 0.01
+AGC_TARGET_MAX = 1.0
+CAL_PPM_MIN = -200.0
+CAL_PPM_MAX = 200.0
 
 BANDS = (   # name, label, lo Hz, hi Hz, entry-base Hz
     ("80m",  "80 Meter", 3_500_000,   4_000_000,   3_500_000),
@@ -927,11 +966,39 @@ BW_CHOICES = {"AM":  (3000, 4000, 6000, 9000),
 # other multiplier readouts.
 PGA_FACT = (2.0, 2.5, 2.667, 2.857, 3.077, 3.333, 3.636, 4.0,
             4.444, 5.0, 5.714, 6.667, 8.0, 10.0, 13.333)
+# Integer form of the same hardware gain table.  TESTER IN uses this exact
+# fixed-point model because the synthetic source is deliberately generated as a
+# pre-PGA ADC signal.  Float rounding would put the AM x2.667 boundary at 511,
+# while the C path remains clean at 512 and clips at 513.
+PGA_GAIN_MILLI = (2000, 2500, 2667, 2857, 3077, 3333, 3636, 4000,
+                  4444, 5000, 5714, 6667, 8000, 10000, 13333)
 AGC_MODES = ("OFF", "FAST", "SLOW", "MAN")
 # UI mode label -> firmware agc() mode string. Module constant so set_agc never
 # allocates a dict literal per call.
 _AGC_MODE_MAP = {"OFF": "off", "FAST": "fast", "SLOW": "slow",
                  "MAN": "manual", "MANUAL": "manual"}
+
+
+def tester_peak_counts(ampl, gain_milli, depth_pct):
+    """Worst positive TESTER peak, matching the C Q15 operation order."""
+    a = (int(ampl) * int(gain_milli)) // 1000
+    depth_q15 = (int(depth_pct) * 32768 + 50) // 100
+    env_q15 = 32768 + ((depth_q15 * 32767) >> 15)
+    sample_a = (a * env_q15) >> 15
+    return (sample_a * 32767) >> 15
+
+
+def tester_safe_amplitude(hard_max, gain_milli, depth_pct):
+    """Largest requested amplitude whose modeled 12-bit peak stays <= 2047."""
+    lo = 0
+    hi = int(hard_max)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if tester_peak_counts(mid, gain_milli, depth_pct) <= 2047:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
 
 
 def fmt_bw(hz):
@@ -966,7 +1033,7 @@ DEF_VFOS = [[14_205_000, "USB"], [7_100_000, "LSB"], [144_300_000, "FM"]]
 # First five entries keep the indices of records saved by older builds.
 TARGETS = (
     ("Si5351 CLK0",    0,    1),
-    ("Si5351 CLK1 x4", 1,    4),
+    ("RX CLK1 x4",     1,    4),
     ("Si5351 CLK2",    2,    1),
     ("Si4825",         None, 1),
     ("Si4732",         None, 1),
@@ -979,18 +1046,25 @@ TARGETS = (
 # ---------------- data flash persistence ----------------
 
 def _fresh_params():
-    """Factory defaults, including every v3 SDR-backend field."""
+    """Factory defaults, including every v4 SDR-backend field."""
     out = dict(DEFAULTS)
     out["vfos"] = [list(v) for v in DEF_VFOS]
     out["act"] = 0
-    out["rt"] = [0, 1, 2]
+    # A/B/C are station memories for one receiver.  All three therefore default
+    # to the shield's real Tayloe LO input, CLK1 x4; CLK0/CLK2 remain optional AUX
+    # routes selectable from ROUTE.
+    out["rt"] = [1, 1, 1]
     out["cal"] = 17.76
     out["bw"] = dict(MODE_BW)     # per-mode IF bandwidth (filter_bandwidth)
     out["rxauto"] = 0             # rx_autostart: RX was on when last saved
     out["beon"] = 1               # backend_enabled: master IQADC/DAC switch
     out["again"] = 1.0            # agc_manual_gain
     out["atgt"] = 0.5             # agc_target
+    out["rfe"] = 1                # RF PGA enabled; 0 selects the hardware bypass path
     out["rf"] = 0                 # RF PGA gain code 0..14
+    out["iqe"] = 0                # saved I/Q correction enable
+    out["iqa"] = 1.0              # saved Q amplitude multiplier
+    out["iqp"] = 0.0              # saved I-to-Q phase coefficient (not degrees)
     return out
 
 
@@ -1001,7 +1075,7 @@ def load_params():
         if hdr[:4] != MAGIC:
             raise ValueError("no record")
         n = hdr[4] | (hdr[5] << 8)
-        if not 0 < n <= 500:
+        if not 0 < n <= DF_PAYLOAD_LIMIT:
             raise ValueError("bad len")
         p = json.loads(bytes(dataflash.read(6, n)))
         out = _fresh_params()
@@ -1029,10 +1103,11 @@ def load_params():
         rt = p.get("R")
         if not (isinstance(rt, list) and len(rt) == 3
                 and all(isinstance(x, int) and 0 <= x < len(TARGETS) for x in rt)):
-            rt = [0, 1, 2]          # A/B/C -> the three Si5351 channels
+            rt = [1, 1, 1]          # A/B/C station memories -> receiver CLK1 x4
         out["rt"] = rt
         try:
-            out["cal"] = float(p.get("C", 17.76))
+            out["cal"] = min(max(float(p.get("C", 17.76)),
+                                 CAL_PPM_MIN), CAL_PPM_MAX)
         except Exception:
             out["cal"] = 17.76
         # v3 SDR-backend fields; all optional, so v1/v2 records still boot
@@ -1052,13 +1127,24 @@ def load_params():
         except Exception:
             out["again"] = 1.0
         try:
-            out["atgt"] = min(max(float(p.get("T", 0.5)), 0.01), 1.0)
+            out["atgt"] = min(max(float(p.get("T", 0.5)),
+                                  AGC_TARGET_MIN), AGC_TARGET_MAX)
         except Exception:
             out["atgt"] = 0.5
+        out["rfe"] = 0 if p.get("re") == 0 else 1
         try:
             out["rf"] = min(max(int(p.get("rf", 0)), 0), 14)   # RF PGA gain code 0..14
         except Exception:
             out["rf"] = 0
+        out["iqe"] = 1 if p.get("qe") else 0
+        try:
+            out["iqa"] = min(max(float(p.get("qa", 1.0)), 0.50), 1.50)
+        except Exception:
+            out["iqa"] = 1.0
+        try:
+            out["iqp"] = min(max(float(p.get("qp", 0.0)), -0.50), 0.50)
+        except Exception:
+            out["iqp"] = 0.0
         return out
     except Exception as e:
         print("SDR load_params:", repr(e))
@@ -1080,8 +1166,15 @@ def save_params(p):
                "E": 1 if p.get("beon", 1) else 0,
                "G": round(float(p.get("again", 1.0)), 3),
                "T": round(float(p.get("atgt", 0.5)), 3),
-               "rf": int(p.get("rf", 0))}
+               "re": 1 if p.get("rfe", 1) else 0,
+               "rf": int(p.get("rf", 0)),
+               "qe": 1 if p.get("iqe") else 0,
+               "qa": round(float(p.get("iqa", 1.0)), 4),
+               "qp": round(float(p.get("iqp", 0.0)), 4)}
     payload = json.dumps(rec_obj).encode()
+    if len(payload) > DF_PAYLOAD_LIMIT:
+        raise ValueError("payload %d B > %d B" %
+                         (len(payload), DF_PAYLOAD_LIMIT))
     rec = MAGIC + bytes([len(payload) & 0xFF, len(payload) >> 8]) + payload
     if len(rec) % 4:
         rec += b"\xff" * (4 - len(rec) % 4)
@@ -1108,6 +1201,8 @@ def save_params(p):
 
 IQ_PIN_I, IQ_PIN_Q = "P000", "P004"     # coherent I/Q pair
 IQ_RATE, IQ_BLOCK = 48000, 128
+NCO_RECENTER_HZ = 9000                    # leave 3 kHz headroom for held tuning
+AM_LOW_IF_HZ = 3000                       # keep a centred AM carrier out of the I/Q DC servo
 DAC_PIN = "P014"                        # DAC0: mono AF or routed I
 DAC_Q_PIN = "P015"                      # DAC1: optional routed Q
 
@@ -1138,6 +1233,7 @@ class Ra6m3Backend:
         self.agc = DEFAULTS["a"]
         self.agc_gain = 1.0
         self.agc_target = 0.5
+        self.rf_enabled = True         # True=PGA_SINGLE, False=hardware PGA_BYPASS
         self.vol = DEFAULTS["v"]
         self.rf_code = 0             # RF PGA gain code 0..14 (only effective off BYPASS)
         self.fine_hz = 0             # digital NCO offset within the +/- fs/2 window
@@ -1171,9 +1267,9 @@ class Ra6m3Backend:
 
     @staticmethod
     def vol_gain(percent):
-        """UI percent -> backend AF gain. Square law: usable low-end travel."""
+        """UI percent -> linear final DAC gain (15% means 15% amplitude)."""
         p = min(max(int(percent), 0), 100) / 100.0
-        return round(p * p, 4)
+        return round(p, 4)
 
     # ---- lifecycle ----
     def start_rx(self):
@@ -1181,9 +1277,15 @@ class Ra6m3Backend:
             return self.running
         try:
             kw = {"rate": IQ_RATE, "block": IQ_BLOCK}
-            pga = getattr(self._ADC, "PGA_BYPASS", None)
-            if pga is not None:
-                kw["pga"] = pga
+            # P000/P004 are PGA-capable ADC0/ADC1 channels. PGA mode and gain are
+            # constructor-time settings: the RA ADC layer rejects them while ADST=1.
+            # BYPASS is a real hardware pass-through, not PGA_OFF (which disables ADC).
+            pga_name = "PGA_SINGLE" if self.rf_enabled else "PGA_BYPASS"
+            pga = getattr(self._ADC, pga_name, None)
+            if pga is None:
+                raise RuntimeError(pga_name + " unavailable")
+            kw["pga"] = pga
+            kw["gain"] = self.rf_code if self.rf_enabled else 0
             self.iq = self._IQADC(IQ_PIN_I, IQ_PIN_Q, **kw)
             self.dac = self._DAC(DAC_PIN)
             self.iq.start()
@@ -1205,8 +1307,7 @@ class Ra6m3Backend:
 
     def stop_rx(self):
         self._call(self.iq, "demod", "off")
-        self._teardown()
-        return True
+        return self._teardown()
 
     def _teardown(self):
         # Idempotent and safe after a partially completed start. Stop DAC1 first so
@@ -1227,16 +1328,26 @@ class Ra6m3Backend:
                     obj.stop()
             except Exception:
                 pass
-        try:
-            if self.iq is not None:
-                self.iq.stop()
-        except Exception:
-            pass
-        self.iq = None
+        # stop() only halts conversions; it deliberately keeps ADC0/ADC1, DTC,
+        # ELC, AGT and PGA configured so the same IQADC object can be restarted.
+        # The application discards that object here, therefore retaining those
+        # owners is both unnecessary and unsafe: an intervening machine.ADC user
+        # could rewrite shared ADC registers, and the next STOP/START would inherit
+        # stale peripheral state.  deinit() performs the checked full teardown so
+        # every application START reconstructs the complete acquisition chain.
+        iq_released = True
+        if self.iq is not None:
+            self._call(self.iq, "stop")
+            iq_released = self._call(self.iq, "deinit")
+        # A failed checked deinit means ADC/DTC/ELC/AGT may still be owned.  Keep
+        # the handle and report failure instead of presenting a false clean STOP.
+        if iq_released:
+            self.iq = None
         self.dac = None
         self.dac_q = None
         self.running = False
         self.fine_hz = 0
+        return iq_released
 
     # ---- settings: cached always, pushed only while RX is up ----
     def apply_settings(self):
@@ -1244,7 +1355,7 @@ class Ra6m3Backend:
         self.set_agc(self.agc)
         self.set_bandwidth(self.bw)
         self.set_volume(self.vol)
-        self.set_rf_gain(self.rf_code)
+        # RF PGA was already committed by the IQADC constructor, before ADST.
 
     def set_mode(self, mode):
         self.mode = mode
@@ -1339,10 +1450,15 @@ class Ra6m3Backend:
         return self._call(self.iq, "volume", self.vol_gain(percent))
 
     def set_rf_gain(self, code):
-        # RF front-end PGA gain, code 0..14 (x2.0..x13.3). iq.gain() is a no-op while the
-        # unit runs in PGA_BYPASS -- the slider still tracks; the AFE mode is a separate call.
+        # Cache the constructor-time RF PGA gain.  SdrApp reconstructs RX after a
+        # live slider release instead of pretending that an ADST-time write worked.
         self.rf_code = max(0, min(int(code), 14))
-        return self._call(self.iq, "gain", self.rf_code)
+        return not self.running
+
+    def set_rf_enabled(self, enabled):
+        """Cache constructor-time PGA_SINGLE/BYPASS mode for the next IQADC."""
+        self.rf_enabled = bool(enabled)
+        return not self.running
 
     def rf_gain(self):
         try:
@@ -1360,23 +1476,33 @@ class Ra6m3Backend:
             return None
 
     def set_agc(self, mode, gain=None, target=None):
-        self.agc = mode
-        if gain is not None:
-            self.agc_gain = gain
-        if target is not None:
-            self.agc_target = target
+        # Transactional cache: a failed live firmware call must not make Python
+        # claim a mode/gain/target which the running DSP never accepted.
+        new_mode = mode
+        new_gain = self.agc_gain if gain is None else gain
+        new_target = self.agc_target if target is None else target
         # Real firmware API is a SINGLE call: agc(mode, gain=, rms_target=).
         # mode strings are off/fast/slow/manual; gain (float, 1.0 = unity) only
         # matters in manual; rms_target is a 0..1 fraction of full scale. There is
         # NO agc_gain()/agc_target() -- those were silent no-ops. The map is a module
         # constant (not a per-call dict literal) so a repeated AGC control does not
         # allocate a dict every event.
-        m = _AGC_MODE_MAP.get(mode, "fast")
+        m = _AGC_MODE_MAP.get(new_mode, "fast")
         fn = getattr(self.iq, "agc", None) if self.iq is not None else None
         if fn is None:
+            # Stopped receiver: this is a legitimate configuration change which
+            # start_rx/apply_settings will push after constructing the next IQADC.
+            if self.iq is None:
+                self.agc = new_mode
+                self.agc_gain = new_gain
+                self.agc_target = new_target
+                return True
             return False
         try:
-            fn(m, gain=self.agc_gain, rms_target=self.agc_target)
+            fn(m, gain=new_gain, rms_target=new_target)
+            self.agc = new_mode
+            self.agc_gain = new_gain
+            self.agc_target = new_target
             return True
         except Exception as e:
             self.err = "agc: %r" % (e,)
@@ -1419,10 +1545,8 @@ class Ra6m3Backend:
             except Exception:
                 q_alive = False
             if not q_alive:
-                # A runtime DMAC cleanup withdraws the native Q consumer. Recreate it
-                # here in control context; never let the UI silently claim dual I/Q.
-                q_alive = self.set_scope(self.scope_stage)
-            if not q_alive:
+                # Status inspection is deliberately read-only. Reconstructing DAC1
+                # here used to turn a failed Q route into an unbounded hardware retry.
                 st["play"] = 0
         return st
 
@@ -1476,7 +1600,8 @@ class Ra6m3Backend:
         try:
             self.fine_hz = int(self.iq.tune(int(hz)))
             return self.fine_hz
-        except Exception:
+        except Exception as e:
+            self.err = "tune: %r" % (e,)
             return None
 
 
@@ -1487,6 +1612,11 @@ class SdrApp:
     def __init__(self, ui, iq_file_mem=None):
         self.ui = ui
         self.p = load_params()
+        # p["f"] is the selected/persisted station frequency.  _lo_hz is the
+        # physical Si5351 centre; their difference is the live digital NCO offset.
+        # Keeping them separate lets HOME pan inside the captured baseband without
+        # losing the selected frequency on RX restart or VFO switch.
+        self._lo_hz = self.p["f"]
         self.entry = ""              # keypad buffer (MHz string, e.g. "14.205")
         self.save_timer = None
         self._band = None            # cached band name to skip no-op label writes
@@ -1516,9 +1646,10 @@ class SdrApp:
         # keeps the widget fallback below.
         self._lcd = None
         self._spec_lcd = None
+        self._spectrum_center_fn = None
         self._spec_native = False
-        self._spectrum_view = 0       # 0=SPEC, 1=WF on the left native panel
-        self._scope_view = 0          # 0=TIME, 1=I-Q constellation on the right
+        self._spectrum_view = 0       # 0=SPEC, 1=WF, 2=OFF on the left native panel
+        self._scope_view = 0          # 0=TIME, 1=I-Q, 2=OFF on the right native panel
         try:
             from machine import LCD
             lcd = LCD()
@@ -1528,6 +1659,7 @@ class SdrApp:
                     self.ui.get("spectrum-waterfall"), PANEL, BIN, CYAN_RX))
                 if self._spec_native:
                     self._spec_lcd = lcd
+                    self._spectrum_center_fn = getattr(lcd, "spectrum_center", None)
                     self.ui.bins = ()       # release deleted LVGL wrapper objects
         except Exception:
             self._spec_lcd = None
@@ -1535,7 +1667,15 @@ class SdrApp:
         # Deferred-work flags: interaction callbacks only SET these (microseconds);
         # the 100 ms GUI worker applies the latest values outside the touch callback.
         # Spectrum/status still run at their own divisors and are never starved by flags.
-        self._hw_pending = True      # initial Si5351 program; later set only on real LO changes
+        self._hw_pending = True      # worker owns every Si5351 transaction
+        self._hw_config_pending = False  # route/CAL refresh, independent of frequency
+        # A pending LO target never changes _lo_hz until set_freq() succeeds.  A
+        # pending station target is used only for a discontinuous live jump (VFO or
+        # keypad), so p["f"] also stays at the last frequency the hardware achieved.
+        self._lo_pending_hz = self._lo_hz
+        self._station_pending_hz = None
+        self._station_pending_vfo = None
+        self._station_pending_mode = None
         self._vol_pending = False    # firmware volume needs the latest slider value
         self._rx_pending = 0         # 0 none, 1 start, 2 stop (heavy IQADC/DAC bring-up)
         self._poll_div = 0           # 100 ms GUI tick; status every fifth tick
@@ -1544,7 +1684,8 @@ class SdrApp:
         # injection point, waveform and LIVE flag survive VERIFY screen rebuilds in this
         # App instance, but are never written to flash.  The source itself runs in C;
         # there is no Python sample timer.
-        self._inj_ampl = 500
+        self._inj_ampl = 100
+        self._inj_overload = False    # fail-closed; tap the S/O amplitude chip to arm OVR
         self._inj_on = False
         self._inj_point = 0          # 0=raw IN, 1=movable 24-kS/s MID, 2=post-filter OUT
         self._inj_mid = 1            # _INJ_MIDS index; default NCO preserves legacy MID
@@ -1587,26 +1728,30 @@ class SdrApp:
         self._passthru_on = False    # verify-only demod("thru") override (not persisted)
         self._squelch = 0            # verify-only squelch threshold (not persisted)
         self._af_preset = 0          # audio_filter index into _AF_PRESETS
-        self._iqc_on = False         # verify-only I/Q imbalance correction
-        self._iqc_amp = 1.0          # Q amplitude multiplier
-        self._iqc_phase = 0.0        # I leakage added to Q
+        self._iqc_on = bool(self.p["iqe"])  # persisted I/Q imbalance correction
+        self._iqc_amp = self.p["iqa"]       # Q amplitude multiplier
+        self._iqc_phase = self.p["iqp"]     # I leakage added to Q (not degrees)
+        self._iqc_dirty = False
+        self._rf_restart_pending = False
         self._kernels = {"dec_kernel": 0, "hil_kernel": 0,
                          "chf_kernel": 0, "mag_kernel": 0}
-        # Per-block DSP verification table (bench-only, never persisted). _blk_on maps
-        # block id 1..11 -> bool. PGA is fixed BYP because this app constructs IQADC with
-        # PGA_BYPASS; the remaining processing blocks start active. _scope_id is
+        # Per-block DSP verification table. _blk_on maps block id 1..11 -> bool.
+        # PGA ON/BYP is persisted and applied by reconstructing IQADC because its
+        # hardware mode is constructor-time; its gain is changed through RF GAIN.
+        # _scope_id is
         # the ONE block whose output is routed to the DAC(s) via iq.scope() (0 = none).
         # _tap_stage (0..3) stays the one-of UART tap; only blocks 2/4/5 map to stages
         # 1/2/3, every other block's tap control is rendered disabled (firmware has no tap).
         self._blk_on = {i: True for i in range(1, 12)}
-        self._blk_on[1] = False
+        self._blk_on[1] = bool(self.p["rfe"])
         self._scope_id = 0
         self._tap_id = 0             # block id currently holding the one-of UART tap (0 = none)
         self._set_lbls = {}
-        # Gains panel: which of RF/AF/AGC the collapsed VOL slot currently controls,
-        # and the live value-labels inside the open panel (cleared on close so the poll
-        # loop only touches them while the panel is up).
+        # Inline gains panel. One shared checkbox occupies the normal VOL-value
+        # position and pins the most recently touched inline slider into the
+        # permanent far-right slot when the panel closes.
         self._active_gain = "AF"
+        self._gain_candidate = "AF"
         self._gain_vlbls = {}
         self._gain_vlbls_all = {}    # persistent value-label handles (screen lifetime)
         # Per-open refresh handles: key -> (slider, value_label) for the gains screen,
@@ -1617,14 +1762,16 @@ class SdrApp:
         self._set_widgets = {}
         # Last actually painted VERIFY header values.  The DSP getters return
         # fresh dicts, but unchanged formatted values must not invalidate LVGL.
-        # Entries: AGC x10, S rms, S dBFS, DSP max percent.
-        self._set_live_cache = [None, None, None, None]
+        # Entries: AGC x10, S rms, S dBFS, timing valid/generation/AVG/peak.
+        # The timing values are a completed 500-ms window, not a since-start maximum.
+        self._set_live_cache = [None, None, None, None, None, None, None,
+                                None, None]
         self._set_scroll_gate = False
         self._set_scroll_adjust = False
         self._set_scroll_origin = 0
         self._set_scroll_idle = 0
         self._set_scroll_quiet = 0       # 100-ms ticks; keep status off the commit frame
-        # bottom bar: 0 normal, 1 modes, 2 filters, 3 tuning controls, 4 steps
+        # bottom bar: 0 HOME tuning, 1 modes, 2 filters, 4 steps, 5 three-way chooser
         self._mode_expanded = 0
         self._ovr_red = False        # status-indicator "is red" states (change-only paint)
         self._und_red = False
@@ -1635,6 +1782,10 @@ class SdrApp:
         # binding passes the pointer without copying, so a live counter allocates nothing.
         self._blk_buf = bytearray(b"BLK 0000000000\x00")
         self.be = Ra6m3Backend()
+        # spectrum_center() treats its first value as the panorama baseline.  Seed it
+        # before the first operator move; otherwise the first successful tune would
+        # establish the baseline without moving the retained waterfall history.
+        self._publish_spectrum_center(self.p["f"])
         self._wire()
         self.apply_all()
         # rx_autostart: come back up in the state the radio was left in
@@ -1769,23 +1920,168 @@ class SdrApp:
         return None, "GEN"
 
     # ---- hardware: drive the routed synth chip ----
-    def hw_tune(self):
+    def hw_tune(self, target_hz=None, vfo=None):
+        """Program one synthesizer target without committing any App state.
+
+        This function is called only by the 100-ms worker.  In particular, callers
+        must not assign _lo_hz before this returns True: _lo_hz means the last LO
+        frequency which set_freq() actually reported as programmed.
+        """
         # NEVER raises, NEVER prints: hardware status is shown by the brand
         # dot only -- teal = synth driven, red = chip missing/unreachable.
         global XTAL_PPM
         ok = False
-        _lab, clk, mult = TARGETS[self.p["rt"][self.p["act"]]]
+        target_hz = self._lo_hz if target_hz is None else int(target_hz)
+        vfo = self.p["act"] if vfo is None else int(vfo)
+        _lab, clk, mult = TARGETS[self.p["rt"][vfo]]
         if clk is not None:
             try:
                 if getattr(self, "_synth", None) is None:
                     self._synth = SI5351()
                 XTAL_PPM = self.p.get("cal", 17.76)
                 if self._synth.probe():
-                    ok = self._synth.set_freq(clk, self.p["f"] * mult)
+                    ok = self._synth.set_freq(clk, target_hz * mult)
             except Exception:
                 ok = False
         self.ui.get("brand-dot").set_style_bg_color(
             lv.color_hex(TEAL if ok else 0xE53935), 0)
+        return ok
+
+    def _clear_station_pending(self):
+        self._station_pending_hz = None
+        self._station_pending_vfo = None
+        self._station_pending_mode = None
+
+    def _cancel_frequency_pending(self):
+        """Cancel only frequency work; preserve an unrelated route/CAL refresh."""
+        self._lo_pending_hz = None
+        self._clear_station_pending()
+        self._hw_pending = self._hw_config_pending
+
+    def _queue_hw_config(self):
+        """Queue route/CAL programming without manufacturing an LO transition."""
+        self._hw_config_pending = True
+        self._hw_pending = True
+
+    @staticmethod
+    def _preferred_lo_hz(station_hz, mode):
+        """Physical LO for one selected RF station.
+
+        A zero-IF AM carrier is indistinguishable from ADC DC to the mandatory
+        pre-demod I/Q servo.  Keep AM at a deliberate 3-kHz low IF, then let the
+        existing NCO translate it back to the selected station before demodulation.
+        """
+        station_hz = min(max(int(station_hz), F_MIN), F_MAX)
+        offset = AM_LOW_IF_HZ if mode == "AM" else 0
+        return min(max(station_hz + offset, F_MIN), F_MAX)
+
+    def _normal_lo_hz(self, station_hz=None, mode=None):
+        if station_hz is None:
+            station_hz = self.p["f"]
+        if mode is None:
+            mode = self.p["m"]
+        return self._preferred_lo_hz(station_hz, mode)
+
+    def _nco_recenter_due(self, station_hz, mode=None):
+        """True when live NCO navigation moved 9 kHz from its normal low-IF bias."""
+        return abs(self._lo_hz - self._normal_lo_hz(station_hz, mode)) >= NCO_RECENTER_HZ
+
+    def _queue_station_recenter(self, hz, vfo=None, mode=None):
+        """Queue an absolute live jump; do not change truthful UI state yet."""
+        hz = min(max(int(hz), F_MIN), F_MAX)
+        selected_mode = self.p["m"] if mode is None else mode
+        self._lo_pending_hz = self._normal_lo_hz(hz, selected_mode)
+        self._station_pending_hz = hz
+        self._station_pending_vfo = vfo
+        self._station_pending_mode = mode
+        self._hw_pending = True
+
+    def _queue_nco_recenter(self):
+        """Move the physical LO under an already-achieved NCO selection."""
+        if self._station_pending_hz is not None:
+            return
+        self._lo_pending_hz = self._normal_lo_hz()
+        self._hw_pending = True
+
+    def _commit_current_frequency(self, hz):
+        """Commit a frequency which the current LO+NCO has actually achieved."""
+        hz = min(max(int(hz), F_MIN), F_MAX)
+        old = self.p["f"]
+        self.p["f"] = hz
+        self.p["vfos"][self.p["act"]][0] = hz
+        if hz != old:
+            self._publish_spectrum_center(hz)
+        self.update_freq()
+        self.update_vfo_ui()
+        self.touch_params()
+
+    def _commit_vfo_switch(self, i, hz, mode):
+        """Commit VFO identity only after its requested RF frequency is real."""
+        p = self.p
+        old_act = p["act"]
+        old_f = p["f"]
+        p["vfos"][old_act] = [old_f, p["m"]]
+        alt = getattr(self, "_alt", None)
+        if alt and i in alt:
+            alt[alt.index(i)] = old_act
+        p["act"] = i
+        p["f"] = min(max(int(hz), F_MIN), F_MAX)
+        p["m"] = mode
+        p["vfos"][i] = [p["f"], mode]
+        if p["f"] != old_f:
+            self._publish_spectrum_center(p["f"])
+        self.update_freq()
+        self.update_mode()
+        self.be.set_mode(mode)
+        self.be.set_bandwidth(self.cur_bw())
+        self.update_vfo_ui()
+        self.update_entry_digits()
+        self.update_entry_bands()
+        self.touch_params()
+
+    def _apply_hw_pending(self):
+        """Run the one queued Si5351 transaction and atomically reconcile state.
+
+        _lo_hz changes only after set_freq() succeeds.  If the subsequent native
+        NCO setter fails, the LO has nevertheless moved, so p["f"] is reconciled to
+        the cached real NCO instead of pretending that the old station is still heard.
+        """
+        target = self._lo_pending_hz
+        station = self._station_pending_hz
+        pending_vfo = self._station_pending_vfo
+        pending_mode = self._station_pending_mode
+        self._hw_pending = False
+        self._hw_config_pending = False
+        self._lo_pending_hz = None
+        self._clear_station_pending()
+
+        # Routing/calibration-only updates reprogram the already-known LO.  They do
+        # not touch the NCO or panorama coordinate.
+        if target is None:
+            return self.hw_tune(self._lo_hz)
+
+        route_vfo = self.p["act"] if pending_vfo is None else pending_vfo
+        if not self.hw_tune(target, route_vfo):
+            return False
+
+        # The physical transition is now real even if the second (NCO) operation
+        # fails; commit _lo_hz before deriving the actually heard frequency.
+        self._lo_hz = target
+        desired = self.p["f"] if station is None else station
+        achieved = desired
+        if self.be.running:
+            actual = self.be.set_fine(desired - target)
+            if actual is None:
+                # set_fine() leaves its cache unchanged on an exception.  That cache
+                # therefore describes the NCO still active after the successful LO move.
+                actual = self.be.fine_hz
+            achieved = min(max(target + actual, F_MIN), F_MAX)
+
+        if pending_vfo is not None:
+            self._commit_vfo_switch(pending_vfo, achieved, pending_mode)
+        elif station is not None or achieved != self.p["f"]:
+            self._commit_current_frequency(achieved)
+        return achieved == desired
 
     # ---- RA6M3 backend: RX on/off + status ----
     def backend_on(self):
@@ -1793,6 +2089,60 @@ class SdrApp:
 
     def cur_bw(self):
         return self.p["bw"].get(self.p["m"], MODE_BW[self.p["m"]])
+
+    def _apply_iq_correction(self):
+        """Apply the RAM profile and make block 3 effective when correction is ON."""
+        iq = self.be.iq
+        fn = getattr(iq, "iq_correction", None) if iq is not None else None
+        if fn is None:
+            self.be.err = "iq_correction unavailable"
+            return False
+        try:
+            if self._iqc_on:
+                block_fn = getattr(iq, "block", None)
+                if block_fn is not None:
+                    block_fn(3, 1)
+                    self._blk_on[3] = True
+            fn(enable=self._iqc_on, amp=self._iqc_amp, phase=self._iqc_phase)
+            self.be.err = None
+            return True
+        except Exception as e:
+            self.be.err = "iq_correction: %r" % (e,)
+            return False
+
+    def _save_iq_profile(self):
+        """Commit the currently applied manual I/Q profile to data flash."""
+        self.p["iqe"] = 1 if self._iqc_on else 0
+        self.p["iqa"] = self._iqc_amp
+        self.p["iqp"] = self._iqc_phase
+        try:
+            save_params(self.p)
+            self._iqc_dirty = False
+            return True
+        except Exception as e:
+            self.be.err = "IQ save: %r" % (e,)
+            return False
+
+    def _set_rf_gain(self, code):
+        """Persist RF PGA code; defer a required RX reconstruction to the worker."""
+        code = min(max(int(code), 0), 14)
+        self.p["rf"] = code
+        self.be.rf_code = code
+        self.touch_params()
+        if self.be.running:
+            self._rf_restart_pending = True
+        return code
+
+    def _set_rf_enabled(self, enabled):
+        """Persist PGA_SINGLE/BYPASS and queue one safe IQADC reconstruction."""
+        enabled = bool(enabled)
+        self.p["rfe"] = 1 if enabled else 0
+        self.be.rf_enabled = enabled
+        self._blk_on[1] = enabled
+        self.touch_params()
+        if self.be.running:
+            self._rf_restart_pending = True
+        return enabled
 
     def start_rx(self):
         if self.backend_on() and not self.be.running:
@@ -1802,8 +2152,47 @@ class SdrApp:
             self.be.agc_gain = self.p["again"]
             self.be.agc_target = self.p["atgt"]
             self.be.vol = self.p["v"]
+            self.be.rf_enabled = bool(self.p["rfe"])
+            self.be.rf_code = self.p["rf"]
             self.be.start_rx()
             if self.be.running:
+                # RX reconstruction proves only ADC/DSP/DAC ownership.  Re-arm the
+                # active Si5351 route as well, even when the cached LO already equals
+                # the selected station: a prior I2C fault or external synth reset can
+                # otherwise leave CLKx disabled while STOP/START appears successful.
+                # The 100-ms worker performs the actual I2C transaction.
+                self._queue_hw_config()
+                self._apply_iq_correction()
+                # Squelch belongs to the App's inline/VERIFY state rather than the
+                # persisted receiver parameters; reapply it to each fresh IQADC.
+                self._apply_gain("SQL", self._squelch)
+                # IQADC starts with NCO=0.  Re-establish the selected station against
+                # the last confirmed physical LO before painting live data.  If a
+                # stopped-state discontinuity lies outside the NCO window, show the
+                # clamped frequency actually heard and keep the requested station as
+                # a worker-owned LO transition.
+                requested = self.p["f"]
+                normal_lo = self._normal_lo_hz(requested)
+                actual = self.be.set_fine(requested - self._lo_hz)
+                if actual is None:
+                    actual = self.be.fine_hz
+                achieved = min(max(self._lo_hz + actual, F_MIN), F_MAX)
+                if achieved != requested:
+                    self._commit_current_frequency(achieved)
+                    self._queue_station_recenter(requested)
+                elif self._lo_hz != normal_lo:
+                    # A fresh/PGA-rebuilt IQADC starts with NCO=0.  Re-establish
+                    # AM's deliberate low IF even when the selected RF station
+                    # itself was already achieved by the old physical LO.
+                    self._queue_station_recenter(requested)
+                elif self._nco_recenter_due(requested):
+                    self._queue_nco_recenter()
+                # ra_iq_adc_init() intentionally clears all optional native display
+                # producer gates and partial frames.  Reconcile the already-selected
+                # SPEC/WF and TIME/I-Q views only after the fresh IQADC is running.
+                # The C setter is deliberately idempotent, so this preserves both
+                # view selection and retained waterfall history.
+                self._set_modal(self._modal)
                 # The data path is alloc-free (C accessors -> preallocated arrays); the
                 # only churn is LVGL's own render binding (~22 B/repaint). That is far
                 # too little to disable GC over -- disabling it just fills the heap and
@@ -1818,15 +2207,33 @@ class SdrApp:
         # The FILE reader borrows pointers owned by the live IQADC object.  Detach and
         # close it before backend teardown destroys that native owner.
         self._iq_file.stop()
-        self.be.stop_rx()
+        released = self.be.stop_rx()
+        # A queued live VFO/keypad jump or an old plain recenter is no longer
+        # meaningful after the backend has stopped.  Preserve only an unrelated
+        # route/CAL refresh, then park the LO for the station which is actually
+        # committed in HOME.
+        self._cancel_frequency_pending()
+        # Ask the worker to park the physical LO on the selected station's normal
+        # physical centre (AM keeps its deliberate 3-kHz low IF).  Do not
+        # assign _lo_hz here: stop_rx() is a UI callback and no Si5351 write has yet
+        # succeeded.  The backend NCO has returned to zero.
+        normal_lo = self._normal_lo_hz()
+        if self._lo_hz != normal_lo:
+            self._lo_pending_hz = normal_lo
+            self._hw_pending = True
         # The native IQADC object (and therefore its synthetic source) no longer
         # exists.  Keep the VERIFY toggle truthful if RX is started again later,
         # and restore the route TESTER replaced before the next backend start.
         self._inj_on = False
+        self._inj_overload = False
+        self._update_tuning_role()
+        self._paint_tester()          # VERIFY may stay open across a queued PGA rebuild
         if self._inj_prev_scope is not None:
             self._scope_id = self._inj_prev_scope
             self.be.set_scope(self._scope_id)   # RX is down: update the cached route only
             self._inj_prev_scope = None
+        self._paint_listen_markers()
+        self._paint_output_status()
         gc.collect()                 # reclaim the run's churn (GC stays enabled)
         self.p["rxauto"] = 0
         for i in range(len(self._last_bars)):    # force a clean live repaint next time
@@ -1842,6 +2249,7 @@ class SdrApp:
         self.update_freq()                   # drop the fine offset + widen labels off
         self.update_rx()             # clears the counters via paint_status(None)
         self.touch_params()
+        return released
 
     def toggle_rx(self):
         # Direct: RX on/off is a single deliberate press, so a brief one-time blip
@@ -1898,10 +2306,13 @@ class SdrApp:
     def update_freq(self):
         ui, f = self.ui, self.p["f"]
         # The displayed spectrum is centred on the selected RF frequency. The C reducer
-        # shifts the pre-NCO 256-bin capture by this same fine offset, so the panorama
+        # shifts the pre-NCO 512-bin FFT by this same fine offset, so the panorama
         # scrolls under the fixed centre marker at FFT-bin (~94 Hz) resolution.
-        fine = self.be.fine_hz if self.be.running else 0
-        centre = f + fine
+        # Normal HOME navigation writes the selected frequency into p["f"] and
+        # keeps the physical LO separately.  TESTER intentionally does not retune
+        # a saved VFO, so its temporary NCO position is still shown as LO + fine.
+        centre = (self._lo_hz + self.be.fine_hz
+                  if self.be.running and self._inj_on else f)
         half = 12000 if self.be.running else 5000
         ui.get("freq-digits").set_text(self.fmt_freq(centre))
         ui.get("spec-lo").set_text(self.fmt_khz(centre - half))
@@ -1930,18 +2341,25 @@ class SdrApp:
         bw_text = fmt_bw(self.cur_bw())
         ui.get("filter-value").set_text(bw_text)
         ui.get("btn-mode-filter").get_child(0).set_text(bw_text)
+        self._update_home_summary()
         self._set_mode_bar(False)
 
     def _set_mode_bar(self, expanded):
-        """Switch the fixed bottom row without creating/deleting LVGL objects."""
-        self._mode_expanded = 1 if expanded else 0
+        """HOME is the tuning row; expanded=True shows modulation choices."""
+        if not expanded:
+            self._mode_expanded = 0
+            self.ui.get("mode-bar").add_flag(lv.obj.FLAG.HIDDEN)
+            self.ui.get("tuning-row").remove_flag(lv.obj.FLAG.HIDDEN)
+            self._update_home_summary()
+            return
+
+        self._mode_expanded = 1
         self.ui.get("tuning-row").add_flag(lv.obj.FLAG.HIDDEN)
         self.ui.get("mode-bar").remove_flag(lv.obj.FLAG.HIDDEN)
-        selected = self.p["m"]
         for name in MODES:
             b = self.ui.get("btn-" + name)
             b.get_child(0).set_text(name)  # restore labels after FILTER choices
-            visible = self._mode_expanded or name == selected
+            visible = True
             hidden = b.has_flag(lv.obj.FLAG.HIDDEN)
             if visible and hidden:
                 b.remove_flag(lv.obj.FLAG.HIDDEN)
@@ -1950,10 +2368,35 @@ class SdrApp:
         for name in ("mode-step", "mode-filter", "mode-view"):
             b = self.ui.get("btn-" + name)
             hidden = b.has_flag(lv.obj.FLAG.HIDDEN)
-            if self._mode_expanded and not hidden:
+            if not hidden:
                 b.add_flag(lv.obj.FLAG.HIDDEN)
-            elif not self._mode_expanded and hidden:
+
+    def _update_home_summary(self):
+        """Current MODE | FILTER | STEP inside the permanent tuning row."""
+        step = "?"
+        for value, name in STEPS:
+            if value == self.p["s"]:
+                step = name
+                break
+        self.ui.get("home-summary").set_text("%s | %s | %s" % (
+            self.p["m"], fmt_bw(self.cur_bw()), step))
+
+    def open_home_choices(self):
+        """Replace HOME tuning controls with MODE | FILTER | STEP buttons."""
+        self._mode_expanded = 5
+        self.ui.get("tuning-row").add_flag(lv.obj.FLAG.HIDDEN)
+        self.ui.get("mode-bar").remove_flag(lv.obj.FLAG.HIDDEN)
+        selected = self.p["m"]
+        for name in MODES:
+            b = self.ui.get("btn-" + name)
+            b.get_child(0).set_text(name)
+            if name == selected:
                 b.remove_flag(lv.obj.FLAG.HIDDEN)
+            else:
+                b.add_flag(lv.obj.FLAG.HIDDEN)
+        for name in ("mode-filter", "mode-step"):
+            self.ui.get("btn-" + name).remove_flag(lv.obj.FLAG.HIDDEN)
+        self.ui.get("btn-mode-view").add_flag(lv.obj.FLAG.HIDDEN)
 
     def set_mode(self, m):
         if m == "FM" and self.backend_on():
@@ -1964,25 +2407,35 @@ class SdrApp:
         self.update_mode()
         self.be.set_mode(m)
         self.be.set_bandwidth(self.cur_bw())
+        if self.be.running and self._lo_hz != self._normal_lo_hz(self.p["f"], m):
+            # Entering/leaving AM changes the physical low-IF policy.  Queue the
+            # Si5351 write; _apply_hw_pending() atomically supplies the matching NCO.
+            self._queue_station_recenter(self.p["f"], mode=m)
         self.touch_params()
 
     def update_step(self):
         ui, s = self.ui, self.p["s"]
+        # The same physical controls have two deliberate meanings.  With an armed
+        # TESTER source they move the baseband signal through the digital NCO; in
+        # normal reception they tune RF/Si5351.  Keep that distinction visible.
+        self._update_tuning_role()
         for sv, name in STEPS:
             if sv == s:
-                txt = name.replace(" ", "") if sv < 1000 else "%.1f kHz" % (sv / 1000)
-                ui.get("step-value").set_text(txt)
                 # The collapsed bottom action shows the selected step itself;
-                # tapping it still opens the horizontal STEP choices.
+                # tapping it opens the step choices directly.
                 ui.get("btn-mode-step").get_child(0).set_text(name)
             chip = ui.get("step-" + name)
             on = sv == s
             chip.set_style_bg_color(lv.color_hex(CYAN_IN if on else BTN_IN), 0)
             chip.get_child(0).set_style_text_color(
                 lv.color_hex(DARK_TXT if on else WHITE), 0)
+        self._update_home_summary()
 
     def update_vol(self):
-        self.ui.get("vol-value").set_text("%d%%" % self.p["v"])
+        # The far-right slot may currently represent RF/AGC/SQL.  A volume change
+        # must not overwrite that selected control's value label.
+        if self._active_gain == "AF":
+            self.ui.get("vol-value").set_text("%d%%" % self.p["v"])
 
     def set_volume(self, percent):
         """AF master volume: store, push to the backend, refresh the label + save.
@@ -1996,19 +2449,23 @@ class SdrApp:
 
     def update_agc(self):
         ui, a = self.ui, self.p["a"]
+        old_active = self._active_gain
         lbl = ui.get("agc-value")
         lbl.set_text(a)
         lbl.set_style_text_color(
             lv.color_hex(WHITE if a == "OFF" else DARK_TXT), 0)
         ui.get("agc-pill").set_style_bg_color(
             lv.color_hex(self.AGC_BG.get(a, BORDER)), 0)
+        self._refresh_gains()
+        if self._active_gain != old_active:
+            self._bind_active_slider()
 
     def open_agc_menu(self):
         def pick(v):
-            self.p["a"] = v
-            self.update_agc()
-            self.be.set_agc(v, self.p["again"], self.p["atgt"])
-            self.touch_params()
+            if self.be.set_agc(v, self.p["again"], self.p["atgt"]):
+                self.p["a"] = v
+                self.update_agc()
+                self.touch_params()
         self.open_pick_menu("AGC", tuple((v, v) for v in AGC_MODES),
                             self.p["a"], pick)
 
@@ -2020,8 +2477,29 @@ class SdrApp:
             return 0, 100, int(self.p["v"]), lambda v: "%d%%" % v
         if key == "RF":
             return 0, 14, int(self.p["rf"]), lambda v: "x%.1f" % PGA_FACT[v]
+        if key == "SQL":
+            return 0, 2000, int(self._squelch), lambda v: "%d" % v
         # AGC: slider integer = gain * 10 (float ~0.1..8.0 -> 1..80)
         return 1, 80, int(self.p["again"] * 10), lambda v: "x%.1f" % (v / 10.0)
+
+    def _gain_available(self, key):
+        """Whether a named slider has a truthful writable backend right now."""
+        if key in ("RF", "AF", "SQL"):
+            return True
+        if key == "AGC":
+            return self.p["a"] == "MAN"
+        # ATT has no backend API.
+        return False
+
+    def _paint_gain_pin(self):
+        """Paint the one shared pin checkbox in the normal VOL-value position."""
+        pin = self.ui.get("gain-pin")
+        if self._gain_candidate == self._active_gain:
+            pin.add_state(lv.STATE.CHECKED)
+        else:
+            pin.remove_state(lv.STATE.CHECKED)
+        self.ui.get("vol-label").set_text(
+            "VOL" if self._gain_candidate == "AF" else self._gain_candidate)
 
     def _apply_gain(self, key, v_int):
         """Push a slider value to the backend + persist. AF routes through the
@@ -2029,13 +2507,22 @@ class SdrApp:
         if key == "AF":
             self.set_volume(v_int)
         elif key == "RF":
-            self.p["rf"] = v_int
-            self.be.set_rf_gain(v_int)
-            self.touch_params()
+            self._set_rf_gain(v_int)
         elif key == "AGC":
-            self.p["again"] = v_int / 10.0
-            self.be.set_agc(self.be.agc, gain=self.p["again"])
-            self.touch_params()
+            candidate = v_int / 10.0
+            if self.be.set_agc(self.be.agc, gain=candidate):
+                self.p["again"] = candidate
+                self.touch_params()
+        elif key == "SQL":
+            self._squelch = int(v_int)
+            iq = self.be.iq
+            fn = getattr(iq, "squelch", None) if iq is not None else None
+            if fn is not None:
+                try:
+                    fn(self._squelch)
+                    self.be.err = None
+                except Exception as e:
+                    self.be.err = "squelch: %r" % (e,)
 
     def toggle_gains_panel(self):
         if "gains_panel" in _KEEP:
@@ -2046,71 +2533,91 @@ class SdrApp:
     def open_gains_panel(self):
         if "gains_panel" in _KEEP:
             return
-        if self.ui.w.get("scr-gains") is None:
-            self._build_gains()      # lazy one-time build; swapped in on later opens
-        # re-arm the live value labels (close_gains_panel cleared _gain_vlbls so the
-        # poll loop stays idle while the screen is down; the widgets themselves persist).
-        self._gain_vlbls = dict(self._gain_vlbls_all)
-        _KEEP["gains_panel"] = True  # open-flag: _consume_status refreshes AGC live gain
+        # This is an inline HOME replacement, not a second LVGL screen. Pause the
+        # direct framebuffer writers before hiding their surface, then lazily build
+        # the persistent slider strip inside the existing main column.
+        self._set_mode_bar(False)
         self._set_modal(True)
-        lv.screen_load(self.ui.get("scr-gains"))
-        self._refresh_gains()        # re-read live state so a re-shown screen is current
+        try:
+            if self.ui.w.get("gains-inline") is None:
+                self._build_gains()
+        except Exception:
+            partial = self.ui.w.pop("gains-inline", None)
+            if partial is not None:
+                try:
+                    partial.delete()
+                except Exception:
+                    pass
+            self._gain_widgets = {}
+            self._gain_vlbls_all = {}
+            self._gain_vlbls = {}
+            self._gains_cbs = []
+            self._set_modal(False)
+            gc.collect()
+            raise
+        for name in ("frequency-display", "spectrum-area", "tuning-row", "mode-bar"):
+            self.ui.get(name).add_flag(lv.obj.FLAG.HIDDEN)
+        self.ui.get("gains-inline").remove_flag(lv.obj.FLAG.HIDDEN)
+        # The persistent slot remains visible but is read-only while its full-size
+        # counterpart is open; this prevents two visible sliders from diverging.
+        self.ui.get("vol-slider").add_state(lv.STATE.DISABLED)
+        self._gain_candidate = self._active_gain
+        self.ui.get("vol-value").add_flag(lv.obj.FLAG.HIDDEN)
+        self.ui.get("gain-pin").remove_flag(lv.obj.FLAG.HIDDEN)
+        self._paint_gain_pin()
+        # Re-arm the live value labels (close clears the active mapping so the
+        # status poll stays idle while normal HOME is visible).
+        self._gain_vlbls = self._gain_vlbls_all
+        _KEEP["gains_panel"] = True  # open-flag: _consume_status refreshes AGC live gain
+        self._refresh_gains()
 
     def close_gains_panel(self):
-        # Return to the receiver screen. The gains screen object + its callbacks
-        # persist (kept alive on self._gains_cbs) so re-opening is a plain swap.
+        # Restore the HOME children in place. No screen_load and no second screen tree.
         _KEEP.pop("gains_panel", None)
-        lv.screen_load(self.ui.get("scr-receiver"))
+        panel = self.ui.w.get("gains-inline")
+        if panel is not None:
+            panel.add_flag(lv.obj.FLAG.HIDDEN)
+        for name in ("frequency-display", "spectrum-area"):
+            self.ui.get(name).remove_flag(lv.obj.FLAG.HIDDEN)
+        self._set_mode_bar(False)
+        self.ui.get("vol-slider").remove_state(lv.STATE.DISABLED)
+        self.ui.get("gain-pin").add_flag(lv.obj.FLAG.HIDDEN)
+        self.ui.get("vol-value").remove_flag(lv.obj.FLAG.HIDDEN)
         self._gain_vlbls = {}        # poll loop only touches these while the view is up
         self._set_modal(("settings" in _KEEP) or ("pick_menu" in _KEEP))
         self._bind_active_slider()
 
     def _build_gains(self):
-        # Full-screen (480x272) view of the RF / AF / AGC gains + two reserved
-        # columns, mirroring the SETTINGS screen. Five vertical sliders lie in a
-        # ROW with a name label above and a live value label below each. RF/AF/AGC
-        # are live; the two "--" columns are disabled placeholders. Callbacks live
-        # on self._gains_cbs for the screen lifetime.
-        scr = _base(lv.obj(None))
-        scr.set_style_bg_color(lv.color_hex(BG_RX), 0)
-        scr.set_style_bg_opa(lv.OPA.COVER, 0)
-        scr.set_style_pad_all(8, 0)
-        _flex(scr, lv.FLEX_FLOW.COLUMN, lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.START,
-              lv.FLEX_ALIGN.START, 6)
-        self.ui.w["scr-gains"] = scr
-
-        # --- title bar: "GAINS" (left) + BACK button (right) ---
-        tb = _base(lv.obj(scr))
-        tb.set_size(464, 30)
-        _flex(tb, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN)
-        _lbl(tb, "GAINS", 16, GRAY)
-        back = _btn(tb, 80, 30, PANEL2, radius=6, border=BORDER)
-        _lbl(back, "BACK", 14, WHITE)
+        # Replace only the 400x226 HOME body below SDR RECEIVER.  Five columns are
+        # packed against its RIGHT edge, immediately beside the existing 56-px
+        # right-side slot, which stays in place. RF, AF and SQL are writable; AGC
+        # gain is writable only in MAN mode. RF is applied by one controlled RX
+        # reconstruction after release because the ADC forbids live PGA writes.
+        # ATT remains N/A because there is no attenuator backend API.
+        panel = _base(lv.obj(self.ui.get("main-column")))
+        panel.set_size(400, 226)
+        panel.set_style_pad_all(0, 0)
+        _flex(panel, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.END,
+              lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, 8)
+        panel.add_flag(lv.obj.FLAG.HIDDEN)
+        self.ui.w["gains-inline"] = panel
 
         cbs = []
-        self._gains_cbs = cbs        # keep every event cb alive for the screen lifetime
-        self._gain_vlbls_all = {}    # persistent handles; copied into _gain_vlbls per open
+        self._gains_cbs = cbs        # keep every event cb alive for the panel lifetime
+        self._gain_vlbls_all = {}
 
-        def back_cb(e):
-            self.close_gains_panel()
-        back.add_event_cb(back_cb, lv.EVENT.CLICKED, None)
-        cbs.append(back_cb)
-
-        # --- slider row: 5 columns spread across the full width ---
-        row = _base(lv.obj(scr))
-        row.set_size(464, 220)
-        _flex(row, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_EVENLY,
-              lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, 4)
-
-        for key in ("RF", "AF", "AGC", "--", "--"):
-            live = key in ("RF", "AF", "AGC")
-            col = _flex(_base(lv.obj(row)), lv.FLEX_FLOW.COLUMN,
+        for key in ("RF", "AF", "AGC", "SQL", "ATT"):
+            supported = key in ("RF", "AF", "AGC", "SQL")
+            live = self._gain_available(key)
+            col = _flex(_base(lv.obj(panel)), lv.FLEX_FLOW.COLUMN,
                         lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER,
                         lv.FLEX_ALIGN.CENTER, 6)
-            col.set_size(80, 216)
-            _lbl(col, key, 14, CYAN_RX if live else GRAY2)
+            col.set_size(72, 218)
+            _lbl(col, key, 14, CYAN_RX if supported else GRAY2)
             sl = lv.slider(col)
-            sl.set_size(16, 170)
+            # Same physical height as the permanent far-right slider.  The remaining
+            # column space is reserved for value + one-of checkbox.
+            sl.set_size(16, 130)
             sl.set_style_bg_color(lv.color_hex(PANEL2), lv.PART.MAIN)
             sl.set_style_bg_opa(lv.OPA.COVER, lv.PART.MAIN)
             sl.set_style_border_color(lv.color_hex(BORDER), lv.PART.MAIN)
@@ -2123,7 +2630,7 @@ class SdrApp:
             sl.set_style_radius(8, lv.PART.INDICATOR)
             sl.set_style_bg_opa(lv.OPA.TRANSP, lv.PART.KNOB)
             sl.set_style_pad_all(0, lv.PART.KNOB)
-            if live:
+            if supported:
                 lo, hi, cur, fmt = self._gain_spec(key)
                 sl.set_range(lo, hi)
                 sl.set_value(cur, False)
@@ -2134,31 +2641,50 @@ class SdrApp:
                 def gain_cb(e, kk=key, s=sl, vl=vlbl):
                     v = s.get_value()
                     self._apply_gain(kk, v)
-                    _lo, _hi, _cur, f = self._gain_spec(kk)
-                    vl.set_text(f(v))
-                    self._active_gain = kk
-                sl.add_event_cb(gain_cb, lv.EVENT.VALUE_CHANGED, None)
+                    _lo, _hi, applied, f = self._gain_spec(kk)
+                    if applied != v:
+                        s.set_value(applied, False)
+                    vl.set_text(f(applied))
+                    self._gain_candidate = kk
+                    self._paint_gain_pin()
+                # The knob moves natively during drag; apply once at release. This
+                # avoids the former Python callback/repaint burst on every touch pixel.
+                sl.add_event_cb(gain_cb, lv.EVENT.RELEASED, None)
+                sl.add_event_cb(gain_cb, lv.EVENT.PRESS_LOST, None)
                 cbs.append(gain_cb)
+                if not live:
+                    sl.add_state(lv.STATE.DISABLED)
             else:
                 sl.add_state(lv.STATE.DISABLED)
-                _lbl(col, "--", 12, GRAY2)
+                _lbl(col, "N/A", 12, GRAY2)
 
     def _refresh_gains(self):
-        """Re-read the current RF/AF/AGC state into the gains-screen sliders + value
-        labels. Called on every open so a re-shown screen never displays the stale
+        """Re-read RF/AF/AGC/SQL into the inline sliders + value labels.
+        Called on every open so a re-shown panel never displays the stale
         values captured at build time."""
+        if not self._gain_available(self._active_gain):
+            self._active_gain = "AF"
+        if not self._gain_available(self._gain_candidate):
+            self._gain_candidate = self._active_gain
         for key, (sl, vlbl) in self._gain_widgets.items():
             _lo, _hi, cur, fmt = self._gain_spec(key)
             sl.set_value(cur, False)
             vlbl.set_text(fmt(cur))
+            if self._gain_available(key):
+                sl.remove_state(lv.STATE.DISABLED)
+            else:
+                sl.add_state(lv.STATE.DISABLED)
+        if "gains_panel" in _KEEP:
+            self._paint_gain_pin()
 
     def _bind_active_slider(self):
-        """Rebind the collapsed VOL slot (label + slider) to the last-touched gain."""
+        """Show the checkbox-selected gain in the permanent far-right slot."""
         lo, hi, cur, fmt = self._gain_spec(self._active_gain)
         s = self.ui.get("vol-slider")
         s.set_range(lo, hi)
         s.set_value(cur, False)
-        self.ui.get("vol-label").set_text(self._active_gain)
+        self.ui.get("vol-label").set_text(
+            "VOL" if self._active_gain == "AF" else self._active_gain)
         self.ui.get("vol-value").set_text(fmt(cur))
 
     def update_entry_digits(self):
@@ -2244,7 +2770,7 @@ class SdrApp:
         waterfall once only if something changed. Reads array('h')[i] -> tagged small
         int (no heap), set_height -> C. No Python object is created.
 
-        The firmware reducer has already shifted the full 256-bin pre-NCO panorama by
+        The firmware reducer has already shifted the full 512-bin pre-NCO panorama by
         fine_hz before reducing it to these 27 bars. Python therefore paints the buffer
         directly: no second shift, float, round, or modulo allocation in the hot loop."""
         if self._spec_native:
@@ -2378,10 +2904,43 @@ class SdrApp:
                 if lb is not None:
                     try:
                         tm = self.be.iq.timing()
-                        pct = int(float(tm.get("max_pct", 0.0)) + 0.5)
-                        if pct != live[3]:
-                            live[3] = pct
-                            lb.set_text("%d%%" % pct)
+                        window_valid = tm.get("window_valid", None)
+                        if window_valid is None:
+                            # Compatibility with an older firmware image: its only
+                            # percentage is the legacy since-start high-water mark.
+                            valid = 1
+                            generation = -1
+                            avg_pct = int(float(tm.get("max_pct", 0.0)) + 0.5)
+                            peak_pct = avg_pct
+                        else:
+                            valid = 1 if window_valid else 0
+                            generation = int(tm.get("window_generation", 0))
+                            if valid:
+                                avg_pct = int(tm.get("avg_pct", 0))
+                                peak_pct = int(tm.get("peak_pct", 0))
+                            else:
+                                avg_pct = -1
+                                peak_pct = -1
+                        if (valid != live[3] or generation != live[4] or
+                                avg_pct != live[5] or peak_pct != live[6]):
+                            live[3] = valid
+                            live[4] = generation
+                            live[5] = avg_pct
+                            live[6] = peak_pct
+                            lb.set_text("%d/%d%%" % (avg_pct, peak_pct)
+                                        if valid else "--/--")
+                    except Exception:
+                        pass
+                lb = self._set_lbls.get("iqdc")
+                if lb is not None:
+                    try:
+                        ds = self.be.iq.dsp_status()
+                        di = int(ds.get("i_mean", 2048)) - 2048
+                        dq = int(ds.get("q_mean", 2048)) - 2048
+                        if di != live[7] or dq != live[8]:
+                            live[7] = di
+                            live[8] = dq
+                            lb.set_text("I%+d  Q%+d" % (di, dq))
                     except Exception:
                         pass
         except Exception as e:
@@ -2425,26 +2984,186 @@ class SdrApp:
             self.spec = self.spec[k:] + self.spec[:k]
             self.paint_spectrum()
 
+    def _publish_spectrum_center(self, hz):
+        """Publish the absolute listened centre to the optional C panorama."""
+        fn = self._spectrum_center_fn
+        if fn is None:
+            return False
+        try:
+            return bool(fn(int(hz)))
+        except Exception as e:
+            # Older firmware remains a valid Python fallback.  Disable only this
+            # optional hook after a real API failure so tuning itself keeps working.
+            self._spectrum_center_fn = None
+            if getattr(self, "be", None) is not None:
+                self.be.err = "spectrum_center: %r" % (e,)
+            return False
+
     # ---- tuning ----
-    def tune(self, delta):
-        # coarse: moves the analog LO (Si5351). Re-centre the digital NCO so the
-        # new band centre is 0 Hz offset again.
-        old = self.p["f"]
-        self.p["f"] = min(max(old + delta, F_MIN), F_MAX)
-        if self.be.running:
-            self.be.set_fine(0)
-        self.shift_spectrum(self.p["f"] - old)
-        self._hw_pending = True       # the analog LO centre really changed
+    def _tester_before_nco(self):
+        return self._inj_point == 0 or (
+            self._inj_point == 1 and self._inj_mid <= 1)
+
+    def _update_tuning_role(self):
+        enabled = self._blk_on.get(4, True) and (
+            (not self._inj_on) or self._tester_before_nco())
+        color = self._C_CYAN if enabled else self._C_GRAY2
+        for name in ("btn-step-down", "btn-step-up", "btn-fine-down", "btn-fine-up"):
+            self.ui.get(name).get_child(0).set_style_text_color(color, 0)
+
+    def _tester_nco_set(self, wanted):
+        """Set TESTER's temporary NCO, with point and BYP validation."""
+        if not self._inj_on:
+            return False
+
+        # IN and the movable IQC/NCO boundaries enter before the NCO.  CHF and OUT
+        # enter after it, so changing iq.tune() cannot move those sources.
+        if not self._tester_before_nco():
+            self._update_tuning_role()
+            return True
+
+        # Read the real native bypass state on every operator command.  The Python
+        # cache is only a fallback for older firmware without block(id) readback.
+        nco_on = self._blk_on.get(4, True)
+        iq = self.be.iq
+        block_fn = getattr(iq, "block", None) if iq is not None else None
+        if block_fn is not None:
+            try:
+                nco_on = bool(block_fn(4))
+                self._blk_on[4] = nco_on
+            except Exception:
+                pass
+        if not nco_on:
+            self._update_tuning_role()
+            return True
+
+        old_centre = self._lo_hz + self.be.fine_hz
+        value = self.be.set_fine(wanted)
+        if value is None:
+            return True
+        new_centre = self._lo_hz + value
+        if new_centre != old_centre:
+            self._publish_spectrum_center(new_centre)
+        self._update_tuning_role()
         self.update_freq()
-        self.touch_params()
+        # VERIFY's NCO readout can coexist only while that transient screen is open.
+        nco_label = self._set_widgets.get("nco")
+        if nco_label is not None:
+            nco_label.set_text("%d" % value)
+        return True
+
+    def _tester_nco_tune(self, delta):
+        """Move an armed TESTER source relative to its current listened centre.
+
+        Returns True when TESTER owned the command, including a truthful rejected
+        command.  False means normal receiver tuning should handle the button.
+        """
+        if not self._inj_on:
+            return False
+        return self._tester_nco_set(self.be.fine_hz + int(delta))
+
+    def _nco_enabled(self):
+        """Read the real block-4 bypass state; cached True supports old firmware."""
+        enabled = self._blk_on.get(4, True)
+        iq = self.be.iq
+        block_fn = getattr(iq, "block", None) if iq is not None else None
+        if block_fn is not None:
+            try:
+                enabled = bool(block_fn(4))
+                self._blk_on[4] = enabled
+            except Exception:
+                pass
+        self._update_tuning_role()
+        return enabled
+
+    def _set_live_nco_absolute(self, wanted):
+        """Try one absolute RF selection using only the current physical LO.
+
+        The helper does not mutate p["f"].  A non-exact native clamp is rolled back;
+        if even that rollback fails, the current VFO is reconciled to the offset which
+        the backend cache says is really active.
+        """
+        wanted = min(max(int(wanted), F_MIN), F_MAX)
+        old_fine = self.be.fine_hz
+        actual = self.be.set_fine(wanted - self._lo_hz)
+        if actual is None:
+            return None
+        selected = min(max(self._lo_hz + actual, F_MIN), F_MAX)
+        if selected == wanted:
+            return selected
+
+        restored = self.be.set_fine(old_fine)
+        if restored is None:
+            # The failed rollback leaves `actual` as the last confirmed NCO result.
+            self.be.fine_hz = actual
+            self._commit_current_frequency(selected)
+            if self._nco_recenter_due(selected):
+                self._queue_nco_recenter()
+        return None
+
+    def _move_live_frequency(self, delta):
+        """Move the persisted station through the current 24-kHz panorama.
+
+        The touch callback performs only the native NCO write.  Near the edge it
+        queues an LO re-centre; the 100-ms worker performs that I2C transaction.
+        """
+        if not self._nco_enabled():
+            return False
+        old = self.p["f"]
+        wanted = min(max(old + int(delta), F_MIN), F_MAX)
+        if wanted == old:
+            return False
+
+        actual = self.be.set_fine(wanted - self._lo_hz)
+        if actual is None:
+            return False
+        selected = min(max(self._lo_hz + actual, F_MIN), F_MAX)
+        if selected == old:
+            return False
+
+        # Every achieved direct move supersedes any older frequency request.  This
+        # includes a plain recenter: reversing below 9 kHz before sdr_poll must cancel
+        # its stale target.  An independent route/CAL refresh remains queued.
+        self._cancel_frequency_pending()
+        self._commit_current_frequency(selected)
+        if self._nco_recenter_due(selected):
+            self._queue_nco_recenter()
+        return True
+
+    def tune(self, delta):
+        if self._tester_nco_tune(delta):
+            return
+        # While RX is live both arrow pairs navigate the SAME captured panorama:
+        # << / >> use the selected coarse step and - / + use one tenth of it.  The
+        # old path reset the NCO and deferred an Si5351 write; until that I2C write
+        # landed, only the labels moved and a filtered peak appeared to shrink in
+        # place.  Keeping live navigation in the digital NCO makes the spectrum,
+        # waterfall and frequency scale move atomically in one coordinate system.
+        if self.be.running:
+            self._move_live_frequency(delta)
+            return
+
+        # With RX stopped there is no NCO producer, so preserve the normal coarse
+        # LO selection for the next start.
+        old = self.p["f"]
+        selected = min(max(old + int(delta), F_MIN), F_MAX)
+        if selected == old:
+            return
+        self.shift_spectrum(selected - old)
+        self._commit_current_frequency(selected)
+        # RX is down, so the selected setting can commit immediately; _lo_hz still
+        # remains the last physical LO until the worker reports set_freq success.
+        self._cancel_frequency_pending()
+        self._lo_pending_hz = selected
+        self._hw_pending = True
 
     def fine(self, delta):
+        if self._tester_nco_tune(delta):
+            return
         # fine: digital NCO within the capture window while the backend is live
         # (no I2C, no LO move); otherwise a small coarse step so the UI still tunes.
         if self.be.running:
-            self.be.fine_tune(delta)
-            self.update_freq()
-            self.touch_params()
+            self._move_live_frequency(delta)
         else:
             self.tune(delta)
 
@@ -2497,51 +3216,54 @@ class SdrApp:
         p = self.p
         if i == p["act"]:
             return
-        p["vfos"][p["act"]] = [p["f"], p["m"]]   # park current state
+        target, mode = p["vfos"][i]
         old_f = p["f"]
-        # in-place swap: the tapped slot now shows the previously active VFO,
-        # the other slot stays where it was (no reshuffling)
-        alt = getattr(self, "_alt", None)
-        if alt and i in alt:
-            alt[alt.index(i)] = p["act"]
-        p["act"] = i
-        p["f"], p["m"] = p["vfos"][i]
-        self.shift_spectrum(p["f"] - old_f)
-        self._hw_pending = True       # route the new VFO frequency to its hardware target
-        self.update_freq()
-        self.update_mode()
-        self.be.set_mode(p["m"])          # a VFO carries its own mode
-        self.be.set_bandwidth(self.cur_bw())
-        self.update_vfo_ui()
-        self.update_entry_digits()
-        self.update_entry_bands()
-        self.touch_params()
+
+        if self.be.running:
+            # A nearby VFO is achievable immediately with the native NCO.  A distant
+            # VFO is queued and the current VFO remains visibly active until the worker
+            # confirms the Si5351 transaction.
+            if (p["rt"][i] == p["rt"][p["act"]] and self._nco_enabled() and
+                    abs(int(target) - self._lo_hz) < (IQ_RATE // 4)):
+                selected = self._set_live_nco_absolute(target)
+                if selected is not None:
+                    self._cancel_frequency_pending()
+                    self._commit_vfo_switch(i, selected, mode)
+                    if self._nco_recenter_due(selected, mode):
+                        self._queue_nco_recenter()
+                    return
+            self._queue_station_recenter(target, i, mode)
+            return
+
+        # With RX stopped, selection is a configuration change rather than a claim
+        # about a live NCO.  Commit the VFO now but let the worker establish _lo_hz.
+        self.shift_spectrum(int(target) - old_f)
+        self._commit_vfo_switch(i, target, mode)
+        self._cancel_frequency_pending()
+        self._lo_pending_hz = self._normal_lo_hz(target, mode)
+        self._hw_pending = True
 
     # ---- spectrum tap-to-tune ----
     def spec_jump(self, frac):
-        """Tap-to-tune at horizontal fraction frac of the spectrum. While RX is live
-        the span is the real +/- 12 kHz capture window and the tap is applied as an
-        ABSOLUTE digital fine-tune offset (iq.tune, no LO move) -- so a tap lands
-        exactly where the edge labels (f +/- 12 kHz) say. Off RX it keeps the old
-        demo +/- 5 kHz coarse (Si5351) jump. Both snap to the tuning step."""
+        """Tune by a horizontal displacement from the current selected centre.
+
+        A tap is relative to p["f"], not an absolute offset from the physical LO.
+        Therefore repeated taps and button moves share exactly one coordinate system.
+        """
         frac = min(max(frac, 0.0), 1.0)
         s = self.p["s"]
         if self.be.running:
-            half = 12000                          # matches update_freq's RX span
-            off = int((frac - 0.5) * 2 * half)    # -half..+half around the LO centre
-            off = int(round(off / s) * s)         # snap to the tuning step
-            self.be.set_fine(off)                 # absolute NCO offset (clamped in C)
-            self.update_freq()
-            self.touch_params()
+            half = 12000
+            delta = int((frac - 0.5) * 2 * half)
+            delta = int(round(delta / s) * s)
+            if self._inj_on:
+                self._tester_nco_tune(delta)      # same point/BYP guard as the arrows
+            else:
+                self._move_live_frequency(delta)
         else:
-            old = self.p["f"]
-            new = int(old - 5000 + frac * 10000)
-            new = int(round(new / s) * s)
-            self.p["f"] = min(max(new, F_MIN), F_MAX)
-            self.shift_spectrum(self.p["f"] - old)
-            self._hw_pending = True
-            self.update_freq()
-            self.touch_params()
+            delta = int((frac - 0.5) * 10000)
+            delta = int(round(delta / s) * s)
+            self.tune(delta)
 
     # ---- SETTINGS view (tap "SDR RECEIVER") ----
     # A dedicated full-screen (480x272) view of firmware DSP verification controls
@@ -2605,6 +3327,8 @@ class SdrApp:
                (4, "NCO / tune", True), (5, "Channel filter", True),
                (6, "Demod", False), (7, "AF filter", False), (8, "Squelch", False),
                (9, "AGC", False), (10, "Volume", False), (11, "Limiter", False))
+    _OUTPUT_STAGE = ("FINAL", "PGA", "DECIM", "IQC", "NCO", "CHF",
+                     "DEMOD", "AF", "SQL", "AGC", "VOL", "LIMIT")
     # block id -> UART tap stage passed to iq.tap(); absent => no tap (control greyed).
     _BLK_TAP = {2: 1, 4: 2, 5: 3}
 
@@ -2680,7 +3404,7 @@ class SdrApp:
         # Populate controls before the screen becomes visible: no second full paint
         # after loading and no apparent jump back to the top of the list.
         self._refresh_settings()
-        for i in range(4):
+        for i in range(len(self._set_live_cache)):
             self._set_live_cache[i] = None
         self._consume_status()
         lv.screen_load(self.ui.get("scr-settings"))
@@ -2694,11 +3418,12 @@ class SdrApp:
         # and a one-of SCOPE ->DAC route (iq.scope(id)). RF gain / squelch / audio-filter
         # / kernels follow as extra rows below the 11 blocks. The 11-row table cannot fit
         # 272 px without scroll, so the rows container is intentionally scrollable.
-        # Callbacks live on self._settings_cbs for the screen lifetime. Every verify
-        # control is bench-only: NONE is written to self.p and none persists.
+        # Callbacks live on self._settings_cbs for the screen lifetime.
         # Shared styles are created once and outlive the transient screen tree; the
         # widgets below are rebuilt every open (build-on-open, delete-on-close) so
-        # VERIFY holds no RAM while the operator is on the receiver.
+        # VERIFY holds no RAM while the operator is on the receiver.  RF PGA and
+        # the explicitly saved I/Q profile are the two deliberate persistent
+        # exceptions; the remaining bench controls are runtime-only.
         st = _verify_styles()
 
         scr = _base(lv.obj(None))
@@ -2806,17 +3531,18 @@ class SdrApp:
         ipb, ipl = _sbtn(ig, point_name, 46, 12, DARK_TXT)
         ipb.set_style_bg_color(lv.color_hex(CYAN_RX), 0)
         imb, iml = _sbtn(ig, mode_name, 44, 12, CYAN_RX)
-        iwb, iwl = _sbtn(ig, wave_name, 58, 12, CYAN_RX)
-        ilb, ill = _sbtn(ig, "LIVE" if self._inj_live else "CLEAN", 54, 12,
+        iwb, iwl = _sbtn(ig, wave_name, 54, 12, CYAN_RX)
+        ilb, ill = _sbtn(ig, "LIVE" if self._inj_live else "CLEAN", 50, 12,
                          DARK_TXT if self._inj_live else CYAN_RX)
         if self._inj_live:
             ilb.set_style_bg_color(lv.color_hex(GREEN), 0)
         iamp = lv.label(ig)
-        iamp.set_text("%d" % self._inj_ampl)
-        iamp.set_size(40, 20)
+        iamp.set_text("S%d" % self._inj_ampl)
+        iamp.set_size(48, 20)
         iamp.add_style(st["dim"], 0)
         iamp.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
         iamp.set_style_text_color(lv.color_hex(CYAN_RX), 0)
+        iamp.add_flag(lv.obj.FLAG.CLICKABLE)
         idn, idnl = _sbtn(ig, "-", 24, 20)
         iup, iupl = _sbtn(ig, "+", 24, 20)
         itg, itgl = _sbtn(ig, "ON" if self._inj_on else "OFF", 46, 12,
@@ -2827,7 +3553,7 @@ class SdrApp:
                                         iwb, iwl, ilb, ill, iamp,
                                         idn, idnl, iup, iupl, itg, itgl)
 
-        def inj_apply():
+        def inj_apply(receiver_setup=True):
             iq = self.be.iq
             fn = getattr(iq, "inject", None) if iq is not None else None
             if not self._inj_on:
@@ -2879,12 +3605,13 @@ class SdrApp:
                 profile = self._iq_file_profiles[self._iq_file_preset]
                 _name, receiver_mode, path48, path24 = profile
                 try:
-                    if not self.be.set_mode(receiver_mode):
-                        return False
-                    if not self.be.set_bandwidth(
-                            self.p["bw"].get(receiver_mode,
-                                             MODE_BW[receiver_mode])):
-                        return False
+                    if receiver_setup:
+                        if not self.be.set_mode(receiver_mode):
+                            return False
+                        if not self.be.set_bandwidth(
+                                self.p["bw"].get(receiver_mode,
+                                                 MODE_BW[receiver_mode])):
+                            return False
                     path = path48 if expected_rate == IQ_RATE else path24
                     self._iq_file.start(iq, point, expected_rate,
                                         self._iq_file_loop, path)
@@ -2903,17 +3630,18 @@ class SdrApp:
                 return False
             name, receiver_mode, kind_attr, carrier, mod_hz, depth = \
                 self._INJ_PRESETS[self._inj_mode]
-            if name == "AM" and self._inj_ampl > 1000:
-                # AM uses A*(1+depth*cos); at the 50-percent preset A=1000 peaks at
-                # 1500 counts and stays comfortably inside the 12-bit ADC midpoint.
-                self._inj_ampl = 1000
-                iamp.set_text("1000")
+            hard_max, safe_max, _peak, _gain = self._tester_levels()
+            if self._inj_ampl > hard_max:
+                self._inj_ampl = hard_max
+            if self._inj_ampl > safe_max and not self._inj_overload:
+                self.be.err = "TESTER SAFE <=%d; tap S for OVR" % safe_max
+                return False
             _wave_name, wave_attr, gate_hz = self._INJ_WAVES[self._inj_wave]
             noise = 2 if self._inj_live else 0
             try:
                 kind = getattr(iq, kind_attr)
                 wave = getattr(iq, wave_attr)
-                if receiver_mode is not None:
+                if receiver_mode is not None and receiver_setup:
                     if not self.be.set_mode(receiver_mode):
                         return False
                     if not self.be.set_bandwidth(
@@ -2932,12 +3660,13 @@ class SdrApp:
         def inj_paint():
             self._paint_tester()
 
-        def inj_reapply():
+        def inj_reapply(receiver_setup=False):
             """Apply a live edit; on failure disarm and restore the displaced route."""
-            if self._inj_on and not inj_apply():
+            if self._inj_on and not inj_apply(receiver_setup):
                 error = self.be.err
                 self._inj_on = False
                 inj_apply()
+                self._inj_overload = False
                 self.be.err = error
 
         def inj_mode_cb(e):
@@ -2953,23 +3682,24 @@ class SdrApp:
                 inj_paint()
                 return
             self._inj_mode = (self._inj_mode + 1) % len(self._INJ_PRESETS)
+            self._inj_overload = False
             if self._INJ_PRESETS[self._inj_mode][0] == "AM" and self._inj_ampl > 1000:
                 self._inj_ampl = 1000
-                iamp.set_text("1000")
-            inj_reapply()
+            inj_reapply(True)
             inj_paint()
 
         def inj_point_cb(e):
             if self._inj_on:                 # file/source rate contract is fixed on start
                 return
             self._inj_point = (self._inj_point + 1) % len(self._INJ_POINTS)
+            self._inj_overload = False
             inj_paint()
 
         def inj_wave_cb(e):
             if self._inj_source:
                 return
             self._inj_wave = (self._inj_wave + 1) % len(self._INJ_WAVES)
-            inj_reapply()
+            inj_reapply(False)
             inj_paint()
 
         def inj_live_cb(e):
@@ -2981,7 +3711,7 @@ class SdrApp:
                 inj_paint()
                 return
             self._inj_live = not self._inj_live
-            inj_reapply()
+            inj_reapply(False)
             inj_paint()
 
         def inj_amp_cb(e, d=0, lbl=iamp):
@@ -2994,16 +3724,28 @@ class SdrApp:
                         inj_reapply()
                     inj_paint()
                 return
-            max_ampl = 1000 if self._INJ_PRESETS[self._inj_mode][0] == "AM" else 2000
+            hard_max, safe_max, _peak, _gain = self._tester_levels()
+            max_ampl = hard_max if self._inj_overload else safe_max
             self._inj_ampl = min(max(self._inj_ampl + d, 0), max_ampl)
-            lbl.set_text("%d" % self._inj_ampl)
-            inj_reapply()
+            inj_reapply(False)
+            inj_paint()
+
+        def inj_level_cb(e):
+            if self._inj_source:
+                return
+            self._inj_overload = not self._inj_overload
+            if not self._inj_overload:
+                _hard, safe_max, _peak, _gain = self._tester_levels()
+                if self._inj_ampl > safe_max:
+                    self._inj_ampl = safe_max
+            inj_reapply(False)
             inj_paint()
 
         def inj_source_cb(e):
             if self._inj_on:                 # borrowed pointers/point stay immutable
                 return
             self._inj_source = 1 - self._inj_source
+            self._inj_overload = False
             self._iq_file.error = None
             self._iq_file.sample_rate = 0
             self._iq_file.sample_bits = 0
@@ -3017,14 +3759,18 @@ class SdrApp:
                 error = self.be.err
                 self._inj_on = False
                 inj_apply()
+                self._inj_overload = False
                 self.be.err = error
+            elif not want_on:
+                self._inj_overload = False
             inj_paint()
         for b, cb in ((isb, inj_source_cb), (ipb, inj_point_cb),
                       (imb, inj_mode_cb), (iwb, inj_wave_cb),
-                      (ilb, inj_live_cb), (itg, inj_tg_cb)):
+                      (ilb, inj_live_cb), (iamp, inj_level_cb),
+                      (itg, inj_tg_cb)):
             b.add_event_cb(cb, lv.EVENT.CLICKED, None)
             cbs.append(cb)
-        for b, d in ((idn, -100), (iup, +100)):
+        for b, d in ((idn, -10), (iup, +10)):
             def _iac(e, dd=d):
                 inj_amp_cb(e, dd)
             b.add_event_cb(_iac, lv.EVENT.CLICKED, None)
@@ -3037,11 +3783,15 @@ class SdrApp:
         _flex(hdr, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER,
               lv.FLEX_ALIGN.CENTER, 0)
         for txt, wpx in (("MID / BLOCK", 176), ("PROC", 62),
-                         ("TAP", 92), ("SCOPE", 92)):
+                         ("TAP", 92), ("OUTPUT", 92)):
             hl = lv.label(hdr)
             hl.set_text(txt)
             hl.set_size(wpx, 14)
             hl.add_style(st["dim"], 0)
+            if txt == "OUTPUT":
+                # Reuse this existing header label as a live routing explanation;
+                # no extra LVGL object or heap cost.
+                self._set_widgets["output_header"] = hl
 
         # -- scrollable rows container: 11 block rows + extra bench knobs below --
         rows = _base(lv.obj(scr))
@@ -3089,7 +3839,8 @@ class SdrApp:
             r.set_size(448, 28)
             return r
 
-        # blk_w[id] = (row, proc_btn, proc_lbl, scope_btn, scope_lbl, tap_btn, tap_lbl)
+        # blk_w[id] = (row, name_lbl, name, proc_btn, proc_lbl,
+        #              output_btn, output_lbl, tap_btn, tap_lbl)
         # so _refresh_settings can repaint every ON/BYP, the one-of scope and one-of tap.
         blk_w = {}
         self._set_widgets["blocks"] = blk_w
@@ -3097,13 +3848,13 @@ class SdrApp:
         self._set_widgets["mid_labels"] = mid_labels
 
         def _scope_paint(bid, on):
-            r, _ob, _ol, sb, sl, _tb, _tl = blk_w[bid]
+            r, _nl, _name, _ob, _ol, sb, sl, _tb, _tl = blk_w[bid]
             sb.set_style_bg_color(lv.color_hex(CYAN_RX if on else PANEL2), 0)
             sl.set_style_text_color(lv.color_hex(DARK_TXT if on else CYAN_RX), 0)
             r.set_style_bg_color(lv.color_hex(BORDER if on else PANEL2), 0)
 
         def _tap_paint(bid, on):
-            _r, _ob, _ol, _sb, _sl, tb2, tl = blk_w[bid]
+            _r, _nl, _name, _ob, _ol, _sb, _sl, tb2, tl = blk_w[bid]
             tb2.set_style_bg_color(lv.color_hex(GREEN if on else PANEL2), 0)
             tl.set_style_text_color(lv.color_hex(DARK_TXT if on else CYAN_RX), 0)
 
@@ -3133,19 +3884,17 @@ class SdrApp:
 
             fixed_pga = bid == 1
             safety_limiter = bid == 11
-            on0 = True if safety_limiter else (False if fixed_pga else
-                                                self._blk_on.get(bid, True))
+            on0 = True if safety_limiter else self._blk_on.get(bid, True)
             proc_text = "SAFE" if safety_limiter else ("ON" if on0 else "BYP")
             ob, ol = _sbtn(r, proc_text, 58, 12,
-                           GRAY2 if (fixed_pga or safety_limiter) else
+                           GRAY2 if safety_limiter else
                            (DARK_TXT if on0 else WHITE))
             ob.set_style_bg_color(
-                lv.color_hex(PANEL2 if (fixed_pga or safety_limiter) else
+                lv.color_hex(PANEL2 if safety_limiter else
                              (GREEN if on0 else PANEL2)), 0)
-            if fixed_pga or safety_limiter:
+            if safety_limiter:
                 # The DAC-range clamp is intentionally unconditional in C.  Keep its
                 # SCOPE route, but never claim that this safety boundary can be bypassed.
-                # PGA is likewise read-only: IQADC was constructed in PGA_BYPASS.
                 ob.remove_flag(lv.obj.FLAG.CLICKABLE)
 
             tap_stage = self._BLK_TAP.get(bid, 0)   # 0 => this block has no firmware tap
@@ -3153,14 +3902,24 @@ class SdrApp:
             if not tap_stage:
                 tb2.remove_flag(lv.obj.FLAG.CLICKABLE)   # honest: no tap in firmware
 
-            # The compiled Montserrat font has no U+2192 glyph; the column
-            # heading already says SCOPE, so plain ASCII is clearer and smaller.
-            scope_lbl = "I/Q" if cplx else "DAC"
+            # Say what leaves the board, not the implementation word "scope".
+            # Complex stages use both converters; audio stages are heard on DAC0.
+            scope_lbl = "I/Q D0/1" if cplx else "HEAR D0"
             sb, sl = _sbtn(r, scope_lbl, 88, 12, CYAN_RX)
 
-            blk_w[bid] = (r, ob, ol, sb, sl, tb2, tl)
+            blk_w[bid] = (r, nl, name, ob, ol, sb, sl, tb2, tl)
 
-            if not fixed_pga and not safety_limiter:
+            if fixed_pga:
+                def pga_cb(e, b=ob, bl=ol):
+                    actual = self._set_rf_enabled(not bool(self.p["rfe"]))
+                    bl.set_text("ON" if actual else "BYP")
+                    bl.set_style_text_color(
+                        lv.color_hex(DARK_TXT if actual else WHITE), 0)
+                    b.set_style_bg_color(
+                        lv.color_hex(GREEN if actual else PANEL2), 0)
+                ob.add_event_cb(pga_cb, lv.EVENT.CLICKED, None)
+                cbs.append(pga_cb)
+            elif not safety_limiter:
                 def on_cb(e, i=bid, b=ob, bl=ol):
                     v = 0 if self._blk_on.get(i, True) else 1
                     ok, current = iq_call("block", i, v)
@@ -3168,6 +3927,19 @@ class SdrApp:
                         return
                     actual = bool(v if current is None else current)
                     self._blk_on[i] = actual
+                    if i == 4:
+                        self._update_tuning_role()
+                    elif i == 3 and "iqc_enable" in self._set_widgets:
+                        eb, el = self._set_widgets["iqc_enable"]
+                        effective = self._iqc_on and actual
+                        el.set_text("ON" if effective else
+                                    ("PATH" if self._iqc_on else "BYP"))
+                        el.set_style_text_color(
+                            lv.color_hex(DARK_TXT if effective else WHITE), 0)
+                        eb.set_style_bg_color(
+                            lv.color_hex(GREEN if effective else PANEL2), 0)
+                    elif i == 6:
+                        self._paint_output_status()
                     bl.set_text("ON" if actual else "BYP")
                     bl.set_style_text_color(
                         lv.color_hex(DARK_TXT if actual else WHITE), 0)
@@ -3205,6 +3977,8 @@ class SdrApp:
                         _scope_paint(prev, False)     # clear the previous one-of route
                     self._scope_id = i
                     _scope_paint(i, True)
+                self._paint_listen_markers()
+                self._paint_output_status()
             sb.add_event_cb(scope_cb, lv.EVENT.CLICKED, None)
             cbs.append(scope_cb)
 
@@ -3218,18 +3992,26 @@ class SdrApp:
             g = _grp(r, 270)
             return r, g
 
-        # IQADC is deliberately constructed in PGA_BYPASS.  Do not present a live
-        # gain control that the firmware will truthfully ignore in this mode.
-        _r, gg = _krow("RF GAIN (BYP)")
-        gdn, _ = _sbtn(gg, "-", 34, 20, GRAY2)
+        # RF PGA is configured symmetrically for I/Q before ADC scanning starts.
+        # Its ON/BYP mode lives in block row 1; gain changes here queue the same
+        # controlled RX reconstruction and are never written under ADST.
+        _r, gg = _krow("RF PGA")
+        gdn, _ = _sbtn(gg, "-", 34, 20)
         gval = lv.label(gg)
-        gval.set_text("FIXED")
+        gval.set_text("x%.1f" % PGA_FACT[self.p["rf"]])
         gval.add_style(st["name"], 0)
-        gval.set_style_text_color(lv.color_hex(GRAY2), 0)
-        gup, _ = _sbtn(gg, "+", 34, 20, GRAY2)
-        gdn.remove_flag(lv.obj.FLAG.CLICKABLE)
-        gup.remove_flag(lv.obj.FLAG.CLICKABLE)
+        gval.set_style_text_color(lv.color_hex(CYAN_RX), 0)
+        gup, _ = _sbtn(gg, "+", 34, 20)
         self._set_widgets["rf"] = gval
+
+        def rf_cb(e, d=0, lbl=gval):
+            code = self._set_rf_gain(self.p["rf"] + d)
+            lbl.set_text("x%.1f" % PGA_FACT[code])
+        for b, d in ((gdn, -1), (gup, +1)):
+            def _rfc(e, dd=d):
+                rf_cb(e, dd)
+            b.add_event_cb(_rfc, lv.EVENT.CLICKED, None)
+            cbs.append(_rfc)
 
         # SQUELCH -/+ threshold (verify-only).  Firmware envelope units span roughly
         # 0..2048; the former 0..100 range could never tune a practical gate.
@@ -3310,9 +4092,12 @@ class SdrApp:
         self._set_widgets["nco"] = nval
 
         def nco_cb(e, d=0, zero=False, lbl=nval):
-            value = self.be.set_fine(0) if zero else self.be.fine_tune(d)
-            if value is not None:
-                lbl.set_text("%d" % value)
+            delta = -self.be.fine_hz if zero else int(d)
+            if self._inj_on:
+                self._tester_nco_tune(delta)
+            else:
+                self._move_live_frequency(delta)
+            lbl.set_text("%d" % self.be.fine_hz)
         for b, d, zero in ((ndn, -100, False), (nup, 100, False), (nz, 0, True)):
             def _ncoc(e, dd=d, zz=zero):
                 nco_cb(e, dd, zz)
@@ -3332,9 +4117,11 @@ class SdrApp:
         self._set_widgets["agc_target"] = atval
 
         def at_cb(e, d=0, lbl=atval):
-            self.p["atgt"] = min(max(self.p["atgt"] + d, 0.05), 1.0)
-            if self.be.set_agc(self.be.agc, target=self.p["atgt"]):
-                lbl.set_text("%d%%" % int(self.p["atgt"] * 100 + 0.5))
+            candidate = min(max(self.p["atgt"] + d,
+                                AGC_TARGET_MIN), AGC_TARGET_MAX)
+            if self.be.set_agc(self.be.agc, target=candidate):
+                self.p["atgt"] = candidate
+                lbl.set_text("%d%%" % int(candidate * 100 + 0.5))
                 self.touch_params()
         for b, d in ((atdn, -0.05), (atup, +0.05)):
             def _atc(e, dd=d):
@@ -3344,18 +4131,7 @@ class SdrApp:
 
         # Manual I/Q correction: enable, Q amplitude balance, and I->Q phase leakage.
         def iqc_apply():
-            iq = self.be.iq
-            fn = getattr(iq, "iq_correction", None) if iq is not None else None
-            if fn is None:
-                self.be.err = "iq_correction unavailable"
-                return False
-            try:
-                fn(enable=self._iqc_on, amp=self._iqc_amp, phase=self._iqc_phase)
-                self.be.err = None
-                return True
-            except Exception as e:
-                self.be.err = "iq_correction: %r" % (e,)
-                return False
+            return self._apply_iq_correction()
 
         _r, iqeg = _krow("IQ CORR")
         # This is processing enable, not signal enable: BYP passes I/Q unchanged.
@@ -3383,19 +4159,46 @@ class SdrApp:
         ipup, _ = _sbtn(ipg, "+", 34, 20)
         self._set_widgets["iqc_phase"] = ipval
 
+        # Read-only learned ADC means help diagnose DC settling.  They are never
+        # stored as calibration values; the C estimator continuously updates them.
+        _r, idcg = _krow("IQ DC INPUT")
+        idcval = lv.label(idcg)
+        idcval.set_text("I --  Q --")
+        idcval.add_style(st["name"], 0)
+        idcval.set_style_text_color(lv.color_hex(CYAN_RX), 0)
+        self._set_widgets["iqc_dc"] = idcval
+        self._set_lbls["iqdc"] = idcval
+
+        # Manual edits are live RAM changes.  SAVE is explicit because a test
+        # generator can verify the algorithm but must not overwrite a real-input
+        # calibration accidentally.
+        _r, isg = _krow("IQ PROFILE")
+        isval = lv.label(isg)
+        isval.set_text("SAVED")
+        isval.add_style(st["name"], 0)
+        isval.set_style_text_color(lv.color_hex(GRAY2), 0)
+        isave, _ = _sbtn(isg, "SAVE", 72, 12, CYAN_RX)
+        self._set_widgets["iqc_profile"] = isval
+
         def iqc_paint():
-            iqel.set_text("ON" if self._iqc_on else "BYP")
+            effective = self._iqc_on and self._blk_on.get(3, True)
+            iqel.set_text("ON" if effective else
+                          ("PATH" if self._iqc_on else "BYP"))
             iqel.set_style_text_color(
-                lv.color_hex(DARK_TXT if self._iqc_on else WHITE), 0)
+                lv.color_hex(DARK_TXT if effective else WHITE), 0)
             iqeb.set_style_bg_color(
-                lv.color_hex(GREEN if self._iqc_on else PANEL2), 0)
+                lv.color_hex(GREEN if effective else PANEL2), 0)
             iaval.set_text("%.2f" % self._iqc_amp)
             ipval.set_text("%+.2f" % self._iqc_phase)
+            isval.set_text("EDIT" if self._iqc_dirty else "SAVED")
+            isval.set_style_text_color(
+                lv.color_hex(CYAN_RX if self._iqc_dirty else GRAY2), 0)
 
         def iqc_enable_cb(e):
             self._iqc_on = not self._iqc_on
             if not iqc_apply():
                 self._iqc_on = False
+            self._iqc_dirty = True
             iqc_paint()
 
         def iqc_reset_cb(e):
@@ -3403,6 +4206,7 @@ class SdrApp:
             self._iqc_amp = 1.0
             self._iqc_phase = 0.0
             iqc_apply()
+            self._iqc_dirty = True
             iqc_paint()
 
         def iqc_amp_cb(e, d=0.0):
@@ -3410,6 +4214,7 @@ class SdrApp:
             self._iqc_on = True
             if not iqc_apply():
                 self._iqc_on = False
+            self._iqc_dirty = True
             iqc_paint()
 
         def iqc_phase_cb(e, d=0.0):
@@ -3417,6 +4222,11 @@ class SdrApp:
             self._iqc_on = True
             if not iqc_apply():
                 self._iqc_on = False
+            self._iqc_dirty = True
+            iqc_paint()
+
+        def iqc_save_cb(e):
+            self._save_iq_profile()
             iqc_paint()
 
         for b, cb in ((iqeb, iqc_enable_cb), (iqrst, iqc_reset_cb)):
@@ -3432,6 +4242,8 @@ class SdrApp:
                 iqc_phase_cb(e, dd)
             b.add_event_cb(_ipc, lv.EVENT.CLICKED, None)
             cbs.append(_ipc)
+        isave.add_event_cb(iqc_save_cb, lv.EVENT.CLICKED, None)
+        cbs.append(iqc_save_cb)
 
         # KERNELS: four tiny A/B toggles dec / hil / chf / mag (verify-only).
         _r, kg = _krow("KERNELS")
@@ -3456,15 +4268,103 @@ class SdrApp:
             kb.add_event_cb(kern_cb, lv.EVENT.CLICKED, None)
             cbs.append(kern_cb)
 
+        # One graphical "where we listen" marker for the complete DSP chain.
+        # IGNORE_LAYOUT keeps it out of the flex column while still letting it scroll
+        # with the rows.  FLOATING must not be used here: it would stay screen-fixed
+        # and fight the native one-row framebuffer scroll transaction above.
+        listen = _box(rows, 6, 20, bg=GREEN, radius=3, bw=0)
+        listen.add_flag(lv.obj.FLAG.IGNORE_LAYOUT)
+        listen.remove_flag(lv.obj.FLAG.CLICKABLE)
+        self._set_widgets["listen_marker"] = listen
+
         # Every row built without raising: only now is the screen a valid, complete
         # tree. The caller publishes it to self.ui.w and loads it.
         self._set_scr_partial = None
         return scr
 
+    def _tester_pga_milli(self):
+        """Effective TESTER-IN PGA factor, preferring live firmware readback."""
+        if self._inj_point != 0:
+            return 1000
+        enabled = bool(self._blk_on.get(1, self.p.get("rfe", 1)))
+        code = int(self.be.rf_code if self.be.running else self.p.get("rf", 0))
+        iq = self.be.iq
+        if iq is not None:
+            try:
+                enabled = bool(iq.block(1))
+            except Exception:
+                pass
+            if enabled:
+                try:
+                    code = int(iq.gain())
+                except Exception:
+                    pass
+        if not enabled:
+            return 1000
+        code = min(max(code, 0), len(PGA_GAIN_MILLI) - 1)
+        return PGA_GAIN_MILLI[code]
+
+    def _tester_levels(self):
+        """Return hard max, safe max, current post-PGA peak and gain x1000."""
+        name, _receiver_mode, _kind, _carrier, _mod_hz, depth = \
+            self._INJ_PRESETS[self._inj_mode]
+        hard_max = 1000 if name == "AM" else 2000
+        depth = depth if name == "AM" else 0
+        gain_milli = self._tester_pga_milli()
+        safe_max = tester_safe_amplitude(hard_max, gain_milli, depth)
+        peak = tester_peak_counts(self._inj_ampl, gain_milli, depth)
+        return hard_max, safe_max, peak, gain_milli
+
     def _tester_point_label(self):
         if self._inj_point == 1:
             return "M:" + self._INJ_MIDS[self._inj_mid][0]
         return self._INJ_POINTS[self._inj_point][0]
+
+    def _tester_first_visible_block(self):
+        """First SCOPE block that contains TESTER rather than the real ADC."""
+        if self._inj_point == 0:
+            return 1
+        if self._inj_point == 1:
+            return 3 + self._inj_mid       # IQC=3, NCO=4, CHF=5
+        return 5                           # OUT is before block-5 tap/scope capture
+
+    def _output_status_text(self):
+        """Source@stage description of the physical DAC output."""
+        if 1 <= self._scope_id <= 5:
+            if self._inj_on:
+                source = ("TEST" if self._scope_id >= self._tester_first_visible_block()
+                          else "ADC")
+            else:
+                source = "RX"
+            return source + "@" + self._OUTPUT_STAGE[self._scope_id]
+        if 6 <= self._scope_id <= 11:
+            if not self._blk_on.get(6, True):
+                source = "RAW"
+            else:
+                source = "TEST" if self._inj_on else "RX"
+            return source + "@" + self._OUTPUT_STAGE[self._scope_id]
+        if not self._blk_on.get(6, True):
+            return "RAW@FINAL"
+        if self._inj_on:
+            if self._inj_source:
+                mode = self._iq_file_profiles[self._iq_file_preset][0]
+                if mode.startswith("R:"):
+                    return "RECORD@FINAL"
+            else:
+                mode = self._INJ_PRESETS[self._inj_mode][0]
+            if mode == "AM":
+                return "AM1k@FINAL"
+            if mode == "USB" or mode == "LSB":
+                return "SSB1k5@FINAL"
+            if mode == "CW":
+                return "CW700@FINAL"
+            return "MODE@FINAL"
+        return "HEAR@FINAL"
+
+    def _paint_output_status(self):
+        label = self._set_widgets.get("output_header")
+        if label is not None:
+            label.set_text(self._output_status_text())
 
     def _configure_inject_mid(self, iq):
         """Publish the one movable MID boundary, preserving legacy pre-NCO MID."""
@@ -3508,6 +4408,19 @@ class SdrApp:
             else:
                 label.add_flag(lv.obj.FLAG.CLICKABLE)
 
+    def _paint_listen_markers(self):
+        """Move the single graphical marker to the block feeding the physical DAC(s)."""
+        marker = self._set_widgets.get("listen_marker")
+        if marker is None:
+            return
+        scope = self._scope_id
+        # SCOPE 0 is the normal receiver route: DA0 comes from the final Limiter.
+        stage = scope if 1 <= scope <= 11 else 11
+        marker.set_pos(1, (stage - 1) * _VERIFY_SCROLL_STEP + 4)
+        # Cyan = complex I/Q on DA0/DA1; green = mono audio heard on DA0.
+        marker.set_style_bg_color(
+            lv.color_hex(CYAN_RX if 1 <= scope <= 5 else GREEN), 0)
+
     def _restore_tester_scope(self):
         """Restore the route displaced by TESTER, including VERIFY row paint."""
         if self._inj_prev_scope is None:
@@ -3518,36 +4431,95 @@ class SdrApp:
             return False
         self._scope_id = restore
         self._inj_prev_scope = None
+        self._paint_output_status()
         blocks = self._set_widgets.get("blocks")
         if blocks:
             for bid, on in ((previous, False), (restore, True)):
                 if not bid or bid not in blocks:
                     continue
-                r, _ob, _ol, sb, sl, _tb, _tl = blocks[bid]
+                r, _nl, _name, _ob, _ol, sb, sl, _tb, _tl = blocks[bid]
                 sb.set_style_bg_color(lv.color_hex(CYAN_RX if on else PANEL2), 0)
                 sl.set_style_text_color(
                     lv.color_hex(DARK_TXT if on else CYAN_RX), 0)
                 r.set_style_bg_color(lv.color_hex(BORDER if on else PANEL2), 0)
+        self._paint_listen_markers()
         return True
 
     def _restore_tester_receiver(self):
-        """Restore persisted demodulator and bandwidth after a TESTER source."""
+        """Restore demod/filter and the normal station's exact LO-relative NCO."""
         if self.be.iq is None:
             return True
         mode = self.p["m"]
         ok = self.be.set_mode(mode)
         if not self.be.set_bandwidth(self.p["bw"].get(mode, MODE_BW[mode])):
             ok = False
+        nco_on = self._nco_enabled()
+        requested = self.p["f"]
+        old_centre = self._lo_hz + self.be.fine_hz
+
+        # With NCO active, restore the saved station's LO-relative offset.  With
+        # NCO bypassed, preload zero instead: the currently heard frequency is the
+        # physical LO, and re-enabling block 4 before the queued LO move must not
+        # expose either the stale TESTER offset or a hidden saved-station offset.
+        wanted = (requested - self._lo_hz) if nco_on else 0
+        actual = self.be.set_fine(wanted)
+        if actual is None:
+            return False
+        nco_label = self._set_widgets.get("nco")
+        if nco_label is not None:
+            nco_label.set_text("%d" % actual)
+
+        if not nco_on:
+            # The preloaded value is real state but does not currently affect the
+            # signal.  With NCO bypassed the heard centre is the physical LO.  Keep
+            # HOME/panorama truthful now, and queue an LO move back to the requested
+            # normal station without doing I2C in this callback.
+            heard = self._lo_hz
+            if requested != heard:
+                self._commit_current_frequency(heard)
+                self._queue_station_recenter(requested)
+            else:
+                self.update_freq()
+            self._publish_spectrum_center(heard)   # idempotent; also fixes stale TESTER baseline
+            if actual != 0:
+                self.be.err = "normal NCO clear returned %d" % actual
+                ok = False
+            return ok
+
+        achieved = min(max(self._lo_hz + actual, F_MIN), F_MAX)
+        if achieved != requested:
+            self.be.err = "normal NCO restore clamped %d -> %d" % (wanted, actual)
+            self._commit_current_frequency(achieved)
+            ok = False
+        elif achieved != old_centre:
+            self._publish_spectrum_center(achieved)
+            self.update_freq()
         return ok
 
     def _paint_tester(self):
+        # HOME remains alive behind VERIFY.  Keep its shared tuning control truthful
+        # even if VERIFY is closed before a FILE reaches EOF.
+        self._update_tuning_role()
+        self._paint_output_status()
         w = self._set_widgets.get("inject")
         if not w:
             return
         (isb, isl, ipb, ipl, imb, iml, iwb, iwl, ilb, ill, iamp,
          idn, idnl, iup, iupl, itg, itgl) = w
         file_mode = bool(self._inj_source)
-        isl.set_text("TESTER FILE" if file_mode else "TESTER GEN")
+        if file_mode:
+            isl.set_text("TESTER FILE")
+            isl.set_style_text_color(self._C_CYAN, 0)
+        else:
+            _hard, safe_max, peak, _gain = self._tester_levels()
+            unsafe = self._inj_ampl > safe_max
+            clipped = peak > 2047
+            if self._inj_overload:
+                isl.set_text("GEN CLIP" if clipped else "GEN OVR")
+            else:
+                isl.set_text("GEN<=%d" % safe_max)
+            isl.set_style_text_color(self._C_RED if (unsafe or clipped)
+                                     else self._C_CYAN, 0)
         ipl.set_text(self._tester_point_label())
 
         # Source and injection point own native buffer/rate semantics and are locked
@@ -3594,6 +4566,8 @@ class SdrApp:
             pct = self._iq_file_ui_pct
             iamp.set_text("ERR" if ferr else
                           ("--" if pct < 0 else "%d%%" % pct))
+            iamp.set_style_text_color(self._C_RED if ferr else self._C_CYAN, 0)
+            iamp.remove_flag(lv.obj.FLAG.CLICKABLE)
             idnl.set_text("|<")
             iupl.set_text("")
             iup.add_flag(lv.obj.FLAG.HIDDEN)
@@ -3611,7 +4585,15 @@ class SdrApp:
                 lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
             ilb.set_style_bg_color(
                 lv.color_hex(GREEN if self._inj_live else PANEL2), 0)
-            iamp.set_text("%d" % self._inj_ampl)
+            _hard, safe_max, peak, _gain = self._tester_levels()
+            unsafe = self._inj_ampl > safe_max
+            clipped = peak > 2047
+            iamp.set_text(("O" if self._inj_overload else "S") +
+                          ("!" if (unsafe or clipped) else "") +
+                          "%d" % self._inj_ampl)
+            iamp.set_style_text_color(self._C_RED if (unsafe or clipped)
+                                       else self._C_CYAN, 0)
+            iamp.add_flag(lv.obj.FLAG.CLICKABLE)
             idnl.set_text("-")
             iupl.set_text("+")
             iup.remove_flag(lv.obj.FLAG.HIDDEN)
@@ -3682,27 +4664,28 @@ class SdrApp:
         w = self._set_widgets
 
         # Read back the real block mask while IQADC is live. Getter-only block(id) is
-        # control-context safe; PGA stays the truthful fixed BYP of this application.
+        # control-context safe; PGA reflects the constructor's SINGLE/BYPASS mode.
         iq = self.be.iq
         block_fn = getattr(iq, "block", None) if iq is not None else None
         if block_fn is not None:
-            for bid in range(2, 11):
+            for bid in range(1, 11):
                 try:
                     self._blk_on[bid] = bool(block_fn(bid))
                 except Exception:
                     pass
-        self._blk_on[1] = False
 
         # Per-block table: repaint every ON/BYP, and re-apply the ONE-OF scope + tap
         # highlight so a re-shown screen matches the current routing exactly. _tap_id /
         # _scope_id are the single armed rows (0 = none); every other row is cleared.
         blk_w = w["blocks"]
         for bid, tpl in blk_w.items():
-            r, ob, ol, sb, sl, tb2, tl = tpl
+            r, _nl, _name, ob, ol, sb, sl, tb2, tl = tpl
             if bid == 1:
-                ol.set_text("BYP")
-                ol.set_style_text_color(lv.color_hex(GRAY2), 0)
-                ob.set_style_bg_color(lv.color_hex(PANEL2), 0)
+                on0 = self._blk_on.get(1, True)
+                ol.set_text("ON" if on0 else "BYP")
+                ol.set_style_text_color(
+                    lv.color_hex(DARK_TXT if on0 else WHITE), 0)
+                ob.set_style_bg_color(lv.color_hex(GREEN if on0 else PANEL2), 0)
             elif bid == 11:
                 ol.set_text("SAFE")
                 ol.set_style_text_color(lv.color_hex(GRAY2), 0)
@@ -3724,8 +4707,10 @@ class SdrApp:
                 tl.set_style_text_color(
                     lv.color_hex(DARK_TXT if tapped else CYAN_RX), 0)
 
-        # The current IQADC instance is fixed in PGA_BYPASS.
-        w["rf"].set_text("FIXED")
+        self._paint_output_status()
+        self._paint_listen_markers()
+
+        w["rf"].set_text("x%.1f" % PGA_FACT[self.p["rf"]])
 
         # SQUELCH threshold.
         w["squelch"].set_text("%d" % self._squelch)
@@ -3756,12 +4741,20 @@ class SdrApp:
                     pass
 
         iqeb, iqel = w["iqc_enable"]
-        iqel.set_text("ON" if self._iqc_on else "BYP")
+        effective = self._iqc_on and self._blk_on.get(3, True)
+        iqel.set_text("ON" if effective else
+                      ("PATH" if self._iqc_on else "BYP"))
         iqel.set_style_text_color(
-            lv.color_hex(DARK_TXT if self._iqc_on else WHITE), 0)
-        iqeb.set_style_bg_color(lv.color_hex(GREEN if self._iqc_on else PANEL2), 0)
+            lv.color_hex(DARK_TXT if effective else WHITE), 0)
+        iqeb.set_style_bg_color(lv.color_hex(GREEN if effective else PANEL2), 0)
         w["iqc_amp"].set_text("%.2f" % self._iqc_amp)
         w["iqc_phase"].set_text("%+.2f" % self._iqc_phase)
+        self._iqc_dirty = (bool(self.p.get("iqe")) != self._iqc_on or
+                           abs(float(self.p.get("iqa", 1.0)) - self._iqc_amp) > 0.00005 or
+                           abs(float(self.p.get("iqp", 0.0)) - self._iqc_phase) > 0.00005)
+        w["iqc_profile"].set_text("EDIT" if self._iqc_dirty else "SAVED")
+        w["iqc_profile"].set_style_text_color(
+            lv.color_hex(CYAN_RX if self._iqc_dirty else GRAY2), 0)
 
         # TESTER source/point and source-specific compact row.
         self._paint_tester()
@@ -3843,7 +4836,7 @@ class SdrApp:
         m = _KEEP.pop("pick_menu", None)
         if m:
             m[0].delete()
-        self._set_modal("settings" in _KEEP)
+        self._set_modal(("settings" in _KEEP) or ("gains_panel" in _KEEP))
 
     # ---- VFO -> hardware routing + CAL: full-screen ROUTE view (tap the VFO ----
     # ---- indicator / brand row). Level 2 of the 3-level nav: receiver -> route ----
@@ -3930,7 +4923,7 @@ class SdrApp:
                 self.p["rt"][ii] = (self.p["rt"][ii] + 1) % len(TARGETS)
                 lbl.set_text(TARGETS[self.p["rt"][ii]][0])
                 if ii == self.p["act"]:
-                    self._hw_pending = True   # active VFO moved to a different output
+                    self._queue_hw_config()   # active VFO moved to a different output
                 self.touch_params()
             b.add_event_cb(cyc, lv.EVENT.CLICKED, None)
             cbs.append(cyc)
@@ -3956,14 +4949,17 @@ class SdrApp:
         self._route_widgets["cal"] = cvl
 
         def cal_adj(e, d=0, lbl=cvl):
-            self.p["cal"] = round(self.p["cal"] + d, 2)
+            self.p["cal"] = round(min(max(self.p["cal"] + d,
+                                            CAL_PPM_MIN), CAL_PPM_MAX), 2)
             lbl.set_text("%.2f ppm" % self.p["cal"])
-            self._hw_pending = True    # re-program synth via the worker (no I2C here)
+            self._queue_hw_config()    # re-program synth via the worker (no I2C here)
             self.touch_params()
         for b, d in ((cm, -0.1), (cp, +0.1)):
             def cb(e, dd=d):
                 cal_adj(e, dd)
-            b.add_event_cb(cb, lv.EVENT.CLICKED, None)
+            # SHORT_CLICKED is suppressed after a long press; CLICKED is not and
+            # used to add one unwanted terminal 0.1-ppm step on release.
+            b.add_event_cb(cb, lv.EVENT.SHORT_CLICKED, None)
             b.add_event_cb(cb, lv.EVENT.LONG_PRESSED_REPEAT, None)
             cbs.append(cb)
 
@@ -4044,36 +5040,34 @@ class SdrApp:
         self._open_bottom_choices(4, STEPS, self.p["s"])
 
     def open_step_controls(self):
-        """Show the exact former tuning control in the shared bottom slot."""
-        self._mode_expanded = 3
-        self.ui.get("mode-bar").add_flag(lv.obj.FLAG.HIDDEN)
-        self.ui.get("tuning-row").remove_flag(lv.obj.FLAG.HIDDEN)
+        """Close the step selector and return to the permanent HOME controls."""
+        self._set_mode_bar(False)
 
     def open_filter_menu(self):
         self._open_bottom_choices(2, BW_CHOICES[self.p["m"]], self.cur_bw())
 
     def toggle_spectrum_view(self):
-        """Switch the left native panel SPEC <-> WF."""
+        """Cycle the left native panel SPEC -> WF -> OFF -> SPEC."""
         if not self._spec_native or not hasattr(self._spec_lcd, "spectrum"):
             return
-        new_view = 1 - self._spectrum_view
+        new_view = (self._spectrum_view + 1) % 3
         try:
             if self._spec_lcd.spectrum(new_view):
                 self._spectrum_view = new_view
                 self.ui.get("btn-mode-view").get_child(0).set_text(
-                    "WF" if new_view else "SPEC")
+                    ("SPEC", "WF", "OFF")[new_view])
         except Exception as e:
             self.be.err = "spectrum view: %r" % (e,)
 
     def toggle_scope_view(self):
-        """Switch the right native panel TIME trace <-> I/Q constellation."""
+        """Cycle the right native panel TIME -> I-Q -> OFF -> TIME."""
         if not self._spec_native or not hasattr(self._spec_lcd, "scope_view"):
             return
-        new_view = 1 - self._scope_view
+        new_view = (self._scope_view + 1) % 3
         try:
             if self._spec_lcd.scope_view(new_view):
                 self._scope_view = new_view
-                self.ui.get("scope-view").set_text("I-Q" if new_view else "TIME")
+                self.ui.get("scope-view").set_text(("TIME", "I-Q", "OFF")[new_view])
         except Exception as e:
             self.be.err = "scope view: %r" % (e,)
 
@@ -4093,10 +5087,23 @@ class SdrApp:
         if accept and self.entry:
             hz = self._entry_hz()
             if F_MIN <= hz <= F_MAX:
-                self.shift_spectrum(hz - self.p["f"])
-                self.p["f"] = hz
-                self._hw_pending = True
-                self.touch_params()
+                old = self.p["f"]
+                if self.be.running:
+                    # Nearby keypad entries can be selected immediately by NCO.  A
+                    # discontinuity stays pending and the HOME display remains on the
+                    # last achieved frequency until sdr_poll confirms the new LO.
+                    moved = False
+                    if (self._nco_enabled() and
+                            abs(int(hz) - self._lo_hz) < (IQ_RATE // 4)):
+                        moved = self._move_live_frequency(int(hz) - old)
+                    if not moved and int(hz) != self.p["f"]:
+                        self._queue_station_recenter(hz)
+                elif int(hz) != old:
+                    self.shift_spectrum(int(hz) - old)
+                    self._commit_current_frequency(hz)
+                    self._cancel_frequency_pending()
+                    self._lo_pending_hz = self._normal_lo_hz(hz)
+                    self._hw_pending = True
         self.entry = ""
         self.update_freq()
         lv.screen_load(self.ui.get("scr-receiver"))
@@ -4112,22 +5119,69 @@ class SdrApp:
             cbs.append(fn)
             return fn
 
-        add("btn-step-down", mk(lambda e: self.tune(-self.p["s"])))
-        add("btn-step-up",   mk(lambda e: self.tune(self.p["s"])))
-        add("btn-fine-down", mk(lambda e: self.fine(-max(self.p["s"] // 10, 1))))
-        add("btn-fine-up",   mk(lambda e: self.fine(max(self.p["s"] // 10, 1))))
-        add("step-display",  mk(lambda e: self._set_mode_bar(False)))
+        def repeat_button(name, op):
+            """One step on tap; native LVGL auto-repeat while held.
+
+            Do not combine CLICKED with LONG_PRESSED_REPEAT: LVGL also emits
+            CLICKED after a long press, which would add one unwanted terminal
+            step.  This one callback and its two booleans are allocated once at
+            wiring time; holding creates neither a Python timer nor callbacks.
+            """
+            state = [False, False]     # active press, at least one repeat emitted
+
+            def repeat_cb(e):
+                code = e.get_code()
+                if code == lv.EVENT.PRESSED:
+                    state[0] = True
+                    state[1] = False
+                elif code == lv.EVENT.LONG_PRESSED:
+                    if state[0]:
+                        op()
+                        state[1] = True
+                elif code == lv.EVENT.LONG_PRESSED_REPEAT:
+                    if state[0]:
+                        op()
+                        state[1] = True
+                elif code == lv.EVENT.RELEASED:
+                    if state[0] and not state[1]:
+                        op()
+                    state[0] = False
+                    state[1] = False
+                elif code == lv.EVENT.PRESS_LOST:
+                    state[0] = False
+                    state[1] = False
+
+            cb = mk(repeat_cb)
+            b = ui.get(name)
+            b.add_event_cb(cb, lv.EVENT.PRESSED, None)
+            b.add_event_cb(cb, lv.EVENT.LONG_PRESSED, None)
+            b.add_event_cb(cb, lv.EVENT.LONG_PRESSED_REPEAT, None)
+            b.add_event_cb(cb, lv.EVENT.RELEASED, None)
+            b.add_event_cb(cb, lv.EVENT.PRESS_LOST, None)
+
+        repeat_button("btn-step-down", lambda: self.tune(-self.p["s"]))
+        repeat_button("btn-step-up", lambda: self.tune(self.p["s"]))
+        repeat_button("btn-fine-down",
+                      lambda: self.fine(-max(self.p["s"] // 10, 1)))
+        repeat_button("btn-fine-up",
+                      lambda: self.fine(max(self.p["s"] // 10, 1)))
+        # The HOME summary opens three large choices in the same bottom slot.
+        add("step-display",  mk(lambda e: self.open_home_choices()))
         add("freq-digits", mk(lambda e: self.open_entry()))
         for k in (0, 1):
             def alt_cb(e, kk=k):
                 self.switch_vfo(self._alt[kk])
             add("vfo-alt-%d" % k, mk(alt_cb))
         def brand_cb(e):
-            if self._mode_expanded:
+            if "gains_panel" in _KEEP:
+                self.close_gains_panel()         # SDR RECEIVER exits inline gains
+            elif self._mode_expanded:
                 self._set_mode_bar(False)       # SDR RECEIVER exits any bottom control
             else:
                 self.open_route_menu()          # level 2: VFO routing + CAL + BACKEND button
-        add("brand-row", mk(brand_cb))
+        _brand_cb = mk(brand_cb)
+        add("brand-row", _brand_cb)
+        add("vfo-indicator", _brand_cb)         # clickable child otherwise consumes the tap
 
         def spec_cb(e):
             indev = lv.indev_active()
@@ -4138,13 +5192,21 @@ class SdrApp:
             a = lv.area_t()
             ui.get("spectrum-waterfall").get_coords(a)
             local_x = pt.x - a.x1
+            local_y = pt.y - a.y1
+            height = a.y2 - a.y1 + 1
             # The native surface is physically 256 px spectrum + 4 px gap +
             # 128 px right panel.  A left tap tunes; a right tap is the zero-widget
             # TIME/I-Q control.  This also fixes the former frequency mapping, which
             # incorrectly stretched the 256 spectrum pixels across all 388 pixels.
             if self._spec_native:
                 if 0 <= local_x < 256:
-                    self.spec_jump(local_x / 255.0)
+                    # The upper half is the zero-widget view selector.  The lower
+                    # half remains the direct station tuner even while the panel is
+                    # OFF, so stopping drawing never removes receiver navigation.
+                    if 0 <= local_y < height and local_y < (height // 2):
+                        self.toggle_spectrum_view()
+                    else:
+                        self.spec_jump(local_x / 255.0)
                 elif 260 <= local_x < 388:
                     self.toggle_scope_view()
             elif 0 <= local_x < 388:
@@ -4191,8 +5253,8 @@ class SdrApp:
             # update happen here. Stays on RELEASED/PRESS_LOST on purpose: VALUE_CHANGED ran a
             # Python event callback on every drag pixel (wrapper alloc + a repaint each), an
             # interactive garbage burst that storms GC.
-            # The collapsed slider adjusts whichever gain (RF/AF/AGC) is currently active,
-            # not always volume; _apply_gain routes AF through the deferred _vol_pending path.
+            # The permanent far-right slider controls the one item explicitly chosen
+            # by the inline panel's one-of checkbox group.
             v = ui.get("vol-slider").get_value()
             self._apply_gain(self._active_gain, v)
             _lo, _hi, _cur, fmt = self._gain_spec(self._active_gain)
@@ -4201,7 +5263,23 @@ class SdrApp:
         _vsl = ui.get("vol-slider")
         _vsl.add_event_cb(_volcb, lv.EVENT.RELEASED, None)
         _vsl.add_event_cb(_volcb, lv.EVENT.PRESS_LOST, None)
-        add("vol-header", mk(lambda e: self.toggle_gains_panel()))
+        # VOL and its numeric value are child labels which occupy practically the
+        # complete header.  Bind the same callback to all three possible event
+        # targets; no EVENT_BUBBLE means one physical tap can toggle only once.
+        _gain_toggle_cb = mk(lambda e: self.toggle_gains_panel())
+        for _name in ("vol-header", "vol-label", "vol-value"):
+            add(_name, _gain_toggle_cb)
+
+        def gain_pin_cb(e):
+            # One shared checkbox, in the normal value position.  Moving a large
+            # slider chooses the candidate; checking here pins that candidate as
+            # the one permanent far-right control after the panel is closed.
+            if "gains_panel" not in _KEEP:
+                return
+            if self._gain_available(self._gain_candidate):
+                self._active_gain = self._gain_candidate
+            self._paint_gain_pin()
+        add("gain-pin", mk(gain_pin_cb))
 
         add("agc-pill", mk(lambda e: self.open_agc_menu()))
 
@@ -4251,9 +5329,16 @@ class SdrApp:
                         self._set_scroll_idle += 1
                         if self._set_scroll_idle >= 10:  # 1-s lost-release fail-safe
                             self._end_verify_scroll_gate()
+                if self._rf_restart_pending:
+                    # PGA mode/gain cannot change while ADC scan is active. Perform
+                    # one deliberate stop/reconstruct/start here, outside the touch
+                    # callback. The saved mode/code enter the IQADC constructor.
+                    self._rf_restart_pending = False
+                    if self.be.running:
+                        self.stop_rx()
+                        self.start_rx()
                 if self._hw_pending:
-                    self._hw_pending = False
-                    self.hw_tune()          # the ONLY place Si5351 I2C happens
+                    self._apply_hw_pending()  # the ONLY place Si5351 I2C happens
                 if self._vol_pending:
                     self._vol_pending = False
                     self.be.set_volume(self.p["v"])   # coalesced from the drag
@@ -4307,13 +5392,12 @@ def start():
             except Exception:
                 pass
         had_gains = "gains_panel" in _KEEP
+        if had_gains:
+            old_app.close_gains_panel()
         for key in ("settings", "route_menu", "gains_panel"):
             _KEEP.pop(key, None)
         old_app._drop_settings_screen()
         old_app._drop_route_screen()
-        if had_gains:
-            old_app._gain_vlbls = {}
-            old_app._bind_active_slider()
         if old_app._mode_expanded:
             old_app._set_mode_bar(False)
         old_app._set_modal(False)
@@ -4325,11 +5409,10 @@ def start():
             lv.refr_now(dd)
         return old_app
 
-    # Cold/soft-reset build path.  _KEEP is a module global that survives a soft
-    # restart, so transient nav/overlay open-flags can outlive the widget trees they
-    # referred to.  A stale "settings" flag makes open_settings() short-circuit
-    # (BACKEND looks dead), so clear the transient open-flags before rebuilding.  The
-    # widget trees they pointed at are gone with the old UI; only the flags linger.
+    # Fresh-build path. A real MicroPython soft reset re-imports this module and
+    # recreates _KEEP. Clearing transient flags here instead protects a partial or
+    # manually repeated build in the same VM, where widget construction may have
+    # failed after publishing an open-flag.
     # Do NOT touch the hardware/loop handles (lcd, loop, dd, ui, app, vs_lcd, vs_cb,
     # sdr_poll, cbs, blink).
     for _k in ("settings", "route_menu", "pick_menu", "gains_panel"):
