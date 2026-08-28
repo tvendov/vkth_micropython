@@ -25,8 +25,11 @@ class RenesasRaPin(boardgen.Pin):
         # so this needs to be validated.
         assert len(adc) == 5 and (adc.startswith("AN0") or adc.startswith("AN1"))
         self._adc_name = adc
-        self._adc_bit = 12
-        self._adc_channel = int(adc[2:])
+        self._adc_bits = 12
+        channel = int(adc[2:])
+        # The RA ADC driver uses one flat channel number space: ADC0 is 0..31
+        # and AN100..AN131 on ADC1 are encoded as 32..63.
+        self._adc_channel = channel if channel < 100 else 32 + channel - 100
 
     # Called for each AF defined in the csv file for this pin.
     def add_af(self, af_idx, af_name, af):

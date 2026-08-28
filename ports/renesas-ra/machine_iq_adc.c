@@ -36,6 +36,9 @@
 #include "pin.h"
 #include "ra/ra_adc.h"
 #include "ra/ra_iq_adc.h"
+#if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
+#include "ra/ra_storm_adc.h"
+#endif
 #include "ra/ra_timer.h"
 #include "ra/ra_sdr_caps.h"
 
@@ -304,6 +307,12 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
         self->active = false;
     }
 
+    #if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
+    if (ra_storm_adc_owns_adc()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+    #endif
+
     self->base.type = &machine_iqadc_type;
     self->i_pin = ip->pin;
     self->q_pin = qp->pin;
@@ -464,25 +473,60 @@ static mp_obj_t machine_iqadc_dsp_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_dsp_status_obj, machine_iqadc_dsp_status);
 
-/* timing() -> per-block DSP cycle budget.  block_cyc = cpu_hz*block/rate; the DSP
- * (dsp_process + demod_produce) must fit inside that.  Control-plane. */
+/* timing() -> legacy since-start counters plus a coherent 500-ms live window.
+ * block_cyc is the configured contract; observed_block_cyc uses the window's real
+ * elapsed time and block count, so avg_pct/peak_pct remain truthful when measured
+ * hardware block cadence differs from rate/block.  Control-plane. */
 static mp_obj_t machine_iqadc_timing(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t last_cyc, max_cyc, avg_cyc, cpu_hz;
     ra_iq_adc_get_timing(&last_cyc, &max_cyc, &avg_cyc, &cpu_hz);
+    ra_iq_timing_window_t window;
+    ra_iq_adc_get_timing_window(&window);
 
     uint32_t block_cyc = (self->rate != 0U)
         ? (uint32_t)(((uint64_t)cpu_hz * self->block) / self->rate) : 0U;
     mp_float_t max_pct = (block_cyc != 0U)
         ? ((mp_float_t)max_cyc * (mp_float_t)100.0 / (mp_float_t)block_cyc) : (mp_float_t)0.0;
 
-    mp_obj_t d = mp_obj_new_dict(6);
+    uint32_t observed_block_cyc = 0U;
+    uint32_t window_avg_pct = 0U;
+    uint32_t window_peak_pct = 0U;
+    if (window.valid && (window.window_blocks != 0U) && (window.window_ms != 0U)) {
+        uint64_t divisor = (uint64_t)1000U * window.window_blocks;
+        observed_block_cyc = (uint32_t)
+            ((((uint64_t)cpu_hz * window.window_ms) + (divisor >> 1)) / divisor);
+        if (observed_block_cyc != 0U) {
+            window_avg_pct = (uint32_t)((((uint64_t)window.avg_cyc * 100U) +
+                (observed_block_cyc >> 1)) / observed_block_cyc);
+            window_peak_pct = (uint32_t)((((uint64_t)window.peak_cyc * 100U) +
+                (observed_block_cyc >> 1)) / observed_block_cyc);
+        }
+    }
+
+    mp_obj_t d = mp_obj_new_dict(16);
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_last_cyc), mp_obj_new_int(last_cyc));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_max_cyc), mp_obj_new_int(max_cyc));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_avg_cyc), mp_obj_new_int(avg_cyc));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_block_cyc), mp_obj_new_int(block_cyc));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_cpu_hz), mp_obj_new_int(cpu_hz));
     mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_max_pct), mp_obj_new_float(max_pct));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_valid),
+        mp_obj_new_bool(window.valid != 0U));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_seq), mp_obj_new_int(window.window_seq));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_ms), mp_obj_new_int(window.window_ms));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_blocks),
+        mp_obj_new_int(window.window_blocks));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_generation),
+        mp_obj_new_int(window.generation));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_avg_cyc),
+        mp_obj_new_int(window.avg_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_window_peak_cyc),
+        mp_obj_new_int(window.peak_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_observed_block_cyc),
+        mp_obj_new_int(observed_block_cyc));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_avg_pct), mp_obj_new_int(window_avg_pct));
+    mp_obj_dict_store(d, MP_ROM_QSTR(MP_QSTR_peak_pct), mp_obj_new_int(window_peak_pct));
     return d;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_timing_obj, machine_iqadc_timing);
@@ -863,7 +907,11 @@ static mp_obj_t machine_iqadc_pga_gain(size_t n_args, const mp_obj_t *args) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (!self->active) { mp_raise_OSError(MP_ENODEV); }
     if (n_args >= 2) {
-        ra_iq_adc_set_pga_gain((uint8_t)mp_obj_get_int(args[1]));   // app clamps 0..14
+        if (!ra_iq_adc_set_pga_gain((uint8_t)mp_obj_get_int(args[1]))) {
+            /* ADPGAGS cannot be changed while ADC scanning is active.  Never
+             * return the old code as if a requested live write had succeeded. */
+            mp_raise_OSError(MP_EBUSY);
+        }
     }
     uint8_t code = 0;
     (void)ra_iq_adc_get_pga_gain(&code);
@@ -1128,7 +1176,8 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_scope_obj, 1, 2, machin
 
 /* spectrum_bars(buf) -> int|None.  Allocation-free UI spectrum: buf is a caller
  * array('h', N); the pre-NCO capture FFT is shifted by the current tune offset, then
- * reduced 256->N, dB-scaled, and attack/release smoothed in C, filling buf with
+ * reduced 512->N with finite-edge clipping, dB-scaled, and attack/release
+ * smoothed in C, filling buf with
  * int16 heights 0..50.  Returns N
  * when a fresh snapshot was written, else
  * None.  No MicroPython object is allocated -- safe to call in the zero-alloc loop. */

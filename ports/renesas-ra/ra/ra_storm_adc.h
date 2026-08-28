@@ -24,6 +24,8 @@ typedef struct {
 } ra_storm_adc_status_t;
 
 bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_samples);
+/* True while AudioADC owns any ADC0/trigger resource, including partial init. */
+bool ra_storm_adc_owns_adc(void);
 void ra_storm_adc_deinit(void);
 bool ra_storm_adc_deinit_checked(void);
 bool ra_storm_adc_start(void);

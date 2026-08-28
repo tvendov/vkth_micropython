@@ -315,13 +315,13 @@ void ra_adc_set_pin(uint32_t pin, bool adc_enable) {
     uint32_t bit = GPIO_BIT(pin);
     uint32_t pfs = _PXXPFS(port, bit);
     pwpr_unprotect();
+    /* Analog inputs must not retain GPIO/peripheral settings from an earlier
+     * owner.  In particular, pull-up and input-IRQ state can corrupt a small
+     * external signal even after ASEL is asserted. */
+    pfs &= ~(PMR_MASK | PDR_MASK | PCR_MASK | ISEL_MASK | NCODR_MASK | PSEL_MASK);
     if (adc_enable) {
-        pfs &= ~PMR_MASK; /* GPIO */
-        pfs &= ~PDR_MASK; /* input */
         pfs |= ASEL_MASK; /* set adc bit */
     } else {
-        pfs |= PMR_MASK;   /* GPIO */
-        pfs &= ~PDR_MASK;  /* input */
         pfs &= ~ASEL_MASK; /* clear adc bit */
     }
     _PXXPFS(port, bit) = pfs;
@@ -796,6 +796,50 @@ static bool ra_adc_pga_unit_has_diff(R_ADC0_Type *reg, uint8_t except_idx) {
     return false;
 }
 
+/* PnDEN is a unit-wide constraint on RA6M3: direct ADC input on AN007/AN107
+ * requires all three PGA differential-enable bits of that ADC unit to be 0.
+ * Once the last differential amplifier is gone, clear the entire low 12-bit
+ * field instead of leaving stale PnDEN bits on inactive channels. */
+static void ra_adc_pga_clear_unit_diff(R_ADC0_Type *reg) {
+    uint8_t i;
+    for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
+        ra_adc_pga_nibble(&reg->ADPGADCR0, i, 0x0U);
+    }
+}
+
+bool ra_adc_pga_prepare_direct_ch(uint8_t ch) {
+    R_ADC0_Type *reg;
+    uint8_t unit_ch;
+    uint8_t i;
+
+    if (ch >= (2U * ADC_CHANNELS_PER_UNIT)) {
+        return true; /* Internal channels do not use the external PGA path. */
+    }
+    unit_ch = (uint8_t)(ch % ADC_CHANNELS_PER_UNIT);
+    if ((unit_ch >= RA_ADC_PGA_CH_PER_UNIT) && (unit_ch != 7U)) {
+        return true; /* Channel is outside the PGA/PGAVSS pin group. */
+    }
+
+    reg = ra_adc_reg_for_channel(ch);
+    if (reg->ADCSR_b.ADST) {
+        return false;
+    }
+    ra_adc_pga_module_start(ch);
+
+    /* A standalone ADC object must not inherit another object's amplifier or
+     * differential routing.  Normalize the complete three-amplifier unit. */
+    for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
+        ra_adc_pga_nibble(&reg->ADPGACR, i, 0x0U);
+        ra_adc_pga_nibble(&reg->ADPGAGS0, i, 0x0U);
+    }
+    ra_adc_pga_clear_unit_diff(reg);
+
+    if (unit_ch < RA_ADC_PGA_CH_PER_UNIT) {
+        ra_adc_pga_nibble(&reg->ADPGACR, unit_ch, RA_ADC_PGA_ACR_BYPASS);
+    }
+    return true;
+}
+
 bool ra_adc_pga_supported_ch(uint8_t ch) {
     R_ADC0_Type *reg;
     uint8_t idx;
@@ -832,14 +876,14 @@ bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code)
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, 0x0U);
             /* Leave PnDEN alone while another amplifier of the unit is differential. */
             if (!ra_adc_pga_unit_has_diff(reg, idx)) {
-                ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+                ra_adc_pga_clear_unit_diff(reg);
             }
             return true;
 
         case RA_ADC_PGA_BYPASS:
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, 0x0U);
             if (!ra_adc_pga_unit_has_diff(reg, idx)) {
-                ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+                ra_adc_pga_clear_unit_diff(reg);
             }
             ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_BYPASS);
             return true;
@@ -854,7 +898,7 @@ bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code)
             /* Table 47.14 note 4: with differential input disabled the associated
              * PGAVSS pin still needs ASEL = 1 and must be wired to AVSS0 on the board. */
             ra_adc_set_pin(ra_adc_pga_pgavss_pin(ch), true);
-            ra_adc_pga_nibble(&reg->ADPGADCR0, idx, 0x0U);
+            ra_adc_pga_clear_unit_diff(reg);
             ra_adc_pga_nibble(&reg->ADPGAGS0, idx, gain_code);
             ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_AMP);
             return true;

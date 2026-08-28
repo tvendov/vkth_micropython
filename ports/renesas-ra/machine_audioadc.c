@@ -11,6 +11,9 @@
 #include "py/mphal.h"
 #include "py/binary.h"
 #include "pin.h"
+#if defined(MICROPY_HW_ENABLE_IQ_ADC) && MICROPY_HW_ENABLE_IQ_ADC
+#include "ra/ra_iq_adc.h"
+#endif
 #include "ra/ra_storm_adc.h"
 
 /* ------------------------------------------------------------------ */
@@ -78,6 +81,12 @@ static mp_obj_t machine_audioadc_make_new(const mp_obj_type_t *type,
         }
         self->active = false;
     }
+
+    #if defined(MICROPY_HW_ENABLE_IQ_ADC) && MICROPY_HW_ENABLE_IQ_ADC
+    if (ra_iq_adc_owns_adc()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+    #endif
 
     self->base.type = &machine_audioadc_type;
     self->pin   = pin->pin;

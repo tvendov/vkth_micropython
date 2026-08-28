@@ -66,6 +66,10 @@ typedef enum {
  * and RA_ADC_PGA_OFF is rejected because ADC12 does not work in that state. */
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     size_t block_samples, ra_adc_pga_mode_t pga_mode, uint8_t pga_gain);
+/* True while IQADC owns any shared ADC/trigger resource, including a partially
+ * constructed instance, until checked deinit releases it.  While true, the
+ * ordinary machine.ADC path must not rewrite ADC0/ADC1 scan registers. */
+bool ra_iq_adc_owns_adc(void);
 const char *ra_iq_adc_init_error_name(void);
 void ra_iq_adc_deinit(void);
 bool ra_iq_adc_deinit_checked(void);
@@ -96,10 +100,26 @@ typedef struct {
 void ra_iq_adc_get_dsp_status(ra_iq_dsp_status_t *status);
 
 /* Per-block DSP processing time (dsp_process + demod_produce) measured with the DWT
- * cycle counter.  avg is over all blocks since start(); cpu_hz is SystemCoreClock so
- * the caller can turn cycles into a fraction of the block period.  Control-plane. */
+ * cycle counter.  The legacy max/avg values cover all blocks since start(); cpu_hz is
+ * SystemCoreClock.  Control-plane. */
 void ra_iq_adc_get_timing(uint32_t *last_cyc, uint32_t *max_cyc, uint32_t *avg_cyc,
     uint32_t *cpu_hz);
+
+/* Completed rolling timing window.  The ISR accumulates one bounded window for at
+ * least 500 ms, then publishes one coherent snapshot.  A DSP configuration change
+ * invalidates the published generation until a clean post-change window completes.
+ * window_seq advances only for a completed valid window. */
+typedef struct {
+    uint32_t avg_cyc;
+    uint32_t peak_cyc;
+    uint32_t window_ms;
+    uint32_t window_blocks;
+    uint32_t window_seq;
+    uint32_t generation;
+    uint32_t valid;
+} ra_iq_timing_window_t;
+
+void ra_iq_adc_get_timing_window(ra_iq_timing_window_t *window);
 
 /* Hybrid CMSIS-DSP stage 1: select the x2 decimation kernel.  0 = hand integer
  * half-band FIR (default, fallback), 1 = CMSIS arm_fir_decimate_q15.  Same symmetric
@@ -371,11 +391,21 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);
  * returned by ra_iq_adc_spectrum_frame(). */
 bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
     int32_t shift_bins, int16_t *out, size_t nbars, int16_t max_h);
-/* Consume one fresh FFT snapshot and expose the existing internal magnitude buffer
- * plus a stable raw I/Q foreground snapshot to a synchronous native display consumer.
- * No buffer is allocated; all returned pointers remain valid until the next spectrum
- * call.  ref_peak and shift_bins describe the same tuned-centre scaling used by
- * spectrum_bars(). */
+/* Consume one fresh final-complex post-CHF/OUT snapshot without consuming or
+ * calculating an FFT frame.  Returned pointers remain stable until the next
+ * constellation or spectrum frame claim. */
+bool ra_iq_adc_constellation_frame(const int16_t **i_samples,
+    const int16_t **q_samples, size_t *sample_count);
+/* Gate the independent final-complex constellation producer.  Each transition
+ * starts from an empty 64-point frame so OFF/paused data cannot leak on resume. */
+void ra_iq_adc_constellation_enable(uint8_t on);
+/* Consume one fresh FFT panorama and expose the existing internal magnitude buffer.
+ * The optional I/Q pointers deliberately come from an independent final-complex
+ * post-CHF/OUT snapshot, so the constellation remains stage-5/DAC truth even when the
+ * panorama is captured pre-NCO for horizontal tuning.  No buffer is allocated; all
+ * returned pointers remain valid until the next corresponding frame claim.  Passing
+ * all three I/Q outputs as NULL leaves the constellation frame unconsumed.  ref_peak
+ * and shift_bins describe the tuned-centre panorama scaling used by spectrum_bars(). */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
     int32_t *shift_bins, const int16_t **i_samples, const int16_t **q_samples,
     size_t *sample_count);

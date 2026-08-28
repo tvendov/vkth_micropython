@@ -339,6 +339,11 @@ typedef enum {
 bool ra_adc_pga_supported_ch(uint8_t ch);
 bool ra_adc_pga_supported(uint32_t pin);
 
+/* Normalize a standalone ADC channel to the direct (non-amplified) path.
+ * This also handles AN007/AN107, whose validity depends on all three PnDEN
+ * bits of the associated ADC unit being clear. */
+bool ra_adc_pga_prepare_direct_ch(uint8_t ch);
+
 /* Configure path and gain in one step.  gain_code is a ra_adc_pga_gain_t for
  * RA_ADC_PGA_SINGLE, a ra_adc_pga_diff_gain_t for RA_ADC_PGA_DIFFERENTIAL and
  * ignored otherwise.  Fails if the channel has no PGA or a scan is running. */

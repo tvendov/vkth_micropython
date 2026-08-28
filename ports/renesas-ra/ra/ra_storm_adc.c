@@ -4,6 +4,9 @@
 #include "r_adc.h"
 #include "r_dtc.h"
 #include "ra_adc.h"
+#if defined(MICROPY_HW_ENABLE_IQ_ADC) && MICROPY_HW_ENABLE_IQ_ADC
+#include "ra_iq_adc.h"
+#endif
 #include "ra_storm_adc.h"
 #include "ra_timer.h"
 #include "ra_utils.h"
@@ -136,6 +139,12 @@ bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_sampl
     if (!ra_adc_pin_to_ch(pin, &adc_ch)) {
         return false;
     }
+    #if defined(MICROPY_HW_ENABLE_IQ_ADC) && MICROPY_HW_ENABLE_IQ_ADC
+    /* ADC0 registers and ADC0_SCAN_END are shared with coherent IQADC. */
+    if (ra_iq_adc_owns_adc()) {
+        return false;
+    }
+    #endif
     if (!ra_storm_reserve_timer(&timer_ch)) {
         return false;
     }
@@ -228,6 +237,12 @@ bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_sampl
     s_storm_adc.elc_enabled = true;
     s_storm_status.initialised = 1U;
     return true;
+}
+
+bool ra_storm_adc_owns_adc(void) {
+    return (s_storm_status.initialised != 0U) || s_storm_adc.opened ||
+        s_storm_adc.dtc_open || s_storm_adc.timer_reserved ||
+        s_storm_adc.pin_enabled || s_storm_adc.elc_enabled;
 }
 
 bool ra_storm_adc_deinit_checked(void) {
