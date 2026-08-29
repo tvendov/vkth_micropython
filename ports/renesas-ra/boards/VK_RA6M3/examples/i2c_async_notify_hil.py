@@ -85,8 +85,57 @@ print("PASS polling_compat", "heartbeat", poll_heartbeat)
 transfer.irq(record_completion)
 require(transfer.irq() is record_completion, "completion handler was not retained")
 
+# MLX status clear is a safe four-byte write and exercises the complete TX DTC
+# path: CPU sends the address, DTC sends every payload byte, TEI ends the write.
+mlx_clear_command = bytearray((0x80, 0x00, 0x00, 0x30))
+reset_event()
+transfer.writefrom(MLX_ADDRESS, mlx_clear_command, timeout_ms=100)
+write_heartbeat = wait_for_events(1)
+require(event_count == 1, "write callback missing")
+require(event_result == len(mlx_clear_command), "wrong write result")
+write_stats = transfer.stats()
+require(write_stats[4] <= 3, "MLX write entered TXI too many times")
+require(write_stats[5] == 1, "MLX write did not use one DTC transfer")
+require(write_stats[6] == len(mlx_clear_command), "wrong MLX TX DTC byte count")
+require(write_stats[7] == 0, "MLX TX DTC path fell back to byte interrupts")
+print("PASS write_dtc", "bytes", event_result, "heartbeat", write_heartbeat,
+      "stats", write_stats)
+
+# A DTC write followed by an async read with repeated START proves that the
+# completion message can advance a combined transaction without polling.
+combined_state = [0, 0, 0]
+status_pointer = bytearray((0x80, 0x00))
+status_buffer = bytearray(2)
+
+
+def combined_completion(done_transfer):
+    result = done_transfer.result()
+    if combined_state[0] == 0:
+        combined_state[1] = result
+        combined_state[0] = 1
+        done_transfer.readinto(MLX_ADDRESS, status_buffer, True, 100)
+    else:
+        combined_state[2] = result
+        combined_state[0] = 2
+
+
+transfer.irq(combined_completion)
+transfer.writefrom(MLX_ADDRESS, status_pointer, False, 100)
+combined_deadline = time.ticks_add(time.ticks_ms(), 500)
+combined_heartbeat = 0
+while combined_state[0] < 2 and time.ticks_diff(combined_deadline, time.ticks_ms()) > 0:
+    combined_heartbeat += 1
+    time.sleep_ms(1)
+require(combined_state[0] == 2, "combined write/read did not complete")
+require(combined_state[1] == 2 and combined_state[2] == 2,
+        "combined write/read returned a wrong result")
+print("PASS combined", "write", combined_state[1], "read", combined_state[2],
+      "heartbeat", combined_heartbeat)
+
+transfer.irq(record_completion)
+
 # A full MLX RAM read proves that Python continues to run while RIIC receives
-# bytes under interrupt control.
+# bytes under DTC control.
 mlx_pointer = bytearray((0x04, 0x00))
 mlx_buffer = bytearray(1664)
 reset_event()
@@ -206,8 +255,14 @@ heap_state = [0, 0]
 
 
 def heap_locked_completion(done_transfer):
-    heap_state[1] = done_transfer.result()
-    heap_state[0] += 1
+    result = done_transfer.result()
+    if heap_state[0] == 0:
+        heap_state[1] = result
+        heap_state[0] = 1
+        done_transfer.readinto(AMG_ADDRESS, chain_buffer, True, 100)
+    else:
+        heap_state[1] += result
+        heap_state[0] = 2
 
 
 transfer.irq(heap_locked_completion)
@@ -216,10 +271,9 @@ heap_heartbeat = 0
 heap_timed_out = False
 micropython.heap_lock()
 try:
-    i2c.writeto(AMG_ADDRESS, chain_pointer, False)
-    transfer.readinto(AMG_ADDRESS, chain_buffer, timeout_ms=100)
+    transfer.writefrom(AMG_ADDRESS, chain_pointer, False, 100)
     heap_deadline = time.ticks_add(time.ticks_ms(), 500)
-    while heap_state[0] == 0:
+    while heap_state[0] < 2:
         if time.ticks_diff(heap_deadline, time.ticks_ms()) <= 0:
             heap_timed_out = True
             break
@@ -229,12 +283,13 @@ finally:
     heap_depth = micropython.heap_unlock()
 
 require(not heap_timed_out, "heap-lock callback timed out")
-require(heap_state[0] == 1 and heap_state[1] == 2,
+require(heap_state[0] == 2 and heap_state[1] == 3,
         "heap-lock callback returned a wrong result")
 time.sleep_ms(20)
-require(heap_state[0] == 1, "heap-lock callback was delivered more than once")
+require(heap_state[0] == 2, "heap-lock callback was delivered more than once")
 require(heap_depth == 0, "heap lock depth was not restored")
-print("PASS heap_lock", "callbacks", heap_state[0], "heartbeat", heap_heartbeat)
+print("PASS heap_lock_chain", "callbacks", heap_state[0],
+      "result_sum", heap_state[1], "heartbeat", heap_heartbeat)
 
 # Stock asyncio proves the desired LEGO-like behavior: the transfer task waits
 # for a message while an unrelated heartbeat task keeps making progress.

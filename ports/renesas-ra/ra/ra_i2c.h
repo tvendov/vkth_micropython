@@ -87,6 +87,10 @@ typedef struct {
     volatile uint32_t m_dtc_transfer_count;
     volatile uint32_t m_dtc_bytes;
     volatile uint32_t m_dtc_fallback_count;
+    volatile uint32_t m_txi_irq_count;
+    volatile uint32_t m_dtc_tx_transfer_count;
+    volatile uint32_t m_dtc_tx_bytes;
+    volatile uint32_t m_dtc_tx_fallback_count;
 } xaction_t;
 
 typedef enum {

@@ -161,3 +161,36 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - The measured cancel call returned in `204 us` while DTC was active; the autonomous timeout callback arrived in about `843 us`.
 - Final I2C scan: `[0x33, 0x47, 0x68]`.
 - Milestone status: **hardware validated** for DTC-backed RIIC receive and deferred completion notification on both thermal sensor frame sizes.
+
+## 2026-08-29 17:32 +03:00 - Bidirectional DTC RIIC transport, build 8
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Reason for the change: RX already used DTC, but master writes still entered TXI once per payload byte. The transport is now symmetric so sensor register pointers, commands and future long writes use DTC as well.
+- Master transmit sequence: the first CPU TXI arms DTC immediately before sending the slave address; DTC then loads every payload byte into fixed destination `ICDRT`; the final TXI advances the existing TEI/STOP or repeated-START state machine.
+- The implementation follows the Renesas FSP master timing and uses the slave-I2C DTC code only to confirm source/destination direction (`incrementing RAM -> fixed ICDRT`).
+- New API: `I2CAsync.writefrom(address, buffer, stop=True, timeout_ms=...)` uses the same static action, timeout, rooted buffer and exactly-once completion callback as `readinto()`.
+- `I2CAsync.stats()` now returns eight values: `(rxi_irq_count, rx_dtc_transfers, rx_dtc_bytes, rx_fallbacks, txi_irq_count, tx_dtc_transfers, tx_dtc_bytes, tx_fallbacks)`.
+- HIL additions prepared in `examples/i2c_async_notify_hil.py`: four-byte MLX status-clear DTC write, callback-driven write/repeated-START/read, and a complete write/read callback chain while the MicroPython heap is locked.
+- Result: **SUCCESS** (`make` exit code 0).
+- Generated API check: `MP_QSTR_writefrom` is present; both asynchronous buffer and callback roots remain present in `root_pointers.h`.
+- Link report: `text=1415204`, `data=0`, `bss=647596`, total `2062800` bytes.
+- `firmware.bin`: 1,415,188 bytes; SHA-256 `aeab69ac401a5d743f71927c3a5bd6a5b782621eafaf9120939afe291fb7b7d3`.
+- `firmware.hex`: 3,980,696 bytes; SHA-256 `4774efb870060525b4ba83884ed0e174ba00daca43f7b764b49b38e72b1635fa`.
+- `firmware.elf`: 15,612,224 bytes; SHA-256 `0aa43f7d79885f3fe03c63e143ca5fc2cbeedad0f0b2e05afca1a8b27d7a7b72`.
+- Flash status: not yet flashed at this point. Build success does not prove TX DTC activation or repeated-START behavior.
+- Next action: separate visible J-Link reset, program and independent verify, then run the full bidirectional DTC HIL matrix.
+
+### Build 8 flash and bidirectional DTC hardware validation
+
+- A separate visible J-Link reset completed with exit code 0 before programming and reported two normal Cortex-M4 reset operations.
+- The following visible programming session completed with exit code 0 and reported `Program & Verify` for build 8.
+- An independent visible `verifybin` session read and compared exactly 1,415,188 bytes from `0x00000000` and completed with exit code 0. Its temporary command file was removed afterward.
+- Four-byte MLX status-clear write: callback result `4`, one heartbeat iteration, and stats `(0, 0, 0, 0, 3, 1, 4, 0)`. DTC transferred every payload byte with no fallback; CPU TXI entries are bounded address/completion events rather than one interrupt per payload byte.
+- Combined MLX transaction: DTC write of the two-byte status pointer with `stop=False`, deferred callback, repeated START, and asynchronous two-byte read all completed correctly (`write=2`, `read=2`) without polling.
+- MLX90640 1664-byte read remained correct: callback result `1664`, about `34.044 ms`, `35` heartbeat iterations, and RX stats `(5, 1, 1661, 0)`.
+- AMG8833 128-byte read remained correct: callback result `128`, `4` heartbeat iterations, and RX stats `(5, 1, 125, 0)`.
+- The complete DTC write/repeated-START/read chain completed under `micropython.heap_lock()` with two callbacks, correct result sum `3`, one heartbeat iteration, and restored lock depth `0`.
+- Polling compatibility, exactly-once callback chaining, NACK (`19`), cancel (`125`), 1 ms timeout (`110`), stock-asyncio message flow and the expected stock-asyncio allocation gate all passed.
+- Measured cancel return: `41 us`; measured autonomous timeout callback arrival: about `810 us`.
+- Final I2C scan: `[0x33, 0x47, 0x68]`.
+- Milestone status: **hardware validated** for bidirectional DTC-backed RIIC transport, repeated START chaining, deferred notification and heap-locked execution.

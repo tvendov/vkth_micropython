@@ -244,11 +244,12 @@ typedef struct {
     bool active;
     bool completion_irq_pending;
     uint8_t channel;
-} ra_i2c_master_rx_dtc_t;
+} ra_i2c_master_dtc_t;
 
 // RIIC master transactions are serialized by current_xaction, so one static
-// DTC descriptor is sufficient for all channels.
-static ra_i2c_master_rx_dtc_t master_rx_dtc;
+// RX descriptor and one TX descriptor are sufficient for all channels.
+static ra_i2c_master_dtc_t master_rx_dtc;
+static ra_i2c_master_dtc_t master_tx_dtc;
 static uint8_t pclk_div[8] = {
     1, 2, 4, 8, 16, 32, 64, 128
 };
@@ -366,6 +367,102 @@ static bool ra_i2c_master_rx_dtc_finish_irq(void) {
     }
 
     ra_i2c_master_rx_dtc_close();
+    return true;
+}
+
+static void ra_i2c_master_tx_dtc_close(void) {
+    if (master_tx_dtc.open) {
+        (void)R_DTC_Close((transfer_ctrl_t *)&master_tx_dtc.ctrl);
+    }
+    master_tx_dtc.open = false;
+    master_tx_dtc.active = false;
+    master_tx_dtc.completion_irq_pending = false;
+}
+
+static bool ra_i2c_master_tx_dtc_prepare(R_IIC0_Type *i2c_inst, xaction_t *action) {
+    ra_i2c_master_tx_dtc_close();
+
+    if (i2c_inst == NULL || action == NULL || action->m_num_of_units == 0) {
+        return false;
+    }
+
+    xaction_unit_t *unit = action->units;
+    if (unit->m_fread || unit->m_bytes_total == 0 || unit->m_bytes_total > UINT16_MAX) {
+        return false;
+    }
+
+    uint32_t channel = R_IIC0_Type_to_ch(i2c_inst);
+    if (ra_i2c_ch_to_txirq[channel] == VECTOR_NUMBER_NONE) {
+        action->m_dtc_tx_fallback_count++;
+        return false;
+    }
+
+    memset(&master_tx_dtc, 0, sizeof(master_tx_dtc));
+    master_tx_dtc.channel = (uint8_t)channel;
+    master_tx_dtc.info.transfer_settings_word = 0;
+    master_tx_dtc.info.transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_FIXED;
+    master_tx_dtc.info.transfer_settings_word_b.repeat_area = TRANSFER_REPEAT_AREA_SOURCE;
+    master_tx_dtc.info.transfer_settings_word_b.irq = TRANSFER_IRQ_END;
+    master_tx_dtc.info.transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_DISABLED;
+    master_tx_dtc.info.transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED;
+    master_tx_dtc.info.transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+    master_tx_dtc.info.transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+    master_tx_dtc.info.p_src = unit->buf;
+    master_tx_dtc.info.p_dest = (void *)&i2c_inst->ICDRT;
+    master_tx_dtc.info.num_blocks = 0;
+    master_tx_dtc.info.length = 1;
+    master_tx_dtc.extend.activation_source = (IRQn_Type)ra_i2c_ch_to_txirq[channel];
+    master_tx_dtc.cfg.p_info = &master_tx_dtc.info;
+    master_tx_dtc.cfg.p_extend = &master_tx_dtc.extend;
+
+    fsp_err_t error = R_DTC_Open(
+        (transfer_ctrl_t *)&master_tx_dtc.ctrl, &master_tx_dtc.cfg);
+    if (error != FSP_SUCCESS) {
+        action->m_dtc_tx_fallback_count++;
+        memset(&master_tx_dtc, 0, sizeof(master_tx_dtc));
+        return false;
+    }
+
+    master_tx_dtc.open = true;
+    return true;
+}
+
+static bool ra_i2c_master_tx_dtc_arm(
+    R_IIC0_Type *i2c_inst, xaction_t *action, xaction_unit_t *unit) {
+    if (!master_tx_dtc.open || master_tx_dtc.active ||
+        master_tx_dtc.channel != R_IIC0_Type_to_ch(i2c_inst)) {
+        return false;
+    }
+
+    uint16_t transfer_count = (uint16_t)unit->m_bytes_total;
+    fsp_err_t error = R_DTC_Reset(
+        (transfer_ctrl_t *)&master_tx_dtc.ctrl,
+        unit->buf,
+        (void *)&i2c_inst->ICDRT,
+        transfer_count);
+    if (error != FSP_SUCCESS) {
+        action->m_dtc_tx_fallback_count++;
+        ra_i2c_master_tx_dtc_close();
+        return false;
+    }
+
+    // The address byte is written by the CPU. Every payload byte is then
+    // loaded into ICDRT by DTC. The final TXI only advances the state to TEI.
+    unit->m_bytes_transferred = transfer_count;
+    unit->m_bytes_transfer = 0;
+    action->m_dtc_tx_transfer_count++;
+    action->m_dtc_tx_bytes += transfer_count;
+    master_tx_dtc.active = true;
+    master_tx_dtc.completion_irq_pending = true;
+    return true;
+}
+
+static bool ra_i2c_master_tx_dtc_finish_irq(void) {
+    if (!master_tx_dtc.active || !master_tx_dtc.completion_irq_pending) {
+        return false;
+    }
+
+    ra_i2c_master_tx_dtc_close();
     return true;
 }
 
@@ -610,6 +707,10 @@ void ra_i2c_deinit(R_IIC0_Type *i2c_inst) {
         master_rx_dtc.channel == R_IIC0_Type_to_ch(i2c_inst)) {
         ra_i2c_master_rx_dtc_close();
     }
+    if (master_tx_dtc.open &&
+        master_tx_dtc.channel == R_IIC0_Type_to_ch(i2c_inst)) {
+        ra_i2c_master_tx_dtc_close();
+    }
     i2c_inst->ICIER = 0;        // I2C interrupt disable
     i2c_inst->ICCR1_b.ICE = 0;  // I2C disable
     ra_i2c_module_stop(i2c_inst);
@@ -676,6 +777,10 @@ void ra_i2c_xaction_init(xaction_t *action, xaction_unit_t *units, uint32_t size
     action->m_dtc_transfer_count = 0;
     action->m_dtc_bytes = 0;
     action->m_dtc_fallback_count = 0;
+    action->m_txi_irq_count = 0;
+    action->m_dtc_tx_transfer_count = 0;
+    action->m_dtc_tx_bytes = 0;
+    action->m_dtc_tx_fallback_count = 0;
 }
 
 void ra_i2c_xaction_set_callback(xaction_t *action, ra_i2c_async_callback_t callback, void *context) {
@@ -687,12 +792,14 @@ static void ra_i2c_iceri_isr(R_IIC0_Type *i2c_inst) {
     xaction_t *action = current_xaction;
     if (i2c_inst->ICSR2_b.TMOF != 0) {
         ra_i2c_master_rx_dtc_close();
+        ra_i2c_master_tx_dtc_close();
         action->m_error = RA_I2C_ERROR_TMOF;
         i2c_inst->ICSR2_b.TMOF = 0;
         i2c_inst->ICCR2_b.SP = 1; // request stop condition
     }
     if (i2c_inst->ICSR2_b.AL != 0) {
         ra_i2c_master_rx_dtc_close();
+        ra_i2c_master_tx_dtc_close();
         action->m_error = RA_I2C_ERROR_AL;
         i2c_inst->ICSR2_b.AL = 0;
         i2c_inst->ICCR2_b.SP = 1; // request stop condition
@@ -707,6 +814,7 @@ static void ra_i2c_iceri_isr(R_IIC0_Type *i2c_inst) {
     // Check Stop
     if (i2c_inst->ICSR2_b.STOP != 0) {
         ra_i2c_master_rx_dtc_close();
+        ra_i2c_master_tx_dtc_close();
         action->m_status = RA_I2C_STATUS_Stopped;
         i2c_inst->ICSR2_b.STOP = 0;
         i2c_inst->ICSR2_b.NACKF = 0; // clear for next transaction
@@ -714,6 +822,7 @@ static void ra_i2c_iceri_isr(R_IIC0_Type *i2c_inst) {
     // Check NACK reception
     if (i2c_inst->ICSR2_b.NACKF != 0) {
         ra_i2c_master_rx_dtc_close();
+        ra_i2c_master_tx_dtc_close();
         action->m_error = RA_I2C_ERROR_NACK;
         i2c_inst->ICSR2_b.NACKF = 0;
         i2c_inst->ICCR2_b.SP = 1; // request stop condition
@@ -791,15 +900,20 @@ static void ra_i2c_icrxi_isr(R_IIC0_Type *i2c_inst) {
 static void ra_i2c_ictxi_isr(R_IIC0_Type *i2c_inst) {
     xaction_t *action = current_xaction;
     xaction_unit_t *unit = current_xaction_unit;
+    action->m_txi_irq_count++;
+    bool dtc_completion = ra_i2c_master_tx_dtc_finish_irq();
     // When STIE is already checked.        When TIE occurs before STIE
     if (action->m_status == RA_I2C_STATUS_Started || action->m_status == RA_I2C_STATUS_Idle) {
+        if (!unit->m_fread && unit->m_bytes_transfer != 0) {
+            (void)ra_i2c_master_tx_dtc_arm(i2c_inst, action, unit);
+        }
         i2c_inst->ICDRT = action->m_address;  // I2C send slave address
         action->m_status = RA_I2C_STATUS_AddrWriteCompleted;
         return;
     }
     if (action->m_status == RA_I2C_STATUS_AddrWriteCompleted &&
         unit->m_fread == false) {
-        if (unit->m_bytes_transfer != 0) {
+        if (!dtc_completion && unit->m_bytes_transfer != 0) {
             ra_i2c_xunit_write_byte(i2c_inst, unit);
         } else {
             if (unit->next == (void *)NULL) {
@@ -916,9 +1030,11 @@ bool ra_i2c_action_start_async(R_IIC0_Type *i2c_inst, xaction_t *action, bool re
     current_xaction = action;
     current_xaction_unit = action->units;
     (void)ra_i2c_master_rx_dtc_prepare(i2c_inst, action);
+    (void)ra_i2c_master_tx_dtc_prepare(i2c_inst, action);
     ra_i2c_xaction_start(i2c_inst, action, repeated_start);
     if (action->m_status == RA_I2C_STATUS_Stopped) {
         ra_i2c_master_rx_dtc_close();
+        ra_i2c_master_tx_dtc_close();
     }
     ra_i2c_xaction_notify_terminal(action);
     return true;
@@ -939,6 +1055,7 @@ ra_i2c_async_status_t ra_i2c_action_poll_async(xaction_t *action) {
     }
 
     ra_i2c_master_rx_dtc_close();
+    ra_i2c_master_tx_dtc_close();
     ra_i2c_xaction_notify_terminal(action);
     last_stop = action->m_stop;
     current_xaction = NULL;
@@ -954,6 +1071,7 @@ void ra_i2c_action_cancel_async(R_IIC0_Type *i2c_inst, xaction_t *action) {
     }
 
     ra_i2c_master_rx_dtc_close();
+    ra_i2c_master_tx_dtc_close();
     i2c_inst->ICIER = 0;
     i2c_inst->ICCR1_b.IICRST = 1;
     ra_i2c_clear_IR(i2c_inst);

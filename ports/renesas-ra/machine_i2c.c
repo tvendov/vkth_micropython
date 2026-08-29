@@ -572,20 +572,8 @@ static void machine_i2c_async_print(const mp_print_t *print, mp_obj_t self_in,
         self->bus == NULL ? 0 : self->bus->i2c_id, self->active);
 }
 
-static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_args,
-    mp_map_t *kw_args) {
-    enum { ARG_address, ARG_buffer, ARG_stop, ARG_timeout_ms };
-    static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_address, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
-        { MP_QSTR_buffer, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
-        { MP_QSTR_stop, MP_ARG_BOOL, {.u_bool = true} },
-        { MP_QSTR_timeout_ms, MP_ARG_INT, {.u_int = DEFAULT_I2C_TIMEOUT} },
-    };
-    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
-    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
-        MP_ARRAY_SIZE(allowed_args), allowed_args, args);
-
-    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+static mp_obj_t machine_i2c_async_start_transfer(machine_i2c_async_obj_t *self,
+    mp_int_t address, mp_obj_t buffer_obj, bool stop, mp_int_t timeout_ms, bool read) {
     if (self->bus == NULL || self->bus->freq == 0) {
         mp_raise_OSError(MP_ENODEV);
     }
@@ -599,25 +587,22 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
         mp_raise_OSError(MP_EBUSY);
     }
 
-    mp_int_t address = args[ARG_address].u_int;
     if (address < 0 || address > 0x7f) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid address"));
     }
     mp_buffer_info_t buffer;
-    mp_get_buffer_raise(args[ARG_buffer].u_obj, &buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(buffer_obj, &buffer, read ? MP_BUFFER_WRITE : MP_BUFFER_READ);
     if (buffer.len == 0) {
         self->result = 0;
         machine_i2c_async_schedule_completion(self);
         return mp_const_none;
     }
 
-    bool stop = args[ARG_stop].u_bool;
-    mp_int_t timeout_ms = args[ARG_timeout_ms].u_int;
     if (timeout_ms <= 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("timeout must be positive"));
     }
 
-    ra_i2c_xunit_init(&self->unit, buffer.buf, buffer.len, true, NULL);
+    ra_i2c_xunit_init(&self->unit, buffer.buf, buffer.len, read, NULL);
     ra_i2c_xaction_init(&self->action, &self->unit, 1, (uint32_t)address, stop);
     self->start_ms = (uint32_t)mp_hal_ticks_ms();
     self->timeout_ms = (uint32_t)timeout_ms;
@@ -626,7 +611,7 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
     self->timeout_expired = false;
     self->cancel_requested = false;
     self->active = true;
-    machine_i2c_async_root_set(self, args[ARG_buffer].u_obj);
+    machine_i2c_async_root_set(self, buffer_obj);
     ra_i2c_xaction_set_callback(&self->action, machine_i2c_async_transfer_complete, self);
     if (!ra_i2c_action_start_async(self->bus->i2c_inst, &self->action, false)) {
         self->active = false;
@@ -638,8 +623,54 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
     soft_timer_insert(&self->timeout_timer, self->timeout_ms);
     return mp_const_none;
 }
+
+static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_args,
+    mp_map_t *kw_args) {
+    enum { ARG_address, ARG_buffer, ARG_stop, ARG_timeout_ms };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_address, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_buffer, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_stop, MP_ARG_BOOL, {.u_bool = true} },
+        { MP_QSTR_timeout_ms, MP_ARG_INT, {.u_int = DEFAULT_I2C_TIMEOUT} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+        MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    return machine_i2c_async_start_transfer(
+        MP_OBJ_TO_PTR(pos_args[0]),
+        args[ARG_address].u_int,
+        args[ARG_buffer].u_obj,
+        args[ARG_stop].u_bool,
+        args[ARG_timeout_ms].u_int,
+        true);
+}
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_i2c_async_readinto_obj, 3,
     machine_i2c_async_readinto);
+
+static mp_obj_t machine_i2c_async_writefrom(size_t n_args, const mp_obj_t *pos_args,
+    mp_map_t *kw_args) {
+    enum { ARG_address, ARG_buffer, ARG_stop, ARG_timeout_ms };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_address, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_buffer, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_stop, MP_ARG_BOOL, {.u_bool = true} },
+        { MP_QSTR_timeout_ms, MP_ARG_INT, {.u_int = DEFAULT_I2C_TIMEOUT} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+        MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    return machine_i2c_async_start_transfer(
+        MP_OBJ_TO_PTR(pos_args[0]),
+        args[ARG_address].u_int,
+        args[ARG_buffer].u_obj,
+        args[ARG_stop].u_bool,
+        args[ARG_timeout_ms].u_int,
+        false);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_i2c_async_writefrom_obj, 3,
+    machine_i2c_async_writefrom);
 
 static mp_obj_t machine_i2c_async_done(mp_obj_t self_in) {
     machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -709,11 +740,15 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_i2c_async_irq_obj, 1, 2,
 
 static mp_obj_t machine_i2c_async_stats(mp_obj_t self_in) {
     machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_obj_t values[4] = {
+    mp_obj_t values[8] = {
         mp_obj_new_int_from_uint(self->action.m_rxi_irq_count),
         mp_obj_new_int_from_uint(self->action.m_dtc_transfer_count),
         mp_obj_new_int_from_uint(self->action.m_dtc_bytes),
         mp_obj_new_int_from_uint(self->action.m_dtc_fallback_count),
+        mp_obj_new_int_from_uint(self->action.m_txi_irq_count),
+        mp_obj_new_int_from_uint(self->action.m_dtc_tx_transfer_count),
+        mp_obj_new_int_from_uint(self->action.m_dtc_tx_bytes),
+        mp_obj_new_int_from_uint(self->action.m_dtc_tx_fallback_count),
     };
     return mp_obj_new_tuple(MP_ARRAY_SIZE(values), values);
 }
@@ -722,6 +757,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_stats_obj,
 
 static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&machine_i2c_async_readinto_obj) },
+    { MP_ROM_QSTR(MP_QSTR_writefrom), MP_ROM_PTR(&machine_i2c_async_writefrom_obj) },
     { MP_ROM_QSTR(MP_QSTR_done), MP_ROM_PTR(&machine_i2c_async_done_obj) },
     { MP_ROM_QSTR(MP_QSTR_result), MP_ROM_PTR(&machine_i2c_async_result_obj) },
     { MP_ROM_QSTR(MP_QSTR_wait), MP_ROM_PTR(&machine_i2c_async_wait_obj) },
