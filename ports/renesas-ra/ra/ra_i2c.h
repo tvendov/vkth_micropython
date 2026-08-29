@@ -80,6 +80,12 @@ typedef struct {
     bool m_stop;
 } xaction_t;
 
+typedef enum {
+    RA_I2C_ASYNC_ERROR = -1,
+    RA_I2C_ASYNC_PENDING = 0,
+    RA_I2C_ASYNC_COMPLETE = 1,
+} ra_i2c_async_status_t;
+
 bool ra_i2c_find_af_ch(uint32_t scl, uint32_t sda, uint8_t *ch);
 void ra_i2c_irq_enable(R_IIC0_Type *i2c_inst);
 void ra_i2c_irq_disable(R_IIC0_Type *i2c_inst);
@@ -103,6 +109,10 @@ void iic_master_txi_isr(void);
 void iic_master_tei_isr(void);
 void iic_master_eri_isr(void);
 bool ra_i2c_action_execute(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start, uint32_t timeout_ms);
+bool ra_i2c_action_start_async(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start);
+ra_i2c_async_status_t ra_i2c_action_poll_async(xaction_t *action);
+void ra_i2c_action_cancel_async(R_IIC0_Type *i2c_inst, xaction_t *action);
+bool ra_i2c_action_is_busy(void);
 
 // IRQ channel mapping tables (used by both master and slave)
 extern const uint8_t ra_i2c_ch_to_rxirq[];

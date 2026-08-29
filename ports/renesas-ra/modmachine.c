@@ -87,6 +87,14 @@ extern const mp_obj_type_t machine_comparator_type;
 #define MICROPY_PY_MACHINE_TOUCHPAD_ENTRY
 #endif
 
+#if MICROPY_PY_MACHINE_I2C
+extern const mp_obj_type_t machine_i2c_async_type;
+#define MICROPY_PY_MACHINE_I2C_ASYNC_ENTRY \
+    { MP_ROM_QSTR(MP_QSTR_I2CAsync), MP_ROM_PTR(&machine_i2c_async_type) },
+#else
+#define MICROPY_PY_MACHINE_I2C_ASYNC_ENTRY
+#endif
+
 #if defined(MICROPY_HW_WS2812_DATA)
 #define MICROPY_PY_MACHINE_WS2812_ENTRY { MP_ROM_QSTR(MP_QSTR_WS2812), MP_ROM_PTR(&machine_ws2812_type) },
 #else
@@ -120,7 +128,8 @@ extern const mp_obj_type_t machine_iqadc_type;
     { MP_ROM_QSTR(MP_QSTR_enable_irq),          MP_ROM_PTR(&machine_enable_irq_obj) }, \
     \
     { MP_ROM_QSTR(MP_QSTR_Pin),                 MP_ROM_PTR(&machine_pin_type) }, \
-	    MICROPY_PY_MACHINE_TOUCHPAD_ENTRY \
+    MICROPY_PY_MACHINE_I2C_ASYNC_ENTRY \
+    MICROPY_PY_MACHINE_TOUCHPAD_ENTRY \
     MICROPY_PY_MACHINE_WS2812_ENTRY \
     MICROPY_PY_MACHINE_ENCODER_ENTRY \
     MICROPY_PY_MACHINE_AUDIOADC_ENTRY \

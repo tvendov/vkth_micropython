@@ -230,8 +230,8 @@ const uint8_t ra_i2c_ch_to_erirq[] = {
     #endif
 };
 
-static xaction_t *current_xaction;
-static xaction_unit_t *current_xaction_unit;
+static xaction_t *volatile current_xaction;
+static xaction_unit_t *volatile current_xaction_unit;
 static bool last_stop;
 static uint8_t pclk_div[8] = {
     1, 2, 4, 8, 16, 32, 64, 128
@@ -686,6 +686,10 @@ void iic_master_rxi_isr(void) {
         iic_slave_rxi_isr();
         return;
     }
+    if (current_xaction == NULL) {
+        R_BSP_IrqStatusClear(irq);
+        return;
+    }
     ra_i2c_icrxi_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }
@@ -695,6 +699,10 @@ void iic_master_txi_isr(void) {
     uint8_t ch = irq_to_ch[(uint32_t)irq];
     if (iic_slave_mode[ch]) {
         iic_slave_txi_isr();
+        return;
+    }
+    if (current_xaction == NULL) {
+        R_BSP_IrqStatusClear(irq);
         return;
     }
     ra_i2c_ictxi_isr(ch_to_R_IIC0_Type(ch));
@@ -708,6 +716,10 @@ void iic_master_tei_isr(void) {
         iic_slave_tei_isr();
         return;
     }
+    if (current_xaction == NULL) {
+        R_BSP_IrqStatusClear(irq);
+        return;
+    }
     ra_i2c_ictei_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }
@@ -719,35 +731,98 @@ void iic_master_eri_isr(void) {
         iic_slave_eri_isr();
         return;
     }
+    if (current_xaction == NULL) {
+        R_BSP_IrqStatusClear(irq);
+        return;
+    }
     ra_i2c_iceri_isr(ch_to_R_IIC0_Type(ch));
     R_BSP_IrqStatusClear(irq);
 }
 
-bool ra_i2c_action_execute(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start, uint32_t timeout_ms) {
-    bool flag = false;
-    uint32_t start = uwTick;
+bool ra_i2c_action_is_busy(void) {
+    return current_xaction != NULL;
+}
+
+bool ra_i2c_action_start_async(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start) {
+    if (i2c_inst == NULL || action == NULL || current_xaction != NULL) {
+        if (action != NULL) {
+            action->m_status = RA_I2C_STATUS_Stopped;
+            action->m_error = RA_I2C_ERROR_BUSY;
+        }
+        return false;
+    }
 
     current_xaction = action;
     current_xaction_unit = action->units;
-
     ra_i2c_xaction_start(i2c_inst, action, repeated_start);
-    while (true) {
-        if (action->m_status == RA_I2C_STATUS_Stopped) {
-            if (action->m_error == RA_I2C_ERROR_OK) {
-                flag = true;
-            }
+    return true;
+}
+
+ra_i2c_async_status_t ra_i2c_action_poll_async(xaction_t *action) {
+    if (action == NULL) {
+        return RA_I2C_ASYNC_ERROR;
+    }
+    if (current_xaction != action) {
+        return action->m_status == RA_I2C_STATUS_Stopped &&
+               action->m_error == RA_I2C_ERROR_OK
+            ? RA_I2C_ASYNC_COMPLETE
+            : RA_I2C_ASYNC_ERROR;
+    }
+    if (action->m_status != RA_I2C_STATUS_Stopped) {
+        return RA_I2C_ASYNC_PENDING;
+    }
+
+    last_stop = action->m_stop;
+    current_xaction = NULL;
+    current_xaction_unit = NULL;
+    return action->m_error == RA_I2C_ERROR_OK
+        ? RA_I2C_ASYNC_COMPLETE
+        : RA_I2C_ASYNC_ERROR;
+}
+
+void ra_i2c_action_cancel_async(R_IIC0_Type *i2c_inst, xaction_t *action) {
+    if (i2c_inst == NULL || action == NULL || current_xaction != action) {
+        return;
+    }
+
+    i2c_inst->ICIER = 0;
+    i2c_inst->ICCR1_b.IICRST = 1;
+    ra_i2c_clear_IR(i2c_inst);
+    i2c_inst->ICMR3_b.WAIT = 0;
+    i2c_inst->ICMR3_b.ACKWP = 1;
+    i2c_inst->ICMR3_b.ACKBT = 0;
+    i2c_inst->ICMR3_b.ACKWP = 0;
+    i2c_inst->ICIER = 0xFF;
+    i2c_inst->ICCR1_b.IICRST = 0;
+
+    action->m_status = RA_I2C_STATUS_Stopped;
+    action->m_error = RA_I2C_ERROR_TMOF;
+    last_stop = true;
+    current_xaction = NULL;
+    current_xaction_unit = NULL;
+}
+
+bool ra_i2c_action_execute(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start, uint32_t timeout_ms) {
+    uint32_t start = uwTick;
+    if (!ra_i2c_action_start_async(i2c_inst, action, repeated_start)) {
+        return false;
+    }
+
+    ra_i2c_async_status_t status;
+    do {
+        status = ra_i2c_action_poll_async(action);
+        if (status != RA_I2C_ASYNC_PENDING) {
             break;
         }
         if (uwTick - start > timeout_ms) {
+            ra_i2c_action_cancel_async(i2c_inst, action);
+            status = RA_I2C_ASYNC_ERROR;
             break;
         }
-    }
-    ra_i2c_xaction_stop();
-    if (last_stop == true) {
-        mp_hal_delay_ms(3);  // avoid device busy of next access.
-    }
-    current_xaction = (xaction_t *)NULL;
-    current_xaction_unit = (xaction_unit_t *)NULL;
+    } while (true);
 
-    return flag;
+    if (last_stop == true) {
+        mp_hal_delay_ms(3);  // Preserve legacy synchronous transfer timing.
+    }
+    return status == RA_I2C_ASYNC_COMPLETE;
 }
