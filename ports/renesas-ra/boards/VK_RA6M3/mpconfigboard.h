@@ -4,6 +4,10 @@
 #define MICROPY_HW_MCU_SYSCLK       120000000
 #define MICROPY_HW_MCU_PCLK         120000000
 
+// Store single-precision float values directly in mp_obj_t.  This avoids
+// allocating a heap object for every floating-point result in frame loops.
+#define MICROPY_OBJ_REPR            (MICROPY_OBJ_REPR_C)
+
 // module config
 #define MICROPY_EMIT_THUMB          (1)
 #define MICROPY_EMIT_INLINE_THUMB   (1)
