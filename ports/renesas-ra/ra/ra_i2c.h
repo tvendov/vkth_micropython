@@ -83,6 +83,10 @@ typedef struct {
     ra_i2c_async_callback_t m_complete_callback;
     void *m_complete_context;
     volatile bool m_completion_notified;
+    volatile uint32_t m_rxi_irq_count;
+    volatile uint32_t m_dtc_transfer_count;
+    volatile uint32_t m_dtc_bytes;
+    volatile uint32_t m_dtc_fallback_count;
 } xaction_t;
 
 typedef enum {

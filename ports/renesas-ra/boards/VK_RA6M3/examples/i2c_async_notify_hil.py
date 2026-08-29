@@ -98,10 +98,32 @@ success_heartbeat = wait_for_events(1)
 require(event_count == 1, "success callback missing")
 require(event_result == len(mlx_buffer), "wrong success result")
 success_us = time.ticks_diff(event_tick_us, start_us)
+mlx_stats = transfer.stats()
+require(mlx_stats[0] <= 6, "MLX read entered RXI too many times")
+require(mlx_stats[1] == 1, "MLX read did not use one DTC transfer")
+require(mlx_stats[2] == len(mlx_buffer) - 3, "wrong MLX DTC byte count")
+require(mlx_stats[3] == 0, "MLX DTC path fell back to byte interrupts")
 time.sleep_ms(20)
 require(event_count == 1, "success callback was delivered more than once")
 print("PASS success", "bytes", event_result, "heartbeat", success_heartbeat,
-      "start_to_callback_us", success_us, "checksum", sum(mlx_buffer) & 0xFFFF)
+      "start_to_callback_us", success_us, "checksum", sum(mlx_buffer) & 0xFFFF,
+      "stats", mlx_stats)
+
+# The shorter AMG8833 frame uses the same DTC path on the shared RIIC bus.
+amg_frame_pointer = bytearray((0x80,))
+amg_frame_buffer = bytearray(128)
+reset_event()
+i2c.writeto(AMG_ADDRESS, amg_frame_pointer, False)
+transfer.readinto(AMG_ADDRESS, amg_frame_buffer, timeout_ms=100)
+amg_frame_heartbeat = wait_for_events(1)
+require(event_result == len(amg_frame_buffer), "wrong AMG frame result")
+amg_stats = transfer.stats()
+require(amg_stats[0] <= 6, "AMG frame entered RXI too many times")
+require(amg_stats[1] == 1, "AMG frame did not use one DTC transfer")
+require(amg_stats[2] == len(amg_frame_buffer) - 3, "wrong AMG DTC byte count")
+require(amg_stats[3] == 0, "AMG DTC path fell back to byte interrupts")
+print("PASS amg_frame", "bytes", event_result, "heartbeat", amg_frame_heartbeat,
+      "checksum", sum(amg_frame_buffer) & 0xFFFF, "stats", amg_stats)
 
 # The handler is allowed to start the next transfer because C releases the bus
 # and clears completion_pending before entering Python.

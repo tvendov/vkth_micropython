@@ -707,6 +707,19 @@ static mp_obj_t machine_i2c_async_irq(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_i2c_async_irq_obj, 1, 2,
     machine_i2c_async_irq);
 
+static mp_obj_t machine_i2c_async_stats(mp_obj_t self_in) {
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_obj_t values[4] = {
+        mp_obj_new_int_from_uint(self->action.m_rxi_irq_count),
+        mp_obj_new_int_from_uint(self->action.m_dtc_transfer_count),
+        mp_obj_new_int_from_uint(self->action.m_dtc_bytes),
+        mp_obj_new_int_from_uint(self->action.m_dtc_fallback_count),
+    };
+    return mp_obj_new_tuple(MP_ARRAY_SIZE(values), values);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_stats_obj,
+    machine_i2c_async_stats);
+
 static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&machine_i2c_async_readinto_obj) },
     { MP_ROM_QSTR(MP_QSTR_done), MP_ROM_PTR(&machine_i2c_async_done_obj) },
@@ -715,6 +728,7 @@ static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_cancel), MP_ROM_PTR(&machine_i2c_async_cancel_obj) },
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&machine_i2c_async_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&machine_i2c_async_irq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stats), MP_ROM_PTR(&machine_i2c_async_stats_obj) },
 };
 static MP_DEFINE_CONST_DICT(machine_i2c_async_locals_dict,
     machine_i2c_async_locals_dict_table);

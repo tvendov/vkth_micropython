@@ -130,3 +130,34 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Final I2C scan: `[0x33, 0x47, 0x68]`.
 - Reusable HIL test: `boards/VK_RA6M3/examples/i2c_async_notify_hil.py`.
 - Milestone status: **hardware validated** for exactly-once completion notification, autonomous handler-mode timeout, callback chaining, polling compatibility, and allocation-free handler delivery.
+
+## 2026-08-29 17:15 +03:00 - DTC-backed RIIC receive, build 7
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Reason for the change: build 6 was interrupt-driven but still entered the RXI handler once per received byte. At 16 MLX90640 subpages per second, the 1664-byte RAM reads alone would cause 26,624 byte RX interrupts per second.
+- Slave-I2C review: its hardware RX path confirms the working DTC source/destination model (`ICDRR` fixed to incrementing RAM, one-byte transfers, `TRANSFER_IRQ_END`). The master implementation follows the stricter Renesas FSP receive sequence instead of copying the 48-byte slave buffer logic.
+- Master receive split: DTC transfers `N - 3` bytes. The CPU handles the initial dummy RXI, the DTC end RXI, and the final three RXIs that program WAIT, NACK and STOP.
+- Error cleanup: NACK, arbitration loss, timeout, STOP, explicit cancel, bus-start failure and deinitialization all close the DTC activation before RIIC recovery continues.
+- Diagnostic API: `I2CAsync.stats()` returns `(rxi_irq_count, dtc_transfer_count, dtc_bytes, dtc_fallback_count)` for the most recent transfer.
+- HIL acceptance target for one 1664-byte MLX read: at most 6 RXI handler entries, exactly 1 DTC transfer, exactly 1661 DTC bytes, and 0 fallbacks.
+- Result: **SUCCESS** (`make` exit code 0).
+- Generated API check: `MP_QSTR_stats` is present; both asynchronous buffer and callback roots remain present in `root_pointers.h`.
+- Link report: `text=1414656`, `data=0`, `bss=647500`, total `2062156` bytes.
+- `firmware.bin`: 1,414,640 bytes; SHA-256 `cc8d83204e03d8bfcce3706440c5aa26b43136848bf4c4f6b06d36546522c48a`.
+- `firmware.hex`: 3,979,158 bytes; SHA-256 `afecaff72001600c4b981810f7949f4d7a8371d28632a4844211964aa0285efd`.
+- `firmware.elf`: 15,608,284 bytes; SHA-256 `55a65c9e28dbd2e4af754c8ee2f45b686756daba01141db92e7c4c5ce2b76b76`.
+- Flash status: not yet flashed at this point. Build success alone does not prove that DTC consumed the RXI events.
+- Next action: visible J-Link reset, program and independently verify this exact BIN, then run the DTC-count HIL test and the complete notification/error regression matrix.
+
+### Build 7 flash and DTC hardware validation
+
+- A separate visible J-Link reset completed with exit code 0 before programming. Its log identifies the Cortex-M4 and two successful normal reset operations.
+- The following visible J-Link programming session completed with exit code 0 and reported `Program & Verify` for build 7.
+- An independent visible `verifybin` session read and compared exactly 1,414,640 firmware bytes from `0x00000000` and completed with exit code 0.
+- MLX90640 1664-byte read: callback result `1664`, about `34.042 ms`, `35` independent heartbeat iterations, and stats `(5, 1, 1661, 0)`.
+- AMG8833 128-byte read: callback result `128`, `4` independent heartbeat iterations, and stats `(5, 1, 125, 0)`.
+- Interpretation: both long reads entered the CPU RXI handler only five times. DTC moved every payload byte except the final three required for the RIIC WAIT/NACK/STOP sequence, with no fallback.
+- Exactly-once callback chaining, NACK (`19`), cancel (`125`), 1 ms timeout (`110`), heap-lock callback delivery, polling compatibility and stock-asyncio behavior all passed again.
+- The measured cancel call returned in `204 us` while DTC was active; the autonomous timeout callback arrived in about `843 us`.
+- Final I2C scan: `[0x33, 0x47, 0x68]`.
+- Milestone status: **hardware validated** for DTC-backed RIIC receive and deferred completion notification on both thermal sensor frame sizes.
