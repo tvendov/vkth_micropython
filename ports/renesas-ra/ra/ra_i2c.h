@@ -70,6 +70,8 @@ typedef struct {
     void *next;
 } xaction_unit_t;
 
+typedef void (*ra_i2c_async_callback_t)(void *context);
+
 typedef struct {
     xaction_unit_t *units;
     uint32_t m_num_of_units;
@@ -78,6 +80,9 @@ typedef struct {
     volatile xaction_status_t m_status;
     volatile xaction_error_t m_error;
     bool m_stop;
+    ra_i2c_async_callback_t m_complete_callback;
+    void *m_complete_context;
+    volatile bool m_completion_notified;
 } xaction_t;
 
 typedef enum {
@@ -104,6 +109,7 @@ void ra_i2c_xunit_write_byte(R_IIC0_Type *i2c_inst, xaction_unit_t *unit);
 void ra_i2c_xunit_read_byte(R_IIC0_Type *i2c_inst, xaction_unit_t *unit);
 void ra_i2c_xunit_init(xaction_unit_t *unit, uint8_t *buf, uint32_t size, bool fread, void *next);
 void ra_i2c_xaction_init(xaction_t *action, xaction_unit_t *units, uint32_t size, uint32_t address, bool stop);
+void ra_i2c_xaction_set_callback(xaction_t *action, ra_i2c_async_callback_t callback, void *context);
 void iic_master_rxi_isr(void);
 void iic_master_txi_isr(void);
 void iic_master_tei_isr(void);

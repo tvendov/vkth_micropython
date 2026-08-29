@@ -257,6 +257,18 @@ static R_IIC0_Type *ch_to_R_IIC0_Type(uint32_t ch) {
     }
 }
 
+static void ra_i2c_xaction_notify_terminal(xaction_t *action) {
+    if (action == NULL || action->m_status != RA_I2C_STATUS_Stopped ||
+        action->m_completion_notified) {
+        return;
+    }
+
+    action->m_completion_notified = true;
+    if (action->m_complete_callback != NULL) {
+        action->m_complete_callback(action->m_complete_context);
+    }
+}
+
 bool ra_i2c_find_af_ch(uint32_t scl, uint32_t sda, uint8_t *ch) {
     bool find = false;
     uint8_t scl_ch;
@@ -541,6 +553,14 @@ void ra_i2c_xaction_init(xaction_t *action, xaction_unit_t *units, uint32_t size
     action->m_status = RA_I2C_STATUS_Idle;
     action->m_error = RA_I2C_ERROR_OK;
     action->m_stop = stop;
+    action->m_complete_callback = NULL;
+    action->m_complete_context = NULL;
+    action->m_completion_notified = false;
+}
+
+void ra_i2c_xaction_set_callback(xaction_t *action, ra_i2c_async_callback_t callback, void *context) {
+    action->m_complete_callback = callback;
+    action->m_complete_context = context;
 }
 
 static void ra_i2c_iceri_isr(R_IIC0_Type *i2c_inst) {
@@ -690,7 +710,9 @@ void iic_master_rxi_isr(void) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
+    xaction_t *action = current_xaction;
     ra_i2c_icrxi_isr(ch_to_R_IIC0_Type(ch));
+    ra_i2c_xaction_notify_terminal(action);
     R_BSP_IrqStatusClear(irq);
 }
 
@@ -705,7 +727,9 @@ void iic_master_txi_isr(void) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
+    xaction_t *action = current_xaction;
     ra_i2c_ictxi_isr(ch_to_R_IIC0_Type(ch));
+    ra_i2c_xaction_notify_terminal(action);
     R_BSP_IrqStatusClear(irq);
 }
 
@@ -720,7 +744,9 @@ void iic_master_tei_isr(void) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
+    xaction_t *action = current_xaction;
     ra_i2c_ictei_isr(ch_to_R_IIC0_Type(ch));
+    ra_i2c_xaction_notify_terminal(action);
     R_BSP_IrqStatusClear(irq);
 }
 
@@ -735,7 +761,9 @@ void iic_master_eri_isr(void) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
+    xaction_t *action = current_xaction;
     ra_i2c_iceri_isr(ch_to_R_IIC0_Type(ch));
+    ra_i2c_xaction_notify_terminal(action);
     R_BSP_IrqStatusClear(irq);
 }
 
@@ -755,6 +783,7 @@ bool ra_i2c_action_start_async(R_IIC0_Type *i2c_inst, xaction_t *action, bool re
     current_xaction = action;
     current_xaction_unit = action->units;
     ra_i2c_xaction_start(i2c_inst, action, repeated_start);
+    ra_i2c_xaction_notify_terminal(action);
     return true;
 }
 
@@ -772,6 +801,7 @@ ra_i2c_async_status_t ra_i2c_action_poll_async(xaction_t *action) {
         return RA_I2C_ASYNC_PENDING;
     }
 
+    ra_i2c_xaction_notify_terminal(action);
     last_stop = action->m_stop;
     current_xaction = NULL;
     current_xaction_unit = NULL;
@@ -800,6 +830,7 @@ void ra_i2c_action_cancel_async(R_IIC0_Type *i2c_inst, xaction_t *action) {
     last_stop = true;
     current_xaction = NULL;
     current_xaction_unit = NULL;
+    ra_i2c_xaction_notify_terminal(action);
 }
 
 bool ra_i2c_action_execute(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start, uint32_t timeout_ms) {

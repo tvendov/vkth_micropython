@@ -32,6 +32,7 @@
 #include "py/mphal.h"
 #include "py/mperrno.h"
 #include "extmod/modmachine.h"
+#include "shared/runtime/softtimer.h"
 
 #include "ra_i2c.h"
 #if MICROPY_HW_ENABLE_SCI_I2C
@@ -63,16 +64,28 @@ typedef struct _machine_i2c_async_obj_t {
     machine_i2c_obj_t *bus;
     xaction_t action;
     xaction_unit_t unit;
+    mp_sched_node_t completion_node;
+    soft_timer_entry_t timeout_timer;
     uint32_t start_ms;
     uint32_t timeout_ms;
     size_t transfer_len;
     int result;
     bool active;
+    bool timeout_timer_initialized;
+    bool timeout_timer_active;
+    bool timeout_expired;
+    bool cancel_requested;
+    volatile bool completion_pending;
+    volatile bool suppress_notification;
 } machine_i2c_async_obj_t;
 
 extern const mp_obj_type_t machine_i2c_async_type;
 MP_REGISTER_ROOT_POINTER(mp_obj_t machine_i2c_async_buffer_roots[3]);
+MP_REGISTER_ROOT_POINTER(mp_obj_t machine_i2c_async_callback_roots[3]);
 static machine_i2c_async_obj_t machine_i2c_async_obj[3];
+
+static bool machine_i2c_async_update(machine_i2c_async_obj_t *self);
+static void machine_i2c_async_complete_node(mp_sched_node_t *node);
 
 static machine_i2c_obj_t machine_i2c_obj[] = {
     #if defined(MICROPY_HW_I2C0_SCL)
@@ -122,30 +135,68 @@ static void machine_i2c_async_root_set(machine_i2c_async_obj_t *self, mp_obj_t b
     }
 }
 
-static uint32_t machine_i2c_async_drain_timeout_ms(machine_i2c_async_obj_t *self) {
-    if (self->bus == NULL || self->bus->freq == 0) {
-        return 10;
+static void machine_i2c_async_callback_root_set(machine_i2c_async_obj_t *self, mp_obj_t callback) {
+    if (self->bus != NULL && self->bus->i2c_id < 3) {
+        MP_STATE_PORT(machine_i2c_async_callback_roots)[self->bus->i2c_id] = callback;
     }
-
-    uint64_t bits = ((uint64_t)self->transfer_len + 1) * 9;
-    uint64_t transfer_ms = (bits * 1000 + self->bus->freq - 1) / self->bus->freq;
-    transfer_ms += 10;
-    return transfer_ms > 1000 ? 1000 : (uint32_t)transfer_ms;
 }
 
-static ra_i2c_async_status_t machine_i2c_async_drain(machine_i2c_async_obj_t *self) {
-    uint32_t start_ms = (uint32_t)mp_hal_ticks_ms();
-    uint32_t timeout_ms = machine_i2c_async_drain_timeout_ms(self);
-    ra_i2c_async_status_t status;
+static mp_obj_t machine_i2c_async_callback_root_get(machine_i2c_async_obj_t *self) {
+    if (self->bus == NULL || self->bus->i2c_id >= 3) {
+        return MP_OBJ_NULL;
+    }
+    return MP_STATE_PORT(machine_i2c_async_callback_roots)[self->bus->i2c_id];
+}
 
-    do {
-        status = ra_i2c_action_poll_async(&self->action);
-        if (status != RA_I2C_ASYNC_PENDING) {
-            return status;
+static machine_i2c_async_obj_t *machine_i2c_async_from_node(mp_sched_node_t *node) {
+    for (size_t i = 0; i < MP_ARRAY_SIZE(machine_i2c_async_obj); ++i) {
+        if (&machine_i2c_async_obj[i].completion_node == node) {
+            return &machine_i2c_async_obj[i];
         }
-    } while ((uint32_t)mp_hal_ticks_ms() - start_ms <= timeout_ms);
+    }
+    return NULL;
+}
 
-    return RA_I2C_ASYNC_PENDING;
+static machine_i2c_async_obj_t *machine_i2c_async_from_timer(soft_timer_entry_t *timer) {
+    for (size_t i = 0; i < MP_ARRAY_SIZE(machine_i2c_async_obj); ++i) {
+        if (&machine_i2c_async_obj[i].timeout_timer == timer) {
+            return &machine_i2c_async_obj[i];
+        }
+    }
+    return NULL;
+}
+
+static void machine_i2c_async_schedule_completion(machine_i2c_async_obj_t *self) {
+    if (self->suppress_notification || self->completion_pending) {
+        return;
+    }
+    mp_obj_t callback = machine_i2c_async_callback_root_get(self);
+    if (callback == MP_OBJ_NULL || callback == mp_const_none) {
+        return;
+    }
+    self->completion_pending = true;
+    (void)mp_sched_schedule_node(&self->completion_node, machine_i2c_async_complete_node);
+}
+
+static void machine_i2c_async_transfer_complete(void *context) {
+    machine_i2c_async_schedule_completion((machine_i2c_async_obj_t *)context);
+}
+
+static void machine_i2c_async_timeout_callback(soft_timer_entry_t *timer) {
+    machine_i2c_async_obj_t *self = machine_i2c_async_from_timer(timer);
+    if (self == NULL || !self->active || self->suppress_notification) {
+        return;
+    }
+    self->timeout_timer_active = false;
+    self->timeout_expired = true;
+    machine_i2c_async_schedule_completion(self);
+}
+
+static void machine_i2c_async_timeout_stop(machine_i2c_async_obj_t *self) {
+    if (self->timeout_timer_active) {
+        soft_timer_remove(&self->timeout_timer);
+        self->timeout_timer_active = false;
+    }
 }
 
 static void machine_i2c_async_abort_and_reinit(machine_i2c_async_obj_t *self) {
@@ -157,15 +208,20 @@ static void machine_i2c_async_abort_and_reinit(machine_i2c_async_obj_t *self) {
     }
 }
 
-static void machine_i2c_async_cancel(machine_i2c_async_obj_t *self) {
+static void machine_i2c_async_shutdown(machine_i2c_async_obj_t *self) {
+    self->suppress_notification = true;
+    machine_i2c_async_timeout_stop(self);
     if (self->active && self->bus != NULL) {
-        if (machine_i2c_async_drain(self) == RA_I2C_ASYNC_PENDING) {
-            machine_i2c_async_abort_and_reinit(self);
-        }
+        ra_i2c_action_cancel_async(self->bus->i2c_inst, &self->action);
     }
     self->active = false;
     self->result = -MP_ECANCELED;
+    self->timeout_expired = false;
+    self->cancel_requested = false;
+    self->completion_pending = false;
     machine_i2c_async_root_set(self, MP_OBJ_NULL);
+    machine_i2c_async_callback_root_set(self, MP_OBJ_NULL);
+    self->bus = NULL;
 }
 
 static int i2c_read(machine_i2c_obj_t *self, uint16_t addr, uint8_t *dest, size_t len, bool stop);
@@ -346,7 +402,7 @@ static mp_obj_t machine_i2c_make_new(const mp_obj_type_t *type, size_t n_args, s
 
 void machine_i2c_deinit_all(void) {
     for (size_t i = 0; i < MP_ARRAY_SIZE(machine_i2c_async_obj); ++i) {
-        machine_i2c_async_cancel(&machine_i2c_async_obj[i]);
+        machine_i2c_async_shutdown(&machine_i2c_async_obj[i]);
     }
     for (size_t i = 0; i < MP_ARRAY_SIZE(machine_i2c_obj); ++i) {
         machine_i2c_obj_t *self = &machine_i2c_obj[i];
@@ -415,22 +471,46 @@ static bool machine_i2c_async_update(machine_i2c_async_obj_t *self) {
     ra_i2c_async_status_t status = ra_i2c_action_poll_async(&self->action);
     if (status == RA_I2C_ASYNC_PENDING) {
         uint32_t elapsed = (uint32_t)mp_hal_ticks_ms() - self->start_ms;
-        if (elapsed <= self->timeout_ms) {
+        if (!self->cancel_requested && !self->timeout_expired && elapsed <= self->timeout_ms) {
             return false;
         }
-        if (machine_i2c_async_drain(self) == RA_I2C_ASYNC_PENDING) {
-            machine_i2c_async_abort_and_reinit(self);
-        }
-        self->result = -MP_ETIMEDOUT;
+
+        machine_i2c_async_abort_and_reinit(self);
+        self->result = self->cancel_requested ? -MP_ECANCELED : -MP_ETIMEDOUT;
     } else if (status == RA_I2C_ASYNC_COMPLETE) {
         self->result = (int)self->transfer_len;
+    } else if (self->cancel_requested) {
+        self->result = -MP_ECANCELED;
+    } else if (self->timeout_expired) {
+        self->result = -MP_ETIMEDOUT;
     } else {
         self->result = -machine_i2c_async_error_to_errno(self->action.m_error);
     }
 
     self->active = false;
+    machine_i2c_async_timeout_stop(self);
     machine_i2c_async_root_set(self, MP_OBJ_NULL);
+    machine_i2c_async_schedule_completion(self);
+    self->timeout_expired = false;
+    self->cancel_requested = false;
     return true;
+}
+
+static void machine_i2c_async_complete_node(mp_sched_node_t *node) {
+    machine_i2c_async_obj_t *self = machine_i2c_async_from_node(node);
+    if (self == NULL || self->suppress_notification) {
+        return;
+    }
+    if (self->active && !machine_i2c_async_update(self)) {
+        self->completion_pending = false;
+        return;
+    }
+
+    self->completion_pending = false;
+    mp_obj_t callback = machine_i2c_async_callback_root_get(self);
+    if (callback != MP_OBJ_NULL && callback != mp_const_none) {
+        mp_call_function_1_protected(callback, MP_OBJ_FROM_PTR(self));
+    }
 }
 
 static mp_obj_t machine_i2c_async_make_new(const mp_obj_type_t *type, size_t n_args,
@@ -446,14 +526,41 @@ static mp_obj_t machine_i2c_async_make_new(const mp_obj_type_t *type, size_t n_a
     }
 
     machine_i2c_async_obj_t *self = &machine_i2c_async_obj[bus->i2c_id];
+    bool reset_static_state = self->bus == NULL;
+    if (reset_static_state) {
+        self->completion_node.callback = NULL;
+        self->completion_node.next = NULL;
+        self->completion_pending = false;
+        self->timeout_timer_active = false;
+        self->timeout_expired = false;
+        self->cancel_requested = false;
+        self->suppress_notification = false;
+    }
+    if (self->completion_pending) {
+        mp_raise_OSError(MP_EBUSY);
+    }
     if (self->active) {
         if (!machine_i2c_async_update(self)) {
             mp_raise_OSError(MP_EBUSY);
         }
+        if (self->completion_pending) {
+            mp_raise_OSError(MP_EBUSY);
+        }
+    }
+    if (!self->timeout_timer_initialized) {
+        self->completion_node.callback = NULL;
+        self->completion_node.next = NULL;
+        soft_timer_static_init(&self->timeout_timer, SOFT_TIMER_MODE_ONE_SHOT, 0,
+            machine_i2c_async_timeout_callback);
+        self->timeout_timer_initialized = true;
     }
     self->base.type = type;
     self->bus = bus;
     self->result = 0;
+    self->suppress_notification = false;
+    if (reset_static_state) {
+        machine_i2c_async_callback_root_set(self, MP_OBJ_NULL);
+    }
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -482,7 +589,13 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
     if (self->bus == NULL || self->bus->freq == 0) {
         mp_raise_OSError(MP_ENODEV);
     }
+    if (self->completion_pending) {
+        mp_raise_OSError(MP_EBUSY);
+    }
     if (!machine_i2c_async_update(self)) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+    if (self->completion_pending) {
         mp_raise_OSError(MP_EBUSY);
     }
 
@@ -494,6 +607,7 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
     mp_get_buffer_raise(args[ARG_buffer].u_obj, &buffer, MP_BUFFER_WRITE);
     if (buffer.len == 0) {
         self->result = 0;
+        machine_i2c_async_schedule_completion(self);
         return mp_const_none;
     }
 
@@ -509,13 +623,19 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
     self->timeout_ms = (uint32_t)timeout_ms;
     self->transfer_len = buffer.len;
     self->result = 0;
+    self->timeout_expired = false;
+    self->cancel_requested = false;
+    self->active = true;
     machine_i2c_async_root_set(self, args[ARG_buffer].u_obj);
+    ra_i2c_xaction_set_callback(&self->action, machine_i2c_async_transfer_complete, self);
     if (!ra_i2c_action_start_async(self->bus->i2c_inst, &self->action, false)) {
+        self->active = false;
         machine_i2c_async_root_set(self, MP_OBJ_NULL);
         self->result = -MP_EBUSY;
         mp_raise_OSError(MP_EBUSY);
     }
-    self->active = true;
+    self->timeout_timer_active = true;
+    soft_timer_insert(&self->timeout_timer, self->timeout_ms);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_i2c_async_readinto_obj, 3,
@@ -549,7 +669,12 @@ static mp_obj_t machine_i2c_async_wait(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_wait_obj, machine_i2c_async_wait);
 
 static mp_obj_t machine_i2c_async_cancel_obj_fun(mp_obj_t self_in) {
-    machine_i2c_async_cancel(MP_OBJ_TO_PTR(self_in));
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (self->active && !machine_i2c_async_update(self)) {
+        self->cancel_requested = true;
+        machine_i2c_async_abort_and_reinit(self);
+        (void)machine_i2c_async_update(self);
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_cancel_obj,
@@ -564,6 +689,24 @@ static mp_obj_t machine_i2c_async_active(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_active_obj, machine_i2c_async_active);
 
+static mp_obj_t machine_i2c_async_irq(size_t n_args, const mp_obj_t *args) {
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (n_args == 1) {
+        mp_obj_t callback = machine_i2c_async_callback_root_get(self);
+        return callback == MP_OBJ_NULL ? mp_const_none : callback;
+    }
+
+    mp_obj_t callback = args[1];
+    if (callback != mp_const_none && !mp_obj_is_callable(callback)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("handler must be callable"));
+    }
+    machine_i2c_async_callback_root_set(self,
+        callback == mp_const_none ? MP_OBJ_NULL : callback);
+    return MP_OBJ_FROM_PTR(self);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_i2c_async_irq_obj, 1, 2,
+    machine_i2c_async_irq);
+
 static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&machine_i2c_async_readinto_obj) },
     { MP_ROM_QSTR(MP_QSTR_done), MP_ROM_PTR(&machine_i2c_async_done_obj) },
@@ -571,6 +714,7 @@ static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_wait), MP_ROM_PTR(&machine_i2c_async_wait_obj) },
     { MP_ROM_QSTR(MP_QSTR_cancel), MP_ROM_PTR(&machine_i2c_async_cancel_obj) },
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&machine_i2c_async_active_obj) },
+    { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&machine_i2c_async_irq_obj) },
 };
 static MP_DEFINE_CONST_DICT(machine_i2c_async_locals_dict,
     machine_i2c_async_locals_dict_table);
