@@ -194,3 +194,32 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Measured cancel return: `41 us`; measured autonomous timeout callback arrival: about `810 us`.
 - Final I2C scan: `[0x33, 0x47, 0x68]`.
 - Milestone status: **hardware validated** for bidirectional DTC-backed RIIC transport, repeated START chaining, deferred notification and heap-locked execution.
+
+## 2026-08-29 17:45 +03:00 - Allocation-free asynchronous error result, build 9
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Reason for the change: `I2CAsync.result()` is allocation-free on the normal success path, but reports NACK/timeout/cancel by constructing `OSError`. A production callback running under the no-allocation rule needs the same information without an exception object.
+- New API: `I2CAsync.result_code()` returns the completed byte count or negative `errno` as a small immediate integer. If called before completion it returns `-EBUSY`; it does not raise.
+- The standard `result()` API and all existing behavior remain unchanged for conventional exception-based code.
+- HIL update: normal callbacks now use `result_code()`, and a dedicated missing-address read checks `-ENODEV` while the MicroPython heap is locked.
+- Result: **SUCCESS** (`make` exit code 0).
+- Generated API check: `MP_QSTR_result_code` and `MP_QSTR_writefrom` are present; both asynchronous GC roots remain present in `root_pointers.h`.
+- Link report: `text=1415260`, `data=0`, `bss=647596`, total `2062856` bytes.
+- `firmware.bin`: 1,415,244 bytes; SHA-256 `be8f0dc551dcc669f3ba463d3103bd74ec46d5dc236bd79dc1a2571f6c8f553a`.
+- `firmware.hex`: 3,980,860 bytes; SHA-256 `2083a6e5eb823cae24551f9e5fc61dc6fb64be86c38327067048ab6decbf5909`.
+- `firmware.elf`: 15,613,516 bytes; SHA-256 `c689526e56f64db11c02de686f8f7bb4c7bed05dca64582f9ed655ab6526f6b5`.
+- Flash status: not yet flashed at this point.
+- Next action: separate visible J-Link reset, program and independent verify, then rerun the complete bidirectional DTC HIL matrix including the heap-locked error path.
+
+### Build 9 flash and allocation-free error validation
+
+- A separate visible J-Link reset completed with exit code 0 and reported the Cortex-M4 plus two normal reset operations before programming.
+- Visible programming completed with exit code 0 and reported `Program & Verify`.
+- Independent visible `verifybin` read and compared exactly 1,415,244 bytes from `0x00000000` with exit code 0; its temporary command file was removed.
+- New error-path result: `PASS heap_lock_error result_code -19`. A missing-address transfer delivered `-ENODEV` through the deferred callback while the MicroPython heap was locked, without constructing `OSError`.
+- The heap-locked DTC write/repeated-START/read chain again completed with two callbacks and correct result sum `3`.
+- TX DTC remained `(0, 0, 0, 0, 3, 1, 4, 0)` for the four-byte MLX command; MLX RX remained `(5, 1, 1661, 0)` and AMG RX remained `(5, 1, 125, 0)`.
+- MLX callback latency was about `34.038 ms` with `35` heartbeat iterations. Cancel returned in `41 us`; the 1 ms timeout callback arrived in about `754 us` in this run.
+- Polling compatibility, repeated START, exactly-once callback chaining, NACK, cancel, timeout, stock-asyncio message flow and the expected stock-asyncio allocation gate all passed.
+- Final I2C scan: `[0x33, 0x47, 0x68]`.
+- Milestone status: **hardware validated** for allocation-free success and error completion messages on the bidirectional DTC transport.

@@ -690,6 +690,16 @@ static mp_obj_t machine_i2c_async_result(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_result_obj, machine_i2c_async_result);
 
+static mp_obj_t machine_i2c_async_result_code(mp_obj_t self_in) {
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (!machine_i2c_async_update(self)) {
+        return MP_OBJ_NEW_SMALL_INT(-MP_EBUSY);
+    }
+    return MP_OBJ_NEW_SMALL_INT(self->result);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_result_code_obj,
+    machine_i2c_async_result_code);
+
 static mp_obj_t machine_i2c_async_wait(mp_obj_t self_in) {
     machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
     while (!machine_i2c_async_update(self)) {
@@ -760,6 +770,7 @@ static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_writefrom), MP_ROM_PTR(&machine_i2c_async_writefrom_obj) },
     { MP_ROM_QSTR(MP_QSTR_done), MP_ROM_PTR(&machine_i2c_async_done_obj) },
     { MP_ROM_QSTR(MP_QSTR_result), MP_ROM_PTR(&machine_i2c_async_result_obj) },
+    { MP_ROM_QSTR(MP_QSTR_result_code), MP_ROM_PTR(&machine_i2c_async_result_code_obj) },
     { MP_ROM_QSTR(MP_QSTR_wait), MP_ROM_PTR(&machine_i2c_async_wait_obj) },
     { MP_ROM_QSTR(MP_QSTR_cancel), MP_ROM_PTR(&machine_i2c_async_cancel_obj) },
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&machine_i2c_async_active_obj) },

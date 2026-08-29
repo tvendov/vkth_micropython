@@ -42,10 +42,7 @@ def reset_event():
 def record_completion(transfer):
     global event_count, event_result, event_tick_us
     event_count += 1
-    try:
-        event_result = transfer.result()
-    except OSError as error:
-        event_result = -error.args[0]
+    event_result = transfer.result_code()
     event_tick_us = time.ticks_us()
 
 
@@ -255,7 +252,7 @@ heap_state = [0, 0]
 
 
 def heap_locked_completion(done_transfer):
-    result = done_transfer.result()
+    result = done_transfer.result_code()
     if heap_state[0] == 0:
         heap_state[1] = result
         heap_state[0] = 1
@@ -290,6 +287,36 @@ require(heap_state[0] == 2, "heap-lock callback was delivered more than once")
 require(heap_depth == 0, "heap lock depth was not restored")
 print("PASS heap_lock_chain", "callbacks", heap_state[0],
       "result_sum", heap_state[1], "heartbeat", heap_heartbeat)
+
+# Error reporting must also remain allocation-free. result_code() returns the
+# negative errno directly instead of constructing OSError inside the handler.
+heap_error_state = [0]
+
+
+def heap_locked_error_completion(done_transfer):
+    heap_error_state[0] = done_transfer.result_code()
+
+
+transfer.irq(heap_locked_error_completion)
+heap_error_timed_out = False
+gc.collect()
+micropython.heap_lock()
+try:
+    transfer.readinto(MISSING_ADDRESS, nack_buffer, True, 100)
+    heap_error_deadline = time.ticks_add(time.ticks_ms(), 500)
+    while heap_error_state[0] == 0:
+        if time.ticks_diff(heap_error_deadline, time.ticks_ms()) <= 0:
+            heap_error_timed_out = True
+            break
+        time.sleep_ms(1)
+finally:
+    heap_error_depth = micropython.heap_unlock()
+
+require(not heap_error_timed_out, "heap-lock error callback timed out")
+require(heap_error_state[0] == -errno.ENODEV,
+        "heap-lock error callback returned a wrong result")
+require(heap_error_depth == 0, "heap-lock error test left the heap locked")
+print("PASS heap_lock_error", "result_code", heap_error_state[0])
 
 # Stock asyncio proves the desired LEGO-like behavior: the transfer task waits
 # for a message while an unrelated heartbeat task keeps making progress.
