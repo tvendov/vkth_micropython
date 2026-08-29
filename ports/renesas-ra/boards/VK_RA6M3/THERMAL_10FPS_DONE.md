@@ -54,3 +54,22 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - An intentional 1 ms timeout drains safely in 34.229 ms, reports `ETIMEDOUT` (110), and the next scan still finds all three devices.
 - A NACK at `0x7e` reports `ENODEV` (19); the following scan remains healthy.
 - Milestone status: **hardware validated** for interrupt-driven RIIC overlap, error handling, timeout/cancel recovery, and allocation-free normal operation.
+
+## 2026-08-29 07:33 +03:00 - Python FPU dual-camera 10 FPS milestone
+
+- Port recompilation: **none**. This milestone uses the already built and flashed build 4 firmware.
+- Project boundary: sensor drivers, MLX90640 temperature calculation, interpolation, color conversion, and screen composition remain MicroPython code. The MLX90640 pixel kernel uses RA6M3 single-precision FPU instructions from `@micropython.asm_thumb`; it was not moved to a C module.
+- Bus configuration: one physical RIIC/I2C controller at 400 kHz for AMG8833 (`0x68`) and MLX90640 (`0x33`). The device at `0x47` remains visible on the same bus.
+- Screen structure: AMG8833 RAW above bilinear on the left; MLX90640 RAW above bilinear on the right. LVGL 9.4 draws the static layout once, then four complete RGB565 staging buffers are copied to the DIRECT GLCDC framebuffer after VSYNC.
+- Synthetic 768-pixel MLX FPU kernel time: approximately `3.006 ms`.
+- Real MLX frame comparison: exact two-subpage Python-native calculation `101.486 ms`; shared 768-pixel FPU kernel `2.500 ms`.
+- Accuracy after one warm frame: maximum absolute difference `0.0007553102 deg C`; mean absolute difference `0.00007465484 deg C`.
+- Twenty complete back-to-back visible frames: mean `53.491 ms`, equivalent processing capacity `18.69 FPS`.
+- Five-second timer test: `50` frames in `5.011 s`, or `9.97 FPS`; `update_failed=False`.
+- One-minute timer soak: `600` frames in `60.000 s`, or exactly `10.00 FPS`; `update_failed=False`.
+- Heap stability during the one-minute soak: free heap after GC changed from `91664` to `91632` bytes (`-32` bytes).
+- Allocation test: `APP.verify_no_alloc(10)` returned `0`; all ten complete read/compute/display cycles passed with the MicroPython heap locked.
+- Post-test I2C scan: `[0x33, 0x47, 0x68]`.
+- Visual validation: the real GLCDC framebuffer capture shows all four correctly positioned RAW/bilinear fields without overlap.
+- Beginner documentation: `THERMAL_DUAL_RA6M3_10FPS_BG.md` and `THERMAL_DUAL_RA6M3_10FPS_BG.docx` were generated in `C:\Users\teodor\Desktop\stem\mpy_drivers`; all 10 DOCX pages were rendered and inspected.
+- Milestone status: **hardware validated at 10 FPS for both sensors on one 400 kHz I2C bus**.
