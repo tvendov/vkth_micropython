@@ -24,8 +24,8 @@ class pRGB_lvgl(object):
     '''LVGL wrapper for paralel RGB LCD, not to be instantiated directly.
 
     * creates and registers LVGL display driver;
-    * uses the GLCDC framebuffer as the LVGL direct render buffer;
-    * sets the driver callback to the disp_drv_flush_cb method.
+    * prefers the C bridge's fixed partial render buffer and VSYNC flush;
+    * keeps a direct-framebuffer Python fallback for older firmware.
 
     '''
     def disp_drv_flush_cb(self,disp_drv,area,color_p):
@@ -51,10 +51,10 @@ class pRGB_lvgl(object):
         bufSize = self.width*self.height*self.pixel_size
 
         if not lv.is_initialized(): lv.init()
-        # Match the measured 50 Hz GLCDC scan cadence.  The native waterfall is a
-        # 30 Hz direct-framebuffer consumer driven by an LVGL C timer; the former
-        # 25 Hz task pump was therefore a hard ceiling even though no pixels pass
-        # through the LVGL draw pipeline.
+        # Keep the task cadence close to the measured GLCDC scan cadence. The
+        # native waterfall is a 30 Hz direct-framebuffer consumer driven by an
+        # LVGL C timer; the former 25 Hz task pump was therefore a hard ceiling
+        # even though no pixels pass through the LVGL draw pipeline.
         if not lv_utils.event_loop.is_running(): self.event_loop=lv_utils.event_loop(freq=50)
 
         # attach all to self to avoid objects' refcount dropping to zero when the scope is exited
@@ -63,9 +63,9 @@ class pRGB_lvgl(object):
             raise RuntimeError('GLCDC framebuffer size does not match the LVGL display.')
         self.buf2 = None
         # Prefer the firmware C LVGL bridge (machine.LCD.lvgl_setup): it creates the
-        # display + pointer indev with C flush/read/render-start callbacks, so no
-        # MicroPython wrapper is allocated per render or per ~30 Hz input poll. Fall back
-        # to Python callbacks on firmware without it.
+        # partial-buffer display + pointer indev with C flush/read callbacks, so no
+        # MicroPython wrapper is allocated per render or per ~30 Hz input poll. Fall
+        # back to direct-mode Python callbacks on firmware without it.
         self.bridged = bool(getattr(self.display, 'lvgl_setup', lambda: False)())
         if self.bridged:
             self.disp_drv = lv.display_get_default()

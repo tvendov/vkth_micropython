@@ -28,7 +28,10 @@ extern "C" {
 #define BSP_CFG_MCU_VCC_MV (3300)
 #define BSP_CFG_STACK_MAIN_BYTES (0x4000)
 #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
-#define BSP_CFG_HEAP_BYTES (0x47000)
+/* Keep the staging reservation and machine_lcd.c buffer definition identical. */
+#define VK_RA6M3_LVGL_PARTIAL_LINES (60U)
+#define VK_RA6M3_LVGL_PARTIAL_BYTES (0xE100U)
+#define BSP_CFG_HEAP_BYTES (0x47000U - VK_RA6M3_LVGL_PARTIAL_BYTES)
 #else
 #define BSP_CFG_HEAP_BYTES (0xA000)
 #endif
