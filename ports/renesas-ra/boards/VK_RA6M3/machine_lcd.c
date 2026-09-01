@@ -49,10 +49,10 @@
 #define FT5X06_REG_TD_STATUS 0x02
 #define FT5X06_I2C_TIMEOUT_MS 5U
 #define LCD_VSYNC_TIMEOUT_MS 25U       /* measured GLCDC frame is 16.59 ms */
-#define LCD_LVGL_PARTIAL_LINES VK_RA6M3_LVGL_PARTIAL_LINES
-#define LCD_LVGL_PARTIAL_BYTES (DISPLAY_BUFFER_STRIDE_BYTES_INPUT0 * LCD_LVGL_PARTIAL_LINES)
-_Static_assert(LCD_LVGL_PARTIAL_BYTES == VK_RA6M3_LVGL_PARTIAL_BYTES,
-    "LVGL partial buffer reservation does not match the GLCDC stride");
+#define LCD_GLCDC_FRAME_US 16590U       /* measured 525 x 316 GLCDC frame */
+#define LCD_BEAM_INITIAL_RENDER_US 9000U
+#define LCD_BEAM_RENDER_MARGIN_US 500U
+#define LCD_BEAM_SCAN_GUARD_US 100U
 
 #define extract_e(t) ((uint8_t)((t).event))
 #define extract_x(t) ((int16_t)(((t).x_msb << 8) | ((t).x_lsb)))
@@ -129,10 +129,20 @@ static volatile uint32_t s_touch_i2c_timeouts = 0;
 static uint32_t s_lcd_vsync_timeouts = 0;
 
 #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
-/* LVGL renders into a private partial buffer and copies completed areas into the
- * single GLCDC scanout framebuffer during vertical blanking. */
-static uint8_t s_lcd_lvgl_draw_buffer[LCD_LVGL_PARTIAL_BYTES]
-    BSP_ALIGN_VARIABLE(64) BSP_PLACE_IN_SECTION(".noinit");
+/* A DIRECT display has one physical RGB565 framebuffer.  VERIFY scrolling stages
+ * one overlap-safe framebuffer move here; the render-start callback applies it
+ * immediately after VSYNC, before LVGL redraws only the newly exposed strip. */
+typedef struct st_lcd_scroll_blit
+{
+    int32_t x;
+    int32_t y;
+    int32_t w;
+    int32_t h;
+    int32_t dy;
+    volatile uint8_t pending;
+} lcd_scroll_blit_t;
+
+static lcd_scroll_blit_t s_lcd_scroll_blit;
 static lv_display_t *s_lcd_lvgl_display;
 static void lcd_native_capture_apply(bool attached);
 #endif
@@ -202,6 +212,9 @@ void machine_lcd_soft_reset(void) {
     s_touch_read_pending = 0;
     s_lcd_touch_active = 0;
     memset(&locked, 0, sizeof(locked));
+    #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
+    memset(&s_lcd_scroll_blit, 0, sizeof(s_lcd_scroll_blit));
+    #endif
 }
 
 static uint8_t s_lcd_lvgl_bridged = 0;   // C LVGL display/indev bridge installed?
@@ -268,6 +281,8 @@ static uint32_t s_lcd_render_start_frame;
 static uint32_t s_lcd_render_crossed_frames;
 static uint32_t s_lcd_render_count;
 static uint32_t s_lcd_inv_since_render;
+static uint8_t s_lcd_render_in_progress;
+static uint32_t s_touch_deferred_polls;
 static uint32_t s_lcd_render_inv_count;
 static uint32_t s_lcd_render_max_inv_count;
 static uint32_t s_lcd_render_full_inv_request_count;
@@ -283,13 +298,6 @@ static uint32_t s_lcd_beam_delay_last_us;
 static uint32_t s_lcd_beam_delay_max_us;
 static uint32_t s_lcd_beam_delay_count;
 static uint32_t s_lcd_beam_no_window_count;
-static uint32_t s_lcd_render_chunk_start_us;
-static uint32_t s_lcd_flush_last_us;
-static uint32_t s_lcd_flush_max_us;
-static uint32_t s_lcd_flush_count;
-static uint32_t s_lcd_flush_last_bytes;
-static uint32_t s_lcd_flush_max_bytes;
-static uint32_t s_lcd_flush_vsync_wait_count;
 
 static void lcd_render_dirty_bounds_reset(void) {
     s_lcd_inv_y1 = 0x7fffffffL;
@@ -326,6 +334,7 @@ static void lcd_native_capture_apply(bool attached) {
 void machine_lcd_lvgl_soft_reset(void) {
     #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
     lcd_native_capture_apply(false);
+    memset(&s_lcd_scroll_blit, 0, sizeof(s_lcd_scroll_blit));
     s_lcd_lvgl_display = NULL;
     s_lcd_lvgl_bridged = 0;
     if (lv_is_initialized()) {
@@ -358,6 +367,8 @@ void machine_lcd_lvgl_soft_reset(void) {
         s_lcd_render_crossed_frames = 0U;
         s_lcd_render_count = 0U;
         s_lcd_inv_since_render = 0U;
+        s_lcd_render_in_progress = 0U;
+        s_touch_deferred_polls = 0U;
         s_lcd_render_inv_count = 0U;
         s_lcd_render_max_inv_count = 0U;
         s_lcd_render_full_inv_request_count = 0U;
@@ -372,13 +383,6 @@ void machine_lcd_lvgl_soft_reset(void) {
         s_lcd_beam_delay_max_us = 0U;
         s_lcd_beam_delay_count = 0U;
         s_lcd_beam_no_window_count = 0U;
-        s_lcd_render_chunk_start_us = 0U;
-        s_lcd_flush_last_us = 0U;
-        s_lcd_flush_max_us = 0U;
-        s_lcd_flush_count = 0U;
-        s_lcd_flush_last_bytes = 0U;
-        s_lcd_flush_max_bytes = 0U;
-        s_lcd_flush_vsync_wait_count = 0U;
         s_lcd_vsync_timeouts = 0U;
         #if defined(USE_FSP_DRW)
         vk_ra6m3_dave2d_finish_deinit();
@@ -709,6 +713,9 @@ STATIC mp_obj_t lcd_stop(mp_obj_t self_in) {
     machine_lcd_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->isstarted) {
         if (FSP_SUCCESS == R_GLCDC_Stop(&g_display0_ctrl)) {
+            #if defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
+            s_lcd_scroll_blit.pending = 0U;
+            #endif
             self->isstarted = 0;
         } else {
             mp_raise_ValueError(MP_ERROR_TEXT("Can't stop R_GLCDC"));
@@ -757,79 +764,18 @@ STATIC mp_obj_t lcd_vsync(size_t n_args, const mp_obj_t *args) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_vsync_obj, 1, 2, lcd_vsync);
 
 /* ---- C LVGL display + input bridge -----------------------------------------------
- * Replaces the per-frame Python flush/touch callbacks in pRGB.py.  LVGL and Dave2D
- * render into a fixed partial buffer; only the completed pixels are copied into the
- * GLCDC scanout framebuffer during vertical blanking. */
-static bool lcd_wait_next_line_detect(void) {
-    uint32_t start_cnt = lcd_vsync_counter;
-    uint32_t t0 = (uint32_t)mp_hal_ticks_ms();
-    while (lcd_vsync_counter == start_cnt) {
-        if ((uint32_t)mp_hal_ticks_ms() - t0 >= LCD_VSYNC_TIMEOUT_MS) {
-            s_lcd_vsync_timeouts++;
-            return false;
-        }
-    }
-    return true;
-}
-
+ * Replaces the per-frame Python flush/touch/VSYNC callbacks in pRGB.py.  Those allocate
+ * MicroPython wrapper objects on every render (flush) and every ~30 Hz input poll (read)
+ * -- a continuous idle garbage stream that forces GC.  Registering the same three
+ * callbacks in C removes that garbage entirely.  DIRECT single-framebuffer, identical
+ * behaviour to the Python path (GLCDC framebuffer, cached FT5x06 touch, VSYNC gate). */
 static void lcd_lv_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    if ((area == NULL) || (px_map == NULL)) {
-        lv_display_flush_ready(disp);
-        return;
+    (void)area;
+    (void)px_map;
+    if (lv_display_flush_is_last(disp)) {
+        s_lcd_render_in_progress = 0U;
     }
-
-    int32_t screen_w = (int32_t)g_display0_cfg.input[0].hsize;
-    int32_t screen_h = (int32_t)g_display0_cfg.input[0].vsize;
-    int32_t width = lv_area_get_width(area);
-    int32_t height = lv_area_get_height(area);
-    if ((area->x1 < 0) || (area->y1 < 0) || (area->x2 >= screen_w) ||
-        (area->y2 >= screen_h) || (width <= 0) || (height <= 0)) {
-        lv_display_flush_ready(disp);
-        return;
-    }
-
-    uint32_t now_us = (uint32_t)mp_hal_ticks_us();
-    if (s_lcd_render_chunk_start_us != 0U) {
-        uint32_t draw_us = now_us - s_lcd_render_chunk_start_us;
-        s_lcd_render_last_us = draw_us;
-        if (draw_us > s_lcd_render_max_us) {
-            s_lcd_render_max_us = draw_us;
-        }
-    }
-
-    s_lcd_flush_vsync_wait_count++;
-    (void)lcd_wait_next_line_detect();
-
-    uint32_t copy_start_us = (uint32_t)mp_hal_ticks_us();
-    uint32_t source_stride = lv_draw_buf_width_to_stride((uint32_t)width,
-        LV_COLOR_FORMAT_RGB565);
-    size_t row_bytes = (size_t)width * sizeof(uint16_t);
-    uint8_t *dst = (uint8_t *)g_display0_cfg.input[0].p_base +
-        ((size_t)area->y1 * g_display0_cfg.input[0].hstride + (size_t)area->x1) *
-        sizeof(uint16_t);
-    const uint8_t *src = px_map;
-    size_t dst_stride = (size_t)g_display0_cfg.input[0].hstride * sizeof(uint16_t);
-    for (int32_t row = 0; row < height; row++) {
-        memcpy(dst, src, row_bytes);
-        dst += dst_stride;
-        src += source_stride;
-    }
-    __DMB();
-
-    uint32_t copy_us = (uint32_t)mp_hal_ticks_us() - copy_start_us;
-    uint32_t copy_bytes = (uint32_t)(row_bytes * (size_t)height);
-    s_lcd_flush_last_us = copy_us;
-    s_lcd_flush_last_bytes = copy_bytes;
-    s_lcd_flush_count++;
-    if (copy_us > s_lcd_flush_max_us) {
-        s_lcd_flush_max_us = copy_us;
-    }
-    if (copy_bytes > s_lcd_flush_max_bytes) {
-        s_lcd_flush_max_bytes = copy_bytes;
-    }
-
-    lv_display_flush_ready(disp);
-    s_lcd_render_chunk_start_us = (uint32_t)mp_hal_ticks_us();
+    lv_display_flush_ready(disp);                    // DIRECT mode: drawing is done
 }
 
 static volatile uint32_t s_indev_calls = 0;          // diag: LVGL polls of the read cb
@@ -838,10 +784,14 @@ static volatile uint32_t s_indev_press = 0;          // diag: reads that saw a c
 static void lcd_lv_indev_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     s_indev_calls++;
-    /* The external IRQ only raises a flag. Service at most one bounded SCI-I2C read here,
-     * in foreground context, then report the persistent DOWN/MOVE/HOLD versus UP level.
-     * No fresh FT5x06 packet means "state unchanged", not a synthetic RELEASED. */
-    (void)touch_service_pending();
+    /* Coalesce touch IRQs while the previous visual update is pending or rendering.
+     * Re-reporting the cached point creates no new scroll delta; the newest FT5x06
+     * sample stays pending and is consumed after LV_EVENT_RENDER_READY. */
+    if ((s_lcd_render_in_progress == 0U) && (s_lcd_inv_since_render == 0U)) {
+        (void)touch_service_pending();
+    } else if (s_touch_read_pending != 0U) {
+        s_touch_deferred_polls++;
+    }
 
     uint8_t active;
     int16_t x;
@@ -860,10 +810,11 @@ static void lcd_lv_indev_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     data->state = active ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
-// touch_debug() -> (indev polls, pressed polls, x, y, active, IRQs, I2C errors, timeouts).
+// touch_debug() -> (indev polls, pressed polls, x, y, active, IRQs, I2C errors,
+//                   timeouts, deferred polls, render active, pending invalidations).
 STATIC mp_obj_t lcd_touch_debug(mp_obj_t self_in) {
     (void)self_in;
-    mp_obj_t t[8] = {
+    mp_obj_t t[11] = {
         mp_obj_new_int_from_uint(s_indev_calls),
         mp_obj_new_int_from_uint(s_indev_press),
         MP_OBJ_NEW_SMALL_INT(s_lcd_touch_x),
@@ -872,39 +823,147 @@ STATIC mp_obj_t lcd_touch_debug(mp_obj_t self_in) {
         mp_obj_new_int_from_uint(s_touch_irq_count),
         mp_obj_new_int_from_uint(s_touch_i2c_errors),
         mp_obj_new_int_from_uint(s_touch_i2c_timeouts),
+        mp_obj_new_int_from_uint(s_touch_deferred_polls),
+        MP_OBJ_NEW_SMALL_INT(s_lcd_render_in_progress),
+        mp_obj_new_int_from_uint(s_lcd_inv_since_render),
     };
     return mp_obj_new_tuple(MP_ARRAY_SIZE(t), t);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_lcd_touch_debug_obj, lcd_touch_debug);
 
+/* DIRECT mode uses the GLCDC framebuffer itself as LVGL's only draw buffer.  If
+ * a top-of-screen update takes longer than the vertical blanking interval,
+ * starting it at line detect lets GLCDC scan partially updated pixels.  Delay
+ * only when the measured/predicted render fits behind the active scan line. */
+static uint32_t lcd_lv_beam_delay_for_area(int32_t y1, int32_t y2,
+    uint32_t inv_count) {
+    uint32_t total_lines = g_display0_cfg.output.vtiming.total_cyc;
+    uint32_t active_lines = g_display0_cfg.output.vtiming.display_cyc;
+    if ((total_lines <= active_lines) || (y1 < 0) || (y2 < y1)) {
+        s_lcd_beam_estimate_us = 0U;
+        return 0U;
+    }
+
+    uint32_t area_height = (uint32_t)(y2 - y1 + 1);
+    uint32_t estimate_us = LCD_BEAM_INITIAL_RENDER_US;
+    bool similar_height = (s_lcd_render_previous_height != 0U) &&
+        (area_height <= (s_lcd_render_previous_height * 2U)) &&
+        (s_lcd_render_previous_height <= (area_height * 2U));
+    bool similar_work = (s_lcd_render_previous_inv_count != 0U) &&
+        (inv_count <= (s_lcd_render_previous_inv_count * 2U + 2U)) &&
+        (s_lcd_render_previous_inv_count <= (inv_count * 2U + 2U));
+    if (similar_height && similar_work && (s_lcd_render_last_us != 0U)) {
+        estimate_us = s_lcd_render_last_us;
+    }
+    estimate_us += LCD_BEAM_RENDER_MARGIN_US;
+    s_lcd_beam_estimate_us = estimate_us;
+
+    uint32_t blank_lines = total_lines - active_lines;
+    uint32_t immediate_lines = blank_lines + (uint32_t)y1;
+    uint32_t immediate_us = (uint32_t)(((uint64_t)immediate_lines *
+        LCD_GLCDC_FRAME_US) / total_lines);
+    if (estimate_us <= immediate_us) {
+        return 0U;
+    }
+
+    uint32_t dirty_scan_us = (uint32_t)(((uint64_t)area_height *
+        LCD_GLCDC_FRAME_US) / total_lines);
+    uint32_t delayed_window_us = LCD_GLCDC_FRAME_US - dirty_scan_us;
+    if (estimate_us >= delayed_window_us) {
+        s_lcd_beam_no_window_count++;
+        return 0U;
+    }
+
+    uint32_t delay_lines = blank_lines + (uint32_t)y2 + 1U;
+    uint32_t delay_us = (uint32_t)(((uint64_t)delay_lines *
+        LCD_GLCDC_FRAME_US) / total_lines) + LCD_BEAM_SCAN_GUARD_US;
+    if (delay_us >= LCD_GLCDC_FRAME_US) {
+        s_lcd_beam_no_window_count++;
+        return 0U;
+    }
+    return delay_us;
+}
+
 static void lcd_lv_render_start_cb(lv_event_t *e) {
     (void)e;
+    s_lcd_render_in_progress = 1U;
     int32_t render_y1 = s_lcd_inv_y1;
     int32_t render_y2 = s_lcd_inv_y2;
     uint32_t render_inv_count = s_lcd_inv_since_render;
     lcd_render_dirty_bounds_reset();
     s_lcd_inv_since_render = 0U;
 
+    uint32_t start_cnt = lcd_vsync_counter;          // wait for the next GLCDC frame pulse
+    uint32_t t0 = (uint32_t)mp_hal_ticks_ms();
+    bool line_detect_seen = true;
+    while (lcd_vsync_counter == start_cnt) {
+        if ((uint32_t)mp_hal_ticks_ms() - t0 >= LCD_VSYNC_TIMEOUT_MS) {
+            s_lcd_vsync_timeouts++;
+            line_detect_seen = false;
+            break;
+        }
+    }
+
     s_lcd_render_y1 = -1;
     s_lcd_render_y2 = -1;
     s_lcd_render_area_height = 0U;
     s_lcd_beam_delay_last_us = 0U;
-    s_lcd_beam_estimate_us = 0U;
     if ((render_y1 >= 0) && (render_y2 >= render_y1)) {
         s_lcd_render_y1 = render_y1;
         s_lcd_render_y2 = render_y2;
         s_lcd_render_area_height = (uint32_t)(render_y2 - render_y1 + 1);
+        if (line_detect_seen) {
+            s_lcd_beam_delay_last_us = lcd_lv_beam_delay_for_area(
+                render_y1, render_y2, render_inv_count);
+            if (s_lcd_beam_delay_last_us != 0U) {
+                mp_hal_delay_us(s_lcd_beam_delay_last_us);
+                s_lcd_beam_delay_count++;
+                if (s_lcd_beam_delay_last_us > s_lcd_beam_delay_max_us) {
+                    s_lcd_beam_delay_max_us = s_lcd_beam_delay_last_us;
+                }
+            }
+        } else {
+            s_lcd_beam_estimate_us = 0U;
+        }
+    } else {
+        s_lcd_beam_estimate_us = 0U;
     }
 
     s_lcd_render_start_frame = lcd_vsync_counter;
     s_lcd_render_start_us = (uint32_t)mp_hal_ticks_us();
-    s_lcd_render_chunk_start_us = s_lcd_render_start_us;
     s_lcd_render_count++;
     s_lcd_render_inv_count = render_inv_count;
     if (s_lcd_render_inv_count > s_lcd_render_max_inv_count) {
         s_lcd_render_max_inv_count = s_lcd_render_inv_count;
     }
 
+    /* Apply a staged scroll only inside the render transaction.  Doing this from
+     * the Python touch callback can race GLCDC scanout and creates the very flash
+     * this path is intended to remove.  Cortex-M4 has no data cache, so the DMB is
+     * sufficient before LVGL paints the exposed strip into the same framebuffer. */
+    if (s_lcd_scroll_blit.pending != 0U) {
+        lcd_scroll_blit_t op = s_lcd_scroll_blit;
+        uint16_t *fb = (uint16_t *)g_display0_cfg.input[0].p_base;
+        uint32_t stride = g_display0_cfg.input[0].hstride;
+        size_t row_bytes = (size_t)op.w * sizeof(uint16_t);
+
+        if (op.dy > 0) {                 /* pixels move down: copy bottom -> top */
+            for (int32_t row = op.h - op.dy; row-- > 0;) {
+                memmove(fb + (uint32_t)(op.y + op.dy + row) * stride + (uint32_t)op.x,
+                    fb + (uint32_t)(op.y + row) * stride + (uint32_t)op.x,
+                    row_bytes);
+            }
+        } else {                         /* pixels move up: copy top -> bottom */
+            int32_t up = -op.dy;
+            for (int32_t row = 0; row < op.h - up; ++row) {
+                memmove(fb + (uint32_t)(op.y + row) * stride + (uint32_t)op.x,
+                    fb + (uint32_t)(op.y + up + row) * stride + (uint32_t)op.x,
+                    row_bytes);
+            }
+        }
+        __DMB();
+        s_lcd_scroll_blit.pending = 0U;
+    }
 }
 
 /* Raw invalidate-request diagnostics. This callback runs before LVGL duplicate
@@ -934,20 +993,20 @@ static void lcd_lv_invalidate_area_cb(lv_event_t *e) {
 
 static void lcd_lv_render_ready_cb(lv_event_t *e) {
     (void)e;
+    s_lcd_render_in_progress = 0U;
     if (s_lcd_render_start_us == 0U) {
         return;
+    }
+    uint32_t elapsed = (uint32_t)mp_hal_ticks_us() - s_lcd_render_start_us;
+    s_lcd_render_last_us = elapsed;
+    if (elapsed > s_lcd_render_max_us) {
+        s_lcd_render_max_us = elapsed;
     }
     if (lcd_vsync_counter != s_lcd_render_start_frame) {
         s_lcd_render_crossed_frames++;
     }
     s_lcd_render_previous_height = s_lcd_render_area_height;
     s_lcd_render_previous_inv_count = s_lcd_render_inv_count;
-    s_lcd_render_start_us = 0U;
-    s_lcd_render_chunk_start_us = 0U;
-    /* Partial-mode sizing emits internal INVALIDATE_AREA events after
-     * RENDER_START. They are diagnostics, not work for the next transaction. */
-    s_lcd_inv_since_render = 0U;
-    lcd_render_dirty_bounds_reset();
 }
 
 /* ---- C spectrum surface ----------------------------------------------------------
@@ -2213,14 +2272,42 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_spectrum_pause_obj, 1, 2,
     lcd_spectrum_pause);
 
 // scroll_rect(x, y, w, h, dy) -> bool
-// Partial mode cannot move scanout pixels behind LVGL's staging buffer. Returning
-// False asks the caller to use its complete LVGL redraw path.
+// Stage one overlap-safe RGB565 move for the next LVGL render-start transaction.
+// Positive dy moves the existing pixels down; negative dy moves them up.
 STATIC mp_obj_t lcd_scroll_rect(size_t n_args, const mp_obj_t *args) {
     (void)n_args;
-    (void)args;
-    /* A direct framebuffer move would bypass the staged partial buffer and can
-     * tear. Returning False selects sdr_single.py's existing full-redraw path. */
-    return mp_const_false;
+    machine_lcd_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    int32_t x = (int32_t)mp_obj_get_int(args[1]);
+    int32_t y = (int32_t)mp_obj_get_int(args[2]);
+    int32_t w = (int32_t)mp_obj_get_int(args[3]);
+    int32_t h = (int32_t)mp_obj_get_int(args[4]);
+    int32_t dy = (int32_t)mp_obj_get_int(args[5]);
+    uint32_t screen_w = g_display0_cfg.input[0].hsize;
+    uint32_t screen_h = g_display0_cfg.input[0].vsize;
+
+    if (!self->isinited || !self->isstarted || !s_lcd_lvgl_bridged ||
+        !lv_is_initialized() || (s_lcd_lvgl_display == NULL) ||
+        (lv_display_get_default() != s_lcd_lvgl_display) ||
+        (g_display0_cfg.input[0].format != DISPLAY_IN_FORMAT_16BITS_RGB565) ||
+        (g_display0_cfg.input[0].p_base == NULL) ||
+        (g_display0_cfg.input[0].hstride < screen_w) ||
+        (s_lcd_scroll_blit.pending != 0U) ||
+        (x < 0) || (y < 0) || (w <= 0) || (h <= 0) || (dy == 0) ||
+        (dy <= -h) || (dy >= h) ||
+        ((uint32_t)w > screen_w) || ((uint32_t)h > screen_h) ||
+        ((uint32_t)x > screen_w - (uint32_t)w) ||
+        ((uint32_t)y > screen_h - (uint32_t)h)) {
+        return mp_const_false;
+    }
+
+    s_lcd_scroll_blit.x = x;
+    s_lcd_scroll_blit.y = y;
+    s_lcd_scroll_blit.w = w;
+    s_lcd_scroll_blit.h = h;
+    s_lcd_scroll_blit.dy = dy;
+    __DMB();
+    s_lcd_scroll_blit.pending = 1U;
+    return mp_const_true;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_scroll_rect_obj, 6, 6,
     lcd_scroll_rect);
@@ -2229,14 +2316,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_scroll_rect_obj, 6, 6,
 //                           render_count, last_inv_requests, max_inv_requests,
 //                           full_inv_requests, vsync_timeouts, beam_delay_last_us,
 //                           beam_delay_max_us, beam_delay_count, no_window_count,
-//                           area_y1, area_y2, area_height, beam_estimate_us,
-//                           flush_last_us, flush_max_us, flush_count,
-//                           flush_last_bytes, flush_max_bytes, flush_vsync_waits)
-// Fields 9..16 are retained for Build 33 diagnostic compatibility and stay zero in
-// partial mode. Draw timing excludes the VSYNC wait and framebuffer copy.
+//                           area_y1, area_y2, area_height, beam_estimate_us)
+// A frame crossing without a calculated beam delay is unsafe. A delayed render can
+// cross line detect safely while it remains behind the active scan line.
 STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
     (void)args[0];
-    mp_obj_t t[23] = {
+    mp_obj_t t[17] = {
         mp_obj_new_int_from_uint(s_lcd_render_last_us),
         mp_obj_new_int_from_uint(s_lcd_render_max_us),
         mp_obj_new_int_from_uint(s_lcd_render_crossed_frames),
@@ -2254,12 +2339,6 @@ STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
         mp_obj_new_int(s_lcd_render_y2),
         mp_obj_new_int_from_uint(s_lcd_render_area_height),
         mp_obj_new_int_from_uint(s_lcd_beam_estimate_us),
-        mp_obj_new_int_from_uint(s_lcd_flush_last_us),
-        mp_obj_new_int_from_uint(s_lcd_flush_max_us),
-        mp_obj_new_int_from_uint(s_lcd_flush_count),
-        mp_obj_new_int_from_uint(s_lcd_flush_last_bytes),
-        mp_obj_new_int_from_uint(s_lcd_flush_max_bytes),
-        mp_obj_new_int_from_uint(s_lcd_flush_vsync_wait_count),
     };
     mp_obj_t result = mp_obj_new_tuple(MP_ARRAY_SIZE(t), t);
     if ((n_args > 1U) && mp_obj_is_true(args[1])) {
@@ -2282,13 +2361,6 @@ STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
         s_lcd_beam_delay_max_us = 0U;
         s_lcd_beam_delay_count = 0U;
         s_lcd_beam_no_window_count = 0U;
-        s_lcd_render_chunk_start_us = 0U;
-        s_lcd_flush_last_us = 0U;
-        s_lcd_flush_max_us = 0U;
-        s_lcd_flush_count = 0U;
-        s_lcd_flush_last_bytes = 0U;
-        s_lcd_flush_max_bytes = 0U;
-        s_lcd_flush_vsync_wait_count = 0U;
         s_lcd_vsync_timeouts = 0U;
     }
     return result;
@@ -2310,6 +2382,9 @@ STATIC mp_obj_t lcd_lvgl_setup(mp_obj_t self_in) {
     }
     uint32_t w = g_display0_cfg.input[0].hsize;
     uint32_t h = g_display0_cfg.input[0].vsize;
+    void *fb = g_display0_cfg.input[0].p_base;
+    uint32_t sz = g_display0_cfg.input[0].hstride * g_display0_cfg.input[0].vsize *
+        ((g_display0_cfg.input[0].format < DISPLAY_IN_FORMAT_16BITS_RGB565) ? 4U : 2U);
 
     lv_display_t *disp = lv_display_create(w, h);
     if (disp == NULL) {
@@ -2317,9 +2392,7 @@ STATIC mp_obj_t lcd_lvgl_setup(mp_obj_t self_in) {
     }
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(disp, lcd_lv_flush_cb);
-    memset(s_lcd_lvgl_draw_buffer, 0, sizeof(s_lcd_lvgl_draw_buffer));
-    lv_display_set_buffers(disp, s_lcd_lvgl_draw_buffer, NULL,
-        sizeof(s_lcd_lvgl_draw_buffer), LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_buffers(disp, fb, NULL, sz, LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_add_event_cb(disp, lcd_lv_invalidate_area_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_add_event_cb(disp, lcd_lv_render_start_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(disp, lcd_lv_render_ready_cb, LV_EVENT_RENDER_READY, NULL);
@@ -2329,8 +2402,11 @@ STATIC mp_obj_t lcd_lvgl_setup(mp_obj_t self_in) {
     lv_indev_set_display(indev, disp);
     lv_indev_set_read_cb(indev, lcd_lv_indev_read_cb);
 
+    memset(&s_lcd_scroll_blit, 0, sizeof(s_lcd_scroll_blit));
     s_lcd_render_count = 0U;
     s_lcd_inv_since_render = 0U;
+    s_lcd_render_in_progress = 0U;
+    s_touch_deferred_polls = 0U;
     s_lcd_render_inv_count = 0U;
     s_lcd_render_max_inv_count = 0U;
     s_lcd_render_full_inv_request_count = 0U;
@@ -2345,13 +2421,6 @@ STATIC mp_obj_t lcd_lvgl_setup(mp_obj_t self_in) {
     s_lcd_beam_delay_max_us = 0U;
     s_lcd_beam_delay_count = 0U;
     s_lcd_beam_no_window_count = 0U;
-    s_lcd_render_chunk_start_us = 0U;
-    s_lcd_flush_last_us = 0U;
-    s_lcd_flush_max_us = 0U;
-    s_lcd_flush_count = 0U;
-    s_lcd_flush_last_bytes = 0U;
-    s_lcd_flush_max_bytes = 0U;
-    s_lcd_flush_vsync_wait_count = 0U;
     s_lcd_vsync_timeouts = 0U;
     s_lcd_lvgl_display = disp;
     s_lcd_lvgl_bridged = 1;

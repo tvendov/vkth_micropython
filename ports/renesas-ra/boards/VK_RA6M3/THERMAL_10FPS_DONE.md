@@ -678,3 +678,23 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Compatibility boundary: `machine.LCD.scroll_rect()` now returns `False`, selecting the existing complete-redraw fallback instead of bypassing the staging buffer with a direct framebuffer move.
 - Proof boundary: Build 34 attempt 2 has passed clean compilation, linking and static artifact inspection only. It has not been committed, flashed or executed on hardware; Build 33 remains on the attached board.
 - Next action: review the exact four-file Git scope and commit this static milestone, then perform the mandatory visible J-Link reset, visible flash, independent verify, targeted horizontal Flex timing/visual test and dual-thermal 10 FPS regression test.
+
+## 2026-09-02 00:25 +03:00 - Build 34 HIL rejection and interrupted strip experiment
+
+- Build 34 commit `35138b80a` was programmed after a separate visible J-Link reset. The visible programming session exited with code `0`; an independent `verifybin` session exited with code `0` after reading exactly `1,572,312` bytes from address zero. The tested binary SHA-256 is `C59271B402BC2EB616867F97E681335BAE0CB96FD573D77FE07EE09B23B00354`.
+- The horizontal timer diagnostic completed `160` requested steps and reported `87` renders, `87` flushes, zero VSYNC timeouts and a maximum flush of `52,700` bytes. That copy took `3,162 us`, exceeding the approximately `2,310 us` vertical blank. The diagnostic therefore failed deliberately and Build 34 is rejected as a tear-free solution.
+- A smaller scanline-strip experiment was started after a successful `make BOARD=VK_RA6M3 clean`, but `make BOARD=VK_RA6M3 -j16` was manually interrupted when the user clarified that the failure occurs specifically during touch input. The interrupted build produced no accepted artifact and was not flashed.
+- Reassessment: a partial pixel buffer addresses the wrong boundary. The selected correction restores the Build 33 single-framebuffer `LV_DISPLAY_RENDER_MODE_DIRECT` path and the full `0x47000` MicroPython heap. No extra pixel buffer remains.
+- Touch synchronization rule: while a render is active or an invalidation is pending, the C input callback reuses the cached touch state and leaves the newest FT5x06 sample pending. The sample is consumed only after the previous render reaches its last flush/`LV_EVENT_RENDER_READY`. The Python event loop also permits only one scheduled task-handler callback, preventing queued refresh work from accumulating during a drag.
+- Proof boundary: the new DIRECT touch-serialization source has passed `git diff --check` only. It has not yet completed compilation, flash, timing HIL or visual touch confirmation.
+
+## 2026-09-02 01:55 +03:00 - Build 35 DIRECT touch/render serialization
+
+- Command: a successful `make BOARD=VK_RA6M3 clean` was followed by `make BOARD=VK_RA6M3 -j16` in the MinGW64 environment.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1572749`, `data=0`, `bss=647712`, total `2220461` bytes (`0x21e1ad`). `firmware.bin` is `1,572,736` bytes with SHA-256 `0BCF05B5055E5443F50BCBA5B4571ADCCE438C1285E3CE0F3E35E168249E8ACF`.
+- Rendering path: `LV_DISPLAY_RENDER_MODE_DIRECT` again uses the physical GLCDC framebuffer directly. The Build 34 staging symbol is absent, and the LVGL build restores the full board heap of `0x47000` (`290,816`) bytes at `0x1FFF43A0..0x2003B3A0`; framebuffer 0 remains `0x20040000..0x2007FC00`.
+- Touch synchronization: the input callback consumes a pending FT5X06 sample only when no render is active and no invalidation is waiting. Otherwise it re-reports the cached point and keeps the latest hardware sample pending. Render activity is set at `LV_EVENT_RENDER_START` and cleared at the last display flush and `LV_EVENT_RENDER_READY`; the Python LVGL event loop permits at most one scheduled task-handler callback.
+- Allocation boundary: the change adds only scalar counters/state. It introduces no second framebuffer, staging strip or per-frame heap allocation.
+- Dave2D proof: `lv_draw_dave2d_init`, `d2_opendevice`, `d2_executerenderbuffer`, `d2_flushframe`, `drw_int_isr` and the VK_RA6M3 DRW ISR are linked in the new ELF.
+- Proof boundary: Build 35 has passed clean compilation, linking and static artifact inspection. It has not yet been committed, programmed or exercised on hardware; visual touch behavior remains unverified.
