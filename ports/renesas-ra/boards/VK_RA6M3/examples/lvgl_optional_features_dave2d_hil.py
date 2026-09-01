@@ -111,6 +111,25 @@ def _stage(name):
     print("STAGE", name, "heap", gc.mem_free())
 
 
+def _raise_from_tree_walk(obj, user_data):
+    raise RuntimeError("expected tree-walk callback failure")
+
+
+def _probe_callback_exception_nesting(screen):
+    if lv._nesting.value != 0:
+        raise AssertionError("LVGL callback nesting was nonzero before probe")
+    try:
+        screen.tree_walk(_raise_from_tree_walk, None)
+    except RuntimeError as error:
+        if str(error) != "expected tree-walk callback failure":
+            raise
+    else:
+        raise AssertionError("tree-walk callback exception did not propagate")
+    if lv._nesting.value != 0:
+        raise AssertionError("LVGL callback nesting leaked after exception")
+    print("PASS callback_exception_nesting", lv._nesting.value)
+
+
 def _framebuffer_layout(lcd, display):
     framebuffer = memoryview(lcd)
     height = display.get_vertical_resolution()
@@ -496,6 +515,10 @@ def run():
     screen = lv.screen_active()
     if screen is None:
         raise RuntimeError("LVGL has no active screen")
+
+    _stage("callback_exception_nesting_begin")
+    _probe_callback_exception_nesting(screen)
+    _stage("callback_exception_nesting_end")
 
     _stage("dave2d_begin")
     _probe_dave2d(lcd, display, screen)

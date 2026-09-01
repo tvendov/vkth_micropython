@@ -574,3 +574,34 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Segment and input checks: no LOAD segment is RWX. The HIL Python source parses successfully, and the Lottie JSON parses successfully at exactly `5,139` bytes. All three Git scopes pass `git diff --check`.
 - Proof boundary: Build 31 has passed clean compilation, linking and static artifact inspection only. It has not yet been committed, flashed or executed on hardware.
 - Next action: commit the exact LVGL, binding-pointer and parent-port changes in dependency order, perform the required visible J-Link reset, flash and independent verify, then rerun the complete GC-before-Lottie HIL.
+
+## 2026-09-01 15:09 +03:00 - Build 31 flash and LVGL callback re-entry diagnosis
+
+- Git milestone before flashing: LVGL `dccff2ee12ea1431ed36d6fbafb4f4d7bddcc5d5`, binding/LVGL pointer `370ea21acece341e6663b18ff9292ea7ac254c27`, parent port `a8c268ded3790a99e5459d520356a22e1e4dd5fe`.
+- The required visible J-Link reset, visible programming operation and separate `verifybin` operation all completed successfully. Exactly `1,572,848` bytes were verified at address zero for Build 31 SHA-256 `2DE3CC709EC37C15EE1F62CB611C8A1C1208C1AB4BA760C188351620623E481C`.
+- Board startup reached the MicroPython 1.28 preview REPL on COM18 with `282,608` bytes free. Board-side copies of the `18,953`-byte HIL script and `5,139`-byte Lottie JSON matched their host SHA-256 hashes.
+- HIL passed Dave2D interrupt activity, all three complex gradients, matrix storage and transformed Dave2D layer output. It then stopped during `font_refresh_begin` while rendering a label through the MicroPython glyph callback.
+- Fault exclusion: `IPSR=0`, `CFSR=0` and `HFSR=0`; the CPU continued executing at approximately 120 million cycles per second. This was an active loop, not NMI, HardFault or a stopped core.
+- Draw-state evidence: the first LVGL draw task remained `LV_DRAW_TASK_TYPE_LABEL`, `IN_PROGRESS`, owned by the Dave2D draw unit. The Dave2D unit still referenced that task while its internal task list and draw pressure were empty; a second LVGL task remained waiting.
+- Stack-symbolization evidence: the original `lv_draw_dave2d_dispatch()` frame was still active in the glyph-render callback. Inside that callback, `mp_handle_pending_internal()` ran a scheduled `lv.task_handler()`, which entered `lv_refr_now()` and draw dispatch recursively on the same LVGL C stack.
+- Source cause: the board's `lv_utils.py` deliberately called `lv.task_handler()` after three blocked scheduled ticks even when `lv._nesting.value != 0`. Its assumption that a scheduled handler could never run on an active LVGL C stack is disproved by the captured Build 31 stack.
+- Related binding defect: generated callback wrappers increment `_nesting` before `mp_call_function_n_kw()` but skip the decrement when a Python exception unwinds through NLR. This historical leak motivated the unsafe timeout workaround.
+- Selected correction for Build 32: make the generated Python-call helper restore `_nesting` on both normal and NLR exits, and require `lv_utils.py` to return whenever `_nesting` is nonzero. Dave2D remains enabled and unchanged.
+- Proof boundary: Build 31 verifies the reduced ThorVG RLE stack frame and reaches the font scene without the previous stack NMI. The full HIL is not complete because of the separately proven callback re-entry loop.
+
+## 2026-09-01 15:19 +03:00 - NLR-safe LVGL callbacks, build 32
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 31: route every generated LVGL-to-Python callback through one NLR-protected helper; decrement `_nesting` on both normal return and Python-exception propagation; remove the `_nest_stuck` timeout and never invoke `lv.task_handler()` while `_nesting` is nonzero; add a HIL probe that raises from a synchronous tree-walk callback and checks that `_nesting` returns to zero.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1571725`, `data=0`, `bss=647672`, total `2219397` bytes (`0x21dd85`). `firmware.bin` is `1,571,712` bytes with SHA-256 `3FA33DD9E5C0AAC0836A8B097D935EF735B2707EBC93AB724B0AB7C7D1E4077C`.
+- Delta from build 31: `text` and the binary decreased by `1,136` bytes because the frozen Python timeout/recovery branch was removed; `data` and `bss` are unchanged.
+- Generated-binding proof: the generated file contains one `_nesting++`, two `_nesting--` paths and 57 calls from wrappers to `mp_lv_call_function_n_kw()`; the only three direct `mp_call_function_n_kw()` sites are the two object-construction paths and the protected helper itself.
+- Machine-code proof: the helper increments `_nesting`, calls `nlr_push()`, and on the exception branch decrements `_nesting` before `nlr_jump()`. On success it calls `mp_call_function_n_kw()`, `nlr_pop()`, then decrements `_nesting` before returning. The glyph and tree-walk callback wrappers both call this helper.
+- Dave2D proof: `lv_init()` calls `lv_draw_sw_init()` and then `lv_draw_dave2d_init()`. The Dave2D dispatch/layer entry points, `d2_opendevice`, `d2_executerenderbuffer`, `d2_flushframe`, `drw_int_isr` and the board DRW ISR remain retained.
+- ThorVG and root proof: `rleRender()` still reserves the reduced `5,808`-byte frame and loads the configured `4,096`-byte pool size. The generated root table contains `mp_lv_roots` and both `vk_ra6m3_thorvg_roots` slots; the Lottie data/file/buffer and matrix entry points remain retained.
+- Runtime audit: zero selected C++ exception/catch/personality, ARM unwind, C/newlib allocator, syscall, `setjmp` or `longjmp` symbols and zero selected archive members. MicroPython's own `nlr`, `m_malloc` and bytecode/native support objects are expected port runtime and were not misclassified as C/newlib dependencies.
+- ABI and segments: the ELF remains VFPv4-D16 single-precision hard-float with VFP argument registers. Executable LOAD segments are `R E`, writable segments are `RW`, and no LOAD segment is RWX.
+- Static input checks: both binding generators, frozen `lv_utils.py` and the `19,798`-byte HIL script parse successfully; the Lottie JSON parses successfully at `5,139` bytes. The HIL SHA-256 is `634E7BEE8B29FE22018A21F1DD9E51912EB2F083CBE3FBBCAB5F88910AE9D836`; the JSON SHA-256 remains `B8F9838D449822E651A3FBB905A0CD3163523C222EA307555642694EF3A12313`. All three Git scopes pass `git diff --check`.
+- Proof boundary: Build 32 has passed clean compilation, linking and static artifact inspection only. It has not yet been committed, flashed or executed on hardware.
+- Next action: review and commit the binding and parent scopes in dependency order, perform the required visible J-Link reset, visible flash and independent verify, then run the complete callback-exception, Dave2D, matrix, font and GC-before-Lottie HIL.

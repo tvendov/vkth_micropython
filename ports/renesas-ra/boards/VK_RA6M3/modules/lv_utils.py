@@ -86,7 +86,6 @@ class event_loop():
         self.delay = 1000 // freq
         self.refresh_cb = refresh_cb
         self.exception_sink = exception_sink if exception_sink else self.default_exception_sink
-        self._nest_stuck = 0   # consecutive ticks the _nesting re-entrancy guard blocked us
 
         self.asynchronous = asynchronous
         if self.asynchronous:
@@ -126,24 +125,12 @@ class event_loop():
 
     def task_handler(self, _):
         try:
-            # `_nesting` guards against re-entrant task_handler while LVGL is inside a Python
-            # callback. If a callback raises (e.g. a MemoryError from the render/layer path),
-            # the stack unwinds past the binding's `_nesting--`, pinning the guard > 0. Then
-            # `_nesting == 0` is never true again and task_handler stops -- the GUI freezes for
-            # good (proven: calls stall, alive=True, heap still free). The guard is NOT
-            # writable from Python (`_nesting.value = 0` is silently ignored), so instead we
-            # detect the leak: genuine re-entrancy clears within one scheduled tick, a leak
-            # persists. After a few blocked ticks we run anyway -- safe, because task_handler
-            # is only entered from micropython.schedule at a safe point, never on the LVGL C
-            # stack, so a stale counter can't mean we are truly re-entrant.
+            # A scheduled callback can run while LVGL is still inside a Python
+            # callback. Never enter the LVGL task handler on that active C stack.
             if lv._nesting.value != 0:
-                if self._nest_stuck < 3:
-                    self._nest_stuck += 1
-            else:
-                self._nest_stuck = 0
-            if self._nest_stuck == 0 or self._nest_stuck >= 3:
-                lv.task_handler()
-                if self.refresh_cb: self.refresh_cb()
+                return
+            lv.task_handler()
+            if self.refresh_cb: self.refresh_cb()
         except Exception as e:
             gc.collect()               # reclaim the transient render buffer so next tick fits
             if self.exception_sink:
