@@ -543,3 +543,34 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Static input checks: the HIL script and 5,139-byte Lottie JSON parse successfully; all three nested Git scopes pass `git diff --check`.
 - Proof boundary: Build 30 has passed clean compilation, linking and static inspection. It has not yet been committed, flashed or run on hardware.
 - Next action: commit the exact LVGL, binding-pointer and parent-port scopes in dependency order, then perform visible reset, flash, independent verify and both repeated-init and full GC-before-Lottie HIL tests.
+
+## 2026-09-01 14:46 +03:00 - Build 30 hardware result and ThorVG stack diagnosis
+
+- Git milestone before flashing: LVGL `d6de1b52541c8cfd02505334ff6abb36afa11de5`, binding/LVGL pointer `4193d7116ab16f702a3c3b06394818b436ed6bbf`, parent port `c384470e645d4200c2f3b09c6b3c117668284102`.
+- A visible J-Link reset, visible programming operation and independent `verifybin` all completed successfully. Exactly `1,572,848` bytes were verified at address zero for Build 30 SHA-256 `F6B5D026FFCDAFE1B1B4BDE50C54E0C2BC20D997A6403F6869EE249E31BFC7A4`.
+- Repeated-initialization HIL passed after `gc.collect()`: two additional `lv.init()` calls preserved the same display and screen, and a forced refresh completed. This confirms that the idempotent GC-init hook does not discard live LVGL or ThorVG roots.
+- Full HIL passed Dave2D interrupt activity, complex gradients, matrix storage, transformed layer rendering and the custom glyph callback. After the feature scene was released and garbage-collected, approximately `241 KiB` remained free.
+- The previous ThorVG use-after-free did not recur. Lottie creation, source assignment, render-buffer assignment and animation refresh all returned successfully, proving that the new engine roots survived GC pressure.
+- The board then entered NMI during the forced Lottie display refresh. `NMISR=0x00001000` identifies `BSP_GRP_IRQ_MPU_STACK`; `CFSR=0` and `HFSR=0`, so this is a stack-monitor event rather than a CPU HardFault.
+- The exception PC resolves to `rleRender()` in `tvgSwRle.cpp`; its generated prologue reserves `18,096` bytes by itself. The VK_RA6M3 main stack is only `16,384` bytes, and the caller had already consumed about `3,888` bytes.
+- Source cause: `rleRender()` places a fixed `16,384`-byte cell pool on the stack. Its existing overflow path can split a render band and retry, so the pool can be reduced without replacing ThorVG or Dave2D.
+- Selected correction for Build 31: keep the upstream-compatible `16,384`-byte default, expose it as `LV_THORVG_SW_RLE_RENDER_POOL_SIZE`, and set only VK_RA6M3 to `4,096` bytes. This adds no refresh-time allocation and preserves the MicroPython heap and the 16 KiB main stack.
+- Proof boundary: Build 30 validates the GC-root and repeated-init fixes, but the complete optional-feature HIL is not yet successful because of the independently proven ThorVG RLE stack overflow.
+- Next action: clean-build Build 31, verify the reduced machine-code stack frame and all prior static contracts, commit the milestone, then repeat visible reset, flash, independent verify and the complete HIL.
+
+## 2026-09-01 14:54 +03:00 - Configurable ThorVG RLE stack pool, build 31
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 30: expose ThorVG's fixed RLE worker array as `LV_THORVG_SW_RLE_RENDER_POOL_SIZE`, retain the `16,384`-byte default for other targets, and configure only VK_RA6M3 for `4,096` bytes.
+- Allocation behavior: the RLE worker remains an automatic stack object. No per-refresh heap allocation, global shared scratch buffer or renderer replacement was introduced. The existing band-splitting overflow path remains active for complex outlines.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1572861`, `data=0`, `bss=647672`, total `2220533` bytes (`0x21e1f5`). `firmware.bin` is `1,572,848` bytes with SHA-256 `2DE3CC709EC37C15EE1F62CB611C8A1C1208C1AB4BA760C188351620623E481C`.
+- Delta from build 30: section sizes and binary length are unchanged; the SHA-256 differs because the generated `rleRender()` constants and stack offsets changed.
+- Stack-frame proof: the ARM prologue now pushes `36` bytes, subtracts `5,760` bytes and then `12` bytes, for a total frame of `5,808` bytes. It also loads the configured pool size as the immediate value `4,096`. Build 30 reserved `18,096` bytes in the same function.
+- Stack headroom: with approximately `3,888` bytes already used by the observed caller chain, the previous path required about `21,984` bytes and crossed the `16,384`-byte stack limit. The new corresponding estimate is about `9,696` bytes, leaving roughly `6,688` bytes for nested calls and interrupt entry.
+- Dave2D proof: `lv_init()` still calls `lv_draw_sw_init()` and then `lv_draw_dave2d_init()`. The Dave2D dispatch/layer functions, `d2_opendevice`, render-buffer functions, `drw_int_isr` and the board DRW ISR remain retained.
+- ThorVG/Lottie proof: both engine-root slots remain in the generated root table; their setter and the selected Lottie source/buffer entry points remain retained.
+- Runtime dependency audit: zero selected exception, catch, personality, unwind, C/newlib allocator, syscall, `setjmp` or `longjmp` symbols and zero selected archive members. The ELF remains VFPv4-D16 single-precision hard-float with VFP argument registers.
+- Segment and input checks: no LOAD segment is RWX. The HIL Python source parses successfully, and the Lottie JSON parses successfully at exactly `5,139` bytes. All three Git scopes pass `git diff --check`.
+- Proof boundary: Build 31 has passed clean compilation, linking and static artifact inspection only. It has not yet been committed, flashed or executed on hardware.
+- Next action: commit the exact LVGL, binding-pointer and parent-port changes in dependency order, perform the required visible J-Link reset, flash and independent verify, then rerun the complete GC-before-Lottie HIL.

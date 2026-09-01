@@ -51,6 +51,10 @@
 #undef LV_USE_LOTTIE
 #define LV_USE_LOTTIE 1
 
+/* Keep ThorVG's automatic RLE worker below the VK_RA6M3 16 KiB main stack. */
+#undef LV_THORVG_SW_RLE_RENDER_POOL_SIZE
+#define LV_THORVG_SW_RLE_RENDER_POOL_SIZE 4096L
+
 #ifndef PYCPARSER
     void vk_ra6m3_lvgl_gc_init(void);
     void vk_ra6m3_lvgl_gc_deinit(void);
