@@ -355,3 +355,115 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Nested milestone commits: LVGL `9d7f9eaa80f88964733b727a77adec055191a72e`; binding generator plus LVGL pointer `55837cddd48c4aa373979cc05b424edc4844066f`.
 - Generated build logs 10 through 19 and the regenerated `lextab.py` ordering noise were removed from the worktree; no firmware source change was discarded.
 - Proof boundary remains unchanged: static inspection is not board execution. Flash and HIL follow only after the parent port commit.
+
+## 2026-09-01 11:55 +03:00 - LVGL 9.4 audit corrections, build 20
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 19: validate exact fixed-array dimensions and iterator counts in both binding generators; add board-local `__cxa_pure_virtual` and `__cxa_deleted_virtual` failure bridges; strengthen the optional-feature HIL assertions; remove the broad `-Wno-error` from all ThorVG C++ objects.
+- Result: **FAILED** (`make` exit code 1) during ThorVG C++ compilation, before linking.
+- Generator result: LVGL generation, qstr, module and root-pointer generation completed, and generated `lv_mpy.c` compiled. The new nested fixed-array checks therefore pass generation and C compilation.
+- Exact errors: `tvgAnimation.cpp` compares `float` values with upstream double literals `0.0` and `1.0`; `tvgLottieBuilder.cpp` passes a float expression through `sqrt()`. The port-wide `-Werror=double-promotion` policy makes these expected upstream promotions fatal.
+- Warning-policy result: removing broad `-Wno-error` exposed one concrete warning class. No unrelated ThorVG warning class has been suppressed.
+- Dave2D status: the LVGL Dave2D sources and the FSP Dave2D driver compiled with `LV_USE_DRAW_DAVE2D=1`; the existing Dave2D-only `-Wno-error=float-conversion` remained narrow and visible.
+- Firmware artifact: none; the linker did not run.
+- Next action: make only `double-promotion` non-fatal for the selected ThorVG objects, retain every other warning as fatal, then repeat a clean `-j16` build.
+
+## 2026-09-01 12:02 +03:00 - LVGL 9.4 audit corrections, build 21
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 20: make `double-promotion` non-fatal only for `tvgAnimation.o` and `tvgLottieBuilder.o`; all other ThorVG warnings remained fatal.
+- Result: **FAILED** (`make` exit code 1) during ThorVG C++ compilation, before linking.
+- Confirmed narrow result: the two Build 20 diagnostics remained visible as warnings and no longer stopped compilation.
+- New exact errors: `tvgLottieInterpolator.cpp` compares a float slope with the double literal `0.0`; `tvgLottieParser.cpp` intentionally converts a JSON float to `int8_t` and passes four float coordinates to variadic `snprintf`, where C++ requires promotion to double.
+- Interpretation: extending warning waivers object by object would hide type intent across the Lottie loader. The safer correction is to make the intended types explicit in these four upstream expressions and remove the temporary ThorVG waiver entirely.
+- Dave2D status: LVGL Dave2D and the complete FSP Dave2D driver compiled again and remained enabled.
+- Firmware artifact: none; the linker did not run.
+- Next action: use float literals and `sqrtf` for float calculations, explicit `int8_t` conversion for the parsed byte, and explicit double arguments for variadic formatting; then run another clean `-j16` build with all ThorVG warnings fatal.
+
+## 2026-09-01 12:09 +03:00 - LVGL 9.4 audit corrections, build 22
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 21: replace float comparisons with float literals, use `sqrtf` for the Gaussian-blur calculation, add the explicit parsed-byte conversion and explicitly promote the four variadic `snprintf` coordinates; remove the temporary ThorVG warning waiver.
+- Result: **FAILED** (`make` exit code 1) during ThorVG C++ compilation, before linking.
+- Confirmed progress: every Build 21 diagnostic was resolved and the corrected parser/interpolator sources compiled with all ThorVG warnings fatal.
+- Remaining exact error: `tvgLottieBuilder.cpp` passes the float result of `sqrtf(effect->blurness(frameNo))` to the overloaded `Scene::push(SceneEffect::GaussianBlur, ...)` interface whose matching parameter is `double`; `-Werror=double-promotion` requires that API-boundary conversion to be explicit.
+- Warning-policy result: there is still no broad or object-specific ThorVG warning waiver.
+- Dave2D status: LVGL Dave2D and the complete FSP Dave2D driver compiled again with `LV_USE_DRAW_DAVE2D=1`; Dave2D remains enabled.
+- Firmware artifact: none; the linker did not run.
+- Next action: inspect the exact `Scene::push` declaration, express its expected Gaussian-blur argument type explicitly at the call site, then repeat a clean `-j16` build.
+
+## 2026-09-01 12:15 +03:00 - LVGL 9.4 audit corrections, build 23
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 22: explicitly promote the Gaussian-blur sigma to `double` at the `Scene::push(SceneEffect, ...)` variadic boundary, matching the receiver's `va_arg(args, double)` contract while retaining `sqrtf` for the calculation.
+- Result: **FAILED** (`make` exit code 1) during a later ThorVG C++ source, before linking.
+- Confirmed progress: `tvgLottieBuilder.cpp`, `tvgLottieInterpolator.cpp` and `tvgLottieParser.cpp` all compiled with every ThorVG warning fatal; the Gaussian-blur API boundary is now type-explicit.
+- Remaining exact error: `tvgStr.cpp` multiplies a `float scale` by the double literal `1E8`, causing both `double-promotion` and `float-conversion` diagnostics under `-Werror`.
+- Dave2D status: LVGL Dave2D and the complete FSP Dave2D driver compiled and remain enabled with the existing Dave2D-only clip-coordinate warning exception.
+- Firmware artifact: none; the linker did not run.
+- Next action: express the scale literal as the intended `float` constant `1E8f`, then repeat a clean `-j16` build.
+
+## 2026-09-01 12:21 +03:00 - LVGL 9.4 audit corrections, build 24
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 23: replace the lone double scale literal in `tvgStr.cpp` with the intended `float` literal `1E8f`; no warning waiver was added.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Warning-policy result: every selected ThorVG C++ object compiled with all enabled warnings fatal. The temporary object-specific `double-promotion` waiver and the earlier broad ThorVG `-Wno-error` are absent.
+- Size summary: `text=1607624`, `data=0`, `bss=648068`, total `2255692` bytes (`0x226b4c`). `firmware.bin` is `1,607,608` bytes with SHA-256 `C3CAD3E8D875329127FB60FBC12BD8BA8812B38BDB68185BE725787055E4EB4B`.
+- Binding result: regenerated `lv_mpy.c` compiled with the new exact fixed-array dimension and iterator-count guards.
+- Dave2D status: LVGL Dave2D, the full FSP Dave2D driver and the board Dave2D port compiled and linked with `LV_USE_DRAW_DAVE2D=1`; Dave2D remains enabled.
+- Link diagnostics: the existing six `libnosys` syscall warnings and RWX LOAD-segment warning remain visible. Their retained-symbol cause must be checked in the final ELF/map before this build is accepted for flashing.
+- Proof boundary: this is a successful clean build only. No Git milestone commit, flash, startup or HIL execution has yet been performed for build 24.
+- Next action: audit the final ELF/map for C++ exception, allocation and syscall dependencies; verify Dave2D and optional-feature symbols; then either remove any unsafe runtime pull or commit the verified static milestone.
+
+## 2026-09-01 12:28 +03:00 - LVGL 9.4 freestanding ThorVG runtime, build 25
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 24: explicitly instantiate `std::basic_string<char>` in the board C++ bridge with `_GLIBCXX_EXTERN_TEMPLATE=-1` and the target's existing `-fno-exceptions` flags, so ThorVG does not use the exception-enabled prebuilt `libstdc++` string-instantiation object.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1577300`, `data=0`, `bss=647716`, total `2225016` bytes (`0x21f378`). `firmware.bin` is `1,577,284` bytes with SHA-256 `9BB271A36C5B1D307FA81A772800D94CD788F4FC958BC63F72A3CEB7214954C5`.
+- Delta from build 24: `text` decreased by `30,324` bytes, `bss` decreased by `352` bytes and the binary decreased by `30,324` bytes.
+- Link diagnostics: all six previous `libnosys` syscall warnings disappeared. Only the port's existing RWX LOAD-segment warning remains.
+- Dave2D status: LVGL Dave2D, the full FSP Dave2D driver and the board Dave2D port compiled and linked with `LV_USE_DRAW_DAVE2D=1`; Dave2D remains enabled.
+- Proof boundary: this is a successful clean build. The expected removal of `string-inst.o`, exception ABI, demangler, newlib allocators and syscall stubs still requires direct ELF/map verification before commit or flash.
+- Next action: run the exact symbol and archive-inclusion audit, verify retained Dave2D/Lottie/matrix entry points and memory layout, then commit the static milestone if all checks pass.
+
+## 2026-09-01 12:36 +03:00 - LVGL 9.4 allocation-free support runtime, build 26
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 25: provide a board-local deterministic allocation-free `rand`/`srand` implementation for ThorVG's Lottie text-selector seed; replace the RLE renderer's single `setjmp`/`longjmp` cell-pool overflow escape with an explicit `outOfCells` status that returns the same `-1` result to the existing band-reduction path.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1572725`, `data=0`, `bss=647672`, total `2220397` bytes (`0x21e16d`). `firmware.bin` is `1,572,712` bytes with SHA-256 `8FA02F7FE8A75D02FA1FF6E3CBFB26B693782501EC6F398AA1A6EEBABC2587BF`.
+- Delta from build 25: `text` decreased by `4,575` bytes, `bss` decreased by `44` bytes and the binary decreased by `4,572` bytes.
+- Runtime semantics: RLE cell-pool exhaustion still returns `-1` to the caller, which halves the render band and retries; no out-of-bounds cell is created. The replacement random sequence remains deterministic after boot, matching the unseeded embedded C-library behavior without allocating reentrancy state.
+- Dave2D status: LVGL Dave2D, the full FSP Dave2D driver and the board Dave2D port compiled and linked with `LV_USE_DRAW_DAVE2D=1`; Dave2D remains enabled.
+- Link diagnostics: no `libnosys` syscall warning was emitted. The link output shown for this build also contained no RWX LOAD-segment warning.
+- Proof boundary: this is a successful clean build. Exact absence of exception, allocator, syscall and unwind symbols and the retained optional-feature entry points still require the following ELF/map audit before commit or flash.
+- Next action: complete the exact symbol, archive-inclusion, call-path and memory-layout audit; then commit the verified static milestone before the required visible J-Link reset and flash.
+
+## 2026-09-01 12:43 +03:00 - LVGL 9.4 link without libnosys, build 27
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 26: remove `libnosys.a` from the final C++ archive group. This makes any accidental dependency on its syscall stubs a link failure instead of silently retaining placeholders.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin` without `libnosys.a`.
+- Size summary: `text=1572725`, `data=0`, `bss=647672`, total `2220397` bytes (`0x21e16d`). `firmware.bin` is `1,572,712` bytes with SHA-256 `8FA02F7FE8A75D02FA1FF6E3CBFB26B693782501EC6F398AA1A6EEBABC2587BF`.
+- Reproducibility: size and SHA-256 are byte-for-byte identical to build 26, confirming that `libnosys.a` contributed no bytes to that image.
+- Dave2D status: LVGL Dave2D, the full FSP Dave2D driver and the board Dave2D port compiled and linked with `LV_USE_DRAW_DAVE2D=1`; Dave2D remains enabled.
+- Link diagnostics: no syscall warning and no RWX LOAD-segment warning were emitted.
+- Proof boundary: this is a successful clean build. The final Build 27 ELF/map audit and static Python checks follow before any commit or flash.
+- Next action: repeat the exact symbol, archive-inclusion, segment, call-path and generated-binding checks against Build 27; then commit the verified static milestone.
+
+## 2026-09-01 12:49 +03:00 - Build 27 final static audit
+
+- Forbidden-runtime audit: the final ELF contains none of the exact C++ exception, catch, demangler, personality, ARM unwind, C/newlib allocator or syscall symbols selected for this audit. The similarly named MicroPython bytecode/native unwind helpers are application code, not C++ unwind runtime dependencies.
+- C++ allocation path: disassembly proves the retained board-local `operator new(unsigned int)` calls `lv_malloc` and raises the MicroPython memory error bridge on failure; `operator delete(void *, unsigned int)` branches directly to `lv_free`.
+- Archive audit: the linker map contains none of the selected prebuilt `string-inst`, exception, demangler, libc `rand`/`setjmp`/allocator/syscall, libgcc unwind or `libnosys` archive members.
+- Dave2D call path: disassembly of `lv_init()` calls `lv_draw_sw_init()` and then `lv_draw_dave2d_init()`. The retained Dave2D dispatch calls `d2_selectrenderbuffer()`, `d2_executerenderbuffer()` and `d2_flushframe()`; `drw_int_isr`, `d2_opendevice` and the board dispatch are present in the ELF.
+- Optional-feature symbols: matrix identity/multiply/rotate/inverse and all four requested Lottie source/buffer entry points are present. The generated binding contains exact nested fixed-array dimension guards and iterator overrun/underrun guards.
+- Floating-point ABI: ELF attributes report `VFPv4-D16`, single-precision hard-float use and VFP argument registers. `LV_USE_FLOAT=1`, `LV_USE_DRAW_DAVE2D=1`, `LV_USE_THORVG_INTERNAL=1` and `LV_USE_LOTTIE=1` are active in the board configuration.
+- Segment permissions: executable LOAD segments are `R E`; writable RAM/framebuffer LOAD segments are `RW`; there is no RWX LOAD segment.
+- Memory layout: application flash is `0x00000000..0x001bffff`; the last initialized byte ends at `0x0017ff67`, leaving `0x40098` (`262,296`) bytes before `FLASH_FS`. The MicroPython heap is `0x47000` (`290,816`) bytes, the stack is `0x4000` (`16,384`) bytes, the stack-to-framebuffer guard gap is `0xc88` (`3,208`) bytes and the framebuffer is `0x3fc00` (`261,120`) bytes.
+- Static test result: Python syntax passed for both modified generators and the HIL script; the bundled Lottie JSON parsed successfully (`5,139` bytes); all three repositories pass `git diff --check`.
+- Artifact identity: Build 27 `firmware.bin` remains `1,572,712` bytes with SHA-256 `8FA02F7FE8A75D02FA1FF6E3CBFB26B693782501EC6F398AA1A6EEBABC2587BF`.
+- Proof boundary: compilation, linking and static artifact inspection are complete. No Git milestone commit, board flash, startup observation or HIL execution has yet been performed for Build 27.
+- Next action: commit the three nested Git scopes in dependency order, perform the required visible J-Link reset, flash and independently verify this exact binary, then run the HIL script only if the board reaches a usable MicroPython REPL.

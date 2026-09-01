@@ -89,7 +89,7 @@ SRC_THIRDPARTY_C += lib/lv_bindings/ext_mod/lvgl/mem_core.c
 $(LVGL_MPY_OBJ): CFLAGS += -include $(BOARD_DIR)/lvgl_binding_compat.h
 $(LVGL_THORVG_OBJ): CXXFLAGS += $(LVGL_CFLAGS) -DTHORVG_DISABLE_SVG_LOADER=1 \
 	-fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit \
-	-fno-single-precision-constant -Wno-error
+	-fno-single-precision-constant
 QSTR_GLOBAL_DEPENDENCIES += $(LVGL_MPY)
 
 $(LVGL_MPY): $(LVGL_HEADERS) $(LVGL_GENERATOR) $(LVGL_GENERATOR_LAUNCHER)
@@ -244,9 +244,8 @@ ifneq ($(SRC_CXX)$(SRC_USERMOD_CXX)$(SRC_USERMOD_LIB_CXX),)
 LIBSTDCPP_FILE_NAME = "$(shell $(CXX) $(CXXFLAGS) -print-file-name=libstdc++.a)"
 LIBC_NANO_FILE_NAME = "$(shell $(CC) $(CFLAGS) -print-file-name=libc_nano.a)"
 LIBM_FILE_NAME = "$(shell $(CC) $(CFLAGS) -print-file-name=libm.a)"
-LIBNOSYS_FILE_NAME = "$(shell $(CC) $(CFLAGS) -print-file-name=libnosys.a)"
 LDFLAGS += -L"$(shell dirname $(LIBSTDCPP_FILE_NAME))"
-LIBS := --start-group $(LIBSTDCPP_FILE_NAME) $(LIBC_NANO_FILE_NAME) $(LIBM_FILE_NAME) $(LIBNOSYS_FILE_NAME) $(LIBS) --end-group
+LIBS := --start-group $(LIBSTDCPP_FILE_NAME) $(LIBC_NANO_FILE_NAME) $(LIBM_FILE_NAME) $(LIBS) --end-group
 endif
 
 # Options for mpy-cross

@@ -1,4 +1,11 @@
 #include <cstddef>
+#include <cstdint>
+
+// Instantiate std::string with this target's exception-free C++ flags instead
+// of pulling the exception-enabled prebuilt libstdc++ string-inst object.
+#undef _GLIBCXX_EXTERN_TEMPLATE
+#define _GLIBCXX_EXTERN_TEMPLATE -1
+#include <string>
 
 extern "C" {
 #include "lvgl/lvgl.h"
@@ -6,6 +13,8 @@ extern "C" {
 }
 
 namespace {
+
+std::uint32_t c_rand_state = 1u;
 
 [[noreturn]] void raise_cxx_memory_error()
 {
@@ -18,6 +27,17 @@ namespace {
 }
 
 } // namespace
+
+extern "C" void srand(unsigned int seed)
+{
+    c_rand_state = seed;
+}
+
+extern "C" int rand(void)
+{
+    c_rand_state = c_rand_state * 1664525u + 1013904223u;
+    return static_cast<int>(c_rand_state & 0x7fffffffu);
+}
 
 void * operator new(std::size_t size)
 {
@@ -53,6 +73,16 @@ void operator delete[](void * ptr, std::size_t) noexcept
     lv_free(ptr);
 }
 
+extern "C" [[noreturn]] void __cxa_pure_virtual(void)
+{
+    raise_cxx_runtime_error();
+}
+
+extern "C" [[noreturn]] void __cxa_deleted_virtual(void)
+{
+    raise_cxx_runtime_error();
+}
+
 namespace std {
 
 [[noreturn]] void __throw_bad_alloc() { raise_cxx_memory_error(); }
@@ -77,3 +107,5 @@ namespace std {
 [[noreturn]] void __throw_underflow_error(const char *) { raise_cxx_runtime_error(); }
 
 } // namespace std
+
+template class std::basic_string<char>;
