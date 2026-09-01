@@ -498,3 +498,48 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Warning boundary: the existing Dave2D float-to-integer clip-coordinate diagnostics for line and triangle remain visible and non-fatal only under the previously recorded Dave2D-specific policy. They are unrelated to the new layer function.
 - Proof boundary: Build 28 has passed clean compilation, linking and static artifact inspection only. It has not yet been committed, flashed or executed on the board.
 - Next action: commit this static milestone in dependency order, perform the required visible J-Link reset, program and independently verify this exact SHA-256 artifact, then rerun the complete HIL.
+
+## 2026-09-01 14:17 +03:00 - Build 28 flash, Dave2D layer proof and ThorVG fault isolation
+
+- Git milestone before flashing: LVGL `79815d29bc4ffe38fade867dae2ff8baef0fab22`, binding/LVGL pointer `0f86a07`, parent port `32298adde`.
+- The required visible J-Link reset completed before programming. A visible flash operation and a separate verification operation both succeeded; exactly `1,572,776` bytes were read back from address zero and matched Build 28 SHA-256 `6678A149BFEEBEB2FAE843972F7B6B7E357AA83AD9EBF0F5B750711A88F6591F`.
+- Board startup reached the MicroPython 1.28 preview REPL on COM18. Board-side copies of the HIL script and `lv_example_lottie_approve.json` matched the host artifacts before execution.
+- Corrected layer trigger: LVGL 9.4 defines `LV_OPA_MAX` as `253`; opacity `254` still selected the direct image path. Using opacity `252` forced `LV_DRAW_TASK_TYPE_LAYER`. The framebuffer signature changed from `1732771868` to `424709893` and the DRW interrupt counter increased, proving the new Dave2D layer implementation on hardware.
+- The complex gradients, matrix storage, transformed image/layer output and custom glyph callback all passed. Dave2D remained enabled and active for its supported primitives and image/layer composition paths.
+- The feature scene was deleted and `gc.collect()` recovered approximately `242 KiB` before Lottie allocation. Lottie construction, data-source assignment, render-buffer assignment and animation refresh returned successfully; the board then entered HardFault during `lv.refr_now(display)`.
+- Fault evidence: `IPSR=3`, `CFSR=0x01000000` (`UNALIGNED`) and `HFSR=0x40000000` (`FORCED`). The stacked PC `0x000c51c0` resolves to `tvg::Array<unsigned long>::push()` at `tvgArray.h:62`; LR `0x000c5231` resolves to `_outlineEnd()` at `tvgSwShape.cpp:49`.
+- Lifetime evidence: ThorVG's static `globalMpool` pointer still pointed at `0x1fff6b60`, but that block began with `0x00001413`. Decimal `0x1413` is `5,139`, exactly the Lottie JSON byte length. The pool had been reclaimed after `gc.collect()` and reused by the Python JSON object.
+- Root cause boundary: the LVGL allocator maps to MicroPython `m_malloc`, while ThorVG retained the software-renderer pool and task scheduler only through C++ static pointers. Those pointers are not MicroPython GC roots and are not reachable from `mp_lv_roots` before the first ThorVG canvas exists. This is separate from the already-correct `mp_lv_roots` registration and from Dave2D execution.
+- Next action: root the two long-lived ThorVG engine allocations in `MP_STATE_PORT`, then repeat a clean Build 29, static audit, visible reset/flash/verify and the same GC-before-Lottie HIL sequence.
+
+## 2026-09-01 14:25 +03:00 - ThorVG engine GC roots, build 29
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 28: register a two-slot `vk_ra6m3_thorvg_roots` array in MicroPython VM state; root/unroot ThorVG's shared software-renderer memory pool and task scheduler through optional LVGL configuration hooks; clear both slots during the board LVGL GC lifecycle.
+- Scope: this is a narrow lifetime fix for engine allocations held only by C++ static pointers. The Dave2D evaluator, dispatch, layer renderer and hardware driver remain enabled and unchanged. No global LVGL allocation list or permanent heap lock was introduced.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1572861`, `data=0`, `bss=647672`, total `2220533` bytes (`0x21e1f5`). `firmware.bin` is `1,572,848` bytes with SHA-256 `9D1732F0F4D5FB65B3D5EBB55F53EA851B7F74A9D180E7B65AF97E837E528475`.
+- Delta from build 28: `text` and `firmware.bin` increased by `72` bytes; `data` and `bss` are unchanged.
+- Generated-root proof: `build-VK_RA6M3/genhdr/root_pointers.h` contains `void *vk_ra6m3_thorvg_roots[2]` together with the existing `mp_lv_roots` and Dave2D allocation root.
+- Machine-code proof: `SwRenderer::init()` stores the new pool then calls `vk_ra6m3_thorvg_gc_root_set(0, pool)`; `_termEngine()` frees the pool, clears the static pointer and calls the same setter with null. `TaskScheduler::init/term()` perform the equivalent operations for slot 1.
+- Dave2D proof: `lv_draw_dave2d_init`, `lv_draw_dave2d_layer`, `d2_executerenderbuffer`, `drw_int_isr` and the board ISR remain retained in the final ELF.
+- Runtime dependency audit: the case-sensitive exact scan found zero selected C++ exception/catch/personality, ARM unwind, C/newlib allocator, syscall, `setjmp` or `longjmp` symbols and zero selected archive members. MicroPython's own bytecode/native helpers whose names contain lowercase `unwind` are not C++ unwind runtime dependencies and were excluded explicitly.
+- ABI and segments: ELF attributes remain `VFPv4-D16`, single-precision hard-float and VFP argument registers. Executable LOAD segments are `R E`, writable segments are `RW`, and no LOAD segment is RWX.
+- Static input checks: the complete HIL script parses as Python and the bundled Lottie JSON parses successfully at exactly `5,139` bytes. All three Git scopes pass `git diff --check`.
+- Proof boundary: Build 29 has passed clean compilation, linking and static artifact inspection only. It has not yet been committed, flashed or run on the board.
+- Next action: review and commit the exact nested Git scopes in dependency order, then perform the required visible J-Link reset, flash, independent verify and full GC-before-Lottie HIL.
+
+## 2026-09-01 14:34 +03:00 - Idempotent LVGL GC initialization, build 30
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Review finding after build 29: upstream `lv_init()` invokes `LV_GC_INIT()` before it checks the existing initialized flag. Clearing the ThorVG slots or replacing `mp_lv_roots` in that hook would therefore unroot live engine state during a repeated `lv.init()` call.
+- Change since build 29: `vk_ra6m3_lvgl_gc_init()` now allocates `lv_global_t` only when `mp_lv_roots` is null and always synchronizes the existing pointer into `MP_STATE_VM(mp_lv_roots)`. It does not alter live ThorVG slots. Deinitialization still nulls both global-context copies and both ThorVG roots after normal engine teardown.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1572861`, `data=0`, `bss=647672`, total `2220533` bytes (`0x21e1f5`). `firmware.bin` is `1,572,848` bytes with SHA-256 `F6B5D026FFCDAFE1B1B4BDE50C54E0C2BC20D997A6403F6869EE249E31BFC7A4`.
+- Delta from build 29: section and binary sizes are unchanged; the SHA-256 differs because the GC-init control flow changed.
+- Machine-code proof: `vk_ra6m3_lvgl_gc_init()` tests the static `mp_lv_roots`, calls `m_malloc0` only on the null branch, then writes the selected pointer to the VM root field. `vk_ra6m3_lvgl_gc_deinit()` clears the global pointer, VM pointer and both adjacent ThorVG slots.
+- Root and renderer proof: the generated table still contains `vk_ra6m3_thorvg_roots[2]`; the pool/scheduler root setter call sites and all selected Dave2D init/layer/driver/ISR symbols remain retained.
+- Runtime dependency audit: zero selected exception, catch, personality, unwind, newlib allocator, syscall, `setjmp` or `longjmp` symbols and zero selected archive members. Hard-float VFPv4-D16 attributes and non-RWX LOAD permissions are unchanged.
+- Static input checks: the HIL script and 5,139-byte Lottie JSON parse successfully; all three nested Git scopes pass `git diff --check`.
+- Proof boundary: Build 30 has passed clean compilation, linking and static inspection. It has not yet been committed, flashed or run on hardware.
+- Next action: commit the exact LVGL, binding-pointer and parent-port scopes in dependency order, then perform visible reset, flash, independent verify and both repeated-init and full GC-before-Lottie HIL tests.

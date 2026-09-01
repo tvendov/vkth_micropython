@@ -54,9 +54,16 @@
 #ifndef PYCPARSER
     void vk_ra6m3_lvgl_gc_init(void);
     void vk_ra6m3_lvgl_gc_deinit(void);
+    #ifdef __cplusplus
+    extern "C" void vk_ra6m3_thorvg_gc_root_set(unsigned int slot, void *ptr);
+    #else
+    void vk_ra6m3_thorvg_gc_root_set(unsigned int slot, void *ptr);
+    #endif
     #undef LV_GC_INIT
     #define LV_GC_INIT() vk_ra6m3_lvgl_gc_init()
     #define LV_GC_DEINIT() vk_ra6m3_lvgl_gc_deinit()
+    #define LV_THORVG_SW_MPOOL_ROOT(ptr) vk_ra6m3_thorvg_gc_root_set(0U, (ptr))
+    #define LV_THORVG_TASK_SCHEDULER_ROOT(ptr) vk_ra6m3_thorvg_gc_root_set(1U, (ptr))
 #endif
 
 #endif

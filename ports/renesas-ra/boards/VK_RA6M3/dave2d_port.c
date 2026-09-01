@@ -14,6 +14,7 @@ typedef struct _vk_ra6m3_drw_allocation_t {
 } vk_ra6m3_drw_allocation_t;
 
 MP_REGISTER_ROOT_POINTER(void *vk_ra6m3_drw_allocations);
+MP_REGISTER_ROOT_POINTER(void *vk_ra6m3_thorvg_roots[2]);
 
 /* The LVGL binding (build/lvgl/lv_mpy.c) registers these, but its
  * MP_REGISTER_ROOT_POINTER lines do not survive the qstr preprocessing pass on a
@@ -83,12 +84,21 @@ void vk_ra6m3_drw_int_isr(void) {
     drw_int_isr();
 }
 
+void vk_ra6m3_thorvg_gc_root_set(unsigned int slot, void *ptr) {
+    if (slot < 2) {
+        MP_STATE_PORT(vk_ra6m3_thorvg_roots)[slot] = ptr;
+    }
+}
+
 /* Keep the upstream renderer in the pinned LVGL submodule while adding the
  * lifecycle required by MicroPython soft resets in this board translation unit. */
 #include "lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c"
 
 void vk_ra6m3_lvgl_gc_init(void) {
-    mp_lv_roots = MP_STATE_VM(mp_lv_roots) = m_new0(lv_global_t, 1);
+    if (mp_lv_roots == NULL) {
+        mp_lv_roots = m_new0(lv_global_t, 1);
+    }
+    MP_STATE_VM(mp_lv_roots) = mp_lv_roots;
 }
 
 void vk_ra6m3_lvgl_gc_deinit(void) {
@@ -98,6 +108,8 @@ void vk_ra6m3_lvgl_gc_deinit(void) {
         MP_STATE_VM(mp_lv_roots) = NULL;
         m_del(lv_global_t, roots, 1);
     }
+    MP_STATE_PORT(vk_ra6m3_thorvg_roots)[0] = NULL;
+    MP_STATE_PORT(vk_ra6m3_thorvg_roots)[1] = NULL;
 }
 
 void lv_draw_dave2d_fill_single(lv_draw_task_t *task, const lv_draw_fill_dsc_t *draw_dsc,

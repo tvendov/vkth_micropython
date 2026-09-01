@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void vk_ra6m3_dave2d_prepare_deinit(void);
 void vk_ra6m3_dave2d_finish_deinit(void);
 void vk_ra6m3_lvgl_gc_init(void);
@@ -10,5 +14,10 @@ void vk_ra6m3_lvgl_gc_deinit(void);
 void vk_ra6m3_drw_int_isr(void);
 void vk_ra6m3_dave2d_get_stats(uint32_t *irq_count, uint32_t *allocation_count,
     uint32_t *active_bytes, uint32_t *peak_bytes);
+void vk_ra6m3_thorvg_gc_root_set(unsigned int slot, void *ptr);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

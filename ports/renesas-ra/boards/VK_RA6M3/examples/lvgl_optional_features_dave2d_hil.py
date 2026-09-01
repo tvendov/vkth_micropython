@@ -171,13 +171,20 @@ def _buffer_signature(buffer):
     return nonzero, checksum
 
 
-def _force_lottie_middle_frame(lottie, display):
+def _force_lottie_middle_frame(lottie, display, source_name):
+    _stage("lottie_%s_anim_get_begin" % source_name)
     animation = lottie.get_anim()
+    _stage("lottie_%s_anim_get_end" % source_name)
     if animation is None or animation.duration <= 0:
         raise AssertionError("Lottie source has no usable animation")
+    print("INFO lottie_%s_anim" % source_name, animation.duration, animation.end_value)
     animation.act_time = animation.duration // 2
+    _stage("lottie_%s_anim_refr_begin" % source_name)
     lv.anim_refr_now()
+    _stage("lottie_%s_anim_refr_end" % source_name)
+    _stage("lottie_%s_display_refr_begin" % source_name)
     _refresh(display, 40)
+    _stage("lottie_%s_display_refr_end" % source_name)
 
 
 def _assert_lottie_pixels(source_name, render_buffer):
@@ -290,7 +297,7 @@ def _add_matrix_and_font_examples(screen, lcd, display):
     transformed.set_style_radius(0, 0)
     # A non-cover layered opacity forces LVGL through its legacy off-screen
     # layer compositor instead of the matrix-aware direct-task path.
-    transformed.set_style_opa_layered(254, 0)
+    transformed.set_style_opa_layered(252, 0)
 
     matrix = lv.matrix_t()
     _expect_matrix_dimension_error(
@@ -377,10 +384,13 @@ def _add_matrix_and_font_examples(screen, lcd, display):
         raise AssertionError("style transform values did not round-trip")
     print("PASS style_transform_storage", style_values)
 
+    transform_drw_before = lcd.drw_stats()
     _stage("scene_style_transform_refresh_begin")
     _refresh(display)
     _stage("scene_style_transform_refresh_end")
+    transform_drw_after = lcd.drw_stats()
     transformed_signature = _region_signature(lcd, display, 250, 20, 480, 200)
+    print("INFO style_transform_drw", transform_drw_before, transform_drw_after)
     print("INFO style_transform_signatures", identity_signature, transformed_signature)
     if transformed_signature == identity_signature:
         raise AssertionError("style transform did not change framebuffer output")
@@ -417,11 +427,19 @@ def _add_matrix_and_font_examples(screen, lcd, display):
 def _load_lottie_data(display, screen, json_data, render_buffer):
     _stage("lottie_data_begin")
     _clear_buffer(render_buffer)
+    _stage("lottie_data_create_begin")
     lottie = lv.lottie(screen)
+    _stage("lottie_data_create_end")
+    _stage("lottie_data_source_begin")
     lottie.set_src_data(json_data, len(json_data))
+    _stage("lottie_data_source_end")
+    _stage("lottie_data_buffer_begin")
     lottie.set_buffer(LOTTIE_SIDE, LOTTIE_SIDE, render_buffer)
+    _stage("lottie_data_buffer_end")
     lottie.set_pos(294, 190)
-    _force_lottie_middle_frame(lottie, display)
+    _stage("lottie_data_frame_begin")
+    _force_lottie_middle_frame(lottie, display, "data")
+    _stage("lottie_data_frame_end")
     signature = _assert_lottie_pixels("data", render_buffer)
     lottie.delete()
     _refresh(display)
@@ -435,11 +453,19 @@ def _load_lottie_file(display, screen, render_buffer):
     _clear_buffer(render_buffer)
     open_count = KEEP.get("fs_open_count", 0)
     read_bytes = KEEP.get("fs_read_bytes", 0)
+    _stage("lottie_file_create_begin")
     lottie = lv.lottie(screen)
+    _stage("lottie_file_create_end")
+    _stage("lottie_file_source_begin")
     lottie.set_src_file(LOTTIE_LVGL_PATH)
+    _stage("lottie_file_source_end")
+    _stage("lottie_file_buffer_begin")
     lottie.set_buffer(LOTTIE_SIDE, LOTTIE_SIDE, render_buffer)
+    _stage("lottie_file_buffer_end")
     lottie.set_pos(382, 190)
-    _force_lottie_middle_frame(lottie, display)
+    _stage("lottie_file_frame_begin")
+    _force_lottie_middle_frame(lottie, display, "file")
+    _stage("lottie_file_frame_end")
     if KEEP.get("fs_open_count", 0) <= open_count:
         raise AssertionError("Lottie file source did not open the LVGL path")
     if KEEP.get("fs_read_bytes", 0) <= read_bytes:
@@ -449,6 +475,18 @@ def _load_lottie_file(display, screen, render_buffer):
     print("PASS lottie_file_io", LOTTIE_LVGL_PATH, KEEP["fs_read_bytes"] - read_bytes)
     _stage("lottie_file_end")
     return signature
+
+
+def _release_feature_scene(screen, display):
+    """Delete the completed feature scene before allocating ThorVG state."""
+    screen.clean()
+    _refresh(display)
+    KEEP.pop("gradients", None)
+    KEEP.pop("matrix", None)
+    KEEP.pop("matrix_objects", None)
+    KEEP.pop("mono_font", None)
+    gc.collect()
+    _stage("feature_scene_released")
 
 
 def run():
@@ -465,15 +503,6 @@ def run():
     _stage("fs_register_begin")
     _register_fs()
     _stage("fs_register_end")
-
-    with open(LOTTIE_HOST_PATH, "rb") as source:
-        json_data = source.read()
-    if not json_data:
-        raise RuntimeError("Lottie JSON file is empty")
-
-    render_buffer = bytearray(LOTTIE_SIDE * LOTTIE_SIDE * 4)
-    KEEP["lottie_json"] = json_data
-    KEEP["lottie_buffer"] = render_buffer
 
     _stage("scene_create_begin")
     screen.set_style_bg_color(lv.color_hex(0x101820), 0)
@@ -506,6 +535,17 @@ def run():
     _stage("matrix_font_begin")
     _add_matrix_and_font_examples(screen, lcd, display)
     _stage("matrix_font_end")
+
+    _release_feature_scene(screen, display)
+
+    with open(LOTTIE_HOST_PATH, "rb") as source:
+        json_data = source.read()
+    if not json_data:
+        raise RuntimeError("Lottie JSON file is empty")
+
+    render_buffer = bytearray(LOTTIE_SIDE * LOTTIE_SIDE * 4)
+    KEEP["lottie_json"] = json_data
+    KEEP["lottie_buffer"] = render_buffer
 
     lottie_caption = lv.label(screen)
     lottie_caption.set_text("Lottie: data + file validation")
