@@ -60,16 +60,36 @@ endif
 INC += -I$(LVGL_BINDING_DIR)/lib
 CFLAGS_EXTMOD += $(LVGL_CFLAGS)
 LVGL_SRC_C = $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src -type f -name '*.c'))
+LVGL_THORVG_SRC_CXX = $(subst $(TOP)/,,$(shell find $(LVGL_DIR)/src/libs/thorvg -type f -name '*.cpp' ! -name 'tvgSvg*.cpp' ! -name 'tvgXmlParser.cpp'))
+LVGL_THORVG_SRC_CXX += $(BOARD_DIR)/lvgl_thorvg_port.cpp
+LVGL_THORVG_OBJ = $(addprefix $(BUILD)/,$(LVGL_THORVG_SRC_CXX:.cpp=.o))
 LVGL_DAVE2D_SRC_C = $(filter lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/%.c,$(LVGL_SRC_C))
 LVGL_DAVE2D_OBJ = $(addprefix $(BUILD)/,$(LVGL_DAVE2D_SRC_C:.c=.o))
+LVGL_SPRINTF_OBJ = $(BUILD)/lib/lv_bindings/lib/lvgl/src/stdlib/builtin/lv_sprintf_builtin.o
+LVGL_VARIADIC_FLOAT_OBJ = \
+	$(BUILD)/lib/lv_bindings/lib/lvgl/src/widgets/label/lv_label.o \
+	$(BUILD)/lib/lv_bindings/lib/lvgl/src/widgets/span/lv_span.o
 ifeq ($(USE_FSP_DRW),1)
 # VK_RA6M3 supplies a wrapper around this translation unit to add the
 # MicroPython soft-reset lifecycle missing from the LVGL 9.4 implementation.
 LVGL_SRC_C := $(filter-out lib/lv_bindings/lib/lvgl/src/draw/renesas/dave2d/lv_draw_dave2d.c,$(LVGL_SRC_C))
-$(LVGL_DAVE2D_OBJ): CFLAGS += -include $(BOARD_DIR)/dave2d_compat.h -Wno-unused-variable
+$(LVGL_DAVE2D_OBJ): CFLAGS += -include $(BOARD_DIR)/dave2d_compat.h -Wno-unused-variable -Wno-error=float-conversion
+
+# This formatter intentionally computes in double precision.  The port-wide
+# single-precision literal mode would demote its constants and promote them
+# again at every operation.
+$(LVGL_SPRINTF_OBJ): CFLAGS += -fno-single-precision-constant
+
+# C requires float arguments passed through "..." to be promoted to double.
+$(LVGL_VARIADIC_FLOAT_OBJ): CFLAGS += -Wno-error=double-promotion
 endif
 SRC_THIRDPARTY_C += $(LVGL_SRC_C)
+SRC_CXX += $(LVGL_THORVG_SRC_CXX)
 SRC_THIRDPARTY_C += lib/lv_bindings/ext_mod/lvgl/mem_core.c
+$(LVGL_MPY_OBJ): CFLAGS += -include $(BOARD_DIR)/lvgl_binding_compat.h
+$(LVGL_THORVG_OBJ): CXXFLAGS += $(LVGL_CFLAGS) -DTHORVG_DISABLE_SVG_LOADER=1 \
+	-fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit \
+	-fno-single-precision-constant -Wno-error
 QSTR_GLOBAL_DEPENDENCIES += $(LVGL_MPY)
 
 $(LVGL_MPY): $(LVGL_HEADERS) $(LVGL_GENERATOR) $(LVGL_GENERATOR_LAUNCHER)
@@ -222,7 +242,11 @@ CXXFLAGS += $(filter-out -Wmissing-prototypes -Wold-style-definition -std=gnu99,
 # TODO make this common -- shouldn't be using these "private" vars from py.mk
 ifneq ($(SRC_CXX)$(SRC_USERMOD_CXX)$(SRC_USERMOD_LIB_CXX),)
 LIBSTDCPP_FILE_NAME = "$(shell $(CXX) $(CXXFLAGS) -print-file-name=libstdc++.a)"
+LIBC_NANO_FILE_NAME = "$(shell $(CC) $(CFLAGS) -print-file-name=libc_nano.a)"
+LIBM_FILE_NAME = "$(shell $(CC) $(CFLAGS) -print-file-name=libm.a)"
+LIBNOSYS_FILE_NAME = "$(shell $(CC) $(CFLAGS) -print-file-name=libnosys.a)"
 LDFLAGS += -L"$(shell dirname $(LIBSTDCPP_FILE_NAME))"
+LIBS := --start-group $(LIBSTDCPP_FILE_NAME) $(LIBC_NANO_FILE_NAME) $(LIBM_FILE_NAME) $(LIBNOSYS_FILE_NAME) $(LIBS) --end-group
 endif
 
 # Options for mpy-cross

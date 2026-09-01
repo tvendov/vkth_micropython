@@ -223,3 +223,135 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Polling compatibility, repeated START, exactly-once callback chaining, NACK, cancel, timeout, stock-asyncio message flow and the expected stock-asyncio allocation gate all passed.
 - Final I2C scan: `[0x33, 0x47, 0x68]`.
 - Milestone status: **hardware validated** for allocation-free success and error completion messages on the bidirectional DTC transport.
+
+## 2026-09-01 09:35 +03:00 - LVGL 9.4 optional features, build 10
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Intended change: enable complex software gradients, matrix object transforms, Python font glyph callbacks, and Lottie backed by the internal ThorVG renderer.
+- Build integration: add the bundled ThorVG C++ sources and route global C++ `new/delete` through `lv_malloc/lv_free`, avoiding a second allocator over the MicroPython GC region.
+- Result: **FAILED** (`make` exit code 2) during qstr preprocessing, before C/C++ compilation and linking.
+- Error: `lv_matrix.h: #error "LV_USE_FLOAT is required for lv_matrix"`.
+- Root cause: the generic binding configuration defaults `MICROPY_FLOAT` to `0`, so `LV_USE_FLOAT` remained disabled even though this port builds MicroPython with single-precision floating point and the RA6M3 FPU.
+- Firmware artifact: none; the linker did not run.
+- Next action: set board-local `LV_USE_FLOAT=1` and repeat a clean `-j16` build.
+
+## 2026-09-01 09:38 +03:00 - LVGL 9.4 optional features, build 11
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 10: enable board-local `LV_USE_FLOAT=1` for the matrix and vector APIs.
+- Result: **FAILED** (`make` exit code 2) during qstr preprocessing, before object compilation and linking.
+- Error: `boards/VK_RA6M3/lvgl_thorvg_port.cpp: fatal error: lvgl.h: No such file or directory`.
+- Root cause: the Renesas include path exposes the public header as `lvgl/lvgl.h`, not as a top-level `lvgl.h`.
+- Firmware artifact: none; the linker did not run.
+- Next action: use the port-correct include path and repeat a clean `-j16` build.
+
+## 2026-09-01 09:41 +03:00 - LVGL 9.4 optional features, build 12
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 11: include the binding header as `lvgl/lvgl.h` from the ThorVG allocator bridge.
+- Reached before failure: qstr, module and root-pointer generation completed and normal C object compilation started. This proves only that preprocessing and table generation did not stop; it does not yet prove that the requested Python APIs were emitted, linked or usable.
+- Result: **FAILED** (`make` exit code 2) while compiling the bundled Dave2D line renderer.
+- Error: four expected `float` to `int32_t` clip-area conversions in `lv_draw_dave2d_line.c` were promoted to errors by the port-wide `-Werror=float-conversion` policy.
+- Firmware artifact: none; the linker did not run.
+- Next action: keep the diagnostic warning but disable `-Werror=float-conversion` only for bundled Dave2D objects, then repeat a clean `-j16` build.
+
+## 2026-09-01 09:45 +03:00 - LVGL 9.4 optional features, build 13
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 12: retain Dave2D and keep its float-to-integer diagnostics visible, but stop treating that one upstream warning class as fatal for Dave2D objects only.
+- Result: **FAILED** (`make` exit code 2) during LVGL C compilation, before ThorVG C++ compilation and linking.
+- Error: `lv_sprintf_builtin.c` promotes `float` values to `double` because several upstream numeric literals have type `double`; the port-wide `-Werror=double-promotion` policy makes those promotions fatal.
+- Interpretation boundary: reaching this point still does not prove that matrix, glyph-callback or Lottie APIs are present in the generated MicroPython binding.
+- Dave2D status: still enabled and compiled; it has not been replaced by the software renderer. Runtime initialization remains unverified until an ELF is linked and tested on the board.
+- Firmware artifact: none; the linker did not run.
+- Next action: inspect the exact float typedefs and compiler flags, then apply the narrowest type-correct fix for `lv_sprintf_builtin.c` without disabling Dave2D or weakening warnings port-wide.
+
+## 2026-09-01 09:50 +03:00 - LVGL 9.4 optional features, build 14
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 13: compile only `lv_sprintf_builtin.o` with `-fno-single-precision-constant`, because that upstream formatter intentionally uses `double` calculations. No warning class was disabled for that object.
+- Result: **FAILED** (`make` exit code 1) during LVGL C compilation, before ThorVG C++ compilation and linking.
+- Confirmed narrow result: `lv_sprintf_builtin.c` now compiles cleanly; the previous double-promotion failures there are removed without changing its source or precision.
+- Error: `lv_label.c` passes `subject->value.float_v` to the variadic `lv_label_set_text_fmt()` function. The C language requires the default argument promotion from `float` to `double`, while the port treats every double promotion as fatal.
+- Static follow-up: the same required variadic promotion also exists in `lv_span.c`.
+- Dave2D status: its arc, border, fill, image, label, line, mask, triangle and utility sources all compiled in this build. Runtime activation is still unverified because no ELF exists yet.
+- Firmware artifact: none; the linker did not run.
+- Next action: retain the warning, but make it non-fatal only for the two upstream label/span objects where C mandates the variadic promotion, then repeat the clean `-j16` build.
+
+## 2026-09-01 09:56 +03:00 - LVGL 9.4 optional features, build 15
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 14: make the mandatory C default-argument promotion non-fatal only for `lv_label.o` and `lv_span.o`.
+- Result: **FAILED** (`make` exit code 1) while compiling the generated `build-VK_RA6M3/lvgl/lv_mpy.c`; ThorVG C++ compilation and linking were not reached.
+- Confirmed narrow result: both upstream label/span sources compiled and retained their visible double-promotion warnings.
+- Binding error 1: the generator emits invalid C declarators for the two-dimensional `float m[3][3]` member of `lv_matrix_t` (`static float [3] *...`). Therefore matrix support is not yet exposed correctly even though table generation completed.
+- Binding error 2: the generated Lottie type references `lv_lottie_class`, but LVGL 9.4 defines that global in `lv_lottie.c` without declaring it in the public `lv_lottie.h` header.
+- Corrected proof boundary: qstr/module/root-pointer completion does not validate generated binding C. Build 15 is the first direct compilation proof and it fails.
+- Dave2D status: all bundled Dave2D sources compiled again. It remains enabled; runtime activation is still unverified because linking was not reached.
+- Firmware artifact: none.
+- Next action: fix the generator's multidimensional-array declaration handling and provide a narrow public declaration bridge for the existing Lottie class symbol, then repeat a clean `-j16` build.
+
+## 2026-09-01 10:06 +03:00 - LVGL 9.4 optional features, build 16
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 15: generate nested-array element typedefs and row copies in the binding generator; compile `lv_mpy.o` with a board-local declaration of the existing `lv_lottie_class` symbol.
+- Result: **FAILED** (`make` exit code 1) while compiling generated `lv_mpy.c`; ThorVG C++ compilation and linking were not reached.
+- Confirmed progress: the generated matrix declarations are now valid C (`typedef float ...[3]`), the `m[3][3]` read/write converters are emitted, and the generated Lottie wrapper resolves its class declaration.
+- Error: the new temporary element typedef retained source `const` qualifiers for several ordinary one-dimensional input arrays. The converter then attempted to fill read-only temporary elements, producing assignment errors and const-discard diagnostics.
+- Root cause: the old conversion path intentionally used an unqualified temporary element type; the new typedef must preserve that behavior before adding multidimensional shape.
+- Dave2D status: all bundled Dave2D sources compiled again and remain enabled. Runtime activation remains unverified because no ELF was linked.
+- Firmware artifact: none.
+- Next action: remove qualifiers from the temporary conversion typedef, while leaving the public function signatures unchanged, then repeat a clean `-j16` build.
+
+## 2026-09-01 10:13 +03:00 - LVGL 9.4 optional features, build 17
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 16: remove qualifiers only from the binding generator's temporary array-element typedef; public LVGL argument qualifiers remain unchanged.
+- Result: **FAILED** (`make` exit code 1) at the final link step. All generated binding C, LVGL C, bundled Dave2D, FSP Dave2D driver and selected ThorVG C++ objects compiled.
+- Binding progress: generated matrix nested-array converters and the Lottie class wrapper compiled successfully. This is compile-time proof only; no usable ELF was produced.
+- Link error 1: adding the complete target `libstdc++.a` pulled exception, locale, I/O and system-error runtime objects that require unsupported hosted C library symbols such as `malloc`, `free`, `fopen`, `setlocale` and `__dso_handle`.
+- Link error 2: LVGL vector code also needs the math library symbols `lroundf`, `lrintf` and `ceil`; the current library ordering does not resolve them.
+- Memory result: the incomplete link reports a 1,192-byte RAM overflow where `.stack_dummy` crosses the fixed framebuffer boundary. This is not yet a final firmware-size result because the current C++ runtime selection is incorrect.
+- Precision issue found during C++ compilation: the port-wide `-fsingle-precision-constant` flag changes ThorVG/RapidJSON constants intended as `double`, including powers outside the float range. ThorVG objects need their upstream double literals preserved.
+- Dave2D status: all Dave2D draw and FSP driver objects compiled and remained part of the attempted link. It has not been disabled or replaced; runtime activation remains unverified until a valid ELF is linked and tested.
+- Firmware artifact: none; final link failed.
+- Next action: use a freestanding, minimal C++ support set for ThorVG, preserve ThorVG double literals, resolve math/runtime symbols with the port's supported libraries, and repeat a clean `-j16` build.
+
+## 2026-09-01 10:29 +03:00 - LVGL 9.4 optional features, build 18
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 17: omit the unused ThorVG SVG/iostream loader for VK_RA6M3; keep the Lottie JSON loader; route Lottie file reads through `lv_fs_*`; use `lv_free` for ThorVG allocations made by `lv_malloc/lv_realloc`; preserve ThorVG double literals; add exception-free C++ failure bridges; link only referenced members from `libstdc++`, `libc_nano`, `libm` and `libgcc` as one archive group.
+- Result: **FAILED** (`make` exit code 1) at the final link step. All requested C, generated binding C, Dave2D/FSP and reduced ThorVG C++ objects compiled.
+- Confirmed progress: the previous iostream/locale/exception dependency chain is absent, and the linker no longer reports a RAM overflow or framebuffer overlap.
+- Remaining link errors: only the six freestanding newlib syscall hooks `_close`, `_fstat`, `_isatty`, `_lseek`, `_read` and `_write` are unresolved.
+- File-path architecture: Lottie file loading no longer uses these newlib calls; it uses the registered LVGL file-system driver, allowing a MicroPython-backed `lv_fs` drive to read `/flash` files.
+- Dave2D status: all LVGL Dave2D objects and the full FSP Dave2D driver compiled. The final link still failed, so runtime activation remains unverified.
+- Firmware artifact: none; final link failed.
+- Next action: add the toolchain's freestanding `libnosys` syscall stubs to the existing archive group and repeat a clean `-j16` build.
+
+## 2026-09-01 10:36 +03:00 - LVGL 9.4 optional features, build 19
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Change since build 18: add the target toolchain's freestanding `libnosys.a` to the existing C/C++ archive group; no source-level syscall implementation or hosted file-I/O path was added.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and `firmware.elf`, `firmware.hex` and `firmware.bin` were generated.
+- Size summary: `text=1606840`, `data=0`, `bss=648068`, total `2254908` bytes (`0x22683c`). The large BSS value includes the port's statically reserved display memory and must be interpreted from the linker map, not as MicroPython heap usage alone.
+- Link diagnostics: the expected `libnosys` warnings for `_close`, `_fstat`, `_isatty`, `_lseek`, `_read` and `_write` remain visible, plus the existing RWX load-segment warning. They are warnings, not unresolved symbols.
+- Binding evidence: generated matrix nested-array converters, glyph-descriptor callback support and Lottie wrappers compiled into the firmware.
+- Dave2D evidence: the LVGL Dave2D draw objects and the FSP Dave2D driver compiled and linked while `LV_USE_DRAW_DAVE2D=1`; Dave2D was not replaced by the software renderer. Actual board-side initialization and draw dispatch still require static ELF/source tracing and HIL verification.
+- ThorVG/Lottie evidence: the reduced embedded ThorVG/Lottie object set compiled and linked without the desktop SVG/iostream loader; Lottie file input uses `lv_fs_*`.
+- Proof boundary: this is a successful firmware build milestone only. No flash, board startup, Dave2D runtime dispatch or visual feature test has been performed for build 19 yet.
+- Next action: inspect the final ELF/map and generated Python API, add a complete HIL script, clean generated logs, commit the exact milestone, then perform the required visible J-Link reset before programming.
+
+### 2026-09-01 10:53 +03:00 - Build 19 static audit and prepared HIL
+
+- Firmware binary: `1,606,824` bytes, SHA-256 `6B413B2F962360FFD8B5ADD2968421EBD6FEBF57FF1D5ED5865F778F0A591AB2`.
+- Flash layout: application FLASH is `0x1c0000` bytes; the binary leaves `228,184` bytes before the separate `FLASH_FS` region.
+- RAM layout from `firmware.map`: fixed MicroPython heap `0x47000` (`290,816` bytes), fixed stack `0x4000` (`16,384` bytes), framebuffer `0x3fc00` (`261,120` bytes), and `0xaf8` (`2,808` bytes) between the stack top and framebuffer origin. The linker assertions for heap/stack and framebuffer separation passed.
+- Final machine-code trace: `lv_init` directly branches to `lv_draw_sw_init` and then to `lv_draw_dave2d_init` at `0x000a3cb4`. This proves that Dave2D initialization is present in the executable initialization path, not merely in an unreferenced object.
+- Final symbol trace: `lv_draw_dave2d_dispatch`, `_dave2d_evaluate`, `d2_opendevice`, `d2_executerenderbuffer`, the DRW ISR, matrix functions and all five Lottie entry points are retained in `firmware.elf`.
+- Runtime proof mechanism: the existing `machine.LCD.drw_stats()` returns DRW interrupt/allocation counters. The new HIL script compares the interrupt count before and after a frame containing only Dave2D-supported fill, border and label tasks.
+- Complete HIL files prepared: `examples/lvgl_optional_features_dave2d_hil.py` and `examples/lv_example_lottie_approve.json`. Host syntax and JSON structure checks pass; neither has run on the board yet.
+- Renderer boundary: complex linear/radial/conical gradients intentionally use LVGL software fallback. Dave2D remains the preferred draw unit for supported ordinary fills, borders, labels, lines, arcs and image formats; ThorVG handles Lottie vector rasterization.
+- Nested milestone commits: LVGL `9d7f9eaa80f88964733b727a77adec055191a72e`; binding generator plus LVGL pointer `55837cddd48c4aa373979cc05b424edc4844066f`.
+- Generated build logs 10 through 19 and the regenerated `lextab.py` ordering noise were removed from the worktree; no firmware source change was discarded.
+- Proof boundary remains unchanged: static inspection is not board execution. Flash and HIL follow only after the parent port commit.

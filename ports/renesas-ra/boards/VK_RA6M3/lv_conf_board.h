@@ -33,6 +33,24 @@
 #undef LV_USE_DRAW_DAVE2D
 #define LV_USE_DRAW_DAVE2D 1
 
+/* Optional LVGL 9.4 features used by the complete MicroPython examples. */
+#undef LV_USE_DRAW_SW_COMPLEX_GRADIENTS
+#define LV_USE_DRAW_SW_COMPLEX_GRADIENTS 1
+
+#undef LV_USE_MATRIX
+#define LV_USE_MATRIX 1
+#undef LV_USE_FLOAT
+#define LV_USE_FLOAT 1
+#undef LV_DRAW_TRANSFORM_USE_MATRIX
+#define LV_DRAW_TRANSFORM_USE_MATRIX 1
+
+#undef LV_USE_VECTOR_GRAPHIC
+#define LV_USE_VECTOR_GRAPHIC 1
+#undef LV_USE_THORVG_INTERNAL
+#define LV_USE_THORVG_INTERNAL 1
+#undef LV_USE_LOTTIE
+#define LV_USE_LOTTIE 1
+
 #ifndef PYCPARSER
     void vk_ra6m3_lvgl_gc_init(void);
     void vk_ra6m3_lvgl_gc_deinit(void);
