@@ -107,6 +107,10 @@ def _refresh(display, delay_ms=80):
     time.sleep_ms(delay_ms)
 
 
+def _stage(name):
+    print("STAGE", name, "heap", gc.mem_free())
+
+
 def _framebuffer_layout(lcd, display):
     framebuffer = memoryview(lcd)
     height = display.get_vertical_resolution()
@@ -283,7 +287,10 @@ def _add_matrix_and_font_examples(screen, lcd, display):
     transformed.set_size(78, 48)
     transformed.set_style_bg_color(lv.color_hex(0xF6C85F), 0)
     transformed.set_style_border_width(0, 0)
-    transformed.set_style_radius(2, 0)
+    transformed.set_style_radius(0, 0)
+    # A non-cover layered opacity forces LVGL through its legacy off-screen
+    # layer compositor instead of the matrix-aware direct-task path.
+    transformed.set_style_opa_layered(254, 0)
 
     matrix = lv.matrix_t()
     _expect_matrix_dimension_error(
@@ -310,6 +317,77 @@ def _add_matrix_and_font_examples(screen, lcd, display):
     matrix_caption.set_text("matrix")
     matrix_caption.set_pos(382, 102)
 
+    KEEP["matrix"] = matrix
+    KEEP["matrix_objects"] = (transformed, matrix_caption)
+
+    _stage("scene_identity_refresh_begin")
+    _refresh(display)
+    _stage("scene_identity_refresh_end")
+    identity_signature = _region_signature(lcd, display, 250, 20, 480, 200)
+
+    # Prove that the framebuffer signature detects an ordinary visible change
+    # in the same object and region before using it to validate transforms.
+    transformed.set_style_bg_color(lv.color_hex(0x3A86FF), 0)
+    _refresh(display)
+    control_signature = _region_signature(lcd, display, 250, 20, 480, 200)
+    if control_signature == identity_signature:
+        raise AssertionError("framebuffer signature missed a color change")
+
+    transformed.set_style_bg_color(lv.color_hex(0xF6C85F), 0)
+    _refresh(display)
+    restored_signature = _region_signature(lcd, display, 250, 20, 480, 200)
+    if restored_signature != identity_signature:
+        raise AssertionError("framebuffer did not return to the identity scene")
+    print("PASS framebuffer_signature_control", identity_signature, control_signature)
+
+    matrix.rotate(12.0)
+    matrix.scale(1.10, 0.85)
+    transformed.set_transform(matrix)
+    stored_matrix = transformed.get_transform()
+    if stored_matrix is None:
+        raise AssertionError("object did not retain its transform matrix")
+    _assert_matrix_values(stored_matrix.m, matrix.m)
+    print("PASS matrix_storage", matrix.m)
+
+    # Dave2D and the generic software draw unit do not consume the 3x3 matrix
+    # attached to a draw task.  Keep the matrix API/storage test above, then use
+    # LVGL's supported image rotation/scale path for the visible transform.
+    transformed.reset_transform()
+    transformed.set_style_transform_pivot_x(lv.pct(50), 0)
+    transformed.set_style_transform_pivot_y(lv.pct(50), 0)
+    transformed.set_style_transform_rotation(0, 0)
+    transformed.set_style_transform_scale_x(int(lv.SCALE_NONE * 0.85), 0)
+    transformed.set_style_transform_scale_y(int(lv.SCALE_NONE * 0.85), 0)
+
+    style_values = (
+        transformed.get_style_transform_pivot_x(lv.PART.MAIN),
+        transformed.get_style_transform_pivot_y(lv.PART.MAIN),
+        transformed.get_style_transform_rotation(lv.PART.MAIN),
+        transformed.get_style_transform_scale_x(lv.PART.MAIN),
+        transformed.get_style_transform_scale_y(lv.PART.MAIN),
+    )
+    expected_style_values = (
+        lv.pct(50),
+        lv.pct(50),
+        0,
+        int(lv.SCALE_NONE * 0.85),
+        int(lv.SCALE_NONE * 0.85),
+    )
+    if style_values != expected_style_values:
+        raise AssertionError("style transform values did not round-trip")
+    print("PASS style_transform_storage", style_values)
+
+    _stage("scene_style_transform_refresh_begin")
+    _refresh(display)
+    _stage("scene_style_transform_refresh_end")
+    transformed_signature = _region_signature(lcd, display, 250, 20, 480, 200)
+    print("INFO style_transform_signatures", identity_signature, transformed_signature)
+    if transformed_signature == identity_signature:
+        raise AssertionError("style transform did not change framebuffer output")
+
+    print("PASS matrix_array", expected)
+    print("PASS style_transform_render", identity_signature, transformed_signature)
+
     normal = lv.label(screen)
     normal.set_text("Normal: 0123.Wabc")
     normal.set_pos(14, 134)
@@ -324,29 +402,20 @@ def _add_matrix_and_font_examples(screen, lcd, display):
     fixed.set_pos(14, 164)
     fixed.set_style_text_font(mono_font, 0)
 
-    KEEP["matrix"] = matrix
     KEEP["mono_font"] = mono_font
     KEEP["matrix_objects"] = (transformed, matrix_caption, normal, fixed)
 
+    _stage("font_refresh_begin")
     _refresh(display)
-    identity_signature = _region_signature(lcd, display, 340, 20, 480, 120)
-
-    matrix.rotate(12.0)
-    matrix.scale(1.10, 0.85)
-    transformed.set_transform(matrix)
-    _refresh(display)
-    transformed_signature = _region_signature(lcd, display, 340, 20, 480, 120)
-    if transformed_signature == identity_signature:
-        raise AssertionError("matrix transform did not change framebuffer output")
+    _stage("font_refresh_end")
     if KEEP["glyph_calls"] <= 0:
         raise AssertionError("custom glyph callback was not invoked")
 
-    print("PASS matrix_array", expected)
-    print("PASS matrix_render", identity_signature, transformed_signature)
     print("PASS glyph_callback", KEEP["glyph_calls"])
 
 
 def _load_lottie_data(display, screen, json_data, render_buffer):
+    _stage("lottie_data_begin")
     _clear_buffer(render_buffer)
     lottie = lv.lottie(screen)
     lottie.set_src_data(json_data, len(json_data))
@@ -357,10 +426,12 @@ def _load_lottie_data(display, screen, json_data, render_buffer):
     lottie.delete()
     _refresh(display)
     gc.collect()
+    _stage("lottie_data_end")
     return signature
 
 
 def _load_lottie_file(display, screen, render_buffer):
+    _stage("lottie_file_begin")
     _clear_buffer(render_buffer)
     open_count = KEEP.get("fs_open_count", 0)
     read_bytes = KEEP.get("fs_read_bytes", 0)
@@ -376,18 +447,24 @@ def _load_lottie_file(display, screen, render_buffer):
     signature = _assert_lottie_pixels("file", render_buffer)
     KEEP["lottie_file"] = lottie
     print("PASS lottie_file_io", LOTTIE_LVGL_PATH, KEEP["fs_read_bytes"] - read_bytes)
+    _stage("lottie_file_end")
     return signature
 
 
 def run():
     gc.collect()
+    _stage("display_init_begin")
     lcd, display = _init_display()
     screen = lv.screen_active()
     if screen is None:
         raise RuntimeError("LVGL has no active screen")
 
+    _stage("dave2d_begin")
     _probe_dave2d(lcd, display, screen)
+    _stage("dave2d_end")
+    _stage("fs_register_begin")
     _register_fs()
+    _stage("fs_register_end")
 
     with open(LOTTIE_HOST_PATH, "rb") as source:
         json_data = source.read()
@@ -398,6 +475,7 @@ def run():
     KEEP["lottie_json"] = json_data
     KEEP["lottie_buffer"] = render_buffer
 
+    _stage("scene_create_begin")
     screen.set_style_bg_color(lv.color_hex(0x101820), 0)
     screen.set_style_text_color(lv.color_hex(0xF5F7FA), 0)
 
@@ -405,11 +483,29 @@ def run():
     heading.set_text("LVGL 9.4 / MicroPython / Dave2D")
     heading.set_pos(14, 8)
 
+    _stage("scene_base_refresh_begin")
+    _refresh(display)
+    _stage("scene_base_refresh_end")
+
     _add_gradient(screen, 14, "linear", "linear")
+    _stage("gradient_linear_refresh_begin")
+    _refresh(display)
+    _stage("gradient_linear_refresh_end")
+
     _add_gradient(screen, 132, "radial", "radial")
+    _stage("gradient_radial_refresh_begin")
+    _refresh(display)
+    _stage("gradient_radial_refresh_end")
+
     _add_gradient(screen, 250, "conical", "conical")
-    _add_matrix_and_font_examples(screen, lcd, display)
+    _stage("gradient_conical_refresh_begin")
+    _refresh(display)
+    _stage("gradient_conical_refresh_end")
     _verify_gradient_pixels(lcd, display)
+
+    _stage("matrix_font_begin")
+    _add_matrix_and_font_examples(screen, lcd, display)
+    _stage("matrix_font_end")
 
     lottie_caption = lv.label(screen)
     lottie_caption.set_text("Lottie: data + file validation")

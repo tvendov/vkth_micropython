@@ -467,3 +467,34 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Artifact identity: Build 27 `firmware.bin` remains `1,572,712` bytes with SHA-256 `8FA02F7FE8A75D02FA1FF6E3CBFB26B693782501EC6F398AA1A6EEBABC2587BF`.
 - Proof boundary: compilation, linking and static artifact inspection are complete. No Git milestone commit, board flash, startup observation or HIL execution has yet been performed for Build 27.
 - Next action: commit the three nested Git scopes in dependency order, perform the required visible J-Link reset, flash and independently verify this exact binary, then run the HIL script only if the board reaches a usable MicroPython REPL.
+
+## 2026-09-01 13:42 +03:00 - Build 27 flash, startup and HIL diagnosis
+
+- Git milestone before flashing: LVGL `40b3312e71930941941f3a7e300acd826f04a745`, binding generator and LVGL pointer `a8caee46dcc4281592fcfa2f64eee7e615e0a8be`, parent port `cdba463468fcc045516dc2816110b02fd941ba8b`.
+- The required visible J-Link reset completed successfully before programming. Build 27 `firmware.bin` was then programmed through a visible J-Link Commander window and checked with a separate `verifybin` operation.
+- Programmed artifact identity: `1,572,712` bytes, SHA-256 `8FA02F7FE8A75D02FA1FF6E3CBFB26B693782501EC6F398AA1A6EEBABC2587BF`.
+- Board startup: MicroPython reported `d1c45443ce-dirty on 2026-09-01; VK-RA6M3 with RA6M3` on COM18 after the required visible reset.
+- HIL transport: the optional-feature test and Lottie JSON were copied to `/flash`; board-side file sizes and hashes matched the host files before execution.
+- Runtime proof: the Dave2D-supported fill/border/label frame increased the DRW interrupt count; complex linear, radial and conical gradients rendered and passed their framebuffer checks.
+- Matrix API proof: a 3-by-3 floating-point matrix could be created, stored and read back exactly enough for the test. This proves the generated binding and storage contract, not transformed rendering.
+- Image-transform control: a generated RGB565 `lv.image` changed the framebuffer signature after rotation and scaling while the DRW interrupt count increased. Dave2D texture mapping and its hardware execution path therefore work.
+- Isolated failure: an object transformed through LVGL's off-screen `LV_DRAW_TASK_TYPE_LAYER` path did not change the framebuffer. The layer task was not claimed or executed by the Renesas Dave2D draw unit; the header declared `lv_draw_dave2d_layer()`, but no implementation or active dispatch existed.
+- Proof boundary: Build 27 remains a verified booting Dave2D firmware, but the full optional-feature HIL did not pass because the LVGL layer-composition path was incomplete. No claim is made that arbitrary `lv_draw_task_t.matrix` transforms are supported by Dave2D.
+- Next action: implement only the missing Dave2D layer task by reusing the already proven Dave2D image renderer, then repeat a clean build, static audit, visible flash and the complete HIL.
+
+## 2026-09-01 13:42 +03:00 - Dave2D layer composition, build 28
+
+- Command: `make BOARD=VK_RA6M3 clean`, then `make BOARD=VK_RA6M3 -j16`.
+- Changes since build 27: allow the Renesas Dave2D evaluator to claim supported `LV_DRAW_TASK_TYPE_LAYER` sources; execute the layer task; implement `lv_draw_dave2d_layer()` by replacing the layer source with its allocated draw buffer and passing the copied image descriptor to the existing Dave2D image renderer.
+- Scope: Dave2D remains enabled and is used for the new path. No software-only replacement, matrix emulation or broad warning suppression was introduced.
+- Result: **SUCCESS** (`make` exit code 0). Linking completed and generated `firmware.elf`, `firmware.hex` and `firmware.bin`.
+- Size summary: `text=1572789`, `data=0`, `bss=647672`, total `2220461` bytes (`0x21e1ad`). `firmware.bin` is `1,572,776` bytes with SHA-256 `6678A149BFEEBEB2FAE843972F7B6B7E357AA83AD9EBF0F5B750711A88F6591F`.
+- Delta from build 27: `text` and `firmware.bin` increased by only `64` bytes; `data` and `bss` are unchanged.
+- Machine-code proof: `lv_draw_dave2d_layer` is retained at `0x000330b0`; its disassembly checks the layer and draw-buffer pointers, copies the image descriptor, substitutes the layer draw buffer and calls `lv_draw_dave2d_image` at `0x00033098`.
+- Dave2D proof: `_dave2d_evaluate`, `lv_draw_dave2d_dispatch`, `lv_draw_dave2d_layer`, `d2_opendevice`, `d2_executerenderbuffer`, `drw_int_isr` and the board DRW ISR are all retained in the final ELF.
+- Optional-feature proof: matrix identity/multiply/rotate/inverse and both Lottie source entry points remain retained in the final ELF.
+- Runtime audit: none of the selected C++ exception/catch/personality, ARM unwind, C/newlib allocator, syscall, `setjmp` or `longjmp` symbols are present. No selected exception, allocator, syscall, unwind, `string-inst` or `libnosys` archive member appears in the linker map.
+- ABI and segments: the ELF uses VFPv4-D16, single-precision hard-float and VFP argument registers. Executable LOAD segments are `R E`; writable segments are `RW`; no LOAD segment is RWX.
+- Warning boundary: the existing Dave2D float-to-integer clip-coordinate diagnostics for line and triangle remain visible and non-fatal only under the previously recorded Dave2D-specific policy. They are unrelated to the new layer function.
+- Proof boundary: Build 28 has passed clean compilation, linking and static artifact inspection only. It has not yet been committed, flashed or executed on the board.
+- Next action: commit this static milestone in dependency order, perform the required visible J-Link reset, program and independently verify this exact SHA-256 artifact, then rerun the complete HIL.
