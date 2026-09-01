@@ -772,9 +772,6 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_vsync_obj, 1, 2, lcd_vsyn
 static void lcd_lv_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     (void)area;
     (void)px_map;
-    if (lv_display_flush_is_last(disp)) {
-        s_lcd_render_in_progress = 0U;
-    }
     lv_display_flush_ready(disp);                    // DIRECT mode: drawing is done
 }
 
@@ -784,10 +781,11 @@ static volatile uint32_t s_indev_press = 0;          // diag: reads that saw a c
 static void lcd_lv_indev_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     s_indev_calls++;
-    /* Coalesce touch IRQs while the previous visual update is pending or rendering.
-     * Re-reporting the cached point creates no new scroll delta; the newest FT5x06
-     * sample stays pending and is consumed after LV_EVENT_RENDER_READY. */
-    if ((s_lcd_render_in_progress == 0U) && (s_lcd_inv_since_render == 0U)) {
+    /* Never deliver a new touch point while LVGL is rendering. Re-reporting the
+     * cached point creates no new scroll delta; the newest FT5X06 sample stays
+     * pending and is consumed after LV_EVENT_RENDER_READY. A merely pending dirty
+     * area is not an active render and must not halve the input update rate. */
+    if (s_lcd_render_in_progress == 0U) {
         (void)touch_service_pending();
     } else if (s_touch_read_pending != 0U) {
         s_touch_deferred_polls++;
@@ -871,7 +869,14 @@ static uint32_t lcd_lv_beam_delay_for_area(int32_t y1, int32_t y2,
     uint32_t delayed_window_us = LCD_GLCDC_FRAME_US - dirty_scan_us;
     if (estimate_us >= delayed_window_us) {
         s_lcd_beam_no_window_count++;
-        return 0U;
+        /* Neither start is fully guaranteed, but an immediate top-band render has
+         * only the vertical blank before GLCDC reaches it. For a shallow band,
+         * starting just after the beam passed the dirty area is still the strictly
+         * larger window and avoids the visible flash caused by returning 0 here. */
+        if ((area_height > active_lines / 3U) ||
+            (delayed_window_us <= immediate_us)) {
+            return 0U;
+        }
     }
 
     uint32_t delay_lines = blank_lines + (uint32_t)y2 + 1U;

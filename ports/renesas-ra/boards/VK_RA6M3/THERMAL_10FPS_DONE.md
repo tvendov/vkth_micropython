@@ -698,3 +698,22 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Allocation boundary: the change adds only scalar counters/state. It introduces no second framebuffer, staging strip or per-frame heap allocation.
 - Dave2D proof: `lv_draw_dave2d_init`, `d2_opendevice`, `d2_executerenderbuffer`, `d2_flushframe`, `drw_int_isr` and the VK_RA6M3 DRW ISR are linked in the new ELF.
 - Proof boundary: Build 35 has passed clean compilation, linking and static artifact inspection. It has not yet been committed, programmed or exercised on hardware; visual touch behavior remains unverified.
+
+## 2026-09-02 02:04 +03:00 - Build 35 touch HIL rejection
+
+- Git milestone `2f72f12a5` was programmed after a separate visible J-Link reset. Programming and independent `verifybin` both exited with code `0` for the exact `1,572,736`-byte Build 35 image.
+- During real horizontal touch scrolling, the user observed initial flicker followed by lag. The diagnostic confirmed `47` deferred touch polls, zero touch I2C errors/timeouts and no residual render/invalidation state, but only `158` renders during the 10-second capture and `76` cases where the predictor found no fully safe beam window. The strict pending-invalidation gate is therefore rejected.
+- A controlled normal-versus-pressed Flex comparison showed that the pressed style is not the primary cause: maximum render duration changed from `10,322 us` to `11,145 us`; Dave2D remained active with roughly 27 DRW interrupts per render and no new Dave2D allocation.
+- Root cause in the rejected synchronization rule: `s_lcd_inv_since_render != 0` means an area is waiting for the display refresh timer, not that drawing is active. Blocking touch on that state postpones input by another refresh period and approximately halves the effective update rate.
+- Selected correction: keep the latest touch sample pending only while `s_lcd_render_in_progress` is true, clear that flag exclusively at `LV_EVENT_RENDER_READY`, and retain the single queued LVGL task-handler limit. For a shallow dirty band whose predicted work exceeds every fully guaranteed window, prefer the larger post-scan beam window instead of the demonstrably worse immediate start.
+- Proof boundary: Build 35 is a verified transfer and useful negative HIL result, not a working visual milestone. The correction described above is source-only and has not yet been compiled, programmed or tested.
+
+## 2026-09-02 02:12 +03:00 - Build 36 render-ready synchronization
+
+- Command: a successful `make BOARD=VK_RA6M3 clean` was followed separately by `make BOARD=VK_RA6M3 -j16` in the MinGW64 environment.
+- Result: **SUCCESS** (`make` exit code 0). `firmware.elf`, `firmware.hex` and `firmware.bin` were generated.
+- Size summary: `text=1572757`, `data=0`, `bss=647712`, total `2220469` bytes (`0x21e1b5`). `firmware.bin` is `1,572,744` bytes with SHA-256 `06997FF22AB4594430A3EC04A3C0D3F9121B55ED4D6C1F0C30D6893658ABF61E`.
+- Synchronization proof: the display flush callback no longer clears render-busy. The flag is set at `LV_EVENT_RENDER_START` and cleared only at `LV_EVENT_RENDER_READY`; touch delivery is blocked only while this real render transaction is active. A queued dirty area no longer blocks the next touch sample.
+- Beam policy: if a shallow dirty band has no fully guaranteed window, the scheduler now keeps the larger post-scan window instead of falling back to the much shorter immediate top-of-frame window. Larger dirty regions retain the previous conservative behavior.
+- Allocation and acceleration: DIRECT mode, the full `0x47000` MicroPython heap and single GLCDC framebuffer remain unchanged. No staging symbol is present. Dave2D initialization, execution, flush and DRW ISR symbols remain linked.
+- Proof boundary: Build 36 has passed clean compilation, linking and static inspection only. It has not yet been committed, programmed or tested visually.
