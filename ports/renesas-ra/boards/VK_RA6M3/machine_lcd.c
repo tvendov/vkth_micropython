@@ -49,6 +49,10 @@
 #define FT5X06_REG_TD_STATUS 0x02
 #define FT5X06_I2C_TIMEOUT_MS 5U
 #define LCD_VSYNC_TIMEOUT_MS 25U       /* measured GLCDC frame is 16.59 ms */
+#define LCD_GLCDC_FRAME_US 16590U       /* measured 525 x 316 GLCDC frame */
+#define LCD_BEAM_INITIAL_RENDER_US 9000U
+#define LCD_BEAM_RENDER_MARGIN_US 500U
+#define LCD_BEAM_SCAN_GUARD_US 100U
 
 #define extract_e(t) ((uint8_t)((t).event))
 #define extract_x(t) ((int16_t)(((t).x_msb << 8) | ((t).x_lsb)))
@@ -280,6 +284,23 @@ static uint32_t s_lcd_inv_since_render;
 static uint32_t s_lcd_render_inv_count;
 static uint32_t s_lcd_render_max_inv_count;
 static uint32_t s_lcd_render_full_inv_request_count;
+static int32_t s_lcd_inv_y1 = 0x7fffffffL;
+static int32_t s_lcd_inv_y2 = -1;
+static int32_t s_lcd_render_y1 = -1;
+static int32_t s_lcd_render_y2 = -1;
+static uint32_t s_lcd_render_area_height;
+static uint32_t s_lcd_render_previous_height;
+static uint32_t s_lcd_render_previous_inv_count;
+static uint32_t s_lcd_beam_estimate_us;
+static uint32_t s_lcd_beam_delay_last_us;
+static uint32_t s_lcd_beam_delay_max_us;
+static uint32_t s_lcd_beam_delay_count;
+static uint32_t s_lcd_beam_no_window_count;
+
+static void lcd_render_dirty_bounds_reset(void) {
+    s_lcd_inv_y1 = 0x7fffffffL;
+    s_lcd_inv_y2 = -1;
+}
 
 static void lcd_waterfall_pan_reset(bool forget_center) {
     s_lcd_waterfall_pan_pending_hz = 0;
@@ -347,6 +368,17 @@ void machine_lcd_lvgl_soft_reset(void) {
         s_lcd_render_inv_count = 0U;
         s_lcd_render_max_inv_count = 0U;
         s_lcd_render_full_inv_request_count = 0U;
+        lcd_render_dirty_bounds_reset();
+        s_lcd_render_y1 = -1;
+        s_lcd_render_y2 = -1;
+        s_lcd_render_area_height = 0U;
+        s_lcd_render_previous_height = 0U;
+        s_lcd_render_previous_inv_count = 0U;
+        s_lcd_beam_estimate_us = 0U;
+        s_lcd_beam_delay_last_us = 0U;
+        s_lcd_beam_delay_max_us = 0U;
+        s_lcd_beam_delay_count = 0U;
+        s_lcd_beam_no_window_count = 0U;
         s_lcd_vsync_timeouts = 0U;
         #if defined(USE_FSP_DRW)
         vk_ra6m3_dave2d_finish_deinit();
@@ -784,24 +816,110 @@ STATIC mp_obj_t lcd_touch_debug(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_lcd_touch_debug_obj, lcd_touch_debug);
 
+/* DIRECT mode uses the GLCDC framebuffer itself as LVGL's only draw buffer.  If
+ * a top-of-screen update takes longer than the vertical blanking interval,
+ * starting it at line detect lets GLCDC scan partially updated pixels.  Delay
+ * only when the measured/predicted render fits behind the active scan line. */
+static uint32_t lcd_lv_beam_delay_for_area(int32_t y1, int32_t y2,
+    uint32_t inv_count) {
+    uint32_t total_lines = g_display0_cfg.output.vtiming.total_cyc;
+    uint32_t active_lines = g_display0_cfg.output.vtiming.display_cyc;
+    if ((total_lines <= active_lines) || (y1 < 0) || (y2 < y1)) {
+        s_lcd_beam_estimate_us = 0U;
+        return 0U;
+    }
+
+    uint32_t area_height = (uint32_t)(y2 - y1 + 1);
+    uint32_t estimate_us = LCD_BEAM_INITIAL_RENDER_US;
+    bool similar_height = (s_lcd_render_previous_height != 0U) &&
+        (area_height <= (s_lcd_render_previous_height * 2U)) &&
+        (s_lcd_render_previous_height <= (area_height * 2U));
+    bool similar_work = (s_lcd_render_previous_inv_count != 0U) &&
+        (inv_count <= (s_lcd_render_previous_inv_count * 2U + 2U)) &&
+        (s_lcd_render_previous_inv_count <= (inv_count * 2U + 2U));
+    if (similar_height && similar_work && (s_lcd_render_last_us != 0U)) {
+        estimate_us = s_lcd_render_last_us;
+    }
+    estimate_us += LCD_BEAM_RENDER_MARGIN_US;
+    s_lcd_beam_estimate_us = estimate_us;
+
+    uint32_t blank_lines = total_lines - active_lines;
+    uint32_t immediate_lines = blank_lines + (uint32_t)y1;
+    uint32_t immediate_us = (uint32_t)(((uint64_t)immediate_lines *
+        LCD_GLCDC_FRAME_US) / total_lines);
+    if (estimate_us <= immediate_us) {
+        return 0U;
+    }
+
+    uint32_t dirty_scan_us = (uint32_t)(((uint64_t)area_height *
+        LCD_GLCDC_FRAME_US) / total_lines);
+    uint32_t delayed_window_us = LCD_GLCDC_FRAME_US - dirty_scan_us;
+    if (estimate_us >= delayed_window_us) {
+        s_lcd_beam_no_window_count++;
+        return 0U;
+    }
+
+    uint32_t delay_lines = blank_lines + (uint32_t)y2 + 1U;
+    uint32_t delay_us = (uint32_t)(((uint64_t)delay_lines *
+        LCD_GLCDC_FRAME_US) / total_lines) + LCD_BEAM_SCAN_GUARD_US;
+    if (delay_us >= LCD_GLCDC_FRAME_US) {
+        s_lcd_beam_no_window_count++;
+        return 0U;
+    }
+    return delay_us;
+}
+
 static void lcd_lv_render_start_cb(lv_event_t *e) {
     (void)e;
+    int32_t render_y1 = s_lcd_inv_y1;
+    int32_t render_y2 = s_lcd_inv_y2;
+    uint32_t render_inv_count = s_lcd_inv_since_render;
+    lcd_render_dirty_bounds_reset();
+    s_lcd_inv_since_render = 0U;
+
     uint32_t start_cnt = lcd_vsync_counter;          // wait for the next GLCDC frame pulse
     uint32_t t0 = (uint32_t)mp_hal_ticks_ms();
+    bool line_detect_seen = true;
     while (lcd_vsync_counter == start_cnt) {
         if ((uint32_t)mp_hal_ticks_ms() - t0 >= LCD_VSYNC_TIMEOUT_MS) {
             s_lcd_vsync_timeouts++;
+            line_detect_seen = false;
             break;
         }
     }
+
+    s_lcd_render_y1 = -1;
+    s_lcd_render_y2 = -1;
+    s_lcd_render_area_height = 0U;
+    s_lcd_beam_delay_last_us = 0U;
+    if ((render_y1 >= 0) && (render_y2 >= render_y1)) {
+        s_lcd_render_y1 = render_y1;
+        s_lcd_render_y2 = render_y2;
+        s_lcd_render_area_height = (uint32_t)(render_y2 - render_y1 + 1);
+        if (line_detect_seen) {
+            s_lcd_beam_delay_last_us = lcd_lv_beam_delay_for_area(
+                render_y1, render_y2, render_inv_count);
+            if (s_lcd_beam_delay_last_us != 0U) {
+                mp_hal_delay_us(s_lcd_beam_delay_last_us);
+                s_lcd_beam_delay_count++;
+                if (s_lcd_beam_delay_last_us > s_lcd_beam_delay_max_us) {
+                    s_lcd_beam_delay_max_us = s_lcd_beam_delay_last_us;
+                }
+            }
+        } else {
+            s_lcd_beam_estimate_us = 0U;
+        }
+    } else {
+        s_lcd_beam_estimate_us = 0U;
+    }
+
     s_lcd_render_start_frame = lcd_vsync_counter;
     s_lcd_render_start_us = (uint32_t)mp_hal_ticks_us();
     s_lcd_render_count++;
-    s_lcd_render_inv_count = s_lcd_inv_since_render;
+    s_lcd_render_inv_count = render_inv_count;
     if (s_lcd_render_inv_count > s_lcd_render_max_inv_count) {
         s_lcd_render_max_inv_count = s_lcd_render_inv_count;
     }
-    s_lcd_inv_since_render = 0U;
 
     /* Apply a staged scroll only inside the render transaction.  Doing this from
      * the Python touch callback can race GLCDC scanout and creates the very flash
@@ -837,6 +955,19 @@ static void lcd_lv_render_start_cb(lv_event_t *e) {
 static void lcd_lv_invalidate_area_cb(lv_event_t *e) {
     lv_area_t *area = lv_event_get_invalidated_area(e);
     s_lcd_inv_since_render++;
+    if (area != NULL) {
+        int32_t display_height = (int32_t)g_display0_cfg.input[0].vsize;
+        if ((area->y2 >= 0) && (area->y1 < display_height)) {
+            int32_t y1 = area->y1 < 0 ? 0 : area->y1;
+            int32_t y2 = area->y2 >= display_height ? display_height - 1 : area->y2;
+            if (y1 < s_lcd_inv_y1) {
+                s_lcd_inv_y1 = y1;
+            }
+            if (y2 > s_lcd_inv_y2) {
+                s_lcd_inv_y2 = y2;
+            }
+        }
+    }
     if ((area != NULL) && (area->x1 <= 0) && (area->y1 <= 0) &&
         (area->x2 >= (int32_t)g_display0_cfg.input[0].hsize - 1) &&
         (area->y2 >= (int32_t)g_display0_cfg.input[0].vsize - 1)) {
@@ -857,6 +988,8 @@ static void lcd_lv_render_ready_cb(lv_event_t *e) {
     if (lcd_vsync_counter != s_lcd_render_start_frame) {
         s_lcd_render_crossed_frames++;
     }
+    s_lcd_render_previous_height = s_lcd_render_area_height;
+    s_lcd_render_previous_inv_count = s_lcd_render_inv_count;
 }
 
 /* ---- C spectrum surface ----------------------------------------------------------
@@ -2164,12 +2297,14 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_lcd_scroll_rect_obj, 6, 6,
 
 // render_debug([reset]) -> (last_us, max_us, frame_crossings, line_pulses,
 //                           render_count, last_inv_requests, max_inv_requests,
-//                           full_inv_requests, vsync_timeouts)
-// frame_crossings must stay zero: a non-zero value means a render ran into the next
-// GLCDC line-detect pulse while the controller was scanning the same framebuffer.
+//                           full_inv_requests, vsync_timeouts, beam_delay_last_us,
+//                           beam_delay_max_us, beam_delay_count, no_window_count,
+//                           area_y1, area_y2, area_height, beam_estimate_us)
+// A frame crossing without a calculated beam delay is unsafe. A delayed render can
+// cross line detect safely while it remains behind the active scan line.
 STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
     (void)args[0];
-    mp_obj_t t[9] = {
+    mp_obj_t t[17] = {
         mp_obj_new_int_from_uint(s_lcd_render_last_us),
         mp_obj_new_int_from_uint(s_lcd_render_max_us),
         mp_obj_new_int_from_uint(s_lcd_render_crossed_frames),
@@ -2179,6 +2314,14 @@ STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
         mp_obj_new_int_from_uint(s_lcd_render_max_inv_count),
         mp_obj_new_int_from_uint(s_lcd_render_full_inv_request_count),
         mp_obj_new_int_from_uint(s_lcd_vsync_timeouts),
+        mp_obj_new_int_from_uint(s_lcd_beam_delay_last_us),
+        mp_obj_new_int_from_uint(s_lcd_beam_delay_max_us),
+        mp_obj_new_int_from_uint(s_lcd_beam_delay_count),
+        mp_obj_new_int_from_uint(s_lcd_beam_no_window_count),
+        mp_obj_new_int(s_lcd_render_y1),
+        mp_obj_new_int(s_lcd_render_y2),
+        mp_obj_new_int_from_uint(s_lcd_render_area_height),
+        mp_obj_new_int_from_uint(s_lcd_beam_estimate_us),
     };
     mp_obj_t result = mp_obj_new_tuple(MP_ARRAY_SIZE(t), t);
     if ((n_args > 1U) && mp_obj_is_true(args[1])) {
@@ -2190,6 +2333,17 @@ STATIC mp_obj_t lcd_render_debug(size_t n_args, const mp_obj_t *args) {
         s_lcd_render_inv_count = 0U;
         s_lcd_render_max_inv_count = 0U;
         s_lcd_render_full_inv_request_count = 0U;
+        lcd_render_dirty_bounds_reset();
+        s_lcd_render_y1 = -1;
+        s_lcd_render_y2 = -1;
+        s_lcd_render_area_height = 0U;
+        s_lcd_render_previous_height = 0U;
+        s_lcd_render_previous_inv_count = 0U;
+        s_lcd_beam_estimate_us = 0U;
+        s_lcd_beam_delay_last_us = 0U;
+        s_lcd_beam_delay_max_us = 0U;
+        s_lcd_beam_delay_count = 0U;
+        s_lcd_beam_no_window_count = 0U;
         s_lcd_vsync_timeouts = 0U;
     }
     return result;
@@ -2237,6 +2391,17 @@ STATIC mp_obj_t lcd_lvgl_setup(mp_obj_t self_in) {
     s_lcd_render_inv_count = 0U;
     s_lcd_render_max_inv_count = 0U;
     s_lcd_render_full_inv_request_count = 0U;
+    lcd_render_dirty_bounds_reset();
+    s_lcd_render_y1 = -1;
+    s_lcd_render_y2 = -1;
+    s_lcd_render_area_height = 0U;
+    s_lcd_render_previous_height = 0U;
+    s_lcd_render_previous_inv_count = 0U;
+    s_lcd_beam_estimate_us = 0U;
+    s_lcd_beam_delay_last_us = 0U;
+    s_lcd_beam_delay_max_us = 0U;
+    s_lcd_beam_delay_count = 0U;
+    s_lcd_beam_no_window_count = 0U;
     s_lcd_vsync_timeouts = 0U;
     s_lcd_lvgl_display = disp;
     s_lcd_lvgl_bridged = 1;
