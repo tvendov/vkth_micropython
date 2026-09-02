@@ -724,3 +724,10 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - A separate visible J-Link reset, visible programming session and independent visible `verifybin` session each exited with code `0` for the exact `1,572,744`-byte image with SHA-256 `06997FF22AB4594430A3EC04A3C0D3F9121B55ED4D6C1F0C30D6893658ABF61E`.
 - The first real-touch diagnostic window timed out without a detected horizontal move. The instrumented repeat proved that the LVGL input callback remained live at approximately 25 polls/s: `1,503` polls in 60 seconds, render-active `0`, pending invalidations `0`, touch I2C errors/timeouts `0/0`.
 - The same repeat observed zero FT5X06 IRQs and zero pressed samples for the entire window. Therefore it contains no physical touch event and cannot prove or disprove visual flicker or lag; Build 36 visual acceptance remains pending rather than failed.
+
+## 2026-09-02 02:58 +03:00 - Build 36 visual touch acceptance
+
+- A subsequent user-operated check of the Build 36 image was reported as `сега е ок`, accepting the current touch behavior after the rejected Build 35 flicker-and-lag result.
+- The supporting automatic horizontal Flex comparison completed `48` renders in each of the NORMAL and PRESSED phases. Maximum measured render duration was `10,337 us` and `10,657 us` respectively; both phases used the calculated `6,872 us` beam delay and reported zero no-window cases.
+- No source, build artifact or board image changed after the independently verified Build 36 transfer. The accepted board image remains the `1,572,744`-byte binary with SHA-256 `06997FF22AB4594430A3EC04A3C0D3F9121B55ED4D6C1F0C30D6893658ABF61E` from commit `e0b88bcef`.
+- Result: **PASS** for the Build 36 horizontal touch visual milestone. Thermal-camera image quality and dual-sensor FPS remain separate pending regressions.
