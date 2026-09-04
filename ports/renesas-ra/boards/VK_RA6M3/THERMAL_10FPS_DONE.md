@@ -755,3 +755,13 @@ This file records every VK_RA6M3 port recompilation made for the dual thermal-ca
 - Result: **SUCCESS** (`make` exit code 0). Size summary: `text=1572917`, `data=0`, `bss=647712`, total `2220629` bytes (`0x21e255`). `firmware.bin` is `1,572,904` bytes with SHA-256 `5A0600491F53B9CB3FB856BDCF357BEF1773A34192B711795C8025A94597EE47`.
 - Acceleration proof: the linked image contains `lv_draw_dave2d_init`, `lv_draw_dave2d_border`, `d2_renderbox` and the complete D/AVE driver compilation. Build 37 does not disable Dave2D for this test or any other example.
 - Proof boundary: Build 37 has passed clean compilation, linking and static geometry inspection. It has not yet been committed, programmed or checked through a physical framebuffer capture.
+
+## 2026-09-05 02:43 +03:00 - Build 37 flash and Dave2D framebuffer HIL
+
+- Git milestone: `b4afb868a` (`fix(VK_RA6M3): guard Dave2D border geometry`). The firmware under test is the exact `1,572,904`-byte image with SHA-256 `5A0600491F53B9CB3FB856BDCF357BEF1773A34192B711795C8025A94597EE47`.
+- Target identity: only the former COM24 board was used, selected by stable J-Link S/N `1120000060`; after J-Link-OB re-enumeration its current UART is `COM26`. The COM25 board was not touched.
+- Transfer proof: a separate visible J-Link reset and visible programming session exited with code `0`. Separate visible verification also exited with code `0`; a captured independent verification read exactly `1,572,904` bytes at `0x00000000` and printed `Verify successful`.
+- Exact example: `examples/lvgl_9_4_official_mpy/lv_example_event_draw.py` ran from RAM without source modification and printed `LV_EXAMPLE_EVENT_DRAW_READY 2 CHILD_OBJECT_ADAPTATION`.
+- Deterministic regression: the live object was refreshed successively at `2x2`, `3x3` and `40x40`, with the timer paused. These are the two previously invalid negative-width cases followed by a normal locally invalidated frame; no full-screen cleanup was inserted between them.
+- Physical framebuffer: J-Link captured all `261,120` RGB565 bytes from `0x20040000`. In the pre-fix capture the widest red-dominant row spanned all `480` pixels (`443` red pixels on row 137); Build 37 limits the widest red-dominant span to `50` pixels (`44` red pixels on row 139), exactly around the circle and outline.
+- Result: **PASS**. The out-of-object horizontal write is removed in the physical framebuffer while Dave2D remains compiled, linked and used for the border and rounded wedges. This is the accepted source image for the example page; it is not a software-rendering substitute.
