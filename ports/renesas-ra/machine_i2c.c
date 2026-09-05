@@ -68,6 +68,12 @@ typedef struct _machine_i2c_async_obj_t {
     soft_timer_entry_t timeout_timer;
     uint32_t start_ms;
     uint32_t timeout_ms;
+    uint32_t generation, node_generation, timer_generation;
+    uint32_t recovery_started_us, recovery_total_us, recovery_step_max_us;
+    uint32_t recovery_steps;
+    uint32_t cpu_start_max_us, cpu_poll_max_us, cpu_cancel_max_us;
+    uint32_t cpu_worker_max_us, cpu_timer_max_us;
+    int recovery_result;
     size_t transfer_len;
     int result;
     bool active;
@@ -75,6 +81,8 @@ typedef struct _machine_i2c_async_obj_t {
     bool timeout_timer_active;
     bool timeout_expired;
     bool cancel_requested;
+    bool recovering;
+    volatile bool recovery_due;
     volatile bool completion_pending;
     volatile bool suppress_notification;
 } machine_i2c_async_obj_t;
@@ -170,11 +178,9 @@ static void machine_i2c_async_schedule_completion(machine_i2c_async_obj_t *self)
     if (self->suppress_notification || self->completion_pending) {
         return;
     }
-    mp_obj_t callback = machine_i2c_async_callback_root_get(self);
-    if (callback == MP_OBJ_NULL || callback == mp_const_none) {
-        return;
-    }
+    // The C worker must also run without a Python irq handler (polling mode).
     self->completion_pending = true;
+    self->node_generation = self->generation;
     (void)mp_sched_schedule_node(&self->completion_node, machine_i2c_async_complete_node);
 }
 
@@ -182,14 +188,29 @@ static void machine_i2c_async_transfer_complete(void *context) {
     machine_i2c_async_schedule_completion((machine_i2c_async_obj_t *)context);
 }
 
+static void machine_i2c_async_record_us(uint32_t *maximum, uint32_t started) {
+    uint32_t elapsed = (uint32_t)mp_hal_ticks_us() - started;
+    if (elapsed > *maximum) {
+        *maximum = elapsed;
+    }
+}
+
 static void machine_i2c_async_timeout_callback(soft_timer_entry_t *timer) {
     machine_i2c_async_obj_t *self = machine_i2c_async_from_timer(timer);
-    if (self == NULL || !self->active || self->suppress_notification) {
+    if (self == NULL || !self->active || self->suppress_notification ||
+        self->timer_generation != self->generation) {
         return;
     }
+    uint32_t started = mp_hal_ticks_us();
     self->timeout_timer_active = false;
-    self->timeout_expired = true;
+    if (self->recovering) {
+        self->recovery_due = true;
+    } else {
+        self->timeout_expired = true;
+    }
+    // Do not reinsert here: soft_timer_handler still owns its local heap.
     machine_i2c_async_schedule_completion(self);
+    machine_i2c_async_record_us(&self->cpu_timer_max_us, started);
 }
 
 static void machine_i2c_async_timeout_stop(machine_i2c_async_obj_t *self) {
@@ -199,27 +220,38 @@ static void machine_i2c_async_timeout_stop(machine_i2c_async_obj_t *self) {
     }
 }
 
-static void machine_i2c_async_abort_and_reinit(machine_i2c_async_obj_t *self) {
-    ra_i2c_action_cancel_async(self->bus->i2c_inst, &self->action);
-    if (self->bus->freq != 0) {
-        ra_i2c_deinit(self->bus->i2c_inst);
-        ra_i2c_recover_bus(self->bus->scl->pin, self->bus->sda->pin);
-        ra_i2c_init(self->bus->i2c_inst, self->bus->scl->pin,
-            self->bus->sda->pin, self->bus->freq);
+static void machine_i2c_async_recovery_arm(machine_i2c_async_obj_t *self) {
+    self->timer_generation = self->generation;
+    self->timeout_timer_active = true;
+    soft_timer_insert(&self->timeout_timer, 1);
+}
+
+static void machine_i2c_async_request_recovery(machine_i2c_async_obj_t *self) {
+    machine_i2c_async_timeout_stop(self);
+    self->recovery_started_us = mp_hal_ticks_us();
+    self->result = self->cancel_requested ? -MP_ECANCELED : -MP_ETIMEDOUT;
+    self->recovering = ra_i2c_recovery_begin(self->bus->i2c_inst, &self->action,
+        self->bus->scl->pin, self->bus->sda->pin, self->bus->freq,
+        self->recovery_started_us);
+    if (self->recovering) {
+        machine_i2c_async_recovery_arm(self);
     }
 }
 
 static void machine_i2c_async_shutdown(machine_i2c_async_obj_t *self) {
     self->suppress_notification = true;
+    ++self->generation; // Invalidate queued work before removing static timer.
     machine_i2c_async_timeout_stop(self);
-    if (self->active && self->bus != NULL) {
+    if (self->bus != NULL && (self->active || !ra_i2c_recovery_buffer_safe())) {
         ra_i2c_action_cancel_async(self->bus->i2c_inst, &self->action);
     }
     self->active = false;
     self->result = -MP_ECANCELED;
     self->timeout_expired = false;
     self->cancel_requested = false;
-    self->completion_pending = false;
+    self->recovering = false;
+    self->recovery_due = false;
+    self->completion_pending = self->completion_node.callback != NULL;
     machine_i2c_async_root_set(self, MP_OBJ_NULL);
     machine_i2c_async_callback_root_set(self, MP_OBJ_NULL);
     self->bus = NULL;
@@ -307,13 +339,18 @@ static void machine_i2c_start_backend(machine_i2c_obj_t *self, uint32_t freq) {
     } else
     #endif
     {
-        ra_i2c_init(self->i2c_inst, self->scl->pin, self->sda->pin, freq);
+        if (!ra_i2c_init(self->i2c_inst, self->scl->pin, self->sda->pin, freq)) {
+            mp_raise_OSError(ra_i2c_action_is_busy() ? MP_EBUSY : MP_EIO);
+        }
     }
     self->freq = freq;
 }
 
 static void machine_i2c_init(mp_obj_base_t *obj, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     machine_i2c_obj_t *self = (machine_i2c_obj_t *)obj;
+    if (self->backend == MACHINE_I2C_BACKEND_RIIC && ra_i2c_action_is_busy()) {
+        mp_raise_OSError(MP_EBUSY); // Before changing any shared pins/frequency.
+    }
     enum { ARG_freq, ARG_scl, ARG_sda };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_freq, MP_ARG_INT, {.u_int = -1} },
@@ -371,6 +408,10 @@ static mp_obj_t machine_i2c_make_new(const mp_obj_type_t *type, size_t n_args, s
     if (found != true) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("I2C(%d) doesn't exist"), i2c_id);
     }
+    if (self->backend == MACHINE_I2C_BACKEND_RIIC && ra_i2c_action_is_busy() &&
+        (n_args > 1 || n_kw > 0 || self->freq == 0)) {
+        mp_raise_OSError(MP_EBUSY);
+    }
 
     // Optional runtime pin override: scl=/sda= (similar validation logic to I2CTarget).
     // If either is provided, require both.
@@ -424,6 +465,14 @@ void machine_i2c_deinit_all(void) {
 
 static int machine_i2c_transfer_single(mp_obj_base_t *self_in, uint16_t addr, size_t len, uint8_t *buf, unsigned int flags) {
     machine_i2c_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (self->backend == MACHINE_I2C_BACKEND_RIIC) {
+        if (ra_i2c_action_is_busy()) {
+            return -MP_EBUSY;
+        }
+        if (ra_i2c_bus_faulted(self->i2c_inst)) {
+            return -MP_EIO;
+        }
+    }
     int ret;
     bool stop;
     stop = (flags & MP_MACHINE_I2C_FLAG_STOP)? true : false;
@@ -464,9 +513,20 @@ static int machine_i2c_async_error_to_errno(xaction_error_t error) {
     return MP_EIO;
 }
 
-static bool machine_i2c_async_update(machine_i2c_async_obj_t *self) {
+static bool machine_i2c_async_update_impl(machine_i2c_async_obj_t *self) {
     if (!self->active) {
         return true;
+    }
+    // Only the timer-driven C worker advances recovery. Polling never clocks
+    // GPIO and never accelerates the state machine.
+    if (self->recovering) {
+        return false;
+    }
+    if (self->action.m_error == RA_I2C_ERROR_TMOF && self->recovery_result == 0) {
+        // Hardware timeout also needs recovery before poll releases ownership.
+        self->timeout_expired = true;
+        machine_i2c_async_request_recovery(self);
+        return false;
     }
 
     ra_i2c_async_status_t status = ra_i2c_action_poll_async(&self->action);
@@ -476,8 +536,8 @@ static bool machine_i2c_async_update(machine_i2c_async_obj_t *self) {
             return false;
         }
 
-        machine_i2c_async_abort_and_reinit(self);
-        self->result = self->cancel_requested ? -MP_ECANCELED : -MP_ETIMEDOUT;
+        machine_i2c_async_request_recovery(self);
+        return false;
     } else if (status == RA_I2C_ASYNC_COMPLETE) {
         self->result = (int)self->transfer_len;
     } else if (self->cancel_requested) {
@@ -490,25 +550,61 @@ static bool machine_i2c_async_update(machine_i2c_async_obj_t *self) {
 
     self->active = false;
     machine_i2c_async_timeout_stop(self);
-    machine_i2c_async_root_set(self, MP_OBJ_NULL);
+    if (ra_i2c_recovery_buffer_safe()) {
+        machine_i2c_async_root_set(self, MP_OBJ_NULL);
+    }
     machine_i2c_async_schedule_completion(self);
     self->timeout_expired = false;
     self->cancel_requested = false;
     return true;
 }
 
+static bool machine_i2c_async_update(machine_i2c_async_obj_t *self) {
+    uint32_t started = mp_hal_ticks_us();
+    bool done = machine_i2c_async_update_impl(self);
+    machine_i2c_async_record_us(&self->cpu_poll_max_us, started);
+    return done;
+}
+
 static void machine_i2c_async_complete_node(mp_sched_node_t *node) {
     machine_i2c_async_obj_t *self = machine_i2c_async_from_node(node);
-    if (self == NULL || self->suppress_notification) {
+    if (self == NULL || self->suppress_notification ||
+        self->node_generation != self->generation) {
         return;
+    }
+    uint32_t worker_started = mp_hal_ticks_us();
+    if (self->recovering && self->recovery_due) {
+        self->recovery_due = false;
+        uint32_t started = mp_hal_ticks_us();
+        bool done = ra_i2c_recovery_step(started);
+        uint32_t duration = (uint32_t)mp_hal_ticks_us() - started;
+        if (duration > self->recovery_step_max_us) {
+            self->recovery_step_max_us = duration;
+        }
+        ++self->recovery_steps;
+        if (done) {
+            self->recovery_result = ra_i2c_recovery_result();
+            self->recovery_total_us = (uint32_t)mp_hal_ticks_us() - self->recovery_started_us;
+            self->recovering = false;
+        } else {
+            machine_i2c_async_recovery_arm(self);
+        }
     }
     if (self->active && !machine_i2c_async_update(self)) {
         self->completion_pending = false;
+        // PendSV may have fired the newly armed timer while this node was
+        // preempted. Its callback saw completion_pending=true: don't lose it.
+        if (self->recovering && self->recovery_due) {
+            machine_i2c_async_schedule_completion(self);
+        }
+        machine_i2c_async_record_us(&self->cpu_worker_max_us, worker_started);
         return;
     }
 
     self->completion_pending = false;
     mp_obj_t callback = machine_i2c_async_callback_root_get(self);
+    // Do not attribute arbitrary Python user-handler work to the C worker.
+    machine_i2c_async_record_us(&self->cpu_worker_max_us, worker_started);
     if (callback != MP_OBJ_NULL && callback != mp_const_none) {
         mp_call_function_1_protected(callback, MP_OBJ_FROM_PTR(self));
     }
@@ -527,14 +623,22 @@ static mp_obj_t machine_i2c_async_make_new(const mp_obj_type_t *type, size_t n_a
     }
 
     machine_i2c_async_obj_t *self = &machine_i2c_async_obj[bus->i2c_id];
+    if (ra_i2c_bus_faulted(bus->i2c_inst) && ra_i2c_action_is_busy()) {
+        mp_raise_OSError(MP_EIO); // Preserve a quarantined owner's result/root.
+    }
     bool reset_static_state = self->bus == NULL;
     if (reset_static_state) {
-        self->completion_node.callback = NULL;
-        self->completion_node.next = NULL;
+        // mp_init preserves static queued nodes. Never overwrite their links.
+        // A stale node must drain (generation mismatch) before object reuse.
+        if (self->completion_node.callback != NULL) {
+            mp_raise_OSError(MP_EBUSY);
+        }
         self->completion_pending = false;
         self->timeout_timer_active = false;
         self->timeout_expired = false;
         self->cancel_requested = false;
+        self->recovering = false;
+        self->recovery_due = false;
         self->suppress_notification = false;
     }
     if (self->completion_pending) {
@@ -558,6 +662,8 @@ static mp_obj_t machine_i2c_async_make_new(const mp_obj_type_t *type, size_t n_a
     self->base.type = type;
     self->bus = bus;
     self->result = 0;
+    self->cpu_start_max_us = self->cpu_poll_max_us = self->cpu_cancel_max_us = 0;
+    self->cpu_worker_max_us = self->cpu_timer_max_us = 0;
     self->suppress_notification = false;
     if (reset_static_state) {
         machine_i2c_async_callback_root_set(self, MP_OBJ_NULL);
@@ -577,6 +683,9 @@ static mp_obj_t machine_i2c_async_start_transfer(machine_i2c_async_obj_t *self,
     mp_int_t address, mp_obj_t buffer_obj, bool stop, mp_int_t timeout_ms, bool read) {
     if (self->bus == NULL || self->bus->freq == 0) {
         mp_raise_OSError(MP_ENODEV);
+    }
+    if (ra_i2c_bus_faulted(self->bus->i2c_inst)) {
+        mp_raise_OSError(MP_EIO);
     }
     if (self->completion_pending) {
         mp_raise_OSError(MP_EBUSY);
@@ -609,6 +718,11 @@ static mp_obj_t machine_i2c_async_start_transfer(machine_i2c_async_obj_t *self,
     self->timeout_ms = (uint32_t)timeout_ms;
     self->transfer_len = buffer.len;
     self->result = 0;
+    ++self->generation;
+    self->recovery_result = 0;
+    self->recovery_steps = 0;
+    self->recovery_step_max_us = 0;
+    self->recovery_total_us = 0;
     self->timeout_expired = false;
     self->cancel_requested = false;
     self->active = true;
@@ -621,12 +735,15 @@ static mp_obj_t machine_i2c_async_start_transfer(machine_i2c_async_obj_t *self,
         mp_raise_OSError(MP_EBUSY);
     }
     self->timeout_timer_active = true;
+    self->timer_generation = self->generation;
     soft_timer_insert(&self->timeout_timer, self->timeout_ms);
     return mp_const_none;
 }
 
 static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_args,
     mp_map_t *kw_args) {
+    uint32_t started = mp_hal_ticks_us();
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     enum { ARG_address, ARG_buffer, ARG_stop, ARG_timeout_ms };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_address, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
@@ -638,19 +755,23 @@ static mp_obj_t machine_i2c_async_readinto(size_t n_args, const mp_obj_t *pos_ar
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
         MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    return machine_i2c_async_start_transfer(
+    mp_obj_t result = machine_i2c_async_start_transfer(
         MP_OBJ_TO_PTR(pos_args[0]),
         args[ARG_address].u_int,
         args[ARG_buffer].u_obj,
         args[ARG_stop].u_bool,
         args[ARG_timeout_ms].u_int,
         true);
+    machine_i2c_async_record_us(&self->cpu_start_max_us, started);
+    return result;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_i2c_async_readinto_obj, 3,
     machine_i2c_async_readinto);
 
 static mp_obj_t machine_i2c_async_writefrom(size_t n_args, const mp_obj_t *pos_args,
     mp_map_t *kw_args) {
+    uint32_t started = mp_hal_ticks_us();
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     enum { ARG_address, ARG_buffer, ARG_stop, ARG_timeout_ms };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_address, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
@@ -662,13 +783,15 @@ static mp_obj_t machine_i2c_async_writefrom(size_t n_args, const mp_obj_t *pos_a
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
         MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    return machine_i2c_async_start_transfer(
+    mp_obj_t result = machine_i2c_async_start_transfer(
         MP_OBJ_TO_PTR(pos_args[0]),
         args[ARG_address].u_int,
         args[ARG_buffer].u_obj,
         args[ARG_stop].u_bool,
         args[ARG_timeout_ms].u_int,
         false);
+    machine_i2c_async_record_us(&self->cpu_start_max_us, started);
+    return result;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_i2c_async_writefrom_obj, 3,
     machine_i2c_async_writefrom);
@@ -711,12 +834,15 @@ static mp_obj_t machine_i2c_async_wait(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_wait_obj, machine_i2c_async_wait);
 
 static mp_obj_t machine_i2c_async_cancel_obj_fun(mp_obj_t self_in) {
+    uint32_t started = mp_hal_ticks_us();
     machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->active && !machine_i2c_async_update(self)) {
-        self->cancel_requested = true;
-        machine_i2c_async_abort_and_reinit(self);
-        (void)machine_i2c_async_update(self);
+        if (!self->recovering) {
+            self->cancel_requested = true;
+            machine_i2c_async_request_recovery(self);
+        }
     }
+    machine_i2c_async_record_us(&self->cpu_cancel_max_us, started);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_cancel_obj,
@@ -766,6 +892,37 @@ static mp_obj_t machine_i2c_async_stats(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_stats_obj,
     machine_i2c_async_stats);
 
+// Diagnostic allocation is explicit and outside the measured/heap-locked path.
+static mp_obj_t machine_i2c_async_recovery_stats(mp_obj_t self_in) {
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_obj_t values[] = {
+        mp_obj_new_int(self->recovery_result),
+        mp_obj_new_int_from_uint(self->recovery_steps),
+        mp_obj_new_int_from_uint(self->recovery_step_max_us),
+        mp_obj_new_int_from_uint(self->recovery_total_us),
+    };
+    return mp_obj_new_tuple(MP_ARRAY_SIZE(values), values);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_recovery_stats_obj,
+    machine_i2c_async_recovery_stats);
+
+// Maxima since I2CAsync construction, in us. These include any IRQ preemption
+// during the C section, but exclude Python callback work before/after that
+// section. Read outside heap_lock; no instrumentation heap allocation.
+static mp_obj_t machine_i2c_async_timing_stats(mp_obj_t self_in) {
+    machine_i2c_async_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_obj_t values[] = {
+        mp_obj_new_int_from_uint(self->cpu_start_max_us),
+        mp_obj_new_int_from_uint(self->cpu_poll_max_us),
+        mp_obj_new_int_from_uint(self->cpu_cancel_max_us),
+        mp_obj_new_int_from_uint(self->cpu_worker_max_us),
+        mp_obj_new_int_from_uint(self->cpu_timer_max_us),
+    };
+    return mp_obj_new_tuple(MP_ARRAY_SIZE(values), values);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_i2c_async_timing_stats_obj,
+    machine_i2c_async_timing_stats);
+
 static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&machine_i2c_async_readinto_obj) },
     { MP_ROM_QSTR(MP_QSTR_writefrom), MP_ROM_PTR(&machine_i2c_async_writefrom_obj) },
@@ -777,6 +934,8 @@ static const mp_rom_map_elem_t machine_i2c_async_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&machine_i2c_async_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&machine_i2c_async_irq_obj) },
     { MP_ROM_QSTR(MP_QSTR_stats), MP_ROM_PTR(&machine_i2c_async_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recovery_stats), MP_ROM_PTR(&machine_i2c_async_recovery_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR_timing_stats), MP_ROM_PTR(&machine_i2c_async_timing_stats_obj) },
 };
 static MP_DEFINE_CONST_DICT(machine_i2c_async_locals_dict,
     machine_i2c_async_locals_dict_table);

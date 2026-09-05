@@ -33,6 +33,7 @@
 #include "ra_timer.h"
 #include "ra_utils.h"
 #include "ra_i2c.h"
+#include "ra_i2c_recovery.h"
 #include "ra_i2c_slave.h"
 
 #if !defined(RA_PRI_I2C)
@@ -234,6 +235,9 @@ const uint8_t ra_i2c_ch_to_erirq[] = {
 static xaction_t *volatile current_xaction;
 static xaction_unit_t *volatile current_xaction_unit;
 static bool last_stop;
+static uint8_t current_channel;
+static ra_i2c_recovery_t recovery;
+static bool bus_fault[3];
 
 typedef struct {
     transfer_info_t info;
@@ -250,6 +254,7 @@ typedef struct {
 // RX descriptor and one TX descriptor are sufficient for all channels.
 static ra_i2c_master_dtc_t master_rx_dtc;
 static ra_i2c_master_dtc_t master_tx_dtc;
+static bool ra_i2c_dtc_quiesce_one(ra_i2c_master_dtc_t *dtc);
 static uint8_t pclk_div[8] = {
     1, 2, 4, 8, 16, 32, 64, 128
 };
@@ -275,6 +280,9 @@ static R_IIC0_Type *ch_to_R_IIC0_Type(uint32_t ch) {
 }
 
 static void ra_i2c_master_rx_dtc_close(void) {
+    if (!ra_i2c_dtc_quiesce_one(&master_rx_dtc)) {
+        return; // Keep descriptor alive until a subsequent single check.
+    }
     if (master_rx_dtc.open) {
         (void)R_DTC_Close((transfer_ctrl_t *)&master_rx_dtc.ctrl);
     }
@@ -314,7 +322,7 @@ static bool ra_i2c_master_rx_dtc_prepare(R_IIC0_Type *i2c_inst, xaction_t *actio
     master_rx_dtc.info.p_src = (void const *)&i2c_inst->ICDRR;
     master_rx_dtc.info.p_dest = unit->buf;
     master_rx_dtc.info.num_blocks = 0;
-    master_rx_dtc.info.length = 1;
+    master_rx_dtc.info.length = (uint16_t)(unit->m_bytes_total - 3);
     master_rx_dtc.extend.activation_source = (IRQn_Type)ra_i2c_ch_to_rxirq[channel];
     master_rx_dtc.cfg.p_info = &master_rx_dtc.info;
     master_rx_dtc.cfg.p_extend = &master_rx_dtc.extend;
@@ -339,11 +347,9 @@ static bool ra_i2c_master_rx_dtc_arm(
     }
 
     uint16_t transfer_count = (uint16_t)(unit->m_bytes_total - 3);
-    fsp_err_t error = R_DTC_Reset(
-        (transfer_ctrl_t *)&master_rx_dtc.ctrl,
-        (void const *)&i2c_inst->ICDRR,
-        unit->buf,
-        transfer_count);
+    // Open installed the complete descriptor with activation disabled. Enable
+    // it once; R_DTC_Reset contains a hardware busy-wait and is not needed.
+    fsp_err_t error = R_DTC_Enable((transfer_ctrl_t *)&master_rx_dtc.ctrl);
     if (error != FSP_SUCCESS) {
         action->m_dtc_fallback_count++;
         ra_i2c_master_rx_dtc_close();
@@ -371,6 +377,9 @@ static bool ra_i2c_master_rx_dtc_finish_irq(void) {
 }
 
 static void ra_i2c_master_tx_dtc_close(void) {
+    if (!ra_i2c_dtc_quiesce_one(&master_tx_dtc)) {
+        return;
+    }
     if (master_tx_dtc.open) {
         (void)R_DTC_Close((transfer_ctrl_t *)&master_tx_dtc.ctrl);
     }
@@ -410,7 +419,7 @@ static bool ra_i2c_master_tx_dtc_prepare(R_IIC0_Type *i2c_inst, xaction_t *actio
     master_tx_dtc.info.p_src = unit->buf;
     master_tx_dtc.info.p_dest = (void *)&i2c_inst->ICDRT;
     master_tx_dtc.info.num_blocks = 0;
-    master_tx_dtc.info.length = 1;
+    master_tx_dtc.info.length = (uint16_t)unit->m_bytes_total;
     master_tx_dtc.extend.activation_source = (IRQn_Type)ra_i2c_ch_to_txirq[channel];
     master_tx_dtc.cfg.p_info = &master_tx_dtc.info;
     master_tx_dtc.cfg.p_extend = &master_tx_dtc.extend;
@@ -435,11 +444,7 @@ static bool ra_i2c_master_tx_dtc_arm(
     }
 
     uint16_t transfer_count = (uint16_t)unit->m_bytes_total;
-    fsp_err_t error = R_DTC_Reset(
-        (transfer_ctrl_t *)&master_tx_dtc.ctrl,
-        unit->buf,
-        (void *)&i2c_inst->ICDRT,
-        transfer_count);
+    fsp_err_t error = R_DTC_Enable((transfer_ctrl_t *)&master_tx_dtc.ctrl);
     if (error != FSP_SUCCESS) {
         action->m_dtc_tx_fallback_count++;
         ra_i2c_master_tx_dtc_close();
@@ -679,7 +684,7 @@ void ra_i2c_set_baudrate(R_IIC0_Type *i2c_inst, uint32_t baudrate) {
     i2c_inst->ICBRL_b.BRL = brl;
 }
 
-void ra_i2c_init(R_IIC0_Type *i2c_inst, uint32_t scl, uint32_t sda, uint32_t baudrate) {
+static bool ra_i2c_init_idle(R_IIC0_Type *i2c_inst, uint32_t scl, uint32_t sda, uint32_t baudrate) {
     ra_i2c_module_start(i2c_inst);
     ra_gpio_config(scl, GPIO_MODE_AF_OD, GPIO_NOPULL, GPIO_LOW_POWER, AF_I2C);
     ra_gpio_config(sda, GPIO_MODE_AF_OD, GPIO_NOPULL, GPIO_LOW_POWER, AF_I2C);
@@ -687,8 +692,8 @@ void ra_i2c_init(R_IIC0_Type *i2c_inst, uint32_t scl, uint32_t sda, uint32_t bau
     i2c_inst->ICCR1_b.ICE = 0;     // I2C disable
     i2c_inst->ICCR1_b.IICRST = 1;  // I2C internal reset
     i2c_inst->ICIER = 0x00;        // I2C disable all interrupts
-    while (i2c_inst->ICIER != 0) {
-        ;
+    if (i2c_inst->ICIER != 0) {
+        return false; // Failed readback is a fault, never a CPU wait.
     }
     ra_i2c_clear_IR(i2c_inst);     // clear IR
     i2c_inst->ICCR1_b.ICE = 1;     // I2C enable
@@ -699,7 +704,24 @@ void ra_i2c_init(R_IIC0_Type *i2c_inst, uint32_t scl, uint32_t sda, uint32_t bau
     i2c_inst->ICCR1_b.IICRST = 0;   // I2C internal reset
     ra_i2c_irq_enable(i2c_inst);
     last_stop = true;
-    return;
+    return true;
+}
+
+bool ra_i2c_bus_faulted(R_IIC0_Type *inst) {
+    return bus_fault[R_IIC0_Type_to_ch(inst)];
+}
+
+bool ra_i2c_init(R_IIC0_Type *inst, uint32_t scl, uint32_t sda, uint32_t freq) {
+    if (current_xaction != NULL) {
+        return false;
+    }
+    // Explicit re-init clears a latched electrical fault only with idle lines.
+    if (ra_i2c_bus_faulted(inst) && (!ra_gpio_read(scl) || !ra_gpio_read(sda))) {
+        return false;
+    }
+    bool ok = ra_i2c_init_idle(inst, scl, sda, freq);
+    bus_fault[R_IIC0_Type_to_ch(inst)] = !ok;
+    return ok;
 }
 
 void ra_i2c_deinit(R_IIC0_Type *i2c_inst) {
@@ -717,69 +739,169 @@ void ra_i2c_deinit(R_IIC0_Type *i2c_inst) {
     return;
 }
 
-static bool ra_i2c_recovery_scl_high(uint32_t scl) {
-    ra_gpio_write(scl, 1);
-    // Bounded clock stretching: recovery must not hang the completion callback.
-    for (uint32_t wait = 0; wait < 100; ++wait) {
-        mp_hal_delay_us(5);
-        if (ra_gpio_read(scl)) {
-            return true;
+static bool ra_i2c_dtc_quiesce_one(ra_i2c_master_dtc_t *dtc) {
+    if (!dtc->open) {
+        return true;
+    }
+    R_ICU->IELSR_b[dtc->ctrl.irq].DTCE = 0;
+    __DSB();
+    // FSP uses the activation event (IELS), NOT the NVIC IRQ index.
+    uint32_t in_progress = 0x8000U | R_ICU->IELSR_b[dtc->ctrl.irq].IELS;
+    return R_DTC->DTCSTS != in_progress;
+}
+
+static bool ra_i2c_dtc_quiesce(void) {
+    bool rx = ra_i2c_dtc_quiesce_one(&master_rx_dtc);
+    bool tx = ra_i2c_dtc_quiesce_one(&master_tx_dtc);
+    return rx && tx;
+}
+
+bool ra_i2c_recovery_begin(R_IIC0_Type *inst, xaction_t *action,
+    uint32_t scl, uint32_t sda, uint32_t freq, uint32_t now) {
+    if (current_xaction != action || action == NULL ||
+        (recovery.state != REC_IDLE && recovery.state != REC_DONE)) {
+        return false;
+    }
+    ra_i2c_irq_disable(inst);
+    inst->ICIER = 0;
+    (void)ra_i2c_dtc_quiesce();
+    recovery = (ra_i2c_recovery_t) {
+        .inst = inst, .scl = scl, .sda = sda, .freq = freq,
+        .started = now, .edge = now, .state = REC_QUIESCE,
+    };
+    return true; // current_xaction remains the C-level bus reservation.
+}
+
+static bool ra_i2c_recovery_finish(int result) {
+    recovery.result = result;
+    recovery.state = REC_DONE;
+    if (result < 0) {
+        bus_fault[R_IIC0_Type_to_ch(recovery.inst)] = true;
+        if (recovery.buffer_safe) {
+            ra_gpio_write(recovery.scl, 1);
+            ra_gpio_write(recovery.sda, 1);
+            ra_i2c_deinit(recovery.inst);
         }
+    }
+    current_xaction->m_status = RA_I2C_STATUS_Stopped;
+    current_xaction->m_error = RA_I2C_ERROR_TMOF;
+    last_stop = true;
+    return true;
+}
+
+bool ra_i2c_recovery_buffer_safe(void) {
+    return recovery.state == REC_IDLE || recovery.buffer_safe;
+}
+
+int ra_i2c_recovery_result(void) {
+    return recovery.result;
+}
+
+bool ra_i2c_recovery_step(uint32_t now) {
+    if (recovery.state == REC_IDLE || recovery.state == REC_DONE) {
+        return true;
+    }
+    if (now - recovery.started >= RA_I2C_RECOVERY_DEADLINE_US) {
+        return ra_i2c_recovery_finish(recovery.buffer_safe ? -3 : -5);
+    }
+    uint32_t elapsed = now - recovery.edge;
+    switch (recovery.state) {
+        case REC_QUIESCE:
+            if (!ra_i2c_dtc_quiesce()) {
+                break;
+            }
+            recovery.buffer_safe = true;
+            ra_i2c_deinit(recovery.inst);
+            ra_gpio_write(recovery.scl, 1);
+            ra_gpio_write(recovery.sda, 1);
+            ra_gpio_config(recovery.scl, GPIO_MODE_OUTPUT_OD, GPIO_NOPULL, GPIO_LOW_POWER, 0);
+            ra_gpio_config(recovery.sda, GPIO_MODE_OUTPUT_OD, GPIO_NOPULL, GPIO_LOW_POWER, 0);
+            recovery.edge = mp_hal_ticks_us();
+            recovery.state = REC_BUS_CHECK;
+            break;
+        case REC_BUS_CHECK:
+            if (!ra_gpio_read(recovery.scl)) {
+                if (elapsed >= RA_I2C_RECOVERY_STRETCH_US) {
+                    return ra_i2c_recovery_finish(-1);
+                }
+            } else {
+                // An aborted read can leave a HIGH data bit, not an idle
+                // slave. Complete nine clocks + STOP even if SDA is high now.
+                ra_gpio_write(recovery.scl, 0);
+                recovery.edge = mp_hal_ticks_us();
+                recovery.state = REC_LOW;
+            }
+            break;
+        case REC_LOW:
+        case REC_STOP_LOW:
+            if (elapsed >= RA_I2C_RECOVERY_HOLD_US) {
+                ra_gpio_write(recovery.scl, 1);
+                recovery.edge = mp_hal_ticks_us();
+                recovery.state = recovery.state == REC_LOW ? REC_WAIT_HIGH : REC_STOP_WAIT_HIGH;
+            }
+            break;
+        case REC_WAIT_HIGH:
+        case REC_STOP_WAIT_HIGH:
+            if (ra_gpio_read(recovery.scl)) {
+                recovery.edge = mp_hal_ticks_us(); // AFTER observing actual high.
+                recovery.state = recovery.state == REC_WAIT_HIGH ? REC_HIGH : REC_STOP_HIGH;
+            } else if (elapsed >= RA_I2C_RECOVERY_STRETCH_US) {
+                return ra_i2c_recovery_finish(-1);
+            }
+            break;
+        case REC_HIGH:
+            if (elapsed >= RA_I2C_RECOVERY_HOLD_US) {
+                ra_gpio_write(recovery.scl, 0);
+                recovery.edge = mp_hal_ticks_us();
+                if (++recovery.pulses == 9) {
+                    ra_gpio_write(recovery.sda, 0);
+                    recovery.state = REC_STOP_LOW;
+                } else {
+                    recovery.state = REC_LOW;
+                }
+            }
+            break;
+        case REC_STOP_HIGH:
+            if (elapsed >= RA_I2C_RECOVERY_HOLD_US) {
+                ra_gpio_write(recovery.sda, 1);
+                recovery.edge = mp_hal_ticks_us();
+                recovery.state = REC_STOP_SETTLE;
+            }
+            break;
+        case REC_STOP_SETTLE:
+            if (elapsed >= RA_I2C_RECOVERY_HOLD_US) {
+                if (!ra_gpio_read(recovery.scl)) {
+                    return ra_i2c_recovery_finish(-1);
+                }
+                if (!ra_gpio_read(recovery.sda)) {
+                    return ra_i2c_recovery_finish(-2);
+                }
+                recovery.state = REC_RESTORE;
+            }
+            break;
+        case REC_RESTORE:
+            if (!ra_gpio_read(recovery.scl) || !ra_gpio_read(recovery.sda)) {
+                return ra_i2c_recovery_finish(-2);
+            }
+            return ra_i2c_recovery_finish(ra_i2c_init_idle(recovery.inst,
+                recovery.scl, recovery.sda, recovery.freq) ? 1 : -4);
+        default:
+            break;
     }
     return false;
 }
 
-void ra_i2c_recover_bus(uint32_t scl, uint32_t sda) {
-    // Only after aborting our own master transfer and disabling RIIC. A reset
-    // releases RIIC, but a slave interrupted mid-read may still drive SDA low.
-    // UM10204 3.1.16: nine clocks, followed by STOP. Never drive high.
-    // The caller must restore peripheral pin mux with ra_i2c_init afterwards.
-    ra_gpio_write(scl, 1);
-    ra_gpio_write(sda, 1);
-    ra_gpio_config(scl, GPIO_MODE_OUTPUT_OD, GPIO_NOPULL, GPIO_LOW_POWER, 0);
-    ra_gpio_config(sda, GPIO_MODE_OUTPUT_OD, GPIO_NOPULL, GPIO_LOW_POWER, 0);
-    if (!ra_i2c_recovery_scl_high(scl)) {
-        return;
-    }
-    if (ra_gpio_read(sda)) {
-        return;
-    }
-    for (uint32_t pulse = 0; pulse < 9; ++pulse) {
-        ra_gpio_write(scl, 0);
-        mp_hal_delay_us(5);
-        if (!ra_i2c_recovery_scl_high(scl)) {
-            return;
-        }
-        // Do not stop at the first high data bit: the slave can drive the next
-        // bit low again. Complete all nine clocks to pass a released-SDA NACK.
-    }
-    // Pull SDA down only while SCL is low, then release it with SCL high.
-    ra_gpio_write(scl, 0);
-    ra_gpio_write(sda, 0);
-    mp_hal_delay_us(5);
-    if (ra_i2c_recovery_scl_high(scl)) {
-        ra_gpio_write(sda, 1);
-        mp_hal_delay_us(5);
-    } else {
-        ra_gpio_write(sda, 1);
-    }
-}
-
 void ra_i2c_xaction_start(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start) {
-    uint32_t timeout;
-
+    (void)repeated_start;
     if (last_stop == false) {
         i2c_inst->ICSR2_b.START = 0;
         i2c_inst->ICCR2_b.RS = 1;
         return; /* We still keep I2C bus */
     }
-    timeout = RA_I2C_TIMEOUT_BUS_BUSY;
-    while (i2c_inst->ICCR2_b.BBSY) {
-        if (timeout-- == 0) {
-            action->m_status = RA_I2C_STATUS_Stopped;
-            action->m_error = RA_I2C_ERROR_BUSY;
-            return;
-        }
+    if (i2c_inst->ICCR2_b.BBSY) {
+        action->m_status = RA_I2C_STATUS_Stopped;
+        action->m_error = RA_I2C_ERROR_BUSY;
+        return;
     }
     i2c_inst->ICCR2_b.ST = 1;  // I2C start condition
 }
@@ -1002,7 +1124,7 @@ void iic_master_rxi_isr(void) {
         iic_slave_rxi_isr();
         return;
     }
-    if (current_xaction == NULL) {
+    if (current_xaction == NULL || ch != current_channel || recovery.state != REC_IDLE) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
@@ -1019,7 +1141,7 @@ void iic_master_txi_isr(void) {
         iic_slave_txi_isr();
         return;
     }
-    if (current_xaction == NULL) {
+    if (current_xaction == NULL || ch != current_channel || recovery.state != REC_IDLE) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
@@ -1036,7 +1158,7 @@ void iic_master_tei_isr(void) {
         iic_slave_tei_isr();
         return;
     }
-    if (current_xaction == NULL) {
+    if (current_xaction == NULL || ch != current_channel || recovery.state != REC_IDLE) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
@@ -1053,7 +1175,7 @@ void iic_master_eri_isr(void) {
         iic_slave_eri_isr();
         return;
     }
-    if (current_xaction == NULL) {
+    if (current_xaction == NULL || ch != current_channel || recovery.state != REC_IDLE) {
         R_BSP_IrqStatusClear(irq);
         return;
     }
@@ -1068,7 +1190,7 @@ bool ra_i2c_action_is_busy(void) {
 }
 
 bool ra_i2c_action_start_async(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start) {
-    if (i2c_inst == NULL || action == NULL || current_xaction != NULL) {
+    if (i2c_inst == NULL || action == NULL || current_xaction != NULL || ra_i2c_bus_faulted(i2c_inst)) {
         if (action != NULL) {
             action->m_status = RA_I2C_STATUS_Stopped;
             action->m_error = RA_I2C_ERROR_BUSY;
@@ -1076,6 +1198,8 @@ bool ra_i2c_action_start_async(R_IIC0_Type *i2c_inst, xaction_t *action, bool re
         return false;
     }
 
+    recovery.state = REC_IDLE;
+    current_channel = (uint8_t)R_IIC0_Type_to_ch(i2c_inst);
     current_xaction = action;
     current_xaction_unit = action->units;
     (void)ra_i2c_master_rx_dtc_prepare(i2c_inst, action);
@@ -1099,7 +1223,16 @@ ra_i2c_async_status_t ra_i2c_action_poll_async(xaction_t *action) {
             ? RA_I2C_ASYNC_COMPLETE
             : RA_I2C_ASYNC_ERROR;
     }
+    if (recovery.state != REC_IDLE && recovery.state != REC_DONE) {
+        return RA_I2C_ASYNC_PENDING;
+    }
+    if (recovery.state == REC_DONE && !recovery.buffer_safe) {
+        return RA_I2C_ASYNC_ERROR; // Quarantine descriptor, owner and buffer.
+    }
     if (action->m_status != RA_I2C_STATUS_Stopped) {
+        return RA_I2C_ASYNC_PENDING;
+    }
+    if (!ra_i2c_dtc_quiesce()) {
         return RA_I2C_ASYNC_PENDING;
     }
 
@@ -1121,6 +1254,14 @@ void ra_i2c_action_cancel_async(R_IIC0_Type *i2c_inst, xaction_t *action) {
         return;
     }
 
+    ra_i2c_irq_disable(i2c_inst);
+    i2c_inst->ICIER = 0;
+    if (!ra_i2c_dtc_quiesce()) {
+        // Only the explicit synchronous facade / VM shutdown uses this path.
+        // Never sweep a live DTC buffer. An unquiescent engine requires reset.
+        NVIC_SystemReset();
+    }
+    recovery.state = REC_IDLE;
     ra_i2c_master_rx_dtc_close();
     ra_i2c_master_tx_dtc_close();
     i2c_inst->ICIER = 0;
@@ -1138,6 +1279,7 @@ void ra_i2c_action_cancel_async(R_IIC0_Type *i2c_inst, xaction_t *action) {
     last_stop = true;
     current_xaction = NULL;
     current_xaction_unit = NULL;
+    ra_i2c_irq_enable(i2c_inst);
     ra_i2c_xaction_notify_terminal(action);
 }
 

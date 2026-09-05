@@ -35,8 +35,12 @@ def main():
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 ENUMS
+enum { REC_IDLE, REC_DONE };
+static struct { int state; bool buffer_safe; } recovery;
+static bool ra_i2c_dtc_quiesce(void) { return true; }
 typedef struct {
     bool m_stop;
     xaction_error_t m_error;
