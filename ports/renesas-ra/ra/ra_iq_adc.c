@@ -394,6 +394,29 @@ static inline uint16_t ra_iq_scope_code(int32_t s) {
  * AC-coupled around mid-scale.  Owned by the producer.  AM-only. */
 static int32_t s_env_mean;
 
+/* NFM polar discriminator state.  Successive complex samples produce
+ * arg(conj(previous) * current), independent of their amplitude.  The phase result
+ * is AC-coupled by a slow Q8 mean so a residual carrier/NCO offset does not consume
+ * audio headroom.  Producer-owned; preserved across blocks and reset on mode/start. */
+static int16_t s_fm_prev_i;
+static int16_t s_fm_prev_q;
+static int32_t s_fm_mean_q8;
+static uint8_t s_fm_have_prev;
+/* Q31 coefficient which makes a given deviation produce the same audio level
+ * at every supported capture rate.  4096 is unity for the application's
+ * 24-kS/s post-decimation stream. */
+static int32_t s_fm_phase_gain_q31 = 4096;
+
+static void ra_iq_fm_reset(void) {
+    uint32_t fs = s_status.sample_rate_hz >> 1;
+    s_fm_prev_i = 0;
+    s_fm_prev_q = 0;
+    s_fm_mean_q8 = 0;
+    s_fm_have_prev = 0U;
+    s_fm_phase_gain_q31 = (fs != 0U) ?
+        (int32_t)((((uint64_t)fs << 12) + 12000U) / 24000U) : 4096;
+}
+
 /* Hybrid CMSIS-DSP stage 4: the AM envelope as arm_cmplx_mag_f32 (exact sqrt(i^2+q^2))
  * instead of the integer alpha-max-beta-min approximation (which carries a ~4% ripple).
  * Selectable at runtime (iq.mag_kernel); the integer approximation stays default and
@@ -1062,12 +1085,14 @@ static volatile uint32_t s_inject_step;    /* phase increment at the point's rat
 static volatile int32_t s_inject_ampl;     /* peak amplitude in insertion counts  */
 static volatile uint32_t s_inject_mod_step;
 static volatile uint16_t s_inject_depth_q15;
+static volatile uint32_t s_inject_deviation_step;
 static volatile uint32_t s_inject_gate_step;
 static volatile uint8_t s_inject_phase_noise;
 static volatile uint32_t s_inject_requested_step;
 static volatile int32_t s_inject_requested_ampl;
 static volatile uint32_t s_inject_requested_mod_step;
 static volatile uint16_t s_inject_requested_depth_q15;
+static volatile uint32_t s_inject_requested_deviation_step;
 static volatile uint32_t s_inject_requested_gate_step;
 static volatile uint8_t s_inject_requested_phase_noise;
 static volatile uint32_t s_inject_config_seq; /* even=stable, odd=writer in progress */
@@ -1166,6 +1191,7 @@ typedef struct {
     uint32_t gate_phase;
     uint32_t step;
     uint32_t mod_step;
+    uint32_t deviation_step;
     uint32_t gate_step;
     uint16_t depth_q15;
     uint16_t noise_lfsr;
@@ -1184,6 +1210,7 @@ static inline void ra_iq_inject_run_begin(ra_iq_inject_run_t *r) {
     r->gate_phase = s_inject_gate_phase;
     r->step = s_inject_step;
     r->mod_step = s_inject_mod_step;
+    r->deviation_step = s_inject_deviation_step;
     r->gate_step = s_inject_gate_step;
     r->depth_q15 = s_inject_depth_q15;
     r->noise_lfsr = s_inject_noise_lfsr;
@@ -1238,7 +1265,9 @@ static inline void ra_iq_inject_next_q15(ra_iq_inject_run_t *r,
 
     bool am = r->kind == (uint8_t)RA_IQ_INJECT_AM;
     bool cw = r->kind == (uint8_t)RA_IQ_INJECT_CW;
-    uint8_t carrier_wave = (am || cw) ? (uint8_t)RA_IQ_INJECT_WAVE_SINE : r->wave;
+    bool fm = r->kind == (uint8_t)RA_IQ_INJECT_FM;
+    uint8_t carrier_wave = (am || cw || fm) ?
+        (uint8_t)RA_IQ_INJECT_WAVE_SINE : r->wave;
     int32_t wi;
     int32_t wq;
     ra_iq_inject_analytic_q15(r->phase + jitter_phase, carrier_wave,
@@ -1264,7 +1293,12 @@ static inline void ra_iq_inject_next_q15(ra_iq_inject_run_t *r,
     *i_out = wi;
     *q_out = wq;
     *gain_q15_out = gain_q15;
-    r->phase += r->step;
+    int32_t deviation_delta = 0;
+    if (fm && (r->mod_step != 0U) && (r->deviation_step != 0U)) {
+        int16_t mod = s_sin256[(uint8_t)(r->mod_phase >> 24)];
+        deviation_delta = (int32_t)(((int64_t)r->deviation_step * mod) >> 15);
+    }
+    r->phase += r->step + (uint32_t)deviation_delta;
     r->mod_phase += r->mod_step;
     r->gate_phase += r->gate_step;
 }
@@ -1845,6 +1879,7 @@ static void ra_iq_dsp_process(uint8_t half) {
         int32_t requested_ampl = s_inject_requested_ampl;
         uint32_t requested_mod_step = s_inject_requested_mod_step;
         uint16_t requested_depth_q15 = s_inject_requested_depth_q15;
+        uint32_t requested_deviation_step = s_inject_requested_deviation_step;
         uint32_t requested_gate_step = s_inject_requested_gate_step;
         uint8_t requested_phase_noise = s_inject_requested_phase_noise;
         __DMB();
@@ -1893,6 +1928,7 @@ static void ra_iq_dsp_process(uint8_t half) {
             s_inject_ampl = requested_ampl;
             s_inject_mod_step = requested_mod_step;
             s_inject_depth_q15 = requested_depth_q15;
+            s_inject_deviation_step = requested_deviation_step;
             s_inject_gate_step = requested_gate_step;
             s_inject_phase_noise = requested_phase_noise;
         }
@@ -2203,6 +2239,8 @@ static void ra_iq_dsp_process(uint8_t half) {
  * the selected demod mode; each mode centers its output around mid-scale and pushes
  * to the SPSC ring, where a full ring drops the sample and counts an overrun.
  * AM: envelope = alpha-max-beta-min(|i|,|q|) with an IIR DC blocker.
+ * FM: polar discriminator = atan2(imag(conj(z[n-1])*z[n]),
+ * real(conj(z[n-1])*z[n])) with a slow DC blocker.
  * USB/LSB: phasing method.  audio = I_delayed -/+ H(Q), centered at mid-scale with
  * no DC blocker (SSB audio carries no DC term).  USB = I_delayed - H(Q); if a known
  * signal shows the opposite sideband on hardware, the operator can swap USB/LSB. */
@@ -2243,6 +2281,49 @@ static void ra_iq_demod_produce(uint8_t half) {
                 s_env_mean += (((int32_t)mag << 8) - s_env_mean) >> 8;
 
                 int32_t audio = mag - (s_env_mean >> 8);
+
+                uint16_t dac = ra_iq_audio_stage(audio);
+                uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
+                if (next == (s_ring_tail & RA_IQ_AUDIO_RING_MASK)) {
+                    s_audio.ring_overruns++;
+                    continue;
+                }
+                s_audio_ring[head & RA_IQ_AUDIO_RING_MASK] = dac;
+                head = next;
+            }
+            break;
+        case RA_IQ_DEMOD_FM:
+            for (uint16_t j = 0U; j < m; ++j) {
+                int16_t i = s_i_dc[j];
+                int16_t q = s_q_dc[j];
+                int32_t audio = 0;
+
+                if (s_fm_have_prev) {
+                    /* Both terms can approach 2^31 before addition.  Accumulate in
+                     * int64 and divide both coordinates by two so the Q31 atan2
+                     * inputs cannot overflow while their ratio/angle is unchanged. */
+                    q31_t cross = (q31_t)((
+                        (int64_t)s_fm_prev_i * (int64_t)q -
+                        (int64_t)s_fm_prev_q * (int64_t)i) >> 1);
+                    q31_t dot = (q31_t)((
+                        (int64_t)s_fm_prev_i * (int64_t)i +
+                        (int64_t)s_fm_prev_q * (int64_t)q) >> 1);
+                    q31_t phase_q29;
+
+                    if (arm_atan2_q31(cross, dot, &phase_q29) == ARM_MATH_SUCCESS) {
+                        /* Q2.29 radians -> rate-normalised signed audio.  At
+                         * 24 kS/s, +/-4 kHz deviation is +/-pi/3 and therefore
+                         * about +/-1072 here. */
+                        int32_t discriminator = (int32_t)(
+                            ((int64_t)phase_q29 * s_fm_phase_gain_q31) >> 31);
+                        s_fm_mean_q8 += ((discriminator * 256) - s_fm_mean_q8) >> 8;
+                        audio = discriminator - (s_fm_mean_q8 >> 8);
+                    }
+                } else {
+                    s_fm_have_prev = 1U;
+                }
+                s_fm_prev_i = i;
+                s_fm_prev_q = q;
 
                 uint16_t dac = ra_iq_audio_stage(audio);
                 uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
@@ -2655,6 +2736,8 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_inject_requested_mod_step = 0U;
     s_inject_depth_q15 = 0U;
     s_inject_requested_depth_q15 = 0U;
+    s_inject_deviation_step = 0U;
+    s_inject_requested_deviation_step = 0U;
     s_inject_gate_step = 0U;
     s_inject_requested_gate_step = 0U;
     s_inject_phase_noise = 0U;
@@ -2882,6 +2965,7 @@ bool ra_iq_adc_start(void) {
     ra_iq_timing_clear_working_window(0U, HAL_GetTick(), 0U);
     s_smeter_rms = 0;
     s_tune_phase = 0U;
+    ra_iq_fm_reset();
     s_dc_i_q16 = 0;
     s_dc_q_q16 = 0;
     s_dec_bypassed_last = 0U;
@@ -2895,6 +2979,7 @@ bool ra_iq_adc_start(void) {
     s_inject_ampl = s_inject_requested_ampl;
     s_inject_mod_step = s_inject_requested_mod_step;
     s_inject_depth_q15 = s_inject_requested_depth_q15;
+    s_inject_deviation_step = s_inject_requested_deviation_step;
     s_inject_gate_step = s_inject_requested_gate_step;
     s_inject_phase_noise = s_inject_requested_phase_noise;
     ra_iq_inject_reset_phase();
@@ -3282,6 +3367,7 @@ void ra_iq_adc_set_tune(int32_t hz) {
         s_tune_hz = 0;
         s_tune_step = 0U;
         s_tune_phase = 0U;
+        s_fm_have_prev = 0U;
         return;
     }
     int32_t lim = (fs >> 1) - 1;              /* stay just inside +/- Nyquist */
@@ -3294,6 +3380,9 @@ void ra_iq_adc_set_tune(int32_t hz) {
     int64_t step = (((int64_t)hz << 32) + (int64_t)(hz >= 0 ? fs : -fs) / 2) / (int64_t)fs;
     s_tune_step = (uint32_t)(int32_t)step;
     s_tune_phase = 0U;
+    /* The NCO phase origin changed discontinuously.  Do not compare the first
+     * post-tune vector with an FM vector from the old phase system. */
+    s_fm_have_prev = 0U;
     s_tune_hz = hz;
 }
 
@@ -3380,11 +3469,11 @@ static uint8_t ra_iq_inject_harmonic_limit(uint8_t kind, uint8_t wave,
 /* Arm/disarm the streaming bench source.  The complete tuple is published through one
  * seqlock transaction and consumed only at a DSP block boundary.  Parameter changes do
  * not reset carrier/modulation/gate phase; only a real ADC<->synthetic transition does. */
-void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
+void ra_iq_adc_set_inject_ex(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
-    uint8_t phase_noise, uint8_t point, uint8_t wave) {
+    uint8_t phase_noise, uint8_t point, uint8_t wave, uint32_t deviation_hz) {
     enable = enable ? 1U : 0U;
-    if (kind > (uint8_t)RA_IQ_INJECT_CW) {
+    if (kind > (uint8_t)RA_IQ_INJECT_FM) {
         kind = (uint8_t)RA_IQ_INJECT_IQ;
     }
     if (point > (uint8_t)RA_IQ_INJECT_POINT_OUT) {
@@ -3404,6 +3493,15 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     if (phase_noise > 8U) {
         phase_noise = 8U;
     }
+    if (kind == (uint8_t)RA_IQ_INJECT_FM) {
+        /* FM is a constant-envelope phase test.  A gate or non-sinusoidal
+         * carrier would create zero crossings/phase jumps that are not FM. */
+        wave = (uint8_t)RA_IQ_INJECT_WAVE_SINE;
+        gate_hz = 0U;
+        depth_q15 = 0U;
+    } else {
+        deviation_hz = 0U;
+    }
     if (enable) {
         /* GEN and FILE are explicit alternative owners of the same boundaries.
          * Stop FILE first; both requests are then committed by the next ISR block. */
@@ -3417,6 +3515,9 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     if (freq_hz > nyquist) {
         freq_hz = nyquist;
     }
+    if (deviation_hz > (nyquist - freq_hz)) {
+        deviation_hz = nyquist - freq_hz;
+    }
     /* Keep every AM fundamental sideband inside this insertion domain. */
     if (((kind == (uint8_t)RA_IQ_INJECT_AM) ||
          ((kind == (uint8_t)RA_IQ_INJECT_CW) &&
@@ -3426,6 +3527,7 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     }
     uint32_t step = ra_iq_inject_phase_step(freq_hz, fs);
     uint32_t mod_step = ra_iq_inject_phase_step(mod_hz, fs);
+    uint32_t deviation_step = ra_iq_inject_phase_step(deviation_hz, fs);
     uint32_t gate_step = ra_iq_inject_phase_step(gate_hz, fs);
     uint8_t harmonic_max = ra_iq_inject_harmonic_limit(kind, wave,
         freq_hz, mod_hz, fs);
@@ -3444,6 +3546,7 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     s_inject_requested_ampl = ampl;
     s_inject_requested_mod_step = mod_step;
     s_inject_requested_depth_q15 = depth_q15;
+    s_inject_requested_deviation_step = deviation_step;
     s_inject_requested_gate_step = gate_step;
     s_inject_requested_phase_noise = phase_noise;
     __DMB();
@@ -3460,6 +3563,7 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
         s_inject_ampl = ampl;
         s_inject_mod_step = mod_step;
         s_inject_depth_q15 = depth_q15;
+        s_inject_deviation_step = deviation_step;
         s_inject_gate_step = gate_step;
         s_inject_phase_noise = phase_noise;
         s_dc_i_q16 = 0;
@@ -3468,6 +3572,13 @@ void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
             ra_iq_inject_reset_phase();
         }
     }
+}
+
+void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
+    uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
+    uint8_t phase_noise, uint8_t point, uint8_t wave) {
+    ra_iq_adc_set_inject_ex(enable, kind, freq_hz, mod_hz, ampl, depth_q15,
+        gate_hz, phase_noise, point, wave, 0U);
 }
 
 /* Select the block input used by the coarse MID point.  This byte joins the same
@@ -3684,7 +3795,7 @@ void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
 }
 
 void ra_iq_adc_set_demod(uint8_t mode) {
-    if (mode > (uint8_t)RA_IQ_DEMOD_PASS) {
+    if (mode > (uint8_t)RA_IQ_DEMOD_FM) {
         mode = (uint8_t)RA_IQ_DEMOD_OFF;
     }
     uint8_t previous_mode = s_demod_mode;
@@ -3695,6 +3806,7 @@ void ra_iq_adc_set_demod(uint8_t mode) {
      * must keep flowing (old samples drain, new fill) so the DAC never underruns on
      * a mode switch.  The one-time ring flush lives in ra_iq_adc_start(). */
     s_env_mean = 0;
+    ra_iq_fm_reset();
     memset(s_hil_i, 0, sizeof(s_hil_i));
     memset(s_hil_q, 0, sizeof(s_hil_q));
     s_hil_pos = 0U;
@@ -3717,7 +3829,7 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     s_audio.audio_underruns = 0U;
     s_audio.ring_overruns = 0U;
 
-    /* Per-mode default channel bandwidth, matching the SDR UI app FILTERS map (AM 6k,
+    /* Per-mode default channel bandwidth, matching the SDR UI app FILTERS map (AM/FM 6k,
      * USB/LSB 2.4k, CW 500 Hz, OFF bypass).  compute_alpha recomputes the pole at the
      * current audio rate and resets the section state so the change does not click.  The
      * operator can override afterwards with ra_iq_adc_set_bandwidth.  Note the integer
@@ -3726,6 +3838,7 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     uint32_t bw;
     switch (mode) {
         case (uint8_t)RA_IQ_DEMOD_AM:
+        case (uint8_t)RA_IQ_DEMOD_FM:
             bw = 6000U;
             break;
         case (uint8_t)RA_IQ_DEMOD_USB:
@@ -3741,11 +3854,12 @@ void ra_iq_adc_set_demod(uint8_t mode) {
     }
     ra_iq_filt_compute_alpha(bw);
 
-    /* Per-mode default post-demod audio filter: AM low-pass, SSB voice band-pass, CW
+    /* Per-mode default post-demod audio filter: AM/FM low-pass, SSB voice band-pass, CW
      * peak, OFF bypass.  The operator can override with ra_iq_adc_set_audio_filter. */
     uint8_t af;
     switch (mode) {
         case (uint8_t)RA_IQ_DEMOD_AM:
+        case (uint8_t)RA_IQ_DEMOD_FM:
             af = RA_IQ_AF_AM;
             break;
         case (uint8_t)RA_IQ_DEMOD_USB:

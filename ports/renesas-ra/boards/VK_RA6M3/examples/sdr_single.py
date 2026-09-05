@@ -306,9 +306,11 @@ XTAL = 25_000_000
 PLL = 800_000_000          # PLLA fixed: 25 MHz x 32
 _C = 1048575               # max fractional denominator (20 bit)
 MS_OUT_MIN = 500_000       # this driver does not program the R divider
-MS_OUT_MAX = 100_000_000   # generic fractional path; no DIVBY4/integer planning
+MS_OUT_MAX = 200_000_000   # Si5351 MS0..2 ceiling; >100 MHz uses PLLB planning
 MS_DIV_MIN = 8.0
 MS_DIV_MAX = 2048.0
+MS_PLL_MIN = 600_000_000
+MS_PLL_MAX = 900_000_000
 # crystal calibration: measured +500 Hz at 28.160790 MHz => chip runs fast by
 # +17.76 ppm; compensate by programming a proportionally lower frequency.
 XTAL_PPM = 17.76
@@ -319,6 +321,9 @@ class SI5351:
         self.i2c = i2c or I2C(i2c_id)
         self.addr = None
         self.ok = False
+        # A high-frequency output owns PLLB. PLLA remains fixed at 800 MHz so
+        # ordinary <=100-MHz outputs keep their historical plan.
+        self._pllb_clk = None
         self.probe()
 
     def probe(self):
@@ -363,12 +368,26 @@ class SI5351:
         self._burst(26, self._ms_params(a, 0, 1))
         self._w(177, 0xA0)                     # reset both PLLs
 
-    def set_freq(self, clk, hz):
-        """Program the generic fractional MultiSynth path implemented here.
+    def _pllb_params(self, pll_hz):
+        """Fractional PLLB ratio corrected for the measured crystal error."""
+        correction = 1.0 - XTAL_PPM * 1e-6
+        if correction <= 0.0 or not MS_PLL_MIN <= pll_hz <= MS_PLL_MAX:
+            return None
+        ratio = (pll_hz * correction) / XTAL
+        a = int(ratio)
+        b = int((ratio - a) * _C + 0.5)
+        if b >= _C:
+            a += 1
+            b = 0
+        return self._ms_params(a, b, _C if b else 1)
 
-        Frequencies below 500 kHz require an R divider; frequencies above
-        100 MHz require the special integer/DIVBY4 plan. Neither is encoded by
-        this compact driver, so reject them before the first I2C write.
+    def set_freq(self, clk, hz):
+        """Program one output from 500 kHz through the Si5351 200-MHz limit.
+
+        PLLA stays at 800 MHz for the generic fractional <=100-MHz path. Above
+        100 MHz the selected output owns PLLB: integer divide-by-6 covers up to
+        150 MHz and documented DIVBY4 mode covers 150..200 MHz. Only one high
+        output can own PLLB; selecting another disables the old owner.
         """
         try:
             clk = int(clk)
@@ -378,17 +397,39 @@ class SI5351:
         if (not self.ok or clk not in (0, 1, 2) or
                 not MS_OUT_MIN <= hz <= MS_OUT_MAX):
             return False
-        correction = 1.0 - XTAL_PPM * 1e-6
-        if correction <= 0.0:
-            return False
-        div = PLL / (hz * correction)
-        if not MS_DIV_MIN <= div <= MS_DIV_MAX:
-            return False
-        a = int(div)
-        b = int((div - a) * _C)
-        self._burst(42 + 8 * clk, self._ms_params(a, b, _C))
-        # CLKx: powered up, MSx fractional, PLLA, 8 mA drive
-        self._w(16 + clk, 0x0F)
+        en = self.i2c.readfrom_mem(ADDR, 3, 1)[0]
+        self._w(3, en | (1 << clk))             # output off while re-planning
+
+        if hz <= 100_000_000:
+            correction = 1.0 - XTAL_PPM * 1e-6
+            if correction <= 0.0:
+                return False
+            div = PLL / (hz * correction)
+            if not MS_DIV_MIN <= div <= MS_DIV_MAX:
+                return False
+            a = int(div)
+            b = int((div - a) * _C)
+            self._burst(42 + 8 * clk, self._ms_params(a, b, _C))
+            self._w(16 + clk, 0x0F)             # fractional MS, PLLA, 8 mA
+            if self._pllb_clk == clk:
+                self._pllb_clk = None
+        else:
+            div = 6 if hz <= 150_000_000 else 4
+            pll_params = self._pllb_params(hz * div)
+            if pll_params is None:
+                return False
+            if self._pllb_clk is not None and self._pllb_clk != clk:
+                old_en = self.i2c.readfrom_mem(ADDR, 3, 1)[0]
+                self._w(3, old_en | (1 << self._pllb_clk))
+            self._burst(34, pll_params)          # PLLB feedback MultiSynth
+            ms = self._ms_params(div, 0, 1)
+            if div == 4:
+                ms[2] |= 0x0C                    # MSx_DIVBY4 = 11b
+            self._burst(42 + 8 * clk, ms)
+            self._w(16 + clk, 0x6F)             # integer MS, PLLB, 8 mA
+            self._w(177, 0x80)                   # reset PLLB only
+            self._pllb_clk = clk
+
         en = self.i2c.readfrom_mem(ADDR, 3, 1)[0]
         self._w(3, en & ~(1 << clk))           # enable output (active low)
         return True
@@ -397,6 +438,8 @@ class SI5351:
         if self.ok:
             en = self.i2c.readfrom_mem(ADDR, 3, 1)[0]
             self._w(3, en | (1 << clk))
+            if self._pllb_clk == clk:
+                self._pllb_clk = None
 
 
 # ======================================================================
@@ -863,7 +906,7 @@ class SdrUi:
         bp = _base(lv.obj(scr))
         bp.set_size(464, 26)
         _flex(bp, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.START, gap=5)
-        for b_name in ("80m", "40m", "20m", "15m", "10m", "2m", "70cm"):
+        for b_name in ("80m", "40m", "20m", "15m", "10m"):
             b = _btn(bp, 62, 26, BTN_IN, radius=4)
             b.set_flex_grow(1)
             _lbl(b, b_name, 12, WHITE)
@@ -946,18 +989,15 @@ BANDS = (   # name, label, lo Hz, hi Hz, entry-base Hz
     ("20m",  "20 Meter", 14_000_000,  14_350_000,  14_000_000),
     ("15m",  "15 Meter", 21_000_000,  21_450_000,  21_000_000),
     ("10m",  "10 Meter", 28_000_000,  29_700_000,  28_000_000),
-    ("2m",   "2 Meter",  144_000_000, 148_000_000, 144_000_000),
-    ("70cm", "70 cm",    430_000_000, 440_000_000, 430_000_000),
 )
 MODES = ("AM", "FM", "USB", "LSB", "CW")
-# RA6M3 backend demod names. FM is absent on purpose: the backend has no FM
-# demod yet, so FM stays a UI-only mode (button greyed while the backend runs).
-MODE_DEMOD = {"AM": "am", "USB": "usb", "LSB": "lsb", "CW": "cw"}
-MODE_BW = {"AM": 6000, "FM": 12000, "USB": 2400, "LSB": 2400, "CW": 500}
+# RA6M3 backend demod names.
+MODE_DEMOD = {"AM": "am", "FM": "fm", "USB": "usb", "LSB": "lsb", "CW": "cw"}
+MODE_BW = {"AM": 6000, "FM": 6000, "USB": 2400, "LSB": 2400, "CW": 500}
 # selectable IF bandwidths per mode (the P1 filter menu picks from these; P0
 # only stores and displays the per-mode default)
 BW_CHOICES = {"AM":  (3000, 4000, 6000, 9000),
-              "FM":  (12000,),
+              "FM":  (4000, 5000, 6000, 9000),
               "USB": (1800, 2100, 2400, 3000),
               "LSB": (1800, 2100, 2400, 3000),
               "CW":  (250, 500, 1000)}
@@ -1024,10 +1064,10 @@ def fmt_count(n):
 
 STEPS = ((1, "1 Hz"), (10, "10 Hz"), (100, "100 Hz"),
          (1000, "1 kHz"), (10000, "10 kHz"))
-F_MIN, F_MAX = 100_000, 470_000_000
+F_MIN, F_MAX = 100_000, 40_000_000
 
 DEFAULTS = {"f": 14_205_000, "m": "USB", "s": 1000, "v": 72, "a": "FAST"}
-DEF_VFOS = [[14_205_000, "USB"], [7_100_000, "LSB"], [144_300_000, "FM"]]
+DEF_VFOS = [[14_205_000, "USB"], [7_100_000, "LSB"], [30_000_000, "FM"]]
 # hardware targets a VFO can drive: (label, si5351 clk or None, multiplier).
 # x4 = quadrature (Tayloe) LO running at 4x the tuned frequency.
 # First five entries keep the indices of records saved by older builds.
@@ -1203,6 +1243,7 @@ IQ_PIN_I, IQ_PIN_Q = "P000", "P004"     # coherent I/Q pair
 IQ_RATE, IQ_BLOCK = 48000, 128
 NCO_RECENTER_HZ = 9000                    # leave 3 kHz headroom for held tuning
 AM_LOW_IF_HZ = 3000                       # keep a centred AM carrier out of the I/Q DC servo
+FM_LOW_IF_HZ = 6000                       # keep +/-4 kHz NFM clear of the I/Q DC servo
 DAC_PIN = "P014"                        # DAC0: mono AF or routed I
 DAC_Q_PIN = "P015"                      # DAC1: optional routed Q
 
@@ -1359,7 +1400,7 @@ class Ra6m3Backend:
 
     def set_mode(self, mode):
         self.mode = mode
-        # unknown mode (FM today) -> demod off rather than a wrong demodulator
+        # Unknown future modes fail closed to demod off.
         return self._call(self.iq, "demod", MODE_DEMOD.get(mode, "off"))
 
     def set_scope(self, stage):
@@ -1687,9 +1728,10 @@ class SdrApp:
         self._inj_ampl = 100
         self._inj_overload = False    # fail-closed; tap the S/O amplitude chip to arm OVR
         self._inj_on = False
+        self._inj_fm_nco = False      # TESTER FM temporarily owns the pre-NCO offset
         self._inj_point = 0          # 0=raw IN, 1=movable 24-kS/s MID, 2=post-filter OUT
         self._inj_mid = 1            # _INJ_MIDS index; default NCO preserves legacy MID
-        self._inj_mode = 0           # index into _INJ_PRESETS (AM/USB/LSB/CW/IQ)
+        self._inj_mode = 0           # index into _INJ_PRESETS (AM/FM/USB/LSB/CW/IQ)
         self._inj_wave = 0           # SIN/SQR/TRI/PULSE; PULSE also uses the 2-Hz gate
         self._inj_live = False       # deterministic C phase jitter for a live scope trace
         # TESTER never rewrites SCOPE: no route means normal mono demod audio;
@@ -1967,13 +2009,17 @@ class SdrApp:
     def _preferred_lo_hz(station_hz, mode):
         """Physical LO for one selected RF station.
 
-        A zero-IF AM carrier is indistinguishable from ADC DC to the mandatory
-        pre-demod I/Q servo.  Keep AM at a deliberate 3-kHz low IF, then let the
-        existing NCO translate it back to the selected station before demodulation.
+        A zero-IF carrier is indistinguishable from ADC DC to the mandatory
+        pre-demod I/Q servo. Keep AM at a deliberate 3-kHz low IF. NFM uses
+        6 kHz so +/-4-kHz deviation with a 1-kHz tone occupies about -11..-1
+        kHz before the NCO, clear of both DC and the 12-kHz Nyquist edge.
         """
         station_hz = min(max(int(station_hz), F_MIN), F_MAX)
-        offset = AM_LOW_IF_HZ if mode == "AM" else 0
-        return min(max(station_hz + offset, F_MIN), F_MAX)
+        offset = AM_LOW_IF_HZ if mode == "AM" else (FM_LOW_IF_HZ if mode == "FM" else 0)
+        # F_MAX limits the selected station, not the physical low-IF LO.  At the
+        # 40-MHz station ceiling the largest request is 40.006 MHz (CLK1 x4 =
+        # 160.024 MHz), still inside the Si5351 200-MHz output limit.
+        return station_hz + offset
 
     def _normal_lo_hz(self, station_hz=None, mode=None):
         if station_hz is None:
@@ -1983,8 +2029,16 @@ class SdrApp:
         return self._preferred_lo_hz(station_hz, mode)
 
     def _nco_recenter_due(self, station_hz, mode=None):
-        """True when live NCO navigation moved 9 kHz from its normal low-IF bias."""
-        return abs(self._lo_hz - self._normal_lo_hz(station_hz, mode)) >= NCO_RECENTER_HZ
+        """True when the real live NCO offset reaches the safe recenter edge.
+
+        AM normally starts at -3 kHz because its physical LO is station+3 kHz.
+        Comparing the old LO with the *next preferred LO* therefore made the two
+        edges asymmetric: +6 kHz in one direction and the -11,999 Hz clamp in the
+        other.  The edge belongs to the NCO itself, so compare station-LO directly;
+        ``mode`` remains in the signature for the existing VFO-switch callers.
+        """
+        limit = 7000 if mode == "FM" else NCO_RECENTER_HZ
+        return abs(int(station_hz) - int(self._lo_hz)) >= limit
 
     def _queue_station_recenter(self, hz, vfo=None, mode=None):
         """Queue an absolute live jump; do not change truthful UI state yet."""
@@ -2225,6 +2279,7 @@ class SdrApp:
         # exists.  Keep the VERIFY toggle truthful if RX is started again later,
         # and restore the route TESTER replaced before the next backend start.
         self._inj_on = False
+        self._inj_fm_nco = False
         self._inj_overload = False
         self._update_tuning_role()
         self._paint_tester()          # VERIFY may stay open across a queued PGA rebuild
@@ -2324,9 +2379,7 @@ class SdrApp:
 
     def update_mode(self):
         ui, m = self.ui, self.p["m"]
-        # FM has no RA6M3 demod yet: grey it out whenever the backend is live.
-        # A stored FM VFO still shows as selected -- just muted, not rewritten.
-        dead = "FM" if self.backend_on() else None
+        dead = None
         for name in MODES:
             b = ui.get("btn-" + name)
             on = name == m
@@ -2399,8 +2452,6 @@ class SdrApp:
         self.ui.get("btn-mode-view").add_flag(lv.obj.FLAG.HIDDEN)
 
     def set_mode(self, m):
-        if m == "FM" and self.backend_on():
-            return                      # no backend FM demod yet
         p = self.p
         p["m"] = m
         p["vfos"][p["act"]][1] = m   # active VFO state stays coherent before flash save
@@ -3114,11 +3165,23 @@ class SdrApp:
         if wanted == old:
             return False
 
+        # Do not briefly place a wide FM channel across the 12-kHz Nyquist edge.
+        # Coarse steps and the final FM edge step go straight to the deferred
+        # physical-LO recenter instead of first programming an unsafe NCO value.
+        if self._nco_recenter_due(wanted, self.p["m"]):
+            self._queue_station_recenter(wanted)
+            return True
+
         actual = self.be.set_fine(wanted - self._lo_hz)
         if actual is None:
             return False
         selected = min(max(self._lo_hz + actual, F_MIN), F_MAX)
         if selected == old:
+            # Recover even if an older run reached the native +/-11,999 Hz clamp
+            # before it managed to queue the physical-LO recenter.
+            if self._nco_recenter_due(selected):
+                self._queue_nco_recenter()
+                return True
             return False
 
         # Every achieved direct move supersedes any older frequency request.  This
@@ -3280,14 +3343,15 @@ class SdrApp:
     _DSP_BW_PRESETS = (0, 250, 500, 1000, 1800, 2100, 2400,
                        3000, 4000, 6000, 9000)
     # label, receiver mode (None keeps the current demod), firmware constant name,
-    # carrier Hz, modulation Hz, depth percent.  Resolve constants from the live IQADC
+    # carrier Hz, modulation Hz, depth percent, FM deviation Hz.  Resolve constants from the live IQADC
     # object rather than duplicating enum values in Python.  Current Hilbert signs require
     # negative complex rotation for USB and positive for LSB.
-    _INJ_PRESETS = (("AM", "AM", "INJECT_AM", 3000, 1000, 50),
-                    ("USB", "USB", "INJECT_USB", 1500, 0, 0),
-                    ("LSB", "LSB", "INJECT_LSB", 1500, 0, 0),
-                    ("CW", "CW", "INJECT_CW", 10, 10, 0),
-                    ("IQ", None, "INJECT_IQ", 1000, 0, 0))
+    _INJ_PRESETS = (("AM", "AM", "INJECT_AM", 3000, 1000, 50, 0),
+                    ("FM", "FM", "INJECT_FM", 6000, 1000, 0, 4000),
+                    ("USB", "USB", "INJECT_USB", 1500, 0, 0, 0),
+                    ("LSB", "LSB", "INJECT_LSB", 1500, 0, 0, 0),
+                    ("CW", "CW", "INJECT_CW", 10, 10, 0, 0),
+                    ("IQ", None, "INJECT_IQ", 1000, 0, 0, 0))
     # label, receiver mode, 48-kS/s IN asset, 24-kS/s MID/OUT asset.  The first
     # four entries are deterministic project-owned vectors.  R:* entries are
     # optional local conversions of real ZS-1 recordings and are never embedded
@@ -3318,7 +3382,7 @@ class SdrApp:
                  ("NCO", "INJECT_MID_NCO"),
                  ("CHF", "INJECT_MID_CHFILT"))
     _INJ_MID_DEFAULT = 1
-    _DEMOD_MODES = ("AM", "USB", "LSB", "CW", "THRU")
+    _DEMOD_MODES = ("AM", "FM", "USB", "LSB", "CW", "THRU")
     _TAP_STAGES = ("OFF", "decim", "nco", "chfilt")
     # The 11-block DSP chain: (id, name, complex?). Pre-demod blocks 1..5 are complex
     # (SCOPE routes I->DAC0 / Q->DAC1, label "->I/Q"); post-demod 6..11 are mono
@@ -3567,6 +3631,7 @@ class SdrApp:
                         ok = False
                 if not self._restore_tester_receiver():
                     ok = False
+                self._inj_fm_nco = False
                 return ok
             if iq is None:
                 self.be.err = "test source unavailable (RX off)"
@@ -3628,8 +3693,13 @@ class SdrApp:
             if not hasattr(iq, "INJECT_WAVE_TRIANGLE"):
                 self.be.err = "multi-wave IQ generator unavailable"
                 return False
-            name, receiver_mode, kind_attr, carrier, mod_hz, depth = \
+            name, receiver_mode, kind_attr, carrier, mod_hz, depth, deviation = \
                 self._INJ_PRESETS[self._inj_mode]
+            fm_test = name == "FM"
+            if self._inj_fm_nco and not fm_test:
+                if not self._restore_tester_receiver():
+                    return False
+                self._inj_fm_nco = False
             hard_max, safe_max, _peak, _gain = self._tester_levels()
             if self._inj_ampl > hard_max:
                 self._inj_ampl = hard_max
@@ -3639,6 +3709,17 @@ class SdrApp:
             _wave_name, wave_attr, gate_hz = self._INJ_WAVES[self._inj_wave]
             noise = 2 if self._inj_live else 0
             try:
+                if fm_test:
+                    if (getattr(iq, "INJECT_API_VERSION", 0) < 2 or
+                            not hasattr(iq, "INJECT_FM")):
+                        self.be.err = "FM generator needs INJECT_API_VERSION>=2"
+                        return False
+                    # FM is phase-only.  Before the NCO generate +6 kHz and
+                    # translate it exactly to zero; after the NCO inject directly
+                    # at zero.  This keeps +/-4-kHz deviation inside the 6-kHz CHF.
+                    wave_attr = "INJECT_WAVE_SINE"
+                    gate_hz = 0
+                    carrier = 6000 if self._tester_before_nco() else 0
                 kind = getattr(iq, kind_attr)
                 wave = getattr(iq, wave_attr)
                 if receiver_mode is not None and receiver_setup:
@@ -3648,9 +3729,29 @@ class SdrApp:
                             self.p["bw"].get(receiver_mode,
                                              MODE_BW[receiver_mode])):
                         return False
+                if fm_test and self._tester_before_nco():
+                    if not self._nco_enabled():
+                        self.be.err = "FM TEST needs NCO block ON"
+                        return False
+                    # Centre only when FM takes ownership.  Amplitude/LIVE edits
+                    # reapply the source tuple but must preserve an operator NCO
+                    # offset made with HOME's left/right tuning controls.
+                    if receiver_setup or not self._inj_fm_nco:
+                        self._tester_nco_set(carrier)
+                        actual = self.be.fine_hz
+                        if actual is None or int(actual) != carrier:
+                            self.be.err = "FM TEST NCO %r != %d" % (actual, carrier)
+                            return False
+                    self._inj_fm_nco = True
+                elif fm_test:
+                    self._inj_fm_nco = False
                 self._iq_file.stop()
-                fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
-                   gate_hz, noise, point, wave)
+                if fm_test:
+                    fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
+                       gate_hz, noise, point, wave, deviation)
+                else:
+                    fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
+                       gate_hz, noise, point, wave)
                 self.be.err = None
                 return True
             except Exception as e:
@@ -3683,6 +3784,8 @@ class SdrApp:
                 return
             self._inj_mode = (self._inj_mode + 1) % len(self._INJ_PRESETS)
             self._inj_overload = False
+            if self._INJ_PRESETS[self._inj_mode][0] == "FM":
+                self._inj_wave = 0           # FM carrier is phase-only, always SIN
             if self._INJ_PRESETS[self._inj_mode][0] == "AM" and self._inj_ampl > 1000:
                 self._inj_ampl = 1000
             inj_reapply(True)
@@ -3697,6 +3800,8 @@ class SdrApp:
 
         def inj_wave_cb(e):
             if self._inj_source:
+                return
+            if self._INJ_PRESETS[self._inj_mode][0] == "FM":
                 return
             self._inj_wave = (self._inj_wave + 1) % len(self._INJ_WAVES)
             inj_reapply(False)
@@ -4306,7 +4411,7 @@ class SdrApp:
 
     def _tester_levels(self):
         """Return hard max, safe max, current post-PGA peak and gain x1000."""
-        name, _receiver_mode, _kind, _carrier, _mod_hz, depth = \
+        name, _receiver_mode, _kind, _carrier, _mod_hz, depth, _deviation = \
             self._INJ_PRESETS[self._inj_mode]
         hard_max = 1000 if name == "AM" else 2000
         depth = depth if name == "AM" else 0
@@ -4354,6 +4459,8 @@ class SdrApp:
                 mode = self._INJ_PRESETS[self._inj_mode][0]
             if mode == "AM":
                 return "AM1k@FINAL"
+            if mode == "FM":
+                return "FM1k/D4k@FINAL"
             if mode == "USB" or mode == "LSB":
                 return "SSB1k5@FINAL"
             if mode == "CW":
@@ -4578,8 +4685,10 @@ class SdrApp:
             iwb.remove_flag(lv.obj.FLAG.CLICKABLE)
         else:
             ilb.add_flag(lv.obj.FLAG.CLICKABLE)
-            iml.set_text(self._INJ_PRESETS[self._inj_mode][0])
-            iwl.set_text(self._INJ_WAVES[self._inj_wave][0])
+            mode_name = self._INJ_PRESETS[self._inj_mode][0]
+            iml.set_text(mode_name)
+            iwl.set_text("SIN" if mode_name == "FM" else
+                         self._INJ_WAVES[self._inj_wave][0])
             ill.set_text("LIVE" if self._inj_live else "CLEAN")
             ill.set_style_text_color(
                 lv.color_hex(DARK_TXT if self._inj_live else CYAN_RX), 0)
@@ -4598,7 +4707,10 @@ class SdrApp:
             iupl.set_text("+")
             iup.remove_flag(lv.obj.FLAG.HIDDEN)
             imb.add_flag(lv.obj.FLAG.CLICKABLE)
-            iwb.add_flag(lv.obj.FLAG.CLICKABLE)
+            if mode_name == "FM":
+                iwb.remove_flag(lv.obj.FLAG.CLICKABLE)
+            else:
+                iwb.add_flag(lv.obj.FLAG.CLICKABLE)
 
         itgl.set_text("ON" if self._inj_on else "OFF")
         itgl.set_style_text_color(
@@ -4611,6 +4723,7 @@ class SdrApp:
         """Fail closed, then restore the receiver settings used before FILE."""
         self._iq_file.stop()
         self._inj_on = False
+        self._inj_fm_nco = False    # TESTER FM temporarily owns the pre-NCO offset
         receiver_restored = self._restore_tester_receiver()
         restored = self._restore_tester_scope()
         if not receiver_restored:

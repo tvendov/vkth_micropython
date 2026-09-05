@@ -1114,26 +1114,32 @@ static bool lcd_spectrum_state_from_frame(const float *magnitudes, uint32_t fft_
     return true;
 }
 
-/* Draw the receiver tuning centre independently of signal energy.  The previous
- * cyan "marker" was only the centre spectrum bar, so with no transmission its
- * minimum 1-2 px height made it effectively disappear.  The exact centre is the
- * one-pixel cyan core; white shoulders plus a black outline keep it visible over
- * a dark spectrum, white redraw, or any waterfall heat-map colour. */
+/* Draw the receiver tuning centre independently of signal energy.  A full-height
+ * five-pixel stripe used to overwrite the complete Hann main lobe of a carrier
+ * tuned to the centre: AM sidebands were visible, but the unmodulated carrier was
+ * not.  Keep only a three-row downward pointer at the top.  Its black/white/cyan
+ * layers remain visible on every background while the spectrum below stays intact. */
 static void lcd_tune_cursor_draw_fb(uint16_t *fb, uint32_t stride,
     const lv_area_t *plot) {
-    int32_t x1 = plot->x1 + (int32_t)(LCD_WATERFALL_PIXELS / 2U) -
-        (int32_t)(LCD_TUNE_CURSOR_PX / 2U);
+    int32_t center_x = plot->x1 + (int32_t)(LCD_WATERFALL_PIXELS / 2U);
     uint16_t black = lv_color_to_u16(lv_color_make(0U, 0U, 0U));
     uint16_t white = lv_color_to_u16(lv_color_make(255U, 255U, 255U));
     uint16_t core = lv_color_to_u16(s_lcd_spectrum_center);
-    for (int32_t y = plot->y1; y <= plot->y2; ++y) {
-        uint16_t *dst = fb + (uint32_t)y * stride + (uint32_t)x1;
-        dst[0] = black;
-        dst[1] = white;
-        dst[2] = core;
-        dst[3] = white;
-        dst[4] = black;
+    if (plot->y2 < (plot->y1 + 2)) {
+        return;
     }
+    uint16_t *row0 = fb + (uint32_t)plot->y1 * stride + (uint32_t)(center_x - 2);
+    row0[0] = black;
+    row0[1] = black;
+    row0[2] = black;
+    row0[3] = black;
+    row0[4] = black;
+    uint16_t *row1 = fb + (uint32_t)(plot->y1 + 1) * stride +
+        (uint32_t)(center_x - 1);
+    row1[0] = white;
+    row1[1] = white;
+    row1[2] = white;
+    fb[(uint32_t)(plot->y1 + 2) * stride + (uint32_t)center_x] = core;
 }
 
 /* The WF view is combined, not waterfall-only.  Reduce the current FFT to the
@@ -1985,25 +1991,30 @@ static void lcd_lv_spectrum_event_cb(lv_event_t *e) {
         rect.bg_color = s_lcd_spectrum_bar;
         lv_draw_rect(layer, &rect, &column);
     }
+    int32_t cursor_x = plot_area.x1 + (int32_t)(LCD_WATERFALL_PIXELS / 2U);
     lv_area_t cursor_area = {
-        .x1 = plot_area.x1 + (int32_t)(LCD_WATERFALL_PIXELS / 2U) -
-            (int32_t)(LCD_TUNE_CURSOR_PX / 2U),
+        .x1 = cursor_x - (int32_t)(LCD_TUNE_CURSOR_PX / 2U),
+        .x2 = cursor_x + (int32_t)(LCD_TUNE_CURSOR_PX / 2U),
         .y1 = plot_area.y1,
-        .y2 = plot_area.y2,
+        .y2 = plot_area.y1 + 2,
     };
-    cursor_area.x2 = cursor_area.x1 + (int32_t)LCD_TUNE_CURSOR_PX - 1;
     if (!((cursor_area.x2 < layer->_clip_area.x1) ||
           (cursor_area.x1 > layer->_clip_area.x2) ||
           (cursor_area.y2 < layer->_clip_area.y1) ||
           (cursor_area.y1 > layer->_clip_area.y2))) {
+        cursor_area.y2 = cursor_area.y1;
         rect.bg_color = lv_color_make(0U, 0U, 0U);
         lv_draw_rect(layer, &rect, &cursor_area);
         cursor_area.x1++;
         cursor_area.x2--;
+        cursor_area.y1++;
+        cursor_area.y2++;
         rect.bg_color = lv_color_make(255U, 255U, 255U);
         lv_draw_rect(layer, &rect, &cursor_area);
         cursor_area.x1++;
         cursor_area.x2--;
+        cursor_area.y1++;
+        cursor_area.y2++;
         rect.bg_color = s_lcd_spectrum_center;
         lv_draw_rect(layer, &rect, &cursor_area);
     }

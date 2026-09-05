@@ -682,6 +682,10 @@ DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/ComplexMathFunctions/arm_cmplx_mag_f32.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/BasicMathFunctions/arm_mult_f32.c
 # arm_cos_f32: Hann window generation for the ra_iq_adc spectrum path (control plane)
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FastMathFunctions/arm_cos_f32.c
+# NFM polar discriminator: fixed-point phase difference in the realtime DSP path.
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/BasicMathFunctions/arm_abs_q31.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FastMathFunctions/arm_divide_q31.c
+DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/FastMathFunctions/arm_atan2_q31.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/CommonTables/arm_common_tables.c
 DSP_SRC_C += $(CMSIS_DSP_PATH)/Source/CommonTables/arm_const_structs.c
 SRC_C += $(DSP_SRC_C)

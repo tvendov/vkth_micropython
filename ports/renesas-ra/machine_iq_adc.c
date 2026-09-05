@@ -532,7 +532,7 @@ static mp_obj_t machine_iqadc_timing(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_timing_obj, machine_iqadc_timing);
 
 /* demod(mode) -> None.  Selects the demodulator that fills the audio ring: "am",
- * "usb", "lsb", "cw" or "off".  Control-plane only; the per-sample demod work runs in the ADC block
+ * "fm", "usb", "lsb", "cw" or "off".  Control-plane only; the per-sample demod work runs in the ADC block
  * callback with no CPU per sample and no Python.  The DAC is decoupled: play the
  * stream with DAC.stream(iqadc). */
 static mp_obj_t machine_iqadc_demod(mp_obj_t self_in, mp_obj_t mode_in) {
@@ -543,6 +543,8 @@ static mp_obj_t machine_iqadc_demod(mp_obj_t self_in, mp_obj_t mode_in) {
     uint8_t m;
     if (mode == MP_QSTR_am) {
         m = (uint8_t)RA_IQ_DEMOD_AM;
+    } else if (mode == MP_QSTR_fm) {
+        m = (uint8_t)RA_IQ_DEMOD_FM;
     } else if (mode == MP_QSTR_usb) {
         m = (uint8_t)RA_IQ_DEMOD_USB;
     } else if (mode == MP_QSTR_lsb) {
@@ -942,7 +944,7 @@ static mp_obj_t machine_iqadc_tap(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tap_obj, 2, 3, machine_iqadc_tap);
 
 /* inject(enable[, freq, ampl, kind, mod_hz, depth_pct, gate_hz, phase_noise,
- *        point, wave]) -> None.
+ *        point, wave, deviation_hz]) -> None.
  * The first four arguments retain the legacy complex-tone API exactly.  Optional fields
  * select the persistent AM/USB/LSB/CW test sequences, a 50-percent pulse gate, small
  * deterministic phase jitter, a real complex insertion boundary, and waveform. */
@@ -959,10 +961,11 @@ static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
     mp_int_t noise_arg = (n_args >= 9) ? mp_obj_get_int(args[8]) : 0;
     mp_int_t point_arg = (n_args >= 10) ? mp_obj_get_int(args[9]) : RA_IQ_INJECT_POINT_IN;
     mp_int_t wave_arg = (n_args >= 11) ? mp_obj_get_int(args[10]) : RA_IQ_INJECT_WAVE_SINE;
-    if (freq_arg < 0 || mod_arg < 0 || gate_arg < 0) {
+    mp_int_t deviation_arg = (n_args >= 12) ? mp_obj_get_int(args[11]) : 0;
+    if (freq_arg < 0 || mod_arg < 0 || gate_arg < 0 || deviation_arg < 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("frequencies must be >= 0"));
     }
-    if (kind_arg < RA_IQ_INJECT_IQ || kind_arg > RA_IQ_INJECT_CW) {
+    if (kind_arg < RA_IQ_INJECT_IQ || kind_arg > RA_IQ_INJECT_FM) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid inject kind"));
     }
     if (depth_arg < 0 || depth_arg > 100) {
@@ -978,12 +981,12 @@ static mp_obj_t machine_iqadc_inject(size_t n_args, const mp_obj_t *args) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid inject wave"));
     }
     uint16_t depth_q15 = (uint16_t)(((uint32_t)depth_arg * 32768U + 50U) / 100U);
-    ra_iq_adc_set_inject(en, (uint8_t)kind_arg, (uint32_t)freq_arg,
+    ra_iq_adc_set_inject_ex(en, (uint8_t)kind_arg, (uint32_t)freq_arg,
         (uint32_t)mod_arg, ampl, depth_q15, (uint32_t)gate_arg, (uint8_t)noise_arg,
-        (uint8_t)point_arg, (uint8_t)wave_arg);
+        (uint8_t)point_arg, (uint8_t)wave_arg, (uint32_t)deviation_arg);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 11, machine_iqadc_inject);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_inject_obj, 2, 12, machine_iqadc_inject);
 
 /* inject_mid([stage]) -> int.  Select the internal block input used when the
  * coarse injection point is MID: IQCORR(3), NCO(4, reset default), or CHFILT(5).
@@ -1295,6 +1298,8 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_INJECT_USB),   MP_ROM_INT(RA_IQ_INJECT_USB) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_LSB),   MP_ROM_INT(RA_IQ_INJECT_LSB) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_CW),    MP_ROM_INT(RA_IQ_INJECT_CW) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_FM),    MP_ROM_INT(RA_IQ_INJECT_FM) },
+    { MP_ROM_QSTR(MP_QSTR_INJECT_API_VERSION), MP_ROM_INT(2) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_POINT_IN),  MP_ROM_INT(RA_IQ_INJECT_POINT_IN) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_POINT_MID), MP_ROM_INT(RA_IQ_INJECT_POINT_MID) },
     { MP_ROM_QSTR(MP_QSTR_INJECT_POINT_OUT), MP_ROM_INT(RA_IQ_INJECT_POINT_OUT) },

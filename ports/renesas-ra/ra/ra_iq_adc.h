@@ -188,15 +188,17 @@ bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
 void ra_iq_adc_set_tap(uint8_t stage);
 uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs);
 
-/* Bench injection modes.  IQ/CW/LSB use positive analytic rotation; USB uses the
- * opposite Q sign required by the current phasing demodulator.  AM applies the
- * selected modulation waveform to a sinusoidal analytic carrier. */
+/* Bench injection modes.  IQ/CW/LSB/FM use positive analytic rotation; USB uses
+ * the opposite Q sign required by the current phasing demodulator.  AM applies
+ * the selected modulation waveform to a sinusoidal analytic carrier; FM varies
+ * the analytic carrier's instantaneous phase while preserving its envelope. */
 typedef enum {
     RA_IQ_INJECT_IQ = 0,
     RA_IQ_INJECT_AM = 1,
     RA_IQ_INJECT_USB = 2,
     RA_IQ_INJECT_LSB = 3,
     RA_IQ_INJECT_CW = 4,
+    RA_IQ_INJECT_FM = 5,
 } ra_iq_inject_kind_t;
 
 /* Real complex insertion boundaries.  OUT intentionally means the last complex
@@ -237,6 +239,13 @@ typedef enum {
 void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
     uint8_t phase_noise, uint8_t point, uint8_t wave);
+
+/* Extended block-atomic source tuple.  deviation_hz is used only by FM and is
+ * the peak instantaneous-frequency excursion around freq_hz.  The legacy entry
+ * point above remains source-compatible and supplies zero deviation. */
+void ra_iq_adc_set_inject_ex(uint8_t enable, uint8_t kind, uint32_t freq_hz,
+    uint32_t mod_hz, int32_t ampl, uint16_t depth_q15, uint32_t gate_hz,
+    uint8_t phase_noise, uint8_t point, uint8_t wave, uint32_t deviation_hz);
 
 /* Select/query the internal MID boundary.  The request joins the existing
  * injection seqlock and becomes active only at a DSP block boundary. */
@@ -291,8 +300,8 @@ void ra_iq_adc_set_block(uint8_t block, uint8_t enable);
 uint8_t ra_iq_adc_get_block(uint8_t block);
 
 /* Phase-4 demodulation.  The decimated I/Q from the phase-3 DSP is run through the
- * selected demod (currently AM: envelope-detected alpha-max-beta-min, DC-blocked to
- * center at mid-scale) and pushed into a single-producer/single-consumer lock-free
+ * selected demod (AM envelope, SSB phasing, CW BFO or FM phase discriminator) and
+ * pushed into a single-producer/single-consumer lock-free
  * ring of DAC codes.  The producer is the ADC0_SCAN_END block callback; the consumer
  * is any DAC DMAC ping-pong fill callback that calls ra_iq_adc_audio_pull().  The
  * demodulator does NOT own the DAC: it only produces a generic audio stream.  The
@@ -304,6 +313,7 @@ typedef enum {
     RA_IQ_DEMOD_LSB = 3,    /* lower sideband, phasing method: I_delayed + H(Q) */
     RA_IQ_DEMOD_CW = 4,     /* CW: mix baseband up to a fixed 700 Hz beat, real part */
     RA_IQ_DEMOD_PASS = 5,   /* verification passthrough: channel-filtered I straight to audio */
+    RA_IQ_DEMOD_FM = 6,     /* narrow FM: phase difference of successive complex samples */
 } ra_iq_demod_mode_t;
 
 typedef struct {
@@ -312,7 +322,8 @@ typedef struct {
     uint8_t demod_mode;         /* current ra_iq_demod_mode_t                     */
 } ra_iq_audio_status_t;
 
-/* Select the demod mode.  0 = OFF, 1 = AM, 2 = USB, 3 = LSB, 4 = CW; any other
+/* Select the demod mode.  0 = OFF, 1 = AM, 2 = USB, 3 = LSB, 4 = CW, 5 = PASS,
+ * 6 = FM; any other
  * value clamps to OFF.  On a (re)selection the producer DSP state (DC blocker,
  * SSB Hilbert histories, CW NCO phase) and audio counters are reset so the
  * producer starts clean; the audio ring is NOT flushed so a mode switch does not
