@@ -55,6 +55,7 @@ typedef struct _machine_iqadc_obj_t {
     uint16_t      block;
     volatile uint8_t file_refill_pending;
     volatile uint8_t file_refill_scheduled;
+    volatile uint8_t file_refill_next;
     volatile uint32_t file_epoch;
     volatile uint32_t file_scheduled_epoch;
     volatile uint32_t file_sched_fail;
@@ -92,6 +93,7 @@ static void machine_iqadc_file_invalidate(machine_iqadc_obj_t *self) {
     self->file_scheduled_epoch = epoch;
     self->file_refill_pending = 0U;
     self->file_refill_scheduled = 0U;
+    self->file_refill_next = 0U;
     MICROPY_END_ATOMIC_SECTION(atomic);
 }
 
@@ -103,74 +105,96 @@ static void machine_iqadc_file_clear(machine_iqadc_obj_t *self) {
     MP_STATE_PORT(machine_iqadc_file_roots)[MACHINE_IQADC_FILE_ROOT_BUF1] = MP_OBJ_NULL;
 }
 
-/* Deferred refill trampoline.  One fixed scheduler item drains a coalesced FREE
- * bitmask and calls Python once per still-FREE index.  Epoch checks make queued
- * work harmless after file_free(), deinit(), or re-attach. */
+static mp_obj_t machine_iqadc_file_refill_trampoline(mp_obj_t epoch_in);
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_file_refill_trampoline_obj,
+    machine_iqadc_file_refill_trampoline);
+
+/* Deferred refill trampoline.  Each scheduler turn services at most one FREE
+ * buffer, then requeues any remaining work at the tail of the VM queue.  This
+ * gives LVGL/touch callbacks a scheduling boundary even when flash reads take
+ * longer than one ADC buffer period.  Epoch checks make queued work harmless
+ * after file_free(), deinit(), or re-attach. */
 static mp_obj_t machine_iqadc_file_refill_trampoline(mp_obj_t epoch_in) {
     machine_iqadc_obj_t *self = &machine_iqadc_obj;
     uint32_t epoch = (uint32_t)mp_obj_get_int(epoch_in);
 
-    for (;;) {
-        mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
-        if (!self->file_refill_scheduled ||
-            (self->file_scheduled_epoch != epoch) ||
-            (self->file_epoch != epoch)) {
-            MICROPY_END_ATOMIC_SECTION(atomic);
-            return mp_const_none;
-        }
-        uint8_t mask = self->file_refill_pending;
-        self->file_refill_pending = 0U;
+    mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+    if (!self->file_refill_scheduled ||
+        (self->file_scheduled_epoch != epoch) ||
+        (self->file_epoch != epoch)) {
         MICROPY_END_ATOMIC_SECTION(atomic);
+        return mp_const_none;
+    }
+    uint8_t pending = (uint8_t)(self->file_refill_pending & 3U);
+    if (pending == 0U) {
+        self->file_refill_scheduled = 0U;
+        MICROPY_END_ATOMIC_SECTION(atomic);
+        return mp_const_none;
+    }
+    uint8_t index = (uint8_t)(self->file_refill_next & 1U);
+    if ((pending & (uint8_t)(1U << index)) == 0U) {
+        index ^= 1U;
+    }
+    self->file_refill_pending &= (uint8_t)~(1U << index);
+    self->file_refill_next = (uint8_t)(index ^ 1U);
+    MICROPY_END_ATOMIC_SECTION(atomic);
 
-        mp_obj_t callback = MP_STATE_PORT(machine_iqadc_file_roots)
-            [MACHINE_IQADC_FILE_ROOT_CALLBACK];
-        for (uint8_t index = 0U; index < 2U; ++index) {
-            if ((mask & (uint8_t)(1U << index)) == 0U) {
-                continue;
-            }
-            ra_iq_file_status_t status;
-            ra_iq_adc_file_get_status(&status);
-            if (!status.attached ||
-                (status.state[index] != (uint8_t)RA_IQ_FILE_FREE) ||
-                (callback == MP_OBJ_NULL) || (callback == mp_const_none)) {
-                continue;
-            }
-            nlr_buf_t nlr;
-            if (nlr_push(&nlr) == 0) {
-                mp_call_function_1(callback, MP_OBJ_NEW_SMALL_INT(index));
-                nlr_pop();
-            } else {
-                /* A refill failure must not become an endless scheduled
-                 * exception storm.  Stop FILE, retain the buffers for status /
-                 * explicit free, and withdraw only the failing callback. */
-                mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val));
-                ra_iq_adc_file_stop();
-                MP_STATE_PORT(machine_iqadc_file_roots)
-                    [MACHINE_IQADC_FILE_ROOT_CALLBACK] = mp_const_none;
-                machine_iqadc_file_invalidate(self);
-                return mp_const_none;
-            }
-            if (self->file_epoch != epoch) {
-                return mp_const_none;
-            }
+    mp_obj_t callback = MP_STATE_PORT(machine_iqadc_file_roots)
+        [MACHINE_IQADC_FILE_ROOT_CALLBACK];
+    ra_iq_file_status_t status;
+    ra_iq_adc_file_get_status(&status);
+    if (status.attached &&
+        (status.state[index] == (uint8_t)RA_IQ_FILE_FREE) &&
+        (callback != MP_OBJ_NULL) && (callback != mp_const_none)) {
+        nlr_buf_t nlr;
+        if (nlr_push(&nlr) == 0) {
+            mp_call_function_1(callback, MP_OBJ_NEW_SMALL_INT(index));
+            nlr_pop();
+        } else {
+            /* A refill failure must not become an endless scheduled exception
+             * storm.  Keep FILE as a fail-closed zero-I/Q owner until Python
+             * observes the error and explicitly stops/frees it; otherwise HOME
+             * could still display TST after real ADC had resumed. */
+            mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val));
+            ra_iq_adc_file_hold();
+            MP_STATE_PORT(machine_iqadc_file_roots)
+                [MACHINE_IQADC_FILE_ROOT_CALLBACK] = mp_const_none;
+            machine_iqadc_file_invalidate(self);
+            return mp_const_none;
         }
+    }
 
+    atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+    if ((self->file_epoch != epoch) ||
+        (self->file_scheduled_epoch != epoch)) {
+        MICROPY_END_ATOMIC_SECTION(atomic);
+        return mp_const_none;
+    }
+    if ((self->file_refill_pending & 3U) == 0U) {
+        self->file_refill_scheduled = 0U;
+        MICROPY_END_ATOMIC_SECTION(atomic);
+        return mp_const_none;
+    }
+    MICROPY_END_ATOMIC_SECTION(atomic);
+
+    /* Do not drain more work inline: queue one successor and return so touch,
+     * timers, and rendering already waiting in the VM queue can run first. */
+    if (!mp_sched_schedule(
+        MP_OBJ_FROM_PTR(&machine_iqadc_file_refill_trampoline_obj),
+        MP_OBJ_NEW_SMALL_INT((mp_int_t)epoch))) {
         atomic = MICROPY_BEGIN_ATOMIC_SECTION();
-        if ((self->file_epoch != epoch) ||
-            (self->file_scheduled_epoch != epoch)) {
-            MICROPY_END_ATOMIC_SECTION(atomic);
-            return mp_const_none;
-        }
-        if (self->file_refill_pending == 0U) {
+        if (self->file_refill_scheduled &&
+            (self->file_scheduled_epoch == epoch) &&
+            (self->file_epoch == epoch)) {
             self->file_refill_scheduled = 0U;
-            MICROPY_END_ATOMIC_SECTION(atomic);
-            return mp_const_none;
+            if (self->file_sched_fail != UINT32_MAX) {
+                ++self->file_sched_fail;
+            }
         }
         MICROPY_END_ATOMIC_SECTION(atomic);
     }
+    return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_file_refill_trampoline_obj,
-    machine_iqadc_file_refill_trampoline);
 
 /* Low-level hook: callable from the hard ADC block ISR.  It only ORs a two-bit
  * mask and schedules the fixed trampoline; no Python executes here. */
@@ -1075,6 +1099,19 @@ static MP_DEFINE_CONST_FUN_OBJ_3(machine_iqadc_file_commit_obj,
 static mp_obj_t machine_iqadc_file_start(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    ra_iq_file_status_t status;
+    ra_iq_adc_file_get_status(&status);
+    if (status.attached && !status.requested_on && !status.active_on &&
+        (status.state[0] == (uint8_t)RA_IQ_FILE_READY) &&
+        (status.state[1] == (uint8_t)RA_IQ_FILE_READY)) {
+        /* Python has synchronously recovered the attach-time prefill.  Discard
+         * only stale attach notifications/failures before FILE can consume a
+         * buffer; runtime scheduler failures remain latched and fail closed. */
+        mp_uint_t atomic = MICROPY_BEGIN_ATOMIC_SECTION();
+        self->file_refill_pending = 0U;
+        self->file_sched_fail = 0U;
+        MICROPY_END_ATOMIC_SECTION(atomic);
+    }
     if (!ra_iq_adc_file_start()) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("file not attached"));
     }

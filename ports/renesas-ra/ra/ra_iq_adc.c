@@ -766,9 +766,8 @@ static const int16_t s_hil_taps_rev[RA_IQ_HIL_TAPS] = {
 /* CMSIS wins this stage on hardware (~15% faster: 50021 vs 59224 cyc/block, dense
  * 32-tap SIMD FIR beats the hand modulo-31 loop), so it is the default here; the hand
  * loop stays reachable via iq.hil_kernel(False) as the fallback.  The two paths are
- * numerically identical (same taps, same 15-sample delay), so this does not change the
- * SSB output vs the hand path -- the absolute sideband sign is the same operator-
- * swappable convention as before. */
+ * numerically identical (same taps, same 15-sample delay), including the established
+ * RF sideband convention used by the SSB combiner below. */
 static uint8_t s_hil_use_cmsis = 1U;    /* 1 = CMSIS arm_fir_q15 (default), 0 = hand loop */
 static arm_fir_instance_q15 s_hil_cmsis;
 static q15_t s_hil_state[RA_IQ_HIL_TAPS + (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U)];
@@ -908,13 +907,31 @@ static volatile uint16_t s_spec_wr;         /* producer-owned fill index        
 static volatile uint8_t s_spec_half;        /* producer-owned active half         */
 static volatile int8_t s_spec_ready = -1;   /* completed half, -1 = none          */
 static volatile uint8_t s_spec_enable;      /* gate: accumulate only when in use  */
+/* A confirmed physical-LO retune advances requested_generation from the control
+ * plane.  The producer adopts it only at a completed ADC block boundary, discards
+ * any partial 512-sample FFT, and skips that first block because its DMA capture may
+ * have straddled the retune.  Every published half is stamped so the foreground can
+ * reject stale data without allocating or doing any non-integer ISR work. */
+static volatile uint32_t s_spec_generation_requested;
+static uint32_t s_spec_generation_active;       /* producer-owned                  */
+static volatile uint32_t s_spec_generation[2];  /* metadata for completed halves   */
+static uint32_t s_spec_snapshot_generation;     /* stable foreground claim         */
+/* TEST source ownership/boundary has its own epoch.  It is deliberately separate
+ * from the physical-LO generation above: machine_lcd's publish transaction owns the
+ * latter, while this epoch only prevents old ADC/GEN/FILE display state from leaking
+ * across a block-atomic source handoff. */
+static volatile uint32_t s_source_epoch = 1U;
+static volatile uint32_t s_spec_source_epoch[2];
+static uint32_t s_spec_snapshot_source_epoch;
+static uint32_t s_spec_foreground_source_epoch;
 /* Per-half capture-domain metadata.  TEST frames are captured after the NCO/channel
  * filter and must not be shifted a second time by the foreground reducer. */
 static volatile uint8_t s_spec_post_nco[2];
 static uint8_t s_spec_snapshot_post_nco;
 
 /* The spectrum panorama and I/Q constellation have different truth boundaries:
- * the panorama is normally pre-NCO so tuning moves signals horizontally, while the
+ * the panorama is normally pre-NCO so NCO tuning leaves its physical RF columns
+ * fixed and moves only display marker metadata, while the
  * constellation must show the final complex block that stage-5 routes to DAC0/DAC1.
  * Keep one latest post-CHF block plus a foreground snapshot instead of silently
  * reusing the spectrum frame.  The renderer needs exactly 64 points, so a tiny
@@ -928,6 +945,8 @@ static volatile uint16_t s_const_wr;
 static volatile uint8_t s_const_half;
 static volatile int8_t s_const_ready = -1;
 static volatile uint8_t s_const_enable;
+static volatile uint32_t s_const_source_epoch[2];
+static uint32_t s_const_snapshot_source_epoch;
 static uint16_t s_const_snapshot_n;
 static uint8_t s_const_snapshot_valid;
 
@@ -1001,6 +1020,8 @@ static inline void ra_iq_spec_capture(uint16_t m, uint8_t post_nco) {
         if (++wr == RA_IQ_SPEC_N) {
             /* Metadata belongs to this exact completed sample half. */
             s_spec_post_nco[h] = post_nco ? 1U : 0U;
+            s_spec_generation[h] = s_spec_generation_active;
+            s_spec_source_epoch[h] = s_source_epoch;
             __DMB();
             s_spec_ready = (int8_t)h;
             h ^= 1U;
@@ -1032,6 +1053,7 @@ static inline void ra_iq_constellation_capture(uint16_t m) {
         s_const_i[h][wr] = s_i_dc[j];
         s_const_q[h][wr] = s_q_dc[j];
         if (++wr == RA_IQ_CONST_N) {
+            s_const_source_epoch[h] = s_source_epoch;
             __DMB();
             s_const_ready = (int8_t)h;
             h ^= 1U;
@@ -1067,8 +1089,9 @@ static inline void ra_iq_scope_capture_iq(uint8_t blk, uint16_t m) {
 /* Bench signal injection: one block-atomic synthetic complex source can replace the
  * stream at raw IN, a selectable signed/decimated MID block input, or filtered complex
  * OUT.  IN emulates a pre-PGA amplitude by applying the configured hardware gain;
- * MID/OUT use centred int16 counts.  Control-plane publishes the complete point + MID
- * selector configuration; the ISR generates only at the chosen boundary. */
+ * MID/OUT use centred int16 counts and skip every earlier ADC-dependent DSP stage.
+ * Control-plane publishes the complete point + MID selector configuration; the ISR
+ * generates only at the chosen boundary while ADC/DTC/AGT retain the cadence. */
 static volatile uint8_t s_inject_enable;
 static volatile uint8_t s_inject_requested_enable;
 static volatile uint8_t s_inject_kind;
@@ -1237,7 +1260,7 @@ static inline void ra_iq_inject_run_end(const ra_iq_inject_run_t *r) {
 /* Generate one normalised complex carrier plus an amplitude/key gain.  Keeping the
  * gain separate preserves the legacy fixed-point order: the insertion amplitude is
  * scaled first, then multiplied by the carrier.  IQ/USB/LSB use the full analytic
- * waveform; the USB Q sign is deliberately applied by the fill routine only after
+ * waveform; the LSB Q sign is deliberately applied by the fill routine only after
  * that carrier multiply.  CW SINE/SQUARE/TRIANGLE use an unipolar key envelope at
  * mod_hz; CW PULSE uses the independent outer gate. */
 static inline void ra_iq_inject_next_q15(ra_iq_inject_run_t *r,
@@ -1312,7 +1335,7 @@ static void ra_iq_inject_fill_raw(uint8_t half, uint16_t n) {
         (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
     ra_iq_inject_run_t run;
     ra_iq_inject_run_begin(&run);
-    bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_USB;
+    bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_LSB;
     for (uint16_t k = 0U; k < n; ++k) {
         int32_t wi;
         int32_t wq;
@@ -1334,7 +1357,7 @@ static void ra_iq_inject_fill_complex(uint16_t n) {
     int32_t a = s_inject_ampl;
     ra_iq_inject_run_t run;
     ra_iq_inject_run_begin(&run);
-    bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_USB;
+    bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_LSB;
     for (uint16_t k = 0U; k < n; ++k) {
         int32_t wi;
         int32_t wq;
@@ -1371,6 +1394,7 @@ typedef struct {
     volatile uint8_t attached;
     volatile uint8_t requested_on;
     volatile uint8_t active_on;
+    volatile uint8_t terminal_hold;
     volatile uint8_t point;
     volatile int8_t active_index;
     ra_iq_file_refill_hook_t refill_hook;
@@ -1378,6 +1402,49 @@ typedef struct {
 } ra_iq_file_source_t;
 
 static ra_iq_file_source_t s_file;
+
+/* Source-aware DSP entry.  ADC/DTC/AGT always remain the sample/block cadence, but
+ * a TEST owner enters the software pipeline only at its selected boundary.  The
+ * owner bits make GEN<->FILE and TEST<->ADC real path transitions even when their
+ * insertion point is otherwise identical. */
+#define RA_IQ_SOURCE_OWNER_ADC  (0x00U)
+#define RA_IQ_SOURCE_OWNER_GEN  (0x10U)
+#define RA_IQ_SOURCE_OWNER_FILE (0x20U)
+#define RA_IQ_SOURCE_ENTRY_RAW     (0U)
+#define RA_IQ_SOURCE_ENTRY_IQCORR  (1U)
+#define RA_IQ_SOURCE_ENTRY_NCO     (2U)
+#define RA_IQ_SOURCE_ENTRY_CHFILT  (3U)
+#define RA_IQ_SOURCE_ENTRY_OUT     (4U)
+#define RA_IQ_SOURCE_ENTRY_MASK    (0x0fU)
+static uint8_t s_source_path_last;
+
+static inline uint8_t ra_iq_source_entry(uint8_t point, uint8_t mid_stage) {
+    if (point == (uint8_t)RA_IQ_INJECT_POINT_IN) {
+        return RA_IQ_SOURCE_ENTRY_RAW;
+    }
+    if (point == (uint8_t)RA_IQ_INJECT_POINT_OUT) {
+        return RA_IQ_SOURCE_ENTRY_OUT;
+    }
+    if (mid_stage == (uint8_t)RA_IQ_INJECT_MID_IQCORR) {
+        return RA_IQ_SOURCE_ENTRY_IQCORR;
+    }
+    if (mid_stage == (uint8_t)RA_IQ_INJECT_MID_CHFILT) {
+        return RA_IQ_SOURCE_ENTRY_CHFILT;
+    }
+    return RA_IQ_SOURCE_ENTRY_NCO;
+}
+
+static inline uint8_t ra_iq_active_source_path(void) {
+    if (s_file.active_on) {
+        return (uint8_t)(RA_IQ_SOURCE_OWNER_FILE |
+            ra_iq_source_entry(s_file.point, s_inject_mid_stage));
+    }
+    if (s_inject_enable) {
+        return (uint8_t)(RA_IQ_SOURCE_OWNER_GEN |
+            ra_iq_source_entry(s_inject_point, s_inject_mid_stage));
+    }
+    return (uint8_t)(RA_IQ_SOURCE_OWNER_ADC | RA_IQ_SOURCE_ENTRY_RAW);
+}
 
 static inline uint8_t ra_iq_file_free_mask(void) {
     uint8_t mask = 0U;
@@ -1461,7 +1528,9 @@ static inline uint16_t ra_iq_file_s16_to_adc(int16_t sample,
 
 static void ra_iq_file_finish_eof(void) {
     s_file.requested_on = 0U;
-    s_file.active_on = 0U;
+    /* Fail closed.  FILE remains the active source owner and supplies zero I/Q
+     * until Python observes requested_on==0 and explicitly stops/detaches it. */
+    s_file.terminal_hold = 1U;
     (void)ra_iq_file_release_all();
     if (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN) {
         s_dc_i_q16 = 0;
@@ -1472,8 +1541,8 @@ static void ra_iq_file_finish_eof(void) {
 
 /* Return the next contiguous chunk, crossing an ACTIVE -> FREE -> READY buffer
  * boundary without losing sample continuity.  A zero-length READY descriptor
- * switches back to ADC only at the start of a DSP block; if reached after some
- * samples in this block it is deferred until the next block.  Return values:
+ * enters fail-closed zero-I/Q hold only at the start of a DSP block; if reached
+ * after some samples in this block it is deferred until the next block.  Return values:
  * 1=data, 0=no READY continuation, -1=EOF applied, -2=EOF deferred. */
 static int ra_iq_file_begin_chunk(const uint8_t **src, uint16_t needed,
     uint16_t *available, bool block_start) {
@@ -1529,6 +1598,14 @@ static void ra_iq_file_consume_chunk(uint16_t used) {
 }
 
 static void ra_iq_file_fill_raw(uint8_t half, uint16_t n) {
+    if (s_file.terminal_hold) {
+        for (uint16_t k = 0U; k < n; ++k) {
+            s_i_buf[half][k] = RA_IQ_ADC_MIDPOINT;
+            s_q_buf[half][k] = RA_IQ_ADC_MIDPOINT;
+        }
+        ++s_file.source_blocks;
+        return;
+    }
     ra_adc_pga_mode_t md = RA_ADC_PGA_BYPASS;
     uint8_t code = 0U;
     (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
@@ -1546,9 +1623,6 @@ static void ra_iq_file_fill_raw(uint8_t half, uint16_t n) {
         int state = ra_iq_file_begin_chunk(&src, (uint16_t)(n - written),
             &available, written == 0U);
         if (state < 0) {
-            if ((state == -1) && (written == 0U)) {
-                return;
-            }
             break;  /* EOF after real data: zero-pad, apply it next block. */
         }
         if (state == 0) {
@@ -1576,6 +1650,14 @@ static void ra_iq_file_fill_raw(uint8_t half, uint16_t n) {
 }
 
 static void ra_iq_file_fill_complex(uint16_t n) {
+    if (s_file.terminal_hold) {
+        for (uint16_t k = 0U; k < n; ++k) {
+            s_i_dc[k] = 0;
+            s_q_dc[k] = 0;
+        }
+        ++s_file.source_blocks;
+        return;
+    }
     uint16_t written = 0U;
     bool underrun = false;
     while (written < n) {
@@ -1584,9 +1666,6 @@ static void ra_iq_file_fill_complex(uint16_t n) {
         int state = ra_iq_file_begin_chunk(&src, (uint16_t)(n - written),
             &available, written == 0U);
         if (state < 0) {
-            if ((state == -1) && (written == 0U)) {
-                return;
-            }
             break;
         }
         if (state == 0) {
@@ -1632,6 +1711,9 @@ static inline void ra_iq_apply_complex_source(uint8_t point, uint8_t mid_stage,
  * Stop discards any partial/queued data and returns it to Python; EOF uses a
  * separate path above and deliberately suppresses that refill notification. */
 static void ra_iq_file_apply_request(void) {
+    if (s_file.terminal_hold) {
+        return;
+    }
     uint8_t requested = s_file.requested_on;
     if (requested && s_inject_enable) {
         /* Defensive tie-breaker for a control-plane race: synthetic source wins
@@ -1813,6 +1895,75 @@ static void ra_iq_filt_compute_alpha(uint32_t hz) {
     ra_iq_filt_reset();
 }
 
+/* Forget every state which belongs to the previous ADC/GEN/FILE stream before the
+ * first sample from a new owner or insertion boundary is processed.  This runs once
+ * at the ADC block boundary, never per sample.  Configuration (mode, filter, manual
+ * gain, volume and bypass choices) is retained; only signal history is discarded. */
+static void ra_iq_source_transition_reset(uint16_t raw_n, uint16_t complex_n) {
+    uint32_t epoch = s_source_epoch + 1U;
+    if (epoch == 0U) {
+        epoch = 1U;
+    }
+    s_source_epoch = epoch;
+
+    /* Invalidate producer captures before touching the processing histories. */
+    ra_iq_spec_discard_partial();
+    s_const_wr = 0U;
+    s_const_half = 0U;
+    s_const_ready = -1;
+    s_const_snapshot_n = 0U;
+    s_const_snapshot_valid = 0U;
+    s_tap_ready = 0U;
+
+    for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
+        s_dec_hist_i[k] = (int16_t)RA_IQ_ADC_MIDPOINT;
+        s_dec_hist_q[k] = (int16_t)RA_IQ_ADC_MIDPOINT;
+    }
+    (void)ra_iq_dec_cmsis_init(raw_n, NULL, NULL);
+    s_dec_bypassed_last = 0U;
+    s_dc_i_q16 = 0;
+    s_dc_q_q16 = 0;
+    ra_iq_filt_reset();
+    s_tune_phase = 0U;
+
+    s_env_mean = 0;
+    ra_iq_fm_reset();
+    memset(s_hil_i, 0, sizeof(s_hil_i));
+    memset(s_hil_q, 0, sizeof(s_hil_q));
+    s_hil_pos = 0U;
+    ra_iq_hil_cmsis_init(complex_n);
+    s_cw_phase = 0U;
+    ra_iq_af_reset();
+    s_sq_env = 0;
+    s_sq_open = 1U;
+    s_agc_ms = 0;
+    s_agc_env = 0;
+    if (s_agc_mode != RA_IQ_AGC_MODE_MANUAL) {
+        s_agc_gain_q15 = RA_IQ_AGC_GAIN_UNITY;
+    }
+    s_smeter_rms = 0;
+
+    /* DAC DMAC has higher priority than the ADC callback.  Mask it only for the
+     * four index stores, then resume normal SPSC ownership.  A buffer already in
+     * the DAC may finish, but no queued sample from the old source survives. */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_ring_tail = s_ring_head;
+    s_scope_q_tail = s_scope_q_head;
+    /* TIME is captured from each newly refilled DAC0 DMA buffer.  Drop both a
+     * completed frame and any partial frame from the old owner together with the
+     * old audio queues.  The in-flight DAC buffer is not recaptured: after it
+     * completes, machine_dac_iq_fill() pulls only from the already-flushed ring
+     * (mid-scale on an underrun) and starts a clean frame for this source epoch. */
+    s_scope_wr = 0U;
+    /* Preserve producer half: scope_frame() returns a borrowed pointer to the
+     * claimed opposite half after clearing ready.  Forcing half 0 here could let
+     * the next DAC refill overwrite that pointer while LCD is still reducing it. */
+    s_scope_ready = -1;
+    __DMB();
+    __set_PRIMASK(primask);
+}
+
 /* Half-band FIR x2 decimation.  Causal convolution: output j convolves the newest
  * raw sample at even position 2j back through the RA_IQ_DEC_TAPS most-recent raw
  * samples -- acc = sum_t h[t]*raw[2j - t], t = 0..RA_IQ_DEC_TAPS-1.  This is the
@@ -1829,10 +1980,11 @@ static inline int32_t ra_iq_dec_raw(const uint16_t *blk, const int16_t *hist,
     return (e < 0) ? (int32_t)hist[(RA_IQ_DEC_TAPS - 1) + e] : (int32_t)blk[e];
 }
 
-/* Phase-3 block DSP: x2 half-band-FIR decimation + streaming DC removal, in C,
- * no allocation,
- * no Python (REQ-RT-002/003).  Runs on the just-filled half, safe until the block
- * after next.  The former two-sample average (x[2j]+x[2j+1])>>1 is replaced by an
+/* Phase-3 block DSP, in C, no allocation and no Python (REQ-RT-002/003).  ADC and
+ * TEST:IN run x2 half-band-FIR decimation + streaming DC removal; later TEST entry
+ * points start directly at their selected signed-I/Q boundary.  Runs on the
+ * just-filled half, safe until the block after next.  The former two-sample average
+ * (x[2j]+x[2j+1])>>1 is replaced by an
  * 11-tap half-band anti-alias FIR (s_dec_hb) with a cross-block history delay line.
  * DC removal stays AFTER decimation but is a persistent sample-by-sample servo:
  * block boundaries never create a new signal origin.  The half-band is linear and
@@ -1844,6 +1996,19 @@ static void ra_iq_dsp_process(uint8_t half) {
     const uint16_t *qp = s_q_buf[half];
     uint16_t n = s_status.block_samples;
     uint16_t m = (uint16_t)(n >> 1);
+
+    /* A control-plane rebase can arrive while the DTC is already filling this ADC
+     * half.  Adopt it only here, throw away the old partial FFT, and deliberately
+     * exclude this whole block.  The next block is the first one known to have been
+     * acquired completely after the confirmed physical-LO transition. */
+    uint32_t requested_spec_generation = s_spec_generation_requested;
+    __DMB();
+    bool skip_spec_generation_block = false;
+    if (requested_spec_generation != s_spec_generation_active) {
+        ra_iq_spec_discard_partial();
+        s_spec_generation_active = requested_spec_generation;
+        skip_spec_generation_block = true;
+    }
 
     /* Apply the requested decimator on the producer's own block boundary.  This is
      * safer than disabling/re-enabling ADC0 from the control plane: FSP's ordinary
@@ -1863,9 +2028,9 @@ static void ra_iq_dsp_process(uint8_t half) {
         }
     }
 
-    /* Apply a real ADC<->synthetic source transition at a block boundary.  Reset
-     * only the residual DC servo; ordinary blocks, demod/tune changes and live
-     * injection frequency/amplitude changes keep the streaming state intact. */
+    /* Apply the complete synthetic-source request at a block boundary.  Generator
+     * phase resets only on a real enable transition; the source-entry fast path
+     * below handles its own one-time FIR/filter boundary reset. */
     uint32_t inject_seq0 = s_inject_config_seq;
     if ((inject_seq0 & 1U) == 0U) {
         __DMB();
@@ -1940,146 +2105,145 @@ static void ra_iq_dsp_process(uint8_t half) {
     ra_iq_file_apply_request();
     ra_iq_file_apply_eof_boundary();
 
-    if (s_file.active_on &&
-        (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
-        ra_iq_file_fill_raw(half, n);
-    } else if (s_inject_enable &&
-        (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
-        /* IN replaces the captured unsigned pair before the decimator. */
-        ra_iq_inject_fill_raw(half, n);
+    /* Source-aware fast path.  Hardware acquisition deliberately keeps running as
+     * the exact cadence source, but TEST never consumes the captured ADC samples
+     * before its selected entry boundary.  Numeric ordering lets each downstream
+     * stage answer one cheap comparison while leaving normal ADC and IN unchanged. */
+    uint8_t source_path = ra_iq_active_source_path();
+    uint8_t source_owner = (uint8_t)(source_path & ~RA_IQ_SOURCE_ENTRY_MASK);
+    uint8_t source_entry = (uint8_t)(source_path & RA_IQ_SOURCE_ENTRY_MASK);
+    bool source_active = source_owner != RA_IQ_SOURCE_OWNER_ADC;
+    bool run_raw_path = !source_active || (source_entry == RA_IQ_SOURCE_ENTRY_RAW);
+    bool run_iqcorr = !source_active || (source_entry <= RA_IQ_SOURCE_ENTRY_IQCORR);
+    bool run_nco = !source_active || (source_entry <= RA_IQ_SOURCE_ENTRY_NCO);
+    bool run_chfilt = !source_active || (source_entry <= RA_IQ_SOURCE_ENTRY_CHFILT);
+
+    if (source_path != s_source_path_last) {
+        ra_iq_source_transition_reset(n, m);
+        s_source_path_last = source_path;
     }
 
-    /* Scope routing, PGA stage: the raw front-end block BEFORE decimation.  The scope
-     * rings run at the decimated rate, so feed every other raw sample (drop-decimation
-     * is enough to watch the front-end waveform).  raw is 0..4095, re-centred to signed
-     * by -2048.  Only when RA_IQ_BLK_PGA is the selected stage; the decimated-domain
-     * stages are captured further down at their tap boundaries. */
-    if (s_scope_stage == RA_IQ_BLK_PGA) {
-        uint32_t ih = s_ring_head;
-        uint32_t qh = s_scope_q_head;
-        bool q_active = s_scope_q_consumer_active != 0U;
-        for (uint16_t j = 0U; j < m; ++j) {
-            ra_iq_scope_push_iq(&ih, &qh,
-                (int32_t)ip[2U * j] - 2048, (int32_t)qp[2U * j] - 2048,
-                q_active);
+    if (run_raw_path) {
+        if (s_file.active_on &&
+            (s_file.point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
+            ra_iq_file_fill_raw(half, n);
+        } else if (s_inject_enable &&
+            (s_inject_point == (uint8_t)RA_IQ_INJECT_POINT_IN)) {
+            /* IN replaces the captured unsigned pair before the decimator. */
+            ra_iq_inject_fill_raw(half, n);
         }
-        __DMB();
-        s_ring_head = ih;
-        if (q_active) {
-            s_scope_q_head = qh;
-        }
-    }
 
-    uint8_t iqc = s_iqc_enable;
-    int32_t amp = s_iqc_amp_q15;
-    int32_t phase = s_iqc_phase_q15;
-
-    /* Pass 1: adapt raw Fs -> Fs/2 Q0 into s_i_dc/s_q_dc.
-     * Two interchangeable kernels produce identical output (same symmetric half-band
-     * taps, same causal cross-block state); the hand loop is the default/fallback and
-     * the CMSIS kernel is the hybrid stage-1 A/B path.  raw is 0..4095 so the uint16
-     * block reinterprets as non-negative q15 for the CMSIS call without saturation.
-     * DECIM bypass cannot be bit-identical because this boundary must still change
-     * rate: it is the explicitly defined no-FIR adapter y[j] = x[2*j]. */
-    bool dec_bypassed = RA_IQ_BYPASSED(RA_IQ_BLK_DECIM);
-    if (!dec_bypassed && s_dec_bypassed_last && s_dec_use_cmsis) {
-        /* CMSIS was intentionally not run while bypassed.  Its first taps-1
-         * state entries are precisely the preceding raw history, so re-seed
-         * those entries directly before the next call; the instance geometry
-         * and coefficient pointers remain valid and need no ISR-side init. */
-        for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
-            s_dec_state_i[k] = (q15_t)s_dec_hist_i[k];
-            s_dec_state_q[k] = (q15_t)s_dec_hist_q[k];
-        }
-    }
-    if (dec_bypassed) {
-        for (uint16_t j = 0U; j < m; ++j) {
-            s_i_dc[j] = (int16_t)ip[2U * j];
-            s_q_dc[j] = (int16_t)qp[2U * j];
-        }
-    } else if (s_dec_use_cmsis) {
-        arm_fir_decimate_q15(&s_dec_cmsis_i, (const q15_t *)ip, s_i_dc, n);
-        arm_fir_decimate_q15(&s_dec_cmsis_q, (const q15_t *)qp, s_q_dc, n);
-    } else {
-        for (uint16_t j = 0U; j < m; ++j) {
-            int32_t center = (int32_t)(2U * j);
-            int32_t acci = 0;
-            int32_t accq = 0;
-            for (uint8_t t = 0U; t < RA_IQ_DEC_TAPS; ++t) {
-                int32_t h = (int32_t)s_dec_hb[t];
-                if (h == 0) {
-                    continue;
-                }
-                int32_t e = center - (int32_t)t;
-                acci += h * ra_iq_dec_raw(ip, s_dec_hist_i, e);
-                accq += h * ra_iq_dec_raw(qp, s_dec_hist_q, e);
+        /* Scope routing, PGA stage: the raw front-end block BEFORE decimation.  A
+         * later TEST entry deliberately publishes nothing at this upstream tap. */
+        if (s_scope_stage == RA_IQ_BLK_PGA) {
+            uint32_t ih = s_ring_head;
+            uint32_t qh = s_scope_q_head;
+            bool q_active = s_scope_q_consumer_active != 0U;
+            for (uint16_t j = 0U; j < m; ++j) {
+                ra_iq_scope_push_iq(&ih, &qh,
+                    (int32_t)ip[2U * j] - 2048, (int32_t)qp[2U * j] - 2048,
+                    q_active);
             }
-            int32_t di = acci >> 15;
-            int32_t dq = accq >> 15;
-            s_i_dc[j] = (int16_t)di;
-            s_q_dc[j] = (int16_t)dq;
+            __DMB();
+            s_ring_head = ih;
+            if (q_active) {
+                s_scope_q_head = qh;
+            }
         }
-    }
-    s_dec_bypassed_last = dec_bypassed ? 1U : 0U;
 
-    /* Carry the last RA_IQ_DEC_TAPS-1 raw samples of this block into the history for
-     * the next call, so the FIR support is continuous across the block boundary.
-     * Copied from the raw domain (matching ra_iq_dec_raw). */
-    if (n >= (RA_IQ_DEC_TAPS - 1U)) {
-        for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
-            uint16_t src = (uint16_t)(n - (RA_IQ_DEC_TAPS - 1U) + k);
-            s_dec_hist_i[k] = (int16_t)ip[src];
-            s_dec_hist_q[k] = (int16_t)qp[src];
+        /* Pass 1: adapt raw Fs -> Fs/2 Q0 into s_i_dc/s_q_dc. */
+        bool dec_bypassed = RA_IQ_BYPASSED(RA_IQ_BLK_DECIM);
+        if (!dec_bypassed && s_dec_bypassed_last && s_dec_use_cmsis) {
+            for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
+                s_dec_state_i[k] = (q15_t)s_dec_hist_i[k];
+                s_dec_state_q[k] = (q15_t)s_dec_hist_q[k];
+            }
         }
-    }
+        if (dec_bypassed) {
+            for (uint16_t j = 0U; j < m; ++j) {
+                s_i_dc[j] = (int16_t)ip[2U * j];
+                s_q_dc[j] = (int16_t)qp[2U * j];
+            }
+        } else if (s_dec_use_cmsis) {
+            arm_fir_decimate_q15(&s_dec_cmsis_i, (const q15_t *)ip, s_i_dc, n);
+            arm_fir_decimate_q15(&s_dec_cmsis_q, (const q15_t *)qp, s_q_dc, n);
+        } else {
+            for (uint16_t j = 0U; j < m; ++j) {
+                int32_t center = (int32_t)(2U * j);
+                int32_t acci = 0;
+                int32_t accq = 0;
+                for (uint8_t t = 0U; t < RA_IQ_DEC_TAPS; ++t) {
+                    int32_t h = (int32_t)s_dec_hb[t];
+                    if (h == 0) {
+                        continue;
+                    }
+                    int32_t e = center - (int32_t)t;
+                    acci += h * ra_iq_dec_raw(ip, s_dec_hist_i, e);
+                    accq += h * ra_iq_dec_raw(qp, s_dec_hist_q, e);
+                }
+                s_i_dc[j] = (int16_t)(acci >> 15);
+                s_q_dc[j] = (int16_t)(accq >> 15);
+            }
+        }
+        s_dec_bypassed_last = dec_bypassed ? 1U : 0U;
 
-    /* Pass 2: continuous DC removal.  The output uses the PREVIOUS estimate and
-     * only then advances it, giving the standard one-pole high-pass
-     * H(z)=(1-z^-1)/(1-(1-alpha)z^-1).  Q16 keeps sub-count estimator precision
-     * while every output remains centred Q0 int16.  Keep this boundary separate
-     * from IQCORR so MID_IQCORR is a real block input, not a label alias. */
-    int32_t dc_i = s_dc_i_q16;
-    int32_t dc_q = s_dc_q_q16;
-    for (uint16_t j = 0U; j < m; ++j) {
-        int32_t ui = (int32_t)s_i_dc[j] - RA_IQ_ADC_MIDPOINT;
-        int32_t uq = (int32_t)s_q_dc[j] - RA_IQ_ADC_MIDPOINT;
-        int32_t target_i = ui * RA_IQ_DC_SCALE;
-        int32_t target_q = uq * RA_IQ_DC_SCALE;
-        int32_t error_i = target_i - dc_i;
-        int32_t error_q = target_q - dc_q;
-        int32_t ci = ra_iq_dc_shift_toward_zero(error_i, RA_IQ_DC_FRAC_BITS);
-        int32_t cq = ra_iq_dc_shift_toward_zero(error_q, RA_IQ_DC_FRAC_BITS);
-        dc_i += ra_iq_dc_shift_toward_zero(error_i, RA_IQ_DC_ALPHA_SHIFT);
-        dc_q += ra_iq_dc_shift_toward_zero(error_q, RA_IQ_DC_ALPHA_SHIFT);
-        s_i_dc[j] = (int16_t)ci;
-        s_q_dc[j] = (int16_t)cq;
-    }
-    s_dc_i_q16 = dc_i;
-    s_dc_q_q16 = dc_q;
+        /* Carry raw history only when this block really entered at RAW. */
+        if (n >= (RA_IQ_DEC_TAPS - 1U)) {
+            for (uint8_t k = 0U; k < (RA_IQ_DEC_TAPS - 1U); ++k) {
+                uint16_t src = (uint16_t)(n - (RA_IQ_DEC_TAPS - 1U) + k);
+                s_dec_hist_i[k] = (int16_t)ip[src];
+                s_dec_hist_q[k] = (int16_t)qp[src];
+            }
+        }
 
-    /* DECIM's observable output includes the mandatory centring/DC removal, but
-     * precedes both MID_IQCORR replacement and the correction itself. */
-    ra_iq_tap_capture(RA_IQ_TAP_DECIM, m);
-    ra_iq_scope_capture_iq(RA_IQ_BLK_DECIM, m);
+        /* Pass 2: continuous DC removal. */
+        int32_t dc_i = s_dc_i_q16;
+        int32_t dc_q = s_dc_q_q16;
+        for (uint16_t j = 0U; j < m; ++j) {
+            int32_t ui = (int32_t)s_i_dc[j] - RA_IQ_ADC_MIDPOINT;
+            int32_t uq = (int32_t)s_q_dc[j] - RA_IQ_ADC_MIDPOINT;
+            int32_t target_i = ui * RA_IQ_DC_SCALE;
+            int32_t target_q = uq * RA_IQ_DC_SCALE;
+            int32_t error_i = target_i - dc_i;
+            int32_t error_q = target_q - dc_q;
+            int32_t ci = ra_iq_dc_shift_toward_zero(error_i, RA_IQ_DC_FRAC_BITS);
+            int32_t cq = ra_iq_dc_shift_toward_zero(error_q, RA_IQ_DC_FRAC_BITS);
+            dc_i += ra_iq_dc_shift_toward_zero(error_i, RA_IQ_DC_ALPHA_SHIFT);
+            dc_q += ra_iq_dc_shift_toward_zero(error_q, RA_IQ_DC_ALPHA_SHIFT);
+            s_i_dc[j] = (int16_t)ci;
+            s_q_dc[j] = (int16_t)cq;
+        }
+        s_dc_i_q16 = dc_i;
+        s_dc_q_q16 = dc_q;
+
+        /* A later TEST entry leaves these upstream captures unavailable. */
+        ra_iq_tap_capture(RA_IQ_TAP_DECIM, m);
+        ra_iq_scope_capture_iq(RA_IQ_BLK_DECIM, m);
+    }
 
     ra_iq_apply_complex_source((uint8_t)RA_IQ_INJECT_POINT_MID,
         (uint8_t)RA_IQ_INJECT_MID_IQCORR, m);
 
-    /* Pass 3: optional Q imbalance correction.  OFF is a true short at this
-     * signed-I/Q boundary; I is always the reference and remains untouched. */
-    if (iqc && !RA_IQ_BYPASSED(RA_IQ_BLK_IQCORR)) {
-        for (uint16_t j = 0U; j < m; ++j) {
-            int32_t ci = s_i_dc[j];
-            int32_t cq = (amp * (int32_t)s_q_dc[j] + phase * ci) >> 15;
-            if (cq > 32767) {
-                cq = 32767;
-            } else if (cq < -32768) {
-                cq = -32768;
+    if (run_iqcorr) {
+        /* Pass 3: optional Q imbalance correction.  A MID:IQCORR source begins
+         * here; later entries neither execute nor publish this stage. */
+        uint8_t iqc = s_iqc_enable;
+        int32_t amp = s_iqc_amp_q15;
+        int32_t phase = s_iqc_phase_q15;
+        if (iqc && !RA_IQ_BYPASSED(RA_IQ_BLK_IQCORR)) {
+            for (uint16_t j = 0U; j < m; ++j) {
+                int32_t ci = s_i_dc[j];
+                int32_t cq = (amp * (int32_t)s_q_dc[j] + phase * ci) >> 15;
+                if (cq > 32767) {
+                    cq = 32767;
+                } else if (cq < -32768) {
+                    cq = -32768;
+                }
+                s_q_dc[j] = (int16_t)cq;
             }
-            s_q_dc[j] = (int16_t)cq;
         }
+        ra_iq_scope_capture_iq(RA_IQ_BLK_IQCORR, m);
     }
-    ra_iq_scope_capture_iq(RA_IQ_BLK_IQCORR, m);
 
     /* Historical MID default: replace the corrected pair at NCO input. */
     ra_iq_apply_complex_source((uint8_t)RA_IQ_INJECT_POINT_MID,
@@ -2098,7 +2262,7 @@ static void ra_iq_dsp_process(uint8_t half) {
             ((source_point == (uint8_t)RA_IQ_INJECT_POINT_MID) &&
              (s_inject_mid_stage <= (uint8_t)RA_IQ_INJECT_MID_NCO));
     }
-    if (spectrum_pre_nco) {
+    if (spectrum_pre_nco && !skip_spec_generation_block) {
         ra_iq_spec_capture(m, 0U);
     }
 
@@ -2106,23 +2270,25 @@ static void ra_iq_dsp_process(uint8_t half) {
      * removal + imbalance and BEFORE the channel filter, so a signal offset from the ADC
      * centre lands at 0 Hz for the fixed channel filter + demod.  Skipped when tuning is
      * off (bit-identical to no NCO).  Phase is continuous across blocks. */
-    if ((s_tune_hz != 0) && !RA_IQ_BYPASSED(RA_IQ_BLK_NCO)) {
-        uint32_t ph = s_tune_phase;
-        uint32_t step = s_tune_step;
-        for (uint16_t j = 0U; j < m; ++j) {
-            uint8_t idx = (uint8_t)(ph >> 24);
-            int32_t c = s_sin256[(idx + 64U) & 255U];   /* cos */
-            int32_t s = s_sin256[idx];                  /* sin */
-            int32_t i = s_i_dc[j];
-            int32_t q = s_q_dc[j];
-            s_i_dc[j] = (int16_t)((i * c + q * s) >> 15);
-            s_q_dc[j] = (int16_t)((q * c - i * s) >> 15);
-            ph += step;
+    if (run_nco) {
+        if ((s_tune_hz != 0) && !RA_IQ_BYPASSED(RA_IQ_BLK_NCO)) {
+            uint32_t ph = s_tune_phase;
+            uint32_t step = s_tune_step;
+            for (uint16_t j = 0U; j < m; ++j) {
+                uint8_t idx = (uint8_t)(ph >> 24);
+                int32_t c = s_sin256[(idx + 64U) & 255U];   /* cos */
+                int32_t s = s_sin256[idx];                  /* sin */
+                int32_t i = s_i_dc[j];
+                int32_t q = s_q_dc[j];
+                s_i_dc[j] = (int16_t)((i * c + q * s) >> 15);
+                s_q_dc[j] = (int16_t)((q * c - i * s) >> 15);
+                ph += step;
+            }
+            s_tune_phase = ph;
         }
-        s_tune_phase = ph;
+        ra_iq_tap_capture(RA_IQ_TAP_NCO, m);
+        ra_iq_scope_capture_iq(RA_IQ_BLK_NCO, m);
     }
-    ra_iq_tap_capture(RA_IQ_TAP_NCO, m);
-    ra_iq_scope_capture_iq(RA_IQ_BLK_NCO, m);
 
     /* Replace the NCO output at the channel-filter input.  The CHFILT tap/scope
      * below therefore observes the replacement after the selected filter path. */
@@ -2134,7 +2300,7 @@ static void ra_iq_dsp_process(uint8_t half) {
      * Bypass (alpha == 32768) skips the cascade so s_i_dc/s_q_dc are untouched and
      * the path is bit-identical to no filter.  N one-pole sections per channel,
      * integer only (REQ-RT-002/003). */
-    if (s_chf_use_f32) {
+    if (run_chfilt && s_chf_use_f32) {
         /* CMSIS stage-3 path: 4-pole Butterworth via arm_biquad_cascade_df1_f32, I and Q
          * through their own state with the shared coefficient set.  int16 -> f32 -> int16
          * with rounding and a 16-bit clamp; bypass leaves s_i_dc/s_q_dc untouched. */
@@ -2164,7 +2330,7 @@ static void ra_iq_dsp_process(uint8_t half) {
                 s_q_dc[j] = (int16_t)oq;
             }
         }
-    } else {
+    } else if (run_chfilt) {
         int32_t alpha = s_filt_alpha_q15;
         if ((alpha != 32768) && !RA_IQ_BYPASSED(RA_IQ_BLK_CHFILT)) {
             for (uint16_t j = 0U; j < m; ++j) {
@@ -2196,7 +2362,7 @@ static void ra_iq_dsp_process(uint8_t half) {
     /* Constellation truth is always the final complex block, independent of where
      * the panorama was captured for horizontal NCO navigation. */
     ra_iq_constellation_capture(m);
-    if (!spectrum_pre_nco) {
+    if (!spectrum_pre_nco && !skip_spec_generation_block) {
         /* Late MID:CHF/OUT sources have no pre-NCO representation.  Their spectrum
          * and constellation therefore consume the same post-CHFILT I/Q block that
          * stage-5 scope routing sends to DAC0/DAC1. */
@@ -2241,9 +2407,11 @@ static void ra_iq_dsp_process(uint8_t half) {
  * AM: envelope = alpha-max-beta-min(|i|,|q|) with an IIR DC blocker.
  * FM: polar discriminator = atan2(imag(conj(z[n-1])*z[n]),
  * real(conj(z[n-1])*z[n])) with a slow DC blocker.
- * USB/LSB: phasing method.  audio = I_delayed -/+ H(Q), centered at mid-scale with
- * no DC blocker (SSB audio carries no DC term).  USB = I_delayed - H(Q); if a known
- * signal shows the opposite sideband on hardware, the operator can swap USB/LSB. */
+ * USB/LSB: phasing method, centered at mid-scale with no DC blocker (SSB audio
+ * carries no DC term).  The implemented Q transformer has the sign established by
+ * the taps above: positive complex frequency (RF above LO) is USB and combines as
+ * I_delayed + H(Q); negative complex frequency (RF below LO) is LSB and combines as
+ * I_delayed - H(Q). */
 static void ra_iq_demod_produce(uint8_t half) {
     uint16_t m = s_dsp.dsp_samples;
     uint32_t head = s_ring_head;
@@ -2348,7 +2516,7 @@ static void ra_iq_demod_produce(uint8_t half) {
                     int32_t id = (e >= 0) ? (int32_t)s_i_dc[e]
                                           : (int32_t)s_hil_i_hist[RA_IQ_HIL_DELAY + e];
                     int32_t hq = (int32_t)s_hil_hq[j];
-                    int32_t audio = is_lsb ? (id + hq) : (id - hq);
+                    int32_t audio = is_lsb ? (id - hq) : (id + hq);
 
                     uint16_t dac = ra_iq_audio_stage(audio);
                     uint32_t next = (head + 1U) & RA_IQ_AUDIO_RING_MASK;
@@ -2394,7 +2562,7 @@ static void ra_iq_demod_produce(uint8_t half) {
                 }
                 int32_t id = s_hil_i[di];
 
-                int32_t audio = is_lsb ? (id + hq) : (id - hq);
+                int32_t audio = is_lsb ? (id - hq) : (id + hq);
 
                 pos = (uint8_t)((pos + 1U) % 31U);
 
@@ -2746,6 +2914,7 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     ra_iq_inject_reset_phase();
     memset(&s_file, 0, sizeof(s_file));
     s_file.active_index = -1;
+    s_source_path_last = (uint8_t)(RA_IQ_SOURCE_OWNER_ADC | RA_IQ_SOURCE_ENTRY_RAW);
 
     s_iq.timer_reserved = true;
     s_iq.timer_ch = timer_ch;
@@ -2984,6 +3153,7 @@ bool ra_iq_adc_start(void) {
     s_inject_phase_noise = s_inject_requested_phase_noise;
     ra_iq_inject_reset_phase();
     s_file.active_on = s_file.requested_on;
+    s_source_path_last = ra_iq_active_source_path();
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -3502,11 +3672,6 @@ void ra_iq_adc_set_inject_ex(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     } else {
         deviation_hz = 0U;
     }
-    if (enable) {
-        /* GEN and FILE are explicit alternative owners of the same boundaries.
-         * Stop FILE first; both requests are then committed by the next ISR block. */
-        ra_iq_adc_file_stop();
-    }
     uint32_t fs = s_status.sample_rate_hz;
     if (point != (uint8_t)RA_IQ_INJECT_POINT_IN) {
         fs >>= 1;
@@ -3532,8 +3697,22 @@ void ra_iq_adc_set_inject_ex(uint8_t enable, uint8_t kind, uint32_t freq_hz,
     uint8_t harmonic_max = ra_iq_inject_harmonic_limit(kind, wave,
         freq_hz, mod_hz, fs);
 
-    /* If the block ISR preempts while the sequence is odd, it keeps the complete old
-     * tuple for that block and applies the complete new tuple on the next boundary. */
+    /* GEN and FILE ownership plus the complete GEN tuple are one publication.  File
+     * I/O/prefill has already happened outside this tiny critical section; masking
+     * only these stores prevents a block of real ADC from slipping through FILE->GEN. */
+    uint8_t became_free = 0U;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (enable) {
+        s_file.requested_on = 0U;
+        s_file.terminal_hold = 0U;
+        if (!s_status.running) {
+            s_file.active_on = 0U;
+            became_free = ra_iq_file_release_all();
+        }
+    }
+    /* If a future concurrent caller observes the odd sequence, it keeps the complete
+     * old tuple for that block and applies the new tuple at the next boundary. */
     uint32_t seq = s_inject_config_seq;
     s_inject_config_seq = seq + 1U;
     __DMB();
@@ -3572,6 +3751,9 @@ void ra_iq_adc_set_inject_ex(uint8_t enable, uint8_t kind, uint32_t freq_hz,
             ra_iq_inject_reset_phase();
         }
     }
+    __DMB();
+    __set_PRIMASK(primask);
+    ra_iq_file_notify(became_free);
 }
 
 void ra_iq_adc_set_inject(uint8_t enable, uint8_t kind, uint32_t freq_hz,
@@ -3679,15 +3861,17 @@ bool ra_iq_adc_file_start(void) {
     if (!s_file.attached) {
         return false;
     }
-    ra_iq_inject_request_off();
-
     uint8_t free_mask;
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
+    /* Publish GEN off and FILE on without an intervening ADC-owned block.  All file
+     * opening/header validation/prefill is complete before this bounded section. */
+    ra_iq_inject_request_off();
     s_file.underruns = 0U;
     s_file.source_blocks = 0U;
     s_file.samples_consumed = 0U;
     s_file.requested_on = 1U;
+    s_file.terminal_hold = 0U;
     if (!s_status.running) {
         s_file.active_on = 1U;
     }
@@ -3703,6 +3887,7 @@ void ra_iq_adc_file_stop(void) {
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
     s_file.requested_on = 0U;
+    s_file.terminal_hold = 0U;
     if (!s_status.running) {
         s_file.active_on = 0U;
         became_free = ra_iq_file_release_all();
@@ -3710,6 +3895,25 @@ void ra_iq_adc_file_stop(void) {
     __DMB();
     __set_PRIMASK(primask);
     ra_iq_file_notify(became_free);
+}
+
+void ra_iq_adc_file_hold(void) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_file.requested_on = 0U;
+    if (s_file.attached && s_status.running) {
+        /* This may run before the first requested FILE block became active.  Claim
+         * ownership explicitly so even that narrow scheduler/error window cannot
+         * expose a real ADC block while Python still reports TESTER ON. */
+        s_file.active_on = 1U;
+        s_file.terminal_hold = 1U;
+        (void)ra_iq_file_release_all();
+    } else {
+        s_file.active_on = 0U;
+        s_file.terminal_hold = 0U;
+    }
+    __DMB();
+    __set_PRIMASK(primask);
 }
 
 void ra_iq_adc_file_detach(void) {
@@ -4147,6 +4351,13 @@ void ra_iq_adc_spectrum_enable(uint8_t on) {
             s_spec_post_nco[0] = 0U;
             s_spec_post_nco[1] = 0U;
             s_spec_snapshot_post_nco = 0U;
+            s_spec_generation[0] = s_spec_generation_active;
+            s_spec_generation[1] = s_spec_generation_active;
+            s_spec_snapshot_generation = s_spec_generation_active;
+            s_spec_source_epoch[0] = s_source_epoch;
+            s_spec_source_epoch[1] = s_source_epoch;
+            s_spec_snapshot_source_epoch = s_source_epoch;
+            s_spec_foreground_source_epoch = s_source_epoch;
             s_spec_ref_peak = 0.0f;
             s_spec_smooth_n = 0U;
             s_spec_smooth_valid = 0U;
@@ -4163,11 +4374,37 @@ void ra_iq_adc_spectrum_enable(uint8_t on) {
         s_spec_post_nco[0] = 0U;
         s_spec_post_nco[1] = 0U;
         s_spec_snapshot_post_nco = 0U;
+        s_spec_generation[0] = s_spec_generation_active;
+        s_spec_generation[1] = s_spec_generation_active;
+        s_spec_snapshot_generation = s_spec_generation_active;
+        s_spec_source_epoch[0] = s_source_epoch;
+        s_spec_source_epoch[1] = s_source_epoch;
+        s_spec_snapshot_source_epoch = s_source_epoch;
         ra_enable_irq(irq_state);
         s_spec_ref_peak = 0.0f;
         s_spec_smooth_n = 0U;
         s_spec_smooth_valid = 0U;
+        s_spec_foreground_source_epoch = s_source_epoch;
     }
+}
+
+/* Start a new physical-LO spectrum generation.  The caller invokes this only after
+ * the synthesizer reports a successful retune.  Do not rewrite producer-owned
+ * wr/half here: the block callback performs the boundary transition and skips the
+ * possibly straddling ADC block.  Clearing only ready is safe under the IRQ mask and
+ * prevents a previously completed half from being claimed in the meantime. */
+uint32_t ra_iq_adc_spectrum_rebase(void) {
+    uint32_t irq_state = ra_disable_irq();
+    uint32_t generation = s_spec_generation_requested + 1U;
+    if (generation == 0U) {
+        generation = 1U;
+    }
+    s_spec_ready = -1;
+    __DMB();
+    s_spec_generation_requested = generation;
+    __DMB();
+    ra_enable_irq(irq_state);
+    return generation;
 }
 
 /* Gate the independent final-complex constellation capture. */
@@ -4178,6 +4415,9 @@ void ra_iq_adc_constellation_enable(uint8_t on) {
             s_const_wr = 0U;
             s_const_half = 0U;
             s_const_ready = -1;
+            s_const_source_epoch[0] = s_source_epoch;
+            s_const_source_epoch[1] = s_source_epoch;
+            s_const_snapshot_source_epoch = s_source_epoch;
             s_const_snapshot_n = 0U;
             s_const_snapshot_valid = 0U;
             __DMB();
@@ -4188,6 +4428,9 @@ void ra_iq_adc_constellation_enable(uint8_t on) {
         s_const_wr = 0U;
         s_const_half = 0U;
         s_const_ready = -1;
+        s_const_source_epoch[0] = s_source_epoch;
+        s_const_source_epoch[1] = s_source_epoch;
+        s_const_snapshot_source_epoch = s_source_epoch;
         s_const_snapshot_n = 0U;
         s_const_snapshot_valid = 0U;
     }
@@ -4281,9 +4524,22 @@ static bool ra_iq_adc_spectrum_claim_snapshot(void) {
         return false;
     }
     s_spec_ready = -1;
+    __DMB();
+    uint32_t generation = s_spec_generation[(uint8_t)h];
+    if (generation != s_spec_generation_requested) {
+        ra_enable_irq(irq_state);
+        return false;
+    }
+    uint32_t source_epoch = s_spec_source_epoch[(uint8_t)h];
+    if (source_epoch != s_source_epoch) {
+        ra_enable_irq(irq_state);
+        return false;
+    }
     memcpy(s_spec_snapshot_i, s_spec_i[(uint8_t)h], sizeof(s_spec_snapshot_i));
     memcpy(s_spec_snapshot_q, s_spec_q[(uint8_t)h], sizeof(s_spec_snapshot_q));
     s_spec_snapshot_post_nco = s_spec_post_nco[(uint8_t)h];
+    s_spec_snapshot_generation = generation;
+    s_spec_snapshot_source_epoch = source_epoch;
     ra_enable_irq(irq_state);
     return true;
 }
@@ -4318,16 +4574,28 @@ bool ra_iq_adc_spectrum(float *out, size_t n) {
     for (size_t i = 0U; i < count; ++i) {
         out[i] = s_spec_mag[(i + (RA_IQ_SPEC_N / 2)) & (RA_IQ_SPEC_N - 1)];
     }
-    return true;
+    __DMB();
+    return s_spec_snapshot_source_epoch == s_source_epoch;
 }
 
 /* Consume one completed capture and prepare the one shared FFT magnitude buffer.
  * release_alpha is cadence-dependent: 1/64 at 10 Hz and 1/192 at 30 Hz both keep
  * roughly the same six-second reference release. */
 static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
-    int32_t *shift_bins_out) {
+    int32_t *marker_bins_out) {
     if (!ra_iq_adc_spectrum_claim_snapshot()) {
         return false;
+    }
+
+    /* The display smoother belongs to a signal source, not merely to a physical
+     * VFO generation.  Reset it in foreground (where it is exclusively owned)
+     * before reducing the first complete frame from the new source epoch. */
+    if (s_spec_snapshot_source_epoch != s_spec_foreground_source_epoch) {
+        s_spec_ref_peak = 0.0f;
+        s_spec_smooth_n = 0U;
+        s_spec_smooth_valid = 0U;
+        memset(s_spec_smooth_q8, 0, sizeof(s_spec_smooth_q8));
+        s_spec_foreground_source_epoch = s_spec_snapshot_source_epoch;
     }
 
     if (!s_spec_win_init) {
@@ -4344,6 +4612,13 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
     }
     arm_cfft_f32(&arm_cfft_sR_f32_len512, s_spec_fft, 0, 1);
     arm_cmplx_mag_f32(s_spec_fft, s_spec_mag, RA_IQ_SPEC_N);
+
+    /* A source handoff may preempt the foreground FFT.  Do not let that completed
+     * old-source calculation update reference/smoothing state or reach the LCD. */
+    __DMB();
+    if (s_spec_snapshot_source_epoch != s_source_epoch) {
+        return false;
+    }
 
     /* Global peak for per-frame normalisation. */
     float peak = 1e-6f;
@@ -4366,32 +4641,42 @@ static bool ra_iq_adc_spectrum_prepare(float release_alpha, float *ref_peak_out,
         s_spec_ref_peak = 1e-6f;
     }
 
-    /* Shift the raw capture panorama so the selected NCO frequency is at the middle.
-     * Both native consumers use this exact same tuned-centre mapping. */
-    int32_t shift_bins = 0;
+    /* Report the live NCO as a marker offset in FFT-bin units.  The physical-LO
+     * panorama itself remains the unshifted capture; LCD policy decides how to draw
+     * the marker.  A post-NCO TEST frame or a bypassed NCO has no movable pre-NCO
+     * marker, so its offset is zero. */
+    int32_t marker_bins = 0;
     int32_t fs = (int32_t)(s_status.sample_rate_hz >> 1);
     if ((fs > 0) && !s_spec_snapshot_post_nco &&
         !RA_IQ_BYPASSED(RA_IQ_BLK_NCO)) {
         int64_t num = (int64_t)s_tune_hz * (int64_t)RA_IQ_SPEC_N;
         num += (num >= 0) ? (int64_t)(fs / 2) : -(int64_t)(fs / 2);
-        shift_bins = (int32_t)(num / (int64_t)fs);
+        marker_bins = (int32_t)(num / (int64_t)fs);
     }
     if (ref_peak_out != NULL) {
         *ref_peak_out = s_spec_ref_peak;
     }
-    if (shift_bins_out != NULL) {
-        *shift_bins_out = shift_bins;
+    if (marker_bins_out != NULL) {
+        *marker_bins_out = marker_bins;
     }
-    return true;
+    __DMB();
+    return s_spec_snapshot_source_epoch == s_source_epoch;
 }
 
 /* Reduce one already-prepared magnitude frame through the single shared Q8
  * attack/release state.  Both TIME and I/Q native views call this at 10 Hz, so
  * switching the right panel cannot change the left spectrum cadence or smoothing. */
 bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
-    int32_t shift_bins, int16_t *out, size_t nbars, int16_t max_h) {
+    int32_t marker_bins, int16_t *out, size_t nbars, int16_t max_h) {
+    /* Kept in the ABI for existing callers; marker position is display metadata
+     * and must never translate the physical-LO magnitude bins. */
+    (void)marker_bins;
     if ((magnitudes == NULL) || !(ref_peak > 0.0f) || (out == NULL) ||
         (nbars == 0U) || (nbars > (size_t)RA_IQ_SPEC_N) || (max_h < 0)) {
+        return false;
+    }
+    __DMB();
+    if (s_spec_snapshot_source_epoch != s_source_epoch) {
         return false;
     }
     float inv = 1.0f / ref_peak;
@@ -4402,21 +4687,13 @@ bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
         memset(s_spec_smooth_q8, 0, sizeof(s_spec_smooth_q8));
     }
 
-    /* Peak per bar over the tuned, fftshifted spectrum, dB-scaled to 0..max_h. */
+    /* Peak per bar over the fixed physical-LO spectrum, dB-scaled to 0..max_h. */
     for (size_t b = 0U; b < nbars; ++b) {
         uint32_t lo = (uint32_t)((b * (size_t)RA_IQ_SPEC_N) / nbars);
         uint32_t hi = (uint32_t)(((b + 1U) * (size_t)RA_IQ_SPEC_N) / nbars);
         float mx = 0.0f;
         for (uint32_t k = lo; k < hi; ++k) {
-            /* NCO navigation is a translated view of one finite physical ADC
-             * capture, not a circular spectrum.  Clip samples which move beyond
-             * either Nyquist edge; wrapping them used to relabel the opposite RF
-             * edge as newly received data in the 27-bar fallback renderer. */
-            int32_t shifted = (int32_t)k + shift_bins;
-            if ((shifted < 0) || (shifted >= (int32_t)RA_IQ_SPEC_N)) {
-                continue;
-            }
-            uint32_t src = ((uint32_t)shifted + (RA_IQ_SPEC_N / 2U)) &
+            uint32_t src = (k + (RA_IQ_SPEC_N / 2U)) &
                 (RA_IQ_SPEC_N - 1U);
             float v = magnitudes[src];
             if (v > mx) {
@@ -4450,19 +4727,23 @@ bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
         }
         out[b] = (int16_t)height;
     }
+    __DMB();
+    if (s_spec_snapshot_source_epoch != s_source_epoch) {
+        s_spec_smooth_valid = 0U;
+        return false;
+    }
     s_spec_smooth_valid = 1U;
     return true;
 }
 
 /* Allocation-free spectrum for the UI: prepare a fresh FFT, then run the common
- * tuned-centre reducer.  Python never boxes a float. */
+ * physical-LO reducer.  Python never boxes a float. */
 bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h) {
     float ref_peak;
-    int32_t shift_bins;
-    if (!ra_iq_adc_spectrum_prepare(1.0f / 64.0f, &ref_peak, &shift_bins)) {
+    if (!ra_iq_adc_spectrum_prepare(1.0f / 64.0f, &ref_peak, NULL)) {
         return false;
     }
-    return ra_iq_adc_spectrum_reduce(s_spec_mag, ref_peak, shift_bins,
+    return ra_iq_adc_spectrum_reduce(s_spec_mag, ref_peak, 0,
         out, nbars, max_h);
 }
 
@@ -4477,11 +4758,18 @@ static bool ra_iq_adc_constellation_claim_snapshot(void) {
         return false;
     }
     s_const_ready = -1;
+    uint32_t source_epoch = s_const_source_epoch[(uint8_t)h];
+    if (source_epoch != s_source_epoch) {
+        ra_enable_irq(irq_state);
+        return false;
+    }
     memcpy(s_const_snapshot_i, s_const_i[(uint8_t)h], sizeof(s_const_snapshot_i));
     memcpy(s_const_snapshot_q, s_const_q[(uint8_t)h], sizeof(s_const_snapshot_q));
-    ra_enable_irq(irq_state);
+    s_const_snapshot_source_epoch = source_epoch;
     s_const_snapshot_n = RA_IQ_CONST_N;
     s_const_snapshot_valid = 1U;
+    __DMB();
+    ra_enable_irq(irq_state);
     return true;
 }
 
@@ -4494,7 +4782,8 @@ bool ra_iq_adc_constellation_frame(const int16_t **i_samples,
     *i_samples = s_const_snapshot_i;
     *q_samples = s_const_snapshot_q;
     *sample_count = (size_t)s_const_snapshot_n;
-    return true;
+    __DMB();
+    return s_const_snapshot_source_epoch == s_source_epoch;
 }
 
 /* Native waterfall access to the SAME magnitude buffer used by spectrum_bars().
@@ -4503,28 +4792,33 @@ bool ra_iq_adc_constellation_frame(const int16_t **i_samples,
  * separate final-complex snapshot; they intentionally do not inherit the panorama's
  * pre/post-NCO capture boundary and are not claimed when all three are NULL. */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
-    int32_t *shift_bins, const int16_t **i_samples, const int16_t **q_samples,
-    size_t *sample_count) {
-    if ((magnitudes == NULL) || (ref_peak == NULL) || (shift_bins == NULL)) {
+    int32_t *marker_bins, uint32_t *generation, const int16_t **i_samples,
+    const int16_t **q_samples, size_t *sample_count) {
+    if ((magnitudes == NULL) || (ref_peak == NULL) || (marker_bins == NULL) ||
+        (generation == NULL)) {
         return false;
     }
-    if (!ra_iq_adc_spectrum_prepare(1.0f / 192.0f, ref_peak, shift_bins)) {
+    if (!ra_iq_adc_spectrum_prepare(1.0f / 192.0f, ref_peak, marker_bins)) {
         return false;
     }
     *magnitudes = s_spec_mag;
+    *generation = s_spec_snapshot_generation;
     if ((i_samples != NULL) || (q_samples != NULL) || (sample_count != NULL)) {
         (void)ra_iq_adc_constellation_claim_snapshot();
     }
+    bool const_valid = s_const_snapshot_valid &&
+        (s_const_snapshot_source_epoch == s_source_epoch);
     if (i_samples != NULL) {
-        *i_samples = s_const_snapshot_valid ? s_const_snapshot_i : NULL;
+        *i_samples = const_valid ? s_const_snapshot_i : NULL;
     }
     if (q_samples != NULL) {
-        *q_samples = s_const_snapshot_valid ? s_const_snapshot_q : NULL;
+        *q_samples = const_valid ? s_const_snapshot_q : NULL;
     }
     if (sample_count != NULL) {
-        *sample_count = s_const_snapshot_valid ? (size_t)s_const_snapshot_n : 0U;
+        *sample_count = const_valid ? (size_t)s_const_snapshot_n : 0U;
     }
-    return true;
+    __DMB();
+    return s_spec_snapshot_source_epoch == s_source_epoch;
 }
 
 /* Allocation-free counter snapshot for the UI: fills the caller's int32 buffer with

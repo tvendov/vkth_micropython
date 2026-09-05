@@ -1,9 +1,12 @@
-"""Build the VK_RA6M3 TESTER AM/USB/LSB/CW IQ-file bank.
+"""Build the VK_RA6M3 TESTER AM/FM/USB/LSB/CW IQ-file bank.
 
 The deterministic bank is project-owned and needs only the Python standard
-library.  Supplying ``--zs1-dir`` also converts local, real off-air ZS-1 WAV
-recordings with NumPy.  The third-party recordings are intentionally not copied
-into Git; download them for private receiver testing from:
+library.  Supplying ``--zs1-dir`` also converts the known local, real off-air
+ZS-1 AM/SSB/CW WAV recordings with NumPy.  A real FM pair is written only when
+``--fm-source`` and its explicit ``--fm-shift-hz`` are supplied; the generator
+never substitutes a synthetic waveform for a missing recording.  Third-party
+recordings are intentionally not copied into Git; download suitable private
+receiver-test material from:
 
     http://zs-1.ru/index.php/downloads/category/iq-records
 
@@ -12,6 +15,10 @@ stored as sign/MSB/LSB bytes (not normal WAV little-endian 24-bit).  Conversion
 selects a useful channel, shifts it to complex baseband, performs an FFT
 band-limited resample, normalises it, and writes the strict SDRangel-compatible
 32-byte-header S16LE I/Q format consumed by ``sdr_single._IqFileSource``.
+
+FM rate contract: 48-kS/s IN files carry a -6-kHz low IF and require NCO
+-6000; 24-kS/s MID/OUT files are centred and require NCO 0.  Both use the
+same 6-kHz-channel narrow-FM discriminator path, not broadcast WFM.
 """
 
 import argparse
@@ -29,8 +36,13 @@ SYNTH_AMPLITUDE_48K = 12000
 IN_FILE_SCALE = 16          # 48-kS/s IN S16 is divided by 16 into ADC-count units
 HEADER_BYTES = 32
 BITS = 16
+FM_CARRIER_48_HZ = -6000.0  # physical RX convention: RF is below the Tayloe LO
+FM_MOD_HZ = 984.375         # 42 cycles/2048 at 48 kS/s, 84 cycles at 24 kS/s
+FM_DEVIATION_HZ = 4000.0
+REAL_DURATION_S = 2.0
+REAL_OVERLAP_S = 0.05
 
-SYNTH_NAMES = ("am", "usb", "lsb", "cw")
+SYNTH_NAMES = ("am", "fm", "usb", "lsb", "cw")
 REAL_NAMES = ("zam", "zusb", "zlsb", "zcw")
 
 ZS1_FILES = {
@@ -67,11 +79,21 @@ def _synth_pair(kind, sample_rate, index):
         phase = 2.0 * math.pi * 3000.0 * t
         value = amplitude * envelope
         return round(value * math.cos(phase)), round(value * math.sin(phase))
+    if kind == "fm":
+        # Constant-envelope NFM.  Both phase terms close exactly at the file
+        # boundary, so LOOP repeats the next analytic sample rather than making
+        # an arbitrary phase jump.  IN mirrors the real receiver's -6-kHz IF;
+        # MID/OUT are already past the raw-input DC servo and stay at baseband.
+        carrier_hz = FM_CARRIER_48_HZ if sample_rate == 48000 else 0.0
+        phase = (2.0 * math.pi * carrier_hz * t +
+                 (FM_DEVIATION_HZ / FM_MOD_HZ) *
+                 math.sin(2.0 * math.pi * FM_MOD_HZ * t))
+        return round(amplitude * math.cos(phase)), round(amplitude * math.sin(phase))
     if kind == "usb":
-        phase = -2.0 * math.pi * 1500.0 * t  # firmware USB convention
+        phase = 2.0 * math.pi * 1500.0 * t
         return round(amplitude * math.cos(phase)), round(amplitude * math.sin(phase))
     if kind == "lsb":
-        phase = 2.0 * math.pi * 1500.0 * t
+        phase = -2.0 * math.pi * 1500.0 * t
         return round(amplitude * math.cos(phase)), round(amplitude * math.sin(phase))
     if kind == "cw":
         # A phase-closed +23.4375-Hz carrier survives the mandatory IN DC remover;
@@ -159,8 +181,8 @@ def _read_zs1(path, start_s, duration_s=2.0, overlap_s=0.05):
     return iq[:, 0] + 1j * iq[:, 1], rate, center_hz
 
 
-def _shift_and_loop(source, sample_rate, shift_hz, duration_s=2.0,
-                    overlap_s=0.05):
+def _shift_and_loop(source, sample_rate, shift_hz, duration_s=REAL_DURATION_S,
+                    overlap_s=REAL_OVERLAP_S, phase_safe=False):
     import numpy as np
 
     count = round(duration_s * sample_rate)
@@ -170,12 +192,26 @@ def _shift_and_loop(source, sample_rate, shift_hz, duration_s=2.0,
     phase = 2.0 * np.pi * shift_hz * np.arange(count + overlap) / sample_rate
     shifted = source[:count + overlap] * np.exp(1j * phase)
 
-    # Make the LOOP seam continuous without muting it: the first overlap fades
-    # from the real continuation at t=duration to the original beginning.
+    # Make the LOOP seam continuous: sample count-1 is followed by its real
+    # continuation at count, then the first overlap returns to the beginning.
     result = shifted[:count].copy()
     weight = np.linspace(0.0, 1.0, overlap, endpoint=False)
-    result[:overlap] = ((1.0 - weight) * shifted[count:count + overlap] +
-                        weight * shifted[:overlap])
+    continuation = shifted[count:count + overlap]
+    beginning = shifted[:overlap]
+    if phase_safe:
+        # A Cartesian crossfade can cancel two equal FM vectors whose phases are
+        # opposed.  Interpolate radius and the unwrapped relative phase instead;
+        # this preserves a usable discriminator vector throughout the seam.
+        relative = np.unwrap(np.angle(beginning * np.conj(continuation)))
+        relative -= (2.0 * np.pi *
+                     round(float(np.median(relative)) / (2.0 * np.pi)))
+        radius = ((1.0 - weight) * np.abs(continuation) +
+                  weight * np.abs(beginning))
+        result[:overlap] = radius * np.exp(
+            1j * (np.angle(continuation) + weight * relative))
+    else:
+        result[:overlap] = ((1.0 - weight) * continuation +
+                            weight * beginning)
     return result
 
 
@@ -216,12 +252,12 @@ def build_zs1(out_dir, source_dir):
         selected[key] = _shift_and_loop(source, rate, shift_hz)
 
     # After +10 kHz the selected real 20-m USB speech occupies positive
-    # frequencies.  Conjugation maps it to the receiver's established negative-Q
-    # USB convention; the unconjugated twin is the derived real-content LSB test.
+    # frequencies, matching the receiver's RF convention.  Conjugation creates
+    # the corresponding negative-frequency LSB test.
     profiles = {
         "zam": selected["am"],
-        "zusb": np.conj(selected["ssb"]),
-        "zlsb": selected["ssb"],
+        "zusb": selected["ssb"],
+        "zlsb": np.conj(selected["ssb"]),
         "zcw": selected["cw"],
     }
     # These are recentered baseband fixtures, not RF waveforms.  Keep center=0
@@ -243,6 +279,68 @@ def build_zs1(out_dir, source_dir):
     return written
 
 
+def _validate_real_fm_options(source_path, shift_hz):
+    """Return whether real FM was requested; reject incomplete input cleanly."""
+    if source_path is None and shift_hz is None:
+        return False
+    if source_path is None:
+        raise ValueError("--fm-shift-hz requires --fm-source")
+    if shift_hz is None:
+        raise ValueError("--fm-source requires --fm-shift-hz")
+    if not math.isfinite(float(shift_hz)):
+        raise ValueError("--fm-shift-hz must be finite")
+    source_path = pathlib.Path(source_path)
+    if not source_path.is_file():
+        raise FileNotFoundError("real FM source WAV not found: " + str(source_path))
+    return True
+
+
+def _frequency_shift(source, sample_rate, shift_hz):
+    import numpy as np
+
+    phase = 2.0 * np.pi * shift_hz * np.arange(len(source)) / sample_rate
+    return source * np.exp(1j * phase)
+
+
+def build_real_fm(out_dir, source_path, start_s, shift_hz):
+    """Convert one explicitly supplied real ZS-1 FM capture into zfm48/zfm24.
+
+    ``shift_hz`` is the complex shift which puts the selected FM carrier at DC
+    before resampling.  The 48-kS/s IN asset is then moved to -6 kHz; the
+    24-kS/s MID/OUT asset remains centred.  No source path means no real FM and
+    is handled by ``main`` before this function is called.
+    """
+    import numpy as np
+
+    source_path = pathlib.Path(source_path)
+    if not source_path.is_file():
+        raise FileNotFoundError("real FM source WAV not found: " + str(source_path))
+    if not math.isfinite(float(start_s)) or start_s < 0.0:
+        raise ValueError("--fm-start-s must be a finite non-negative value")
+    if not math.isfinite(float(shift_hz)):
+        raise ValueError("--fm-shift-hz must be finite")
+
+    source, source_rate, _center = _read_zs1(source_path, start_s)
+    if abs(float(shift_hz)) >= source_rate / 2:
+        raise ValueError("--fm-shift-hz must stay inside the source Nyquist band")
+    centred = _shift_and_loop(source, source_rate, float(shift_hz),
+                              phase_safe=True)
+
+    written = []
+    for rate in RATES:
+        converted = _fft_resample(centred, round(REAL_DURATION_S * rate))
+        if rate == 48000:
+            converted = _frequency_shift(converted, rate, FM_CARRIER_48_HZ)
+        point_scale = 1.0 if rate == 48000 else 1.0 / IN_FILE_SCALE
+        path = out_dir / ("zfm" + ("48" if rate == 48000 else "24") + ".sdriq")
+        _write_payload(path, rate, 0,
+                       _numpy_payload(converted,
+                                      20000.0 * point_scale,
+                                      30000.0 * point_scale))
+        written.append(path)
+    return written
+
+
 def _read_file(path):
     data = path.read_bytes()
     if len(data) < HEADER_BYTES or (len(data) - HEADER_BYTES) & 3:
@@ -257,6 +355,68 @@ def _read_file(path):
     if len(pairs) < 2048:
         raise AssertionError(path.name + ": not LOOP-safe")
     return rate, center, pairs, data
+
+
+def _phase_step(first, second):
+    i0, q0 = first
+    i1, q1 = second
+    return math.atan2(i0 * q1 - q0 * i1, i0 * i1 + q0 * q1)
+
+
+def _wrapped_delta(first, second):
+    return math.atan2(math.sin(first - second), math.cos(first - second))
+
+
+def _percentile(values, fraction):
+    ordered = sorted(values)
+    index = round(fraction * (len(ordered) - 1))
+    return ordered[index]
+
+
+def _verify_fm(path, rate, pairs, real):
+    radii = [math.hypot(i, q) for i, q in pairs]
+    median_radius = _percentile(radii, 0.5)
+    if median_radius <= 0.0:
+        raise AssertionError(path.name + ": empty FM vector")
+
+    # Include last->first: this is the transition the LOOP player actually makes.
+    steps = [_phase_step(pairs[index], pairs[(index + 1) % len(pairs)])
+             for index in range(len(pairs))]
+    hz = [step * rate / (2.0 * math.pi) for step in steps]
+    expected_carrier = FM_CARRIER_48_HZ if rate == 48000 else 0.0
+    mean_hz = sum(hz) / len(hz)
+    lo_hz = _percentile(hz, 0.01 if real else 0.0)
+    hi_hz = _percentile(hz, 0.99 if real else 1.0)
+
+    if abs(mean_hz - expected_carrier) > (1000.0 if real else 2.0):
+        raise AssertionError(path.name + ": FM carrier placement")
+    if real:
+        # A weak/wide/WFM selection is not a valid fixture for the 24-kS/s,
+        # 6-kHz-channel NFM receiver.  The explicit source/shift must yield a
+        # bounded discriminator trajectory around the requested centre.
+        if (lo_hz < expected_carrier - 5750.0 or
+                hi_hz > expected_carrier + 5750.0):
+            raise AssertionError(path.name + ": real FM is not bounded NFM")
+    else:
+        if (lo_hz > expected_carrier - 3900.0 or
+                hi_hz < expected_carrier + 3900.0):
+            raise AssertionError(path.name + ": synthetic FM deviation")
+        if max(radii) - min(radii) > max(3.0, median_radius * 0.001):
+            raise AssertionError(path.name + ": synthetic FM envelope")
+
+    # The seam must neither mute nor introduce a phase-derivative outlier.  The
+    # strict synthetic vector is mathematically phase closed; real FM gets a
+    # looser bound for off-air noise after band-limited resampling.
+    if min(radii[-1], radii[0]) < median_radius * (0.20 if real else 0.99):
+        raise AssertionError(path.name + ": FM seam amplitude collapse")
+    seam = steps[-1]
+    seam_join = abs(_wrapped_delta(steps[0], seam))
+    seam_curve = max(abs(_wrapped_delta(seam, steps[-2])),
+                     seam_join)
+    if ((real and seam_curve > 0.75) or
+            (not real and (seam_join > 0.01 or seam_curve > 0.10))):
+        raise AssertionError(path.name + ": FM seam phase discontinuity")
+    return mean_hz, lo_hz, hi_hz, seam_curve
 
 
 def verify(paths):
@@ -276,18 +436,23 @@ def verify(paths):
         if stem in ("usb", "lsb", "zusb", "zlsb"):
             rotation = sum(i0 * q1 - q0 * i1
                            for (i0, q0), (i1, q1) in zip(pairs, pairs[1:]))
-            if stem in ("usb", "zusb") and rotation >= 0:
+            if stem in ("usb", "zusb") and rotation <= 0:
                 raise AssertionError(path.name + ": USB rotation sign")
-            if stem in ("lsb", "zlsb") and rotation <= 0:
+            if stem in ("lsb", "zlsb") and rotation >= 0:
                 raise AssertionError(path.name + ": LSB rotation sign")
         if stem in ("cw", "zcw"):
             radii = [abs(i) + abs(q) for i, q in pairs]
             if min(radii) > max(radii) // 20:
                 raise AssertionError(path.name + ": CW is not keyed")
+        fm_metrics = None
+        if stem in ("fm", "zfm"):
+            fm_metrics = _verify_fm(path, rate, pairs, stem == "zfm")
         digest = hashlib.sha256(data).hexdigest().upper()
         print(path.name, len(data), "bytes", rate, "S/s", len(pairs),
               "pairs", "center", center, "rms", round(rms, 1),
               "internal_peak", internal_peak,
+              "fm_hz", (tuple(round(value, 2) for value in fm_metrics)
+                         if fm_metrics is not None else "-"),
               "sha256", digest)
 
 
@@ -298,10 +463,24 @@ def main():
                         "generated" / "iqbank")
     parser.add_argument("--zs1-dir", type=pathlib.Path,
                         help="directory containing the three extracted ZS-1 WAV files")
+    parser.add_argument("--fm-source", type=pathlib.Path,
+                        help="optional real 125-kS/s ZS-1 stereo 24-bit FM IQ WAV")
+    parser.add_argument("--fm-start-s", type=float, default=0.0,
+                        help="start second of the 2-s real FM selection (default: 0)")
+    parser.add_argument("--fm-shift-hz", type=float,
+                        help="required complex shift which centres --fm-source at 0 Hz")
     args = parser.parse_args()
+    try:
+        real_fm_requested = _validate_real_fm_options(args.fm_source,
+                                                       args.fm_shift_hz)
+    except (ValueError, FileNotFoundError) as exc:
+        parser.error(str(exc))
     paths = build_synthetic(args.out_dir)
     if args.zs1_dir is not None:
         paths += build_zs1(args.out_dir, args.zs1_dir)
+    if real_fm_requested:
+        paths += build_real_fm(args.out_dir, args.fm_source, args.fm_start_s,
+                               args.fm_shift_hz)
     verify(paths)
     print("IQ RECEIVER BANK PASS", len(paths), "files")
 

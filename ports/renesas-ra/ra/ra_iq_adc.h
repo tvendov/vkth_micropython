@@ -188,8 +188,8 @@ bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
 void ra_iq_adc_set_tap(uint8_t stage);
 uint16_t ra_iq_adc_tap_read(int16_t *out, size_t cap_pairs);
 
-/* Bench injection modes.  IQ/CW/LSB/FM use positive analytic rotation; USB uses
- * the opposite Q sign required by the current phasing demodulator.  AM applies
+/* Bench injection modes.  IQ/CW/USB/FM use positive analytic rotation; LSB uses
+ * the opposite Q sign required by the RF sideband convention.  AM applies
  * the selected modulation waveform to a sinusoidal analytic carrier; FM varies
  * the analytic carrier's instantaneous phase while preserving its envelope. */
 typedef enum {
@@ -287,6 +287,7 @@ bool ra_iq_adc_file_attach(uint8_t *buf0, uint8_t *buf1, size_t buffer_len,
 bool ra_iq_adc_file_commit(uint8_t index, size_t valid_bytes);
 bool ra_iq_adc_file_start(void);
 void ra_iq_adc_file_stop(void);
+void ra_iq_adc_file_hold(void);
 void ra_iq_adc_file_detach(void);
 void ra_iq_adc_file_get_status(ra_iq_file_status_t *status);
 
@@ -309,8 +310,8 @@ uint8_t ra_iq_adc_get_block(uint8_t block);
 typedef enum {
     RA_IQ_DEMOD_OFF = 0,
     RA_IQ_DEMOD_AM = 1,
-    RA_IQ_DEMOD_USB = 2,    /* upper sideband, phasing method: I_delayed - H(Q) */
-    RA_IQ_DEMOD_LSB = 3,    /* lower sideband, phasing method: I_delayed + H(Q) */
+    RA_IQ_DEMOD_USB = 2,    /* upper sideband, phasing method: I_delayed + H(Q) */
+    RA_IQ_DEMOD_LSB = 3,    /* lower sideband, phasing method: I_delayed - H(Q) */
     RA_IQ_DEMOD_CW = 4,     /* CW: mix baseband up to a fixed 700 Hz beat, real part */
     RA_IQ_DEMOD_PASS = 5,   /* verification passthrough: channel-filtered I straight to audio */
     RA_IQ_DEMOD_FM = 6,     /* narrow FM: phase difference of successive complex samples */
@@ -393,7 +394,7 @@ int32_t ra_iq_adc_get_volume(void);
 #define RA_IQ_SPECTRUM_N (512)
 bool ra_iq_adc_spectrum(float *out, size_t n);
 
-/* Allocation-free UI accessors: the tuned-centre FFT->bars reduction (dB-scaled,
+/* Allocation-free UI accessors: the FFT->bars reduction (dB-scaled,
  * attack/release-smoothed int16 heights) and counter snapshot are done entirely in C,
  * filling caller buffers.  This keeps the GUI heap quiet and makes GC-related UI
  * pauses rarer; the ADC/DAC realtime path remains interrupt/DMA-driven. */
@@ -401,7 +402,7 @@ bool ra_iq_adc_spectrum_bars(int16_t *out, size_t nbars, int16_t max_h);
 /* Apply the same shared 10-Hz Q8 attack/release reducer to a magnitude frame already
  * returned by ra_iq_adc_spectrum_frame(). */
 bool ra_iq_adc_spectrum_reduce(const float *magnitudes, float ref_peak,
-    int32_t shift_bins, int16_t *out, size_t nbars, int16_t max_h);
+    int32_t marker_bins, int16_t *out, size_t nbars, int16_t max_h);
 /* Consume one fresh final-complex post-CHF/OUT snapshot without consuming or
  * calculating an FFT frame.  Returned pointers remain stable until the next
  * constellation or spectrum frame claim. */
@@ -416,10 +417,16 @@ void ra_iq_adc_constellation_enable(uint8_t on);
  * panorama is captured pre-NCO for horizontal tuning.  No buffer is allocated; all
  * returned pointers remain valid until the next corresponding frame claim.  Passing
  * all three I/Q outputs as NULL leaves the constellation frame unconsumed.  ref_peak
- * and shift_bins describe the tuned-centre panorama scaling used by spectrum_bars(). */
+ * controls display scaling; marker_bins is the live NCO marker offset in FFT-bin
+ * units (zero for a post-NCO capture or bypassed NCO); generation identifies the
+ * physical-LO capture epoch. */
 bool ra_iq_adc_spectrum_frame(const float **magnitudes, float *ref_peak,
-    int32_t *shift_bins, const int16_t **i_samples, const int16_t **q_samples,
-    size_t *sample_count);
+    int32_t *marker_bins, uint32_t *generation, const int16_t **i_samples,
+    const int16_t **q_samples, size_t *sample_count);
+/* Advance the physical-LO spectrum generation after a confirmed synthesizer retune.
+ * The next possibly straddling ADC block and every stale completed half are rejected;
+ * the returned generation appears only with a complete post-retune FFT frame. */
+uint32_t ra_iq_adc_spectrum_rebase(void);
 /* Native oscilloscope source.  The DAC DMAC refill callback pushes the exact
  * unsigned 12-bit samples that it is about to play into an independent static
  * ping-pong, allowing DAC scope and ADC spectrum to run simultaneously. */

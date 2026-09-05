@@ -256,13 +256,10 @@ class _IqFileSource:
             self.error = "SDRIQ refill: %r" % (e,)
             self.eof = True
             self._feeding = False
-            try:
-                self._iq.file_stop()
-            except Exception:
-                pass
             # The native trampoline catches this exception, withdraws the failing
-            # callback and independently stops FILE.  A synchronous prefill reaches
-            # start(), whose cleanup also detaches the borrowed pointers.
+            # callback and puts FILE into fail-closed zero-I/Q hold.  A synchronous
+            # prefill reaches start(), whose cleanup explicitly stops and detaches the
+            # borrowed pointers.
             raise
 
     def poll(self):
@@ -480,6 +477,7 @@ TEAL       = 0x33A68C
 # spectrum demo bins; the app shifts this pattern when the frequency changes
 SPEC_HEIGHTS = (6, 12, 8, 4, 16, 28, 24, 12, 8, 20, 38, 14, 8, 12, 24, 34,
                 12, 6, 20, 10, 4, 14, 26, 16, 8, 12, 4)
+NATIVE_GRAPH_HEADER_H = 18   # shared with LCD_WATERFALL_TOP_PAD in machine_lcd.c
 
 _FONTS = {}
 def font(size):
@@ -1279,6 +1277,7 @@ class Ra6m3Backend:
         self.rf_code = 0             # RF PGA gain code 0..14 (only effective off BYPASS)
         self.fine_hz = 0             # digital NCO offset within the +/- fs/2 window
         self.scope_stage = 0         # cached physical DAC route (0 = normal mono AF)
+        self.source_hold = False     # zero-I/Q TESTER owner during a PGA reconstruction
         # Preallocated, alloc-free UI buffers filled by the C accessors (spectrum_bars /
         # counters). Nothing in the poll loop creates a MicroPython object -> GC never
         # runs -> the realtime ADC ISR is never stalled.
@@ -1313,9 +1312,15 @@ class Ra6m3Backend:
         return round(p, 4)
 
     # ---- lifecycle ----
-    def start_rx(self):
+    def start_rx(self, source_hold=False):
         if not self.available or self.running:
             return self.running
+        if self.iq is not None:
+            # A previous checked teardown failed and deliberately retained the
+            # singleton handle/source roots.  Never let a later HOME press make the
+            # constructor tear it down behind persistent TST state and start ADC.
+            self.err = "IQADC teardown incomplete; reset required"
+            return False
         try:
             kw = {"rate": IQ_RATE, "block": IQ_BLOCK}
             # P000/P004 are PGA-capable ADC0/ADC1 channels. PGA mode and gain are
@@ -1329,6 +1334,19 @@ class Ra6m3Backend:
             kw["gain"] = self.rf_code if self.rf_enabled else 0
             self.iq = self._IQADC(IQ_PIN_I, IQ_PIN_Q, **kw)
             self.dac = self._DAC(DAC_PIN)
+            if source_hold:
+                # A PGA change reconstructs IQADC while TESTER remains selected in
+                # HOME.  Publish a zero-I/Q IN source before the first ADC block so
+                # the fresh chain is fail-closed: ADC/DTC still provide cadence, but
+                # no real input can reach any DSP or scope/DAC stage before GEN/FILE
+                # is restored.
+                if (not hasattr(self.iq, "INJECT_POINT_IN") or
+                        not hasattr(self.iq, "INJECT_WAVE_SINE")):
+                    raise RuntimeError("TESTER source hold unavailable")
+                self.iq.inject(True, 0, 0, self.iq.INJECT_IQ, 0, 0, 0, 0,
+                               self.iq.INJECT_POINT_IN,
+                               self.iq.INJECT_WAVE_SINE)
+                self.source_hold = True
             self.iq.start()
             # Float 4-pole channel filter has the real wide-band coefficients needed
             # by 6/9-kHz verification and cursor rejection; the integer kernel clamps
@@ -1388,6 +1406,7 @@ class Ra6m3Backend:
         self.dac_q = None
         self.running = False
         self.fine_hz = 0
+        self.source_hold = False
         return iq_released
 
     # ---- settings: cached always, pushed only while RX is up ----
@@ -1653,11 +1672,17 @@ class SdrApp:
     def __init__(self, ui, iq_file_mem=None):
         self.ui = ui
         self.p = load_params()
-        # p["f"] is the selected/persisted station frequency.  _lo_hz is the
-        # physical Si5351 centre; their difference is the live digital NCO offset.
-        # Keeping them separate lets HOME pan inside the captured baseband without
-        # losing the selected frequency on RX restart or VFO switch.
+        # Four different frequencies must never be conflated:
+        #   p["f"]        last selected frequency published by the UI;
+        #   _requested_hz latest operator request (may still be in flight);
+        #   _lo_hz        last Si5351 frequency confirmed by set_freq();
+        #   _axis_hz      physical LO belonging to the FFT pixels now on screen.
+        # A live NCO move changes only the selected frequency/marker.  A physical
+        # LO move publishes _axis_hz only after C accepts a complete FFT carrying
+        # the matching generation token.
         self._lo_hz = self.p["f"]
+        self._requested_hz = self.p["f"]
+        self._axis_hz = self.p["f"]
         self.entry = ""              # keypad buffer (MHz string, e.g. "14.205")
         self.save_timer = None
         self._band = None            # cached band name to skip no-op label writes
@@ -1688,6 +1713,8 @@ class SdrApp:
         self._lcd = None
         self._spec_lcd = None
         self._spectrum_center_fn = None
+        self._spectrum_publish_fn = None
+        self._spectrum_generation_api = False
         self._spec_native = False
         self._spectrum_view = 0       # 0=SPEC, 1=WF, 2=OFF on the left native panel
         self._scope_view = 0          # 0=TIME, 1=I-Q, 2=OFF on the right native panel
@@ -1701,9 +1728,21 @@ class SdrApp:
                 if self._spec_native:
                     self._spec_lcd = lcd
                     self._spectrum_center_fn = getattr(lcd, "spectrum_center", None)
+                    self._spectrum_publish_fn = getattr(lcd, "spectrum_publish", None)
+                    if (self._spectrum_center_fn is not None and
+                            self._spectrum_publish_fn is not None):
+                        try:
+                            # New API: no argument is a signed generation getter.
+                            # Old panorama-panning firmware requires one argument.
+                            int(self._spectrum_center_fn())
+                            self._spectrum_generation_api = True
+                        except Exception:
+                            self._spectrum_generation_api = False
                     self.ui.bins = ()       # release deleted LVGL wrapper objects
         except Exception:
             self._spec_lcd = None
+            self._spectrum_center_fn = None
+            self._spectrum_publish_fn = None
             self._spec_native = False
         # Deferred-work flags: interaction callbacks only SET these (microseconds);
         # the 100 ms GUI worker applies the latest values outside the touch callback.
@@ -1717,10 +1756,16 @@ class SdrApp:
         self._station_pending_hz = None
         self._station_pending_vfo = None
         self._station_pending_mode = None
+        self._axis_pending_token = 0
+        self._axis_pending_hz = None
+        self._axis_pending_station_hz = None
+        self._axis_pending_vfo = None
+        self._axis_pending_mode = None
         self._vol_pending = False    # firmware volume needs the latest slider value
         self._rx_pending = 0         # 0 none, 1 start, 2 stop (heavy IQADC/DAC bring-up)
         self._poll_div = 0           # 100 ms GUI tick; status every fifth tick
         self._modal = False          # non-HOME screen/overlay -> pause native framebuffer writes
+        self._spectrum_transition_hold = False  # pause only around the physical I2C edge
         # Settings modal (firmware DSP verification controls).  The test-source preset,
         # injection point, waveform and LIVE flag survive VERIFY screen rebuilds in this
         # App instance, but are never written to flash.  The source itself runs in C;
@@ -1739,21 +1784,25 @@ class SdrApp:
         self._inj_prev_scope = None  # retained only for fail-safe legacy restoration
         self._inj_source = 0         # 0=native generator, 1=/flash/test.sdriq player
         self._iq_file_preset = 0     # independent FILE bank selection
-        # Real off-air recordings are optional local assets.  Expose R:* only when
-        # every paired 48/24-kS/s file is present; the project-owned four always work.
-        real_bank = True
-        for _profile in self._IQ_FILE_REAL_PRESETS:
+        # Expose each FILE profile independently only when both point-rate assets are
+        # present.  A missing optional R:FM pair must not hide otherwise usable R:AM,
+        # R:USB, R:LSB or R:CW recordings (the former all-or-nothing probe did that).
+        available_profiles = []
+        for _profile in self._IQ_FILE_PRESETS + self._IQ_FILE_REAL_PRESETS:
+            profile_ready = True
             for _path in (_profile[2], _profile[3]):
                 try:
                     _probe = open(_path, "rb")
                     _probe.close()
                 except OSError:
-                    real_bank = False
+                    profile_ready = False
                     break
-            if not real_bank:
-                break
-        self._iq_file_profiles = (self._IQ_FILE_PRESETS +
-                                  (self._IQ_FILE_REAL_PRESETS if real_bank else ()))
+            if profile_ready:
+                available_profiles.append(_profile)
+        # Keep one deterministic error-reporting choice when a development flash has
+        # no bank at all.  start() will then report the missing AM path explicitly.
+        self._iq_file_profiles = (tuple(available_profiles) if available_profiles else
+                                  self._IQ_FILE_PRESETS[:1])
         self._iq_file_loop = True
         self._iq_file_ui_pct = -1
         if iq_file_mem is None:
@@ -1775,6 +1824,9 @@ class SdrApp:
         self._iqc_phase = self.p["iqp"]     # I leakage added to Q (not degrees)
         self._iqc_dirty = False
         self._rf_restart_pending = False
+        self._tester_arm_pending = False
+        self._tester_rearm_pending = False
+        self._tester_rearm_nco = None
         self._kernels = {"dec_kernel": 0, "hil_kernel": 0,
                          "chf_kernel": 0, "mag_kernel": 0}
         # Per-block DSP verification table. _blk_on maps block id 1..11 -> bool.
@@ -1824,10 +1876,6 @@ class SdrApp:
         # binding passes the pointer without copying, so a live counter allocates nothing.
         self._blk_buf = bytearray(b"BLK 0000000000\x00")
         self.be = Ra6m3Backend()
-        # spectrum_center() treats its first value as the panorama baseline.  Seed it
-        # before the first operator move; otherwise the first successful tune would
-        # establish the baseline without moving the retained waterfall history.
-        self._publish_spectrum_center(self.p["f"])
         self._wire()
         self.apply_all()
         # rx_autostart: come back up in the state the radio was left in
@@ -1837,11 +1885,34 @@ class SdrApp:
     def _set_modal(self, value):
         """Keep Python and native C spectrum rendering in the same HOME state."""
         self._modal = bool(value)
+        self._sync_spectrum_pause()
+
+    def _sync_spectrum_pause(self):
+        """Apply the union of navigation and the short physical-retune hold."""
         if self._spec_native and hasattr(self._spec_lcd, "spectrum_pause"):
+            paused = self._modal or self._spectrum_transition_hold
             try:
-                self._spec_lcd.spectrum_pause(self._modal)
+                try:
+                    # New firmware latches a dirty-rebuild request only for a real
+                    # modal.  A short Si5351 hold must preserve the old waterfall
+                    # until the matching new-generation frame is ready.
+                    self._spec_lcd.spectrum_pause(paused, self._modal)
+                except TypeError:
+                    # Older firmware has the one-argument API.  Keep it usable;
+                    # its resume semantics may rebuild, but tuning must not fail.
+                    self._spec_lcd.spectrum_pause(paused)
             except Exception as e:
                 self.be.err = "spectrum pause: %r" % (e,)
+
+    def _set_spectrum_transition(self, value):
+        """Freeze capture only while Si5351 is physically being changed.
+
+        The hold is released immediately after the C generation request.  Keeping
+        it raised while waiting for the acknowledgement would deadlock the publish:
+        a paused native surface cannot draw and commit the matching frame.
+        """
+        self._spectrum_transition_hold = bool(value)
+        self._sync_spectrum_pause()
 
     def _begin_verify_scroll_gate(self, rows):
         """Freeze repaint before LVGL moves the VERIFY children."""
@@ -1994,6 +2065,13 @@ class SdrApp:
         self._station_pending_vfo = None
         self._station_pending_mode = None
 
+    def _clear_axis_pending(self):
+        self._axis_pending_token = 0
+        self._axis_pending_hz = None
+        self._axis_pending_station_hz = None
+        self._axis_pending_vfo = None
+        self._axis_pending_mode = None
+
     def _cancel_frequency_pending(self):
         """Cancel only frequency work; preserve an unrelated route/CAL refresh."""
         self._lo_pending_hz = None
@@ -2043,7 +2121,23 @@ class SdrApp:
     def _queue_station_recenter(self, hz, vfo=None, mode=None):
         """Queue an absolute live jump; do not change truthful UI state yet."""
         hz = min(max(int(hz), F_MIN), F_MAX)
+        # A held tuning control can supersede either a worker-owned request which
+        # has not reached Si5351 yet, or an applied axis awaiting its first tagged
+        # frame.  In both windows p[] is deliberately stale.  Preserve the newer
+        # queued identity first, then the applied in-flight identity, before deriving
+        # the next low-IF LO target.
+        if self._station_pending_hz is not None:
+            if vfo is None:
+                vfo = self._station_pending_vfo
+            if mode is None:
+                mode = self._station_pending_mode
+        if self._axis_pending_token:
+            if vfo is None:
+                vfo = self._axis_pending_vfo
+            if mode is None:
+                mode = self._axis_pending_mode
         selected_mode = self.p["m"] if mode is None else mode
+        self._requested_hz = hz
         self._lo_pending_hz = self._normal_lo_hz(hz, selected_mode)
         self._station_pending_hz = hz
         self._station_pending_vfo = vfo
@@ -2054,17 +2148,16 @@ class SdrApp:
         """Move the physical LO under an already-achieved NCO selection."""
         if self._station_pending_hz is not None:
             return
-        self._lo_pending_hz = self._normal_lo_hz()
-        self._hw_pending = True
+        # Use the common path so an in-flight VFO switch contributes its pending
+        # mode and routing identity to the new low-IF target.
+        self._queue_station_recenter(self._requested_hz)
 
     def _commit_current_frequency(self, hz):
         """Commit a frequency which the current LO+NCO has actually achieved."""
         hz = min(max(int(hz), F_MIN), F_MAX)
-        old = self.p["f"]
         self.p["f"] = hz
+        self._requested_hz = hz
         self.p["vfos"][self.p["act"]][0] = hz
-        if hz != old:
-            self._publish_spectrum_center(hz)
         self.update_freq()
         self.update_vfo_ui()
         self.touch_params()
@@ -2080,10 +2173,9 @@ class SdrApp:
             alt[alt.index(i)] = old_act
         p["act"] = i
         p["f"] = min(max(int(hz), F_MIN), F_MAX)
+        self._requested_hz = p["f"]
         p["m"] = mode
         p["vfos"][i] = [p["f"], mode]
-        if p["f"] != old_f:
-            self._publish_spectrum_center(p["f"])
         self.update_freq()
         self.update_mode()
         self.be.set_mode(mode)
@@ -2094,48 +2186,92 @@ class SdrApp:
         self.touch_params()
 
     def _apply_hw_pending(self):
-        """Run the one queued Si5351 transaction and atomically reconcile state.
+        """Apply one physical LO request, then arm its matching FFT generation.
 
-        _lo_hz changes only after set_freq() succeeds.  If the subsequent native
-        NCO setter fails, the LO has nevertheless moved, so p["f"] is reconciled to
-        the cached real NCO instead of pretending that the old station is still heard.
+        The display producer is paused only across the Si5351 write and generation
+        request.  It is resumed immediately afterwards so C can build the new frame.
+        Python does not publish the new axis or selected station until the matching
+        positive generation token is observed by _poll_axis_generation().
         """
         target = self._lo_pending_hz
         station = self._station_pending_hz
         pending_vfo = self._station_pending_vfo
         pending_mode = self._station_pending_mode
+        # A route/CAL refresh or a second rollover can arrive while the previous
+        # physical generation is awaiting its first frame.  Carry its unpublished
+        # selection/VFO identity forward so superseding the token cannot lose the
+        # operator request.
+        if self._axis_pending_token:
+            if station is None:
+                station = self._axis_pending_station_hz
+            if pending_vfo is None:
+                pending_vfo = self._axis_pending_vfo
+            if pending_mode is None:
+                pending_mode = self._axis_pending_mode
         self._hw_pending = False
         self._hw_config_pending = False
         self._lo_pending_hz = None
         self._clear_station_pending()
 
-        # Routing/calibration-only updates reprogram the already-known LO.  They do
-        # not touch the NCO or panorama coordinate.
+        # Routing/calibration-only updates reprogram the already-known LO and still
+        # need a fresh tagged frame: the selected output clock may have changed.
         if target is None:
-            return self.hw_tune(self._lo_hz)
+            target = self._lo_hz
 
         route_vfo = self.p["act"] if pending_vfo is None else pending_vfo
-        if not self.hw_tune(target, route_vfo):
-            return False
+        self._set_spectrum_transition(True)
+        try:
+            if not self.hw_tune(target, route_vfo):
+                # A newer physical request must not make the still-published old
+                # selection look achieved.  If an earlier generation is already in
+                # flight, keep its requested selection; otherwise return to p["f"].
+                self._requested_hz = (self._axis_pending_station_hz
+                                      if self._axis_pending_token and
+                                      self._axis_pending_station_hz is not None
+                                      else self.p["f"])
+                return False
 
-        # The physical transition is now real even if the second (NCO) operation
-        # fails; commit _lo_hz before deriving the actually heard frequency.
-        self._lo_hz = target
-        desired = self.p["f"] if station is None else station
-        achieved = desired
-        if self.be.running:
-            actual = self.be.set_fine(desired - target)
-            if actual is None:
-                # set_fine() leaves its cache unchanged on an exception.  That cache
-                # therefore describes the NCO still active after the successful LO move.
-                actual = self.be.fine_hz
-            achieved = min(max(target + actual, F_MIN), F_MAX)
+            # set_freq() succeeded: _lo_hz is now physical truth.  p["f"] and
+            # _axis_hz deliberately remain the last published display truth.
+            self._lo_hz = int(target)
+            # Any older generation belongs to a physical window that no longer
+            # exists.  It must not be allowed to publish after this successful edge.
+            self._clear_axis_pending()
+            desired = self._requested_hz if station is None else int(station)
+            achieved = desired
+            if self.be.running and station is not None:
+                actual = self.be.set_fine(desired - self._lo_hz)
+                if actual is None:
+                    # The backend cache is the last confirmed NCO after an error.
+                    actual = self.be.fine_hz
+                achieved = min(max(self._lo_hz + actual, F_MIN), F_MAX)
+                self._requested_hz = achieved
 
-        if pending_vfo is not None:
-            self._commit_vfo_switch(pending_vfo, achieved, pending_mode)
-        elif station is not None or achieved != self.p["f"]:
-            self._commit_current_frequency(achieved)
-        return achieved == desired
+            if self.be.running and self._spectrum_generation_api:
+                token = self._request_spectrum_generation(self._lo_hz)
+                if token > 0:
+                    # A later physical request replaces this record/token.  C also
+                    # coalesces or supersedes its pending generation accordingly.
+                    self._axis_pending_token = token
+                    self._axis_pending_hz = self._lo_hz
+                    self._axis_pending_station_hz = (
+                        achieved if station is not None else None)
+                    self._axis_pending_vfo = pending_vfo
+                    self._axis_pending_mode = pending_mode
+                    return achieved == desired
+
+            # RX stopped, Python fallback, or old firmware without generation
+            # readback: there is no observable matching-frame barrier.  Keep that
+            # compatibility path usable, but never call the old history-panning API.
+            self._finish_axis_publish(
+                self._lo_hz, achieved if station is not None else None,
+                pending_vfo, pending_mode)
+            if self.be.running and self._spec_native:
+                self.be.err = "spectrum generation API unavailable"
+            return achieved == desired
+        finally:
+            # Do not hold this until ACK: pause disables the producer needed to ACK.
+            self._set_spectrum_transition(False)
 
     # ---- RA6M3 backend: RX on/off + status ----
     def backend_on(self):
@@ -2144,7 +2280,7 @@ class SdrApp:
     def cur_bw(self):
         return self.p["bw"].get(self.p["m"], MODE_BW[self.p["m"]])
 
-    def _apply_iq_correction(self):
+    def _apply_iq_correction(self, enable_path=True):
         """Apply the RAM profile and make block 3 effective when correction is ON."""
         iq = self.be.iq
         fn = getattr(iq, "iq_correction", None) if iq is not None else None
@@ -2152,7 +2288,7 @@ class SdrApp:
             self.be.err = "iq_correction unavailable"
             return False
         try:
-            if self._iqc_on:
+            if self._iqc_on and enable_path:
                 block_fn = getattr(iq, "block", None)
                 if block_fn is not None:
                     block_fn(3, 1)
@@ -2162,6 +2298,97 @@ class SdrApp:
             return True
         except Exception as e:
             self.be.err = "iq_correction: %r" % (e,)
+            return False
+
+    def _capture_runtime_chain(self):
+        """Snapshot VERIFY-only state before a constructor-time PGA rebuild.
+
+        IQADC construction resets the block mask and decimator, while the backend
+        deliberately selects the f32 channel filter.  Read the live getters instead
+        of trusting Python's possibly unopened VERIFY cache, then pass this immutable
+        tuple through the synchronous stop/start edge.
+        """
+        iq = self.be.iq
+        if iq is None:
+            return None
+        block_mask = 0
+        block_fn = getattr(iq, "block", None)
+        if block_fn is not None:
+            for bid in range(2, 11):
+                try:
+                    on = bool(block_fn(bid))
+                    self._blk_on[bid] = on
+                except Exception:
+                    on = self._blk_on.get(bid, True)
+                if on:
+                    block_mask |= 1 << bid
+        else:
+            for bid in range(2, 11):
+                if self._blk_on.get(bid, True):
+                    block_mask |= 1 << bid
+
+        af_index = self._af_preset
+        af_fn = getattr(iq, "audio_filter", None)
+        if af_fn is not None:
+            try:
+                current_af = af_fn()
+                for index, (_label, value) in enumerate(self._AF_PRESETS):
+                    if value == current_af:
+                        af_index = index
+                        break
+            except Exception:
+                pass
+        self._af_preset = af_index
+
+        kernel_bits = 0
+        for index, name in enumerate(("dec_kernel", "hil_kernel",
+                                      "chf_kernel", "mag_kernel")):
+            enabled = bool(self._kernels.get(name, 0))
+            fn = getattr(iq, name, None)
+            if fn is not None:
+                try:
+                    enabled = bool(fn())
+                except Exception:
+                    pass
+            self._kernels[name] = 1 if enabled else 0
+            if enabled:
+                kernel_bits |= 1 << index
+        return (self.be.mode, self.be.bw, block_mask, af_index,
+                kernel_bits, self._tap_stage)
+
+    def _restore_runtime_chain(self, state):
+        """Restore one captured VERIFY chain onto a freshly constructed IQADC."""
+        if state is None:
+            return True
+        iq = self.be.iq
+        if iq is None:
+            self.be.err = "runtime chain unavailable"
+            return False
+        _mode, _bandwidth, block_mask, af_index, kernel_bits, tap_stage = state
+        try:
+            # Mode/bandwidth/AGC/volume were already applied by backend.start_rx().
+            # These controls are App/VERIFY-only and must be restored explicitly.
+            getattr(iq, "audio_filter")(self._AF_PRESETS[af_index][1])
+            for index, name in enumerate(("dec_kernel", "hil_kernel",
+                                          "chf_kernel", "mag_kernel")):
+                enabled = 1 if (kernel_bits & (1 << index)) else 0
+                actual = bool(getattr(iq, name)(enabled))
+                if actual != bool(enabled):
+                    raise RuntimeError(name + " readback")
+                self._kernels[name] = enabled
+            block_fn = getattr(iq, "block")
+            for bid in range(2, 11):
+                enabled = 1 if (block_mask & (1 << bid)) else 0
+                actual = bool(block_fn(bid, enabled))
+                if actual != bool(enabled):
+                    raise RuntimeError("block %d readback" % bid)
+                self._blk_on[bid] = bool(enabled)
+            getattr(iq, "tap")(tap_stage)
+            self._tap_stage = tap_stage
+            self.be.err = None
+            return True
+        except Exception as e:
+            self.be.err = "runtime restore: %r" % (e,)
             return False
 
     def _save_iq_profile(self):
@@ -2198,17 +2425,27 @@ class SdrApp:
             self._rf_restart_pending = True
         return enabled
 
-    def start_rx(self):
+    def start_rx(self, runtime_state=None, source_hold=False):
         if self.backend_on() and not self.be.running:
-            self.be.mode = self.p["m"]
-            self.be.bw = self.cur_bw()
+            # Only the internal PGA reconstruction path may request this hold, and
+            # only while the persistent TESTER request is still truthful in HOME.
+            source_hold = bool(source_hold and self._tester_rearm_pending and
+                               self._inj_on)
+            # Keep an old/demo framebuffer stable while IQADC and the physical LO
+            # are reconstructed.  _apply_hw_pending releases this short hold as
+            # soon as the new generation has been requested from C.
+            self._set_spectrum_transition(True)
+            self.be.mode = (self.p["m"] if runtime_state is None
+                            else runtime_state[0])
+            self.be.bw = (self.cur_bw() if runtime_state is None
+                          else runtime_state[1])
             self.be.agc = self.p["a"]
             self.be.agc_gain = self.p["again"]
             self.be.agc_target = self.p["atgt"]
             self.be.vol = self.p["v"]
             self.be.rf_enabled = bool(self.p["rfe"])
             self.be.rf_code = self.p["rf"]
-            self.be.start_rx()
+            self.be.start_rx(source_hold=source_hold)
             if self.be.running:
                 # RX reconstruction proves only ADC/DSP/DAC ownership.  Re-arm the
                 # active Si5351 route as well, even when the cached LO already equals
@@ -2216,57 +2453,110 @@ class SdrApp:
                 # otherwise leave CLKx disabled while STOP/START appears successful.
                 # The 100-ms worker performs the actual I2C transaction.
                 self._queue_hw_config()
-                self._apply_iq_correction()
+                # A normal START makes an enabled IQ correction effective.  A PGA
+                # reconstruction first restores its parameters, then the captured
+                # independent block-3 BYP state below.
+                chain_ok = self._apply_iq_correction(runtime_state is None)
+                chain_error = None if chain_ok else self.be.err
                 # Squelch belongs to the App's inline/VERIFY state rather than the
                 # persisted receiver parameters; reapply it to each fresh IQADC.
                 self._apply_gain("SQL", self._squelch)
-                # IQADC starts with NCO=0.  Re-establish the selected station against
-                # the last confirmed physical LO before painting live data.  If a
-                # stopped-state discontinuity lies outside the NCO window, show the
-                # clamped frequency actually heard and keep the requested station as
-                # a worker-owned LO transition.
+                if runtime_state is not None:
+                    restored = self._restore_runtime_chain(runtime_state)
+                    if not restored:
+                        chain_error = self.be.err
+                    chain_ok = restored and chain_ok
+                    if not chain_ok:
+                        # Do not re-arm a source onto a chain which is different from
+                        # the controls shown to the operator.  Explicitly release the
+                        # zero-I/Q startup hold before HOME falls back from TST to RX.
+                        chain_error = chain_error or "runtime restore failed"
+                        self._tester_rearm_pending = False
+                        self._tester_rearm_nco = None
+                        self._inj_on = False
+                        self._apply_tester_source(False)
+                        self.be.err = chain_error
+                        self._paint_tester()
+                # IQADC starts with NCO=0.  Preload the selected station against the
+                # last confirmed physical LO while capture is held.  The worker then
+                # establishes the final LO+NCO pair and its tagged FFT generation.
                 requested = self.p["f"]
-                normal_lo = self._normal_lo_hz(requested)
+                self._requested_hz = requested
                 actual = self.be.set_fine(requested - self._lo_hz)
                 if actual is None:
                     actual = self.be.fine_hz
-                achieved = min(max(self._lo_hz + actual, F_MIN), F_MAX)
-                if achieved != requested:
-                    self._commit_current_frequency(achieved)
-                    self._queue_station_recenter(requested)
-                elif self._lo_hz != normal_lo:
-                    # A fresh/PGA-rebuilt IQADC starts with NCO=0.  Re-establish
-                    # AM's deliberate low IF even when the selected RF station
-                    # itself was already achieved by the old physical LO.
-                    self._queue_station_recenter(requested)
-                elif self._nco_recenter_due(requested):
-                    self._queue_nco_recenter()
+                # Always perform one confirmed physical write and generation request
+                # after a fresh IQADC.  This also establishes AM/FM low IF and avoids
+                # accepting an untagged first/partial FFT from the reconstructed path.
+                self._queue_station_recenter(requested)
                 # ra_iq_adc_init() intentionally clears all optional native display
                 # producer gates and partial frames.  Reconcile the already-selected
                 # SPEC/WF and TIME/I-Q views only after the fresh IQADC is running.
                 # The C setter is deliberately idempotent, so this preserves both
                 # view selection and retained waterfall history.
-                self._set_modal(self._modal)
+                self._sync_spectrum_pause()
                 # The data path is alloc-free (C accessors -> preallocated arrays); the
                 # only churn is LVGL's own render binding (~22 B/repaint). That is far
                 # too little to disable GC over -- disabling it just fills the heap and
                 # the app stops. Keep GC ENABLED: with so little garbage it runs rarely
                 # and briefly, and the DTC/DMAC ping-pong absorbs the sub-ms pause.
                 gc.collect()
+            else:
+                if source_hold:
+                    # Constructor/start/hold failure must not leave persistent UI
+                    # state claiming TESTER ownership after backend teardown.
+                    start_error = self.be.err
+                    self._tester_rearm_pending = False
+                    self._tester_rearm_nco = None
+                    self._inj_on = False
+                    self._inj_overload = False
+                    self.be.err = start_error
+                    self._paint_tester()
+                self._set_spectrum_transition(False)
             self.p["rxauto"] = 1 if self.be.running else 0
             self.touch_params()
         self.update_rx()
 
-    def stop_rx(self):
-        # The FILE reader borrows pointers owned by the live IQADC object.  Detach and
-        # close it before backend teardown destroys that native owner.
-        self._iq_file.stop()
+    def stop_rx(self, preserve_tester=False):
+        resume_tester = bool(preserve_tester and self._inj_on)
+        self._tester_arm_pending = False
+        self._tester_rearm_nco = (self.be.fine_hz if
+                                  resume_tester and self._tester_before_nco()
+                                  else None)
+        # Stop acquisition before FILE is detached.  Reversing this order would let
+        # one last ISR fall through to real ADC while HOME still truthfully says TST.
+        # IQADC.deinit() first invalidates the native borrowed pointers; the idempotent
+        # Python stop below then closes its file and tolerates the inactive singleton.
         released = self.be.stop_rx()
+        if not released:
+            # Checked teardown retained the native IQADC owner.  Its stop state is
+            # uncertain, so FILE buffers must remain rooted/attached and a PGA restart
+            # must not construct a competing owner.  Keep TST truthful when it was
+            # active and require an explicit hardware recovery instead of falling
+            # through to ADC or pretending that the restart succeeded.
+            self._tester_rearm_pending = False
+            self._tester_rearm_nco = None
+            self._rf_restart_pending = False
+            self._hw_config_pending = False
+            self._cancel_frequency_pending()
+            self._clear_axis_pending()
+            self._requested_hz = self.p["f"]
+            self._set_spectrum_transition(False)
+            self.p["rxauto"] = 0
+            self.touch_params()
+            self._paint_tester()
+            self._paint_output_status()
+            self.update_rx()
+            return False
+        self._iq_file.stop()
         # A queued live VFO/keypad jump or an old plain recenter is no longer
         # meaningful after the backend has stopped.  Preserve only an unrelated
         # route/CAL refresh, then park the LO for the station which is actually
         # committed in HOME.
         self._cancel_frequency_pending()
+        self._clear_axis_pending()
+        self._requested_hz = self.p["f"]
+        self._set_spectrum_transition(False)
         # Ask the worker to park the physical LO on the selected station's normal
         # physical centre (AM keeps its deliberate 3-kHz low IF).  Do not
         # assign _lo_hz here: stop_rx() is a UI callback and no Si5351 write has yet
@@ -2275,15 +2565,18 @@ class SdrApp:
         if self._lo_hz != normal_lo:
             self._lo_pending_hz = normal_lo
             self._hw_pending = True
-        # The native IQADC object (and therefore its synthetic source) no longer
-        # exists.  Keep the VERIFY toggle truthful if RX is started again later,
-        # and restore the route TESTER replaced before the next backend start.
-        self._inj_on = False
-        self._inj_fm_nco = False
-        self._inj_overload = False
+        # A user STOP clears TESTER.  A PGA reconstruction preserves the requested
+        # source configuration and re-arms it only after the fresh IQADC and pending
+        # Si5351 transaction are complete in the worker.
+        if not resume_tester:
+            self._inj_fm_nco = False
+        self._tester_rearm_pending = resume_tester
+        if not resume_tester:
+            self._inj_on = False
+            self._inj_overload = False
         self._update_tuning_role()
         self._paint_tester()          # VERIFY may stay open across a queued PGA rebuild
-        if self._inj_prev_scope is not None:
+        if not resume_tester and self._inj_prev_scope is not None:
             self._scope_id = self._inj_prev_scope
             self.be.set_scope(self._scope_id)   # RX is down: update the cached route only
             self._inj_prev_scope = None
@@ -2328,7 +2621,12 @@ class SdrApp:
         b = ui.get("rx-button")
         b.set_style_bg_color(lv.color_hex(bg), 0)
         b.set_style_border_color(lv.color_hex(GREEN if run else BORDER), 0)
-        b.get_child(0).set_style_text_color(lv.color_hex(txt), 0)
+        label = b.get_child(0)
+        # HOME must never present a hidden synthetic/file source as ordinary RX.
+        # The same hardware button still stops the complete receiver, but its label
+        # identifies the source which currently owns the DSP input.
+        label.set_text("TST" if self._inj_on else "RX")
+        label.set_style_text_color(lv.color_hex(txt), 0)
         if not run:
             self.paint_status(None)
 
@@ -2360,19 +2658,19 @@ class SdrApp:
     # ---- targeted updates (hot paths) ----
     def update_freq(self):
         ui, f = self.ui, self.p["f"]
-        # The displayed spectrum is centred on the selected RF frequency. The C reducer
-        # shifts the pre-NCO 512-bin FFT by this same fine offset, so the panorama
-        # scrolls under the fixed centre marker at FFT-bin (~94 Hz) resolution.
-        # Normal HOME navigation writes the selected frequency into p["f"] and
-        # keeps the physical LO separately.  TESTER intentionally does not retune
-        # a saved VFO, so its temporary NCO position is still shown as LO + fine.
-        centre = (self._lo_hz + self.be.fine_hz
-                  if self.be.running and self._inj_on else f)
+        # The large digits are the listened selection.  The two scale labels belong
+        # to the immutable captured RF window, whose centre is _axis_hz.  Therefore
+        # an NCO-only move changes the DSP-supplied marker, not these labels and not
+        # the spectrum/waterfall samples.  TESTER has a temporary listened selection
+        # without changing the persisted VFO.
+        selected = (self._lo_hz + self.be.fine_hz
+                    if self.be.running and self._inj_on else f)
+        axis = self._axis_hz if self.be.running else selected
         half = 12000 if self.be.running else 5000
-        ui.get("freq-digits").set_text(self.fmt_freq(centre))
-        ui.get("spec-lo").set_text(self.fmt_khz(centre - half))
-        ui.get("spec-hi").set_text(self.fmt_khz(centre + half))
-        band, label = self.band_of(centre)
+        ui.get("freq-digits").set_text(self.fmt_freq(selected))
+        ui.get("spec-lo").set_text(self.fmt_khz(axis - half))
+        ui.get("spec-hi").set_text(self.fmt_khz(axis + half))
+        band, label = self.band_of(selected)
         if band != self._band:
             self._band = band
             ui.get("band-value").set_text(label)
@@ -2458,10 +2756,15 @@ class SdrApp:
         self.update_mode()
         self.be.set_mode(m)
         self.be.set_bandwidth(self.cur_bw())
-        if self.be.running and self._lo_hz != self._normal_lo_hz(self.p["f"], m):
+        # While TESTER owns the samples, HOME mode selection is deliberately a
+        # demodulator comparison only.  Retuning the physical Si5351/normal low-IF
+        # policy here would move the NCO out from under the unchanged test source.
+        if (self.be.running and not self._inj_on and
+                self._lo_hz != self._normal_lo_hz(self._requested_hz, m)):
             # Entering/leaving AM changes the physical low-IF policy.  Queue the
             # Si5351 write; _apply_hw_pending() atomically supplies the matching NCO.
-            self._queue_station_recenter(self.p["f"], mode=m)
+            self._queue_station_recenter(self._requested_hz, mode=m)
+        self._paint_output_status()
         self.touch_params()
 
     def update_step(self):
@@ -2821,9 +3124,9 @@ class SdrApp:
         waterfall once only if something changed. Reads array('h')[i] -> tagged small
         int (no heap), set_height -> C. No Python object is created.
 
-        The firmware reducer has already shifted the full 512-bin pre-NCO panorama by
-        fine_hz before reducing it to these 27 bars. Python therefore paints the buffer
-        directly: no second shift, float, round, or modulo allocation in the hot loop."""
+        The firmware reducer keeps the 512-bin pre-NCO panorama fixed on its physical
+        RF axis. Python paints those reduced heights directly; only native firmware can
+        add the independent high-resolution NCO marker."""
         if self._spec_native:
             self._spec_lcd.spectrum_update(b)
             return
@@ -3035,20 +3338,240 @@ class SdrApp:
             self.spec = self.spec[k:] + self.spec[:k]
             self.paint_spectrum()
 
-    def _publish_spectrum_center(self, hz):
-        """Publish the absolute listened centre to the optional C panorama."""
+    def _request_spectrum_generation(self, hz):
+        """Ask C to tag future FFT frames with a new physical-LO generation."""
         fn = self._spectrum_center_fn
-        if fn is None:
-            return False
+        if fn is None or not self._spectrum_generation_api:
+            return 0
         try:
-            return bool(fn(int(hz)))
+            token = int(fn(int(hz)))
+            if token > 0:
+                return token
+            raise ValueError("invalid generation token %d" % token)
         except Exception as e:
-            # Older firmware remains a valid Python fallback.  Disable only this
-            # optional hook after a real API failure so tuning itself keeps working.
-            self._spectrum_center_fn = None
+            self._spectrum_generation_api = False
             if getattr(self, "be", None) is not None:
                 self.be.err = "spectrum_center: %r" % (e,)
+            return 0
+
+    def _request_tester_generation(self):
+        """Supersede any pre-source FFT request with one source-derived frame."""
+        if not self.be.running or not self._spectrum_generation_api:
+            return 0
+        # A PGA rebuild may already own an unpublished station/VFO transaction.
+        # Carry that identity to the replacement token; only the data boundary is
+        # restarted after GEN/FILE and its final NCO have been restored.
+        station = self._axis_pending_station_hz
+        vfo = self._axis_pending_vfo
+        mode = self._axis_pending_mode
+        token = self._request_spectrum_generation(self._lo_hz)
+        if token > 0:
+            self._axis_pending_token = token
+            self._axis_pending_hz = self._lo_hz
+            self._axis_pending_station_hz = station
+            self._axis_pending_vfo = vfo
+            self._axis_pending_mode = mode
+        return token
+
+    def _finish_axis_publish(self, axis_hz, station_hz, vfo, mode):
+        """Put the matching axis/selection into LVGL object state before C draws."""
+        self._axis_hz = int(axis_hz)
+        if vfo is not None:
+            self._commit_vfo_switch(vfo, station_hz, mode)
+        elif station_hz is not None:
+            self._commit_current_frequency(station_hz)
+        else:
+            self.update_freq()
+
+    def _axis_publish_snapshot(self):
+        """Capture the small Python/backend state touched by an axis publication."""
+        p = self.p
+        return (self._axis_hz, self._requested_hz, self._band,
+                p["f"], p["m"], p["act"],
+                tuple((row[0], row[1]) for row in p["vfos"]),
+                tuple(self._alt) if getattr(self, "_alt", None) is not None else None,
+                self.be.mode, self.be.bw)
+
+    def _restore_axis_publish(self, snapshot):
+        """Restore an interrupted LVGL label transaction or fail explicitly.
+
+        Core values are restored before any fallible backend/UI work.  Every backend
+        rejection and repaint exception is retained; callers must not mistake a
+        partial rollback for the old axis being visible and safe to retry.
+        """
+        (axis_hz, requested_hz, _band, freq, mode, active,
+         vfos, alt, be_mode, be_bw) = snapshot
+        p = self.p
+        self._axis_hz = axis_hz
+        self._requested_hz = requested_hz
+        self._band = _band
+        p["f"] = freq
+        p["m"] = mode
+        p["act"] = active
+        for i in range(len(vfos)):
+            p["vfos"][i][0] = vfos[i][0]
+            p["vfos"][i][1] = vfos[i][1]
+        if alt is None:
+            self._alt = None
+        elif self._alt is None:
+            self._alt = [alt[0], alt[1]]
+        else:
+            self._alt[0] = alt[0]
+            self._alt[1] = alt[1]
+
+        # Bit 0 is collection, bits 1/2 are backend mode/bandwidth and bits 3..7
+        # are the five UI rebuilds below.  Keep the first concrete exception or
+        # rejection as evidence while still attempting every independent repair.
+        failed = 0
+        first_failure = None
+        try:
+            gc.collect()
+        except Exception as rollback_error:
+            failed |= 1
+            first_failure = rollback_error
+        try:
+            if not self.be.set_mode(be_mode):
+                failed |= 2
+                if first_failure is None:
+                    first_failure = "backend mode rejected"
+        except Exception as rollback_error:
+            failed |= 2
+            if first_failure is None:
+                first_failure = rollback_error
+        try:
+            if not self.be.set_bandwidth(be_bw):
+                failed |= 4
+                if first_failure is None:
+                    first_failure = "backend bandwidth rejected"
+        except Exception as rollback_error:
+            failed |= 4
+            if first_failure is None:
+                first_failure = rollback_error
+
+        # Force the band label too: it may already have been changed before the
+        # exception, so restoring the cached old value would suppress its repaint.
+        self._band = None
+        try:
+            self.update_freq()
+        except Exception as rollback_error:
+            failed |= 8
+            if first_failure is None:
+                first_failure = rollback_error
+        try:
+            self.update_mode()
+        except Exception as rollback_error:
+            failed |= 16
+            if first_failure is None:
+                first_failure = rollback_error
+        try:
+            self.update_vfo_ui()
+        except Exception as rollback_error:
+            failed |= 32
+            if first_failure is None:
+                first_failure = rollback_error
+        try:
+            self.update_entry_digits()
+        except Exception as rollback_error:
+            failed |= 64
+            if first_failure is None:
+                first_failure = rollback_error
+        try:
+            self.update_entry_bands()
+        except Exception as rollback_error:
+            failed |= 128
+            if first_failure is None:
+                first_failure = rollback_error
+        # The cache is transaction state too.  Restore it even if update_freq()
+        # changed it before another label setter failed.
+        self._band = _band
+        if failed:
+            raise RuntimeError("axis rollback incomplete mask=0x%02x first=%r" %
+                               (failed, first_failure))
+
+    def _poll_axis_generation(self):
+        """Publish one matching axis/data generation in a single LVGL transaction."""
+        token = self._axis_pending_token
+        fn = self._spectrum_center_fn
+        publish = self._spectrum_publish_fn
+        if (token <= 0 or fn is None or publish is None or
+                not self._spectrum_generation_api):
             return False
+        try:
+            state = int(fn())
+        except Exception as e:
+            self._spectrum_generation_api = False
+            self.be.err = "spectrum generation read: %r" % (e,)
+            return False
+
+        if state == 0:
+            # IQADC reconstruction can clear C's pending request.  Re-arm the same
+            # physical axis rather than publishing an untagged/partial frame.
+            new_token = self._request_spectrum_generation(self._axis_pending_hz)
+            if new_token > 0:
+                self._axis_pending_token = new_token
+            return False
+        if state != token:
+            # -token is the expected in-flight state.  A different positive token
+            # is stale/foreign and must never publish this Python request.
+            return False
+
+        axis_hz = self._axis_pending_hz
+        station_hz = self._axis_pending_station_hz
+        vfo = self._axis_pending_vfo
+        mode = self._axis_pending_mode
+        # C has staged, but not exposed, the first complete matching FFT.  Arming
+        # only queues a one-pixel invalidation; LVGL cannot render it until this
+        # Python callback yields or calls refr_now().  Therefore it is safe to arm,
+        # update every label object, and then run the one transaction whose
+        # RENDER_READY callback commits the graph.
+        armed = False
+        snapshot = None
+        try:
+            # Snapshot allocation happens before C is armed; failure here cannot
+            # expose either a new graph or a partially committed Python selection.
+            snapshot = self._axis_publish_snapshot()
+            if not publish(token):
+                self.be.err = "spectrum publish rejected %d" % token
+                return False
+            armed = True
+            self._finish_axis_publish(axis_hz, station_hz, vfo, mode)
+            lv.refr_now(self._dd)
+            if int(publish()) != token:
+                raise RuntimeError("spectrum render did not commit %d" % token)
+            # Forget the transaction only after C confirms that RENDER_READY drew
+            # the staged graph under the matching Python label state.
+            self._clear_axis_pending()
+        except Exception as e:
+            try:
+                committed = int(publish()) == token
+            except Exception:
+                committed = False
+            if committed:
+                # refr_now() may have completed the transaction before surfacing an
+                # unrelated binding exception.  C is authoritative in that case.
+                self._clear_axis_pending()
+                self.be.err = "spectrum publish completed with: %r" % (e,)
+                return True
+            abort_error = None
+            if armed:
+                try:
+                    if not publish(-token):
+                        abort_error = "C abort rejected"
+                except Exception as rollback_error:
+                    abort_error = rollback_error
+            restore_error = None
+            if snapshot is not None:
+                try:
+                    self._restore_axis_publish(snapshot)
+                except Exception as rollback_error:
+                    restore_error = rollback_error
+            if abort_error is not None or restore_error is not None:
+                raise RuntimeError(
+                    "spectrum publish failed=%r rollback abort=%r restore=%r" %
+                    (e, abort_error, restore_error))
+            self.be.err = "spectrum publish: %r" % (e,)
+            return False
+        return True
 
     # ---- tuning ----
     def _tester_before_nco(self):
@@ -3088,13 +3611,9 @@ class SdrApp:
             self._update_tuning_role()
             return True
 
-        old_centre = self._lo_hz + self.be.fine_hz
         value = self.be.set_fine(wanted)
         if value is None:
             return True
-        new_centre = self._lo_hz + value
-        if new_centre != old_centre:
-            self._publish_spectrum_center(new_centre)
         self._update_tuning_role()
         self.update_freq()
         # VERIFY's NCO readout can coexist only while that transient screen is open.
@@ -3127,12 +3646,11 @@ class SdrApp:
         self._update_tuning_role()
         return enabled
 
-    def _set_live_nco_absolute(self, wanted):
+    def _set_live_nco_absolute(self, wanted, exact=True):
         """Try one absolute RF selection using only the current physical LO.
 
-        The helper does not mutate p["f"].  A non-exact native clamp is rolled back;
-        if even that rollback fails, the current VFO is reconciled to the offset which
-        the backend cache says is really active.
+        The helper does not mutate p["f"].  With exact=True a native clamp is rolled
+        back; exact=False accepts the clamped edge for spectrum tap-to-tune.
         """
         wanted = min(max(int(wanted), F_MIN), F_MAX)
         old_fine = self.be.fine_hz
@@ -3140,7 +3658,7 @@ class SdrApp:
         if actual is None:
             return None
         selected = min(max(self._lo_hz + actual, F_MIN), F_MAX)
-        if selected == wanted:
+        if selected == wanted or not exact:
             return selected
 
         restored = self.be.set_fine(old_fine)
@@ -3148,9 +3666,41 @@ class SdrApp:
             # The failed rollback leaves `actual` as the last confirmed NCO result.
             self.be.fine_hz = actual
             self._commit_current_frequency(selected)
-            if self._nco_recenter_due(selected):
+            live_mode = self.p["m"]
+            if (self._axis_pending_token and
+                    self._axis_pending_mode is not None):
+                live_mode = self._axis_pending_mode
+            if self._nco_recenter_due(selected, live_mode):
                 self._queue_nco_recenter()
         return None
+
+    def _accept_live_nco_selection(self, selected, vfo=None, mode=None):
+        """Publish or stage one NCO-only selection without moving the RF axis."""
+        selected = min(max(int(selected), F_MIN), F_MAX)
+        self._cancel_frequency_pending()
+        self._requested_hz = selected
+        if self._axis_pending_token:
+            # Physical LO is already real but its tagged frame is not visible yet.
+            # Keep the latest marker/selection attached to that pending generation.
+            self._axis_pending_station_hz = selected
+            if vfo is not None:
+                self._axis_pending_vfo = vfo
+                self._axis_pending_mode = mode
+            return
+        if vfo is not None:
+            self._commit_vfo_switch(vfo, selected, mode)
+        else:
+            self._commit_current_frequency(selected)
+
+    def _select_live_nco_only(self, wanted):
+        """Select inside the current capture window; never queue a VFO retune."""
+        if not self._nco_enabled():
+            return False
+        selected = self._set_live_nco_absolute(wanted, exact=False)
+        if selected is None:
+            return False
+        self._accept_live_nco_selection(selected)
+        return True
 
     def _move_live_frequency(self, delta):
         """Move the persisted station through the current 24-kHz panorama.
@@ -3160,15 +3710,29 @@ class SdrApp:
         """
         if not self._nco_enabled():
             return False
-        old = self.p["f"]
+        old = self._requested_hz
         wanted = min(max(old + int(delta), F_MIN), F_MAX)
         if wanted == old:
             return False
 
+        # A required physical policy/routing change may already be queued but not
+        # applied.  Supersede its station target instead of cancelling it with a
+        # direct write to the still-old NCO/LO pair.
+        if self._station_pending_hz is not None:
+            self._queue_station_recenter(wanted)
+            return True
+
+        # p["m"] is intentionally stale until a matching generation is visible.
+        # During that short window the already-applied axis mode owns the safe NCO
+        # edge (FM 7 kHz versus the normal 9 kHz limit).
+        live_mode = self.p["m"]
+        if self._axis_pending_token and self._axis_pending_mode is not None:
+            live_mode = self._axis_pending_mode
+
         # Do not briefly place a wide FM channel across the 12-kHz Nyquist edge.
         # Coarse steps and the final FM edge step go straight to the deferred
         # physical-LO recenter instead of first programming an unsafe NCO value.
-        if self._nco_recenter_due(wanted, self.p["m"]):
+        if self._nco_recenter_due(wanted, live_mode):
             self._queue_station_recenter(wanted)
             return True
 
@@ -3179,7 +3743,7 @@ class SdrApp:
         if selected == old:
             # Recover even if an older run reached the native +/-11,999 Hz clamp
             # before it managed to queue the physical-LO recenter.
-            if self._nco_recenter_due(selected):
+            if self._nco_recenter_due(selected, live_mode):
                 self._queue_nco_recenter()
                 return True
             return False
@@ -3187,9 +3751,8 @@ class SdrApp:
         # Every achieved direct move supersedes any older frequency request.  This
         # includes a plain recenter: reversing below 9 kHz before sdr_poll must cancel
         # its stale target.  An independent route/CAL refresh remains queued.
-        self._cancel_frequency_pending()
-        self._commit_current_frequency(selected)
-        if self._nco_recenter_due(selected):
+        self._accept_live_nco_selection(selected)
+        if self._nco_recenter_due(selected, live_mode):
             self._queue_nco_recenter()
         return True
 
@@ -3197,11 +3760,9 @@ class SdrApp:
         if self._tester_nco_tune(delta):
             return
         # While RX is live both arrow pairs navigate the SAME captured panorama:
-        # << / >> use the selected coarse step and - / + use one tenth of it.  The
-        # old path reset the NCO and deferred an Si5351 write; until that I2C write
-        # landed, only the labels moved and a filtered peak appeared to shrink in
-        # place.  Keeping live navigation in the digital NCO makes the spectrum,
-        # waterfall and frequency scale move atomically in one coordinate system.
+        # << / >> use the selected coarse step and - / + use one tenth of it.  An
+        # in-window NCO step moves only the marker/filter; the FFT, waterfall and RF
+        # scale remain fixed.  The worker recentres the physical LO only at the edge.
         if self.be.running:
             self._move_live_frequency(delta)
             return
@@ -3217,7 +3778,8 @@ class SdrApp:
         # RX is down, so the selected setting can commit immediately; _lo_hz still
         # remains the last physical LO until the worker reports set_freq success.
         self._cancel_frequency_pending()
-        self._lo_pending_hz = selected
+        self._lo_pending_hz = self._normal_lo_hz(selected)
+        self._station_pending_hz = selected
         self._hw_pending = True
 
     def fine(self, delta):
@@ -3277,21 +3839,40 @@ class SdrApp:
 
     def switch_vfo(self, i):
         p = self.p
-        if i == p["act"]:
+        # Once a physical retune has succeeded, its VFO/mode are the effective
+        # routing policy even though p[] remains deliberately unpublished until
+        # the matching FFT generation is visible.  A second VFO press in that
+        # interval must compare against this in-flight physical identity.  This
+        # also lets the old published VFO supersede a still-pending new selection.
+        current_vfo = p["act"]
+        current_mode = p["m"]
+        if self.be.running and self._axis_pending_token:
+            if self._axis_pending_vfo is not None:
+                current_vfo = self._axis_pending_vfo
+            if self._axis_pending_mode is not None:
+                current_mode = self._axis_pending_mode
+        if i == current_vfo:
             return
+
         target, mode = p["vfos"][i]
         old_f = p["f"]
 
         if self.be.running:
+            # Compare both policies at one common RF frequency.  This isolates
+            # the required physical 0/+3k/+6k low-IF offset from station delta.
+            same_low_if = (self._normal_lo_hz(target, current_mode) ==
+                           self._normal_lo_hz(target, mode))
             # A nearby VFO is achievable immediately with the native NCO.  A distant
-            # VFO is queued and the current VFO remains visibly active until the worker
-            # confirms the Si5351 transaction.
-            if (p["rt"][i] == p["rt"][p["act"]] and self._nco_enabled() and
+            # VFO is queued and the current VFO remains visibly active until the
+            # worker confirms the Si5351 transaction.  A mode-policy transition
+            # (zero IF <-> AM +3 kHz <-> FM +6 kHz) must also take that physical
+            # path even when both selected station frequencies are nearby.
+            if (same_low_if and self._station_pending_hz is None and
+                    p["rt"][i] == p["rt"][current_vfo] and self._nco_enabled() and
                     abs(int(target) - self._lo_hz) < (IQ_RATE // 4)):
                 selected = self._set_live_nco_absolute(target)
                 if selected is not None:
-                    self._cancel_frequency_pending()
-                    self._commit_vfo_switch(i, selected, mode)
+                    self._accept_live_nco_selection(selected, i, mode)
                     if self._nco_recenter_due(selected, mode):
                         self._queue_nco_recenter()
                     return
@@ -3308,25 +3889,30 @@ class SdrApp:
 
     # ---- spectrum tap-to-tune ----
     def spec_jump(self, frac):
-        """Tune by a horizontal displacement from the current selected centre.
+        """Select the tapped absolute point in the visible physical RF window.
 
-        A tap is relative to p["f"], not an absolute offset from the physical LO.
-        Therefore repeated taps and button moves share exactly one coordinate system.
+        Tap-to-tune is deliberately NCO-only.  It never asks Si5351 to move and
+        therefore never shifts/relabels the FFT or retained waterfall history.
         """
         frac = min(max(frac, 0.0), 1.0)
+        if not self.be.running:
+            # With RX stopped there is neither a live panorama nor an NCO marker to
+            # move.  In particular, never turn this gesture into a deferred VFO tune.
+            return
         s = self.p["s"]
-        if self.be.running:
-            half = 12000
-            delta = int((frac - 0.5) * 2 * half)
-            delta = int(round(delta / s) * s)
-            if self._inj_on:
-                self._tester_nco_tune(delta)      # same point/BYP guard as the arrows
-            else:
-                self._move_live_frequency(delta)
+        # While a physical generation is changing, the visible old axis cannot be
+        # mapped truthfully to the already-new hardware LO.  Ignore the tap until
+        # the exact matching frame/axis pair is published.
+        if self._axis_pending_token or self._station_pending_hz is not None:
+            return
+        # Complex 48-kS/s input is decimated to the displayed 24-kHz span.
+        offset = int((frac - 0.5) * (IQ_RATE // 2))
+        offset = int(round(offset / s) * s)
+        wanted = self._axis_hz + offset
+        if self._inj_on:
+            self._tester_nco_set(wanted - self._lo_hz)
         else:
-            delta = int((frac - 0.5) * 10000)
-            delta = int(round(delta / s) * s)
-            self.tune(delta)
+            self._select_live_nco_only(wanted)
 
     # ---- SETTINGS view (tap "SDR RECEIVER") ----
     # A dedicated full-screen (480x272) view of firmware DSP verification controls
@@ -3344,8 +3930,8 @@ class SdrApp:
                        3000, 4000, 6000, 9000)
     # label, receiver mode (None keeps the current demod), firmware constant name,
     # carrier Hz, modulation Hz, depth percent, FM deviation Hz.  Resolve constants from the live IQADC
-    # object rather than duplicating enum values in Python.  Current Hilbert signs require
-    # negative complex rotation for USB and positive for LSB.
+    # object rather than duplicating enum values in Python.  The established RF
+    # convention is positive complex rotation for USB and negative for LSB.
     _INJ_PRESETS = (("AM", "AM", "INJECT_AM", 3000, 1000, 50, 0),
                     ("FM", "FM", "INJECT_FM", 6000, 1000, 0, 4000),
                     ("USB", "USB", "INJECT_USB", 1500, 0, 0, 0),
@@ -3353,16 +3939,18 @@ class SdrApp:
                     ("CW", "CW", "INJECT_CW", 10, 10, 0, 0),
                     ("IQ", None, "INJECT_IQ", 1000, 0, 0, 0))
     # label, receiver mode, 48-kS/s IN asset, 24-kS/s MID/OUT asset.  The first
-    # four entries are deterministic project-owned vectors.  R:* entries are
+    # five entries are deterministic project-owned vectors.  R:* entries are
     # optional local conversions of real ZS-1 recordings and are never embedded
     # in firmware or committed as third-party sample data.
     _IQ_FILE_PRESETS = (
         ("AM", "AM", "/flash/iqbank/am48.sdriq", "/flash/iqbank/am24.sdriq"),
+        ("FM", "FM", "/flash/iqbank/fm48.sdriq", "/flash/iqbank/fm24.sdriq"),
         ("USB", "USB", "/flash/iqbank/usb48.sdriq", "/flash/iqbank/usb24.sdriq"),
         ("LSB", "LSB", "/flash/iqbank/lsb48.sdriq", "/flash/iqbank/lsb24.sdriq"),
         ("CW", "CW", "/flash/iqbank/cw48.sdriq", "/flash/iqbank/cw24.sdriq"))
     _IQ_FILE_REAL_PRESETS = (
         ("R:AM", "AM", "/flash/iqbank/zam48.sdriq", "/flash/iqbank/zam24.sdriq"),
+        ("R:FM", "FM", "/flash/iqbank/zfm48.sdriq", "/flash/iqbank/zfm24.sdriq"),
         ("R:USB", "USB", "/flash/iqbank/zusb48.sdriq", "/flash/iqbank/zusb24.sdriq"),
         ("R:LSB", "LSB", "/flash/iqbank/zlsb48.sdriq", "/flash/iqbank/zlsb24.sdriq"),
         ("R:CW", "CW", "/flash/iqbank/zcw48.sdriq", "/flash/iqbank/zcw24.sdriq"))
@@ -3427,6 +4015,209 @@ class SdrApp:
         _KEEP.pop("settings", None)
         self._drop_settings_screen()
         self._set_modal(("pick_menu" in _KEEP) or ("gains_panel" in _KEEP))
+
+    def _tester_tune_pending(self):
+        """True only while the physical LO write itself is still outstanding.
+
+        An applied-LO axis token must not block TESTER: VERIFY pauses the native
+        renderer which would otherwise publish that token.  First arm replaces it
+        with a TESTER generation and carries the pending station/VFO identity.
+        """
+        return bool(self._hw_pending or self._station_pending_hz is not None)
+
+    def _commit_tester_receiver_mode(self, mode):
+        """Make HOME describe the demodulator selected by an explicit TEST profile."""
+        if mode is None:
+            return
+        if self._axis_pending_token and self._axis_pending_vfo is not None:
+            # The physical LO for a VFO switch is already real, but its first tagged
+            # frame has not yet made that VFO the active HOME identity.  Bind the
+            # explicit TEST profile to the pending target.  Changing p["m"] or the
+            # current VFO here would make _commit_vfo_switch() save TEST mode into the
+            # old VFO when the replacement TESTER generation is finally published.
+            self._axis_pending_mode = mode
+            return
+        self.p["m"] = mode
+        self.p["vfos"][self.p["act"]][1] = mode
+        self.update_mode()
+        self.update_vfo_ui()
+        self.touch_params()
+
+    def _arm_tester_source(self):
+        """Perform the explicit first arm after all older tuning work is settled."""
+        if self._tester_tune_pending():
+            self._tester_arm_pending = True
+            self.be.err = "TESTER waiting for tuning"
+            self._paint_tester()
+            return False
+        self._tester_arm_pending = False
+        self._inj_on = True
+        if not self._apply_tester_source(True):
+            error = self.be.err
+            self._inj_on = False
+            self._apply_tester_source(False)
+            self._inj_overload = False
+            self.be.err = error
+            self._paint_tester()
+            return False
+        self._request_tester_generation()
+        self._paint_tester()
+        return True
+
+    def _apply_tester_source(self, receiver_setup=True):
+        """Apply GEN/FILE from persistent App state, independent of VERIFY widgets."""
+        iq = self.be.iq
+        fn = getattr(iq, "inject", None) if iq is not None else None
+        if not self._inj_on:
+            ok = True
+            self._iq_file.stop()
+            if fn is not None:
+                try:
+                    fn(False)
+                    self.be.source_hold = False
+                except Exception as e:
+                    self.be.err = "inject: %r" % (e,)
+                    ok = False
+            if not self._restore_tester_receiver():
+                ok = False
+            self._inj_fm_nco = False
+            return ok
+        if iq is None:
+            self.be.err = "test source unavailable (RX off)"
+            return False
+        # OUT is the version probe for the common three-point contract used by
+        # both GEN and FILE.  Never silently reinterpret a point on old firmware.
+        if not hasattr(iq, "INJECT_POINT_OUT"):
+            self.be.err = "multi-point IQ test source unavailable"
+            return False
+        _point_name, point_attr = self._INJ_POINTS[self._inj_point]
+        try:
+            point = getattr(iq, point_attr)
+        except Exception as e:
+            self.be.err = "test point: %r" % (e,)
+            return False
+
+        # Publish the movable internal boundary before either native source starts.
+        if not self._configure_inject_mid(iq):
+            return False
+
+        if self._inj_source:
+            # Native GEN and FILE are mutually exclusive.  FILE owns borrowed Python
+            # buffers, but all control remains in App state so it can be re-armed after
+            # a required IQADC/PGA reconstruction without retaining the VERIFY tree.
+            expected_rate = IQ_RATE if self._inj_point == 0 else IQ_RATE // 2
+            profile = self._iq_file_profiles[self._iq_file_preset]
+            _name, receiver_mode, path48, path24 = profile
+            try:
+                if receiver_setup:
+                    if not self.be.set_mode(receiver_mode):
+                        return False
+                    if not self.be.set_bandwidth(
+                            self.p["bw"].get(receiver_mode,
+                                             MODE_BW[receiver_mode])):
+                        return False
+
+                # An IN FM file emulates the real receiver's RF+6-kHz LO: its complex
+                # carrier is therefore at -6 kHz and needs NCO=-6 kHz.  The 24-kS/s
+                # MID file is already centred.  Late M:CHF/OUT injection bypasses NCO.
+                fm_file = receiver_mode == "FM"
+                if fm_file and self._tester_before_nco():
+                    if not self._nco_enabled():
+                        self.be.err = "FM FILE needs NCO block ON"
+                        return False
+                    wanted = -FM_LOW_IF_HZ if self._inj_point == 0 else 0
+                    if receiver_setup or not self._inj_fm_nco:
+                        self._tester_nco_set(wanted)
+                        actual = self.be.fine_hz
+                        if actual is None or int(actual) != wanted:
+                            self.be.err = "FM FILE NCO %r != %d" % (actual, wanted)
+                            return False
+                    self._inj_fm_nco = True
+                else:
+                    self._inj_fm_nco = False
+
+                path = path48 if expected_rate == IQ_RATE else path24
+                self._iq_file.start(iq, point, expected_rate,
+                                    self._iq_file_loop, path)
+                self.be.source_hold = False
+                if receiver_setup:
+                    self._commit_tester_receiver_mode(receiver_mode)
+                self._iq_file_ui_pct = -1
+                self.be.err = None
+                return True
+            except Exception as e:
+                self.be.err = "file: %r" % (e,)
+                return False
+
+        if fn is None:
+            self.be.err = "generator unavailable"
+            return False
+        if not hasattr(iq, "INJECT_WAVE_TRIANGLE"):
+            self.be.err = "multi-wave IQ generator unavailable"
+            return False
+        name, receiver_mode, kind_attr, carrier, mod_hz, depth, deviation = \
+            self._INJ_PRESETS[self._inj_mode]
+        fm_test = name == "FM"
+        if self._inj_fm_nco and not fm_test:
+            if not self._restore_tester_receiver():
+                return False
+            self._inj_fm_nco = False
+        hard_max, safe_max, _peak, _gain = self._tester_levels()
+        if self._inj_ampl > hard_max:
+            self._inj_ampl = hard_max
+        if self._inj_ampl > safe_max and not self._inj_overload:
+            self.be.err = "TESTER SAFE <=%d; tap S for OVR" % safe_max
+            return False
+        _wave_name, wave_attr, gate_hz = self._INJ_WAVES[self._inj_wave]
+        noise = 2 if self._inj_live else 0
+        try:
+            if fm_test:
+                if (getattr(iq, "INJECT_API_VERSION", 0) < 2 or
+                        not hasattr(iq, "INJECT_FM")):
+                    self.be.err = "FM generator needs INJECT_API_VERSION>=2"
+                    return False
+                # FM is phase-only.  Before NCO generate +6 kHz and translate it to
+                # zero; after NCO inject directly at zero.
+                wave_attr = "INJECT_WAVE_SINE"
+                gate_hz = 0
+                carrier = FM_LOW_IF_HZ if self._tester_before_nco() else 0
+            kind = getattr(iq, kind_attr)
+            wave = getattr(iq, wave_attr)
+            if receiver_mode is not None and receiver_setup:
+                if not self.be.set_mode(receiver_mode):
+                    return False
+                if not self.be.set_bandwidth(
+                        self.p["bw"].get(receiver_mode,
+                                         MODE_BW[receiver_mode])):
+                    return False
+            if fm_test and self._tester_before_nco():
+                if not self._nco_enabled():
+                    self.be.err = "FM TEST needs NCO block ON"
+                    return False
+                if receiver_setup or not self._inj_fm_nco:
+                    self._tester_nco_set(carrier)
+                    actual = self.be.fine_hz
+                    if actual is None or int(actual) != carrier:
+                        self.be.err = "FM TEST NCO %r != %d" % (actual, carrier)
+                        return False
+                self._inj_fm_nco = True
+            elif fm_test:
+                self._inj_fm_nco = False
+            self._iq_file.stop()
+            if fm_test:
+                fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
+                   gate_hz, noise, point, wave, deviation)
+            else:
+                fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
+                   gate_hz, noise, point, wave)
+            self.be.source_hold = False
+            if receiver_setup:
+                self._commit_tester_receiver_mode(receiver_mode)
+            self.be.err = None
+            return True
+        except Exception as e:
+            self.be.err = "inject: %r" % (e,)
+            return False
 
     def open_settings(self):
         if "settings" in _KEEP:
@@ -3609,7 +4400,9 @@ class SdrApp:
         iamp.add_flag(lv.obj.FLAG.CLICKABLE)
         idn, idnl = _sbtn(ig, "-", 24, 20)
         iup, iupl = _sbtn(ig, "+", 24, 20)
-        itg, itgl = _sbtn(ig, "ON" if self._inj_on else "OFF", 46, 12,
+        tester_label = "ON" if self._inj_on else (
+            "WAIT" if self._tester_arm_pending else "OFF")
+        itg, itgl = _sbtn(ig, tester_label, 46, 12,
                           DARK_TXT if self._inj_on else WHITE)
         if self._inj_on:
             itg.set_style_bg_color(lv.color_hex(GREEN), 0)
@@ -3618,146 +4411,7 @@ class SdrApp:
                                         idn, idnl, iup, iupl, itg, itgl)
 
         def inj_apply(receiver_setup=True):
-            iq = self.be.iq
-            fn = getattr(iq, "inject", None) if iq is not None else None
-            if not self._inj_on:
-                ok = True
-                self._iq_file.stop()
-                if fn is not None:
-                    try:
-                        fn(False)
-                    except Exception as e:
-                        self.be.err = "inject: %r" % (e,)
-                        ok = False
-                if not self._restore_tester_receiver():
-                    ok = False
-                self._inj_fm_nco = False
-                return ok
-            if iq is None:
-                self.be.err = "test source unavailable (RX off)"
-                return False
-            # OUT is the version probe for the common three-point contract used by
-            # both GEN and FILE.  Never silently reinterpret a point on old firmware.
-            if not hasattr(iq, "INJECT_POINT_OUT"):
-                self.be.err = "multi-point IQ test source unavailable"
-                return False
-            _point_name, point_attr = self._INJ_POINTS[self._inj_point]
-            try:
-                point = getattr(iq, point_attr)
-            except Exception as e:
-                self.be.err = "test point: %r" % (e,)
-                return False
-
-            # Publish the movable internal boundary before either native source starts.
-            # Old firmware has the fixed pre-NCO MID and remains valid only for M:NCO.
-            if not self._configure_inject_mid(iq):
-                return False
-
-            # Do not force stage-5 I/Q here.  The one-of SCOPE column is the output
-            # selector: OFF runs the selected demodulator to mono DAC audio, a
-            # pre-demod block sends I/Q to DA0/DA1, and an audio block sends mono.
-
-            if self._inj_source:
-                # The native sources are mutually exclusive.  Disable GEN before
-                # attaching the borrowed Python buffers to the FILE player.
-                if fn is not None:
-                    try:
-                        fn(False)
-                    except Exception as e:
-                        self.be.err = "inject off: %r" % (e,)
-                        return False
-                expected_rate = IQ_RATE if self._inj_point == 0 else IQ_RATE // 2
-                profile = self._iq_file_profiles[self._iq_file_preset]
-                _name, receiver_mode, path48, path24 = profile
-                try:
-                    if receiver_setup:
-                        if not self.be.set_mode(receiver_mode):
-                            return False
-                        if not self.be.set_bandwidth(
-                                self.p["bw"].get(receiver_mode,
-                                                 MODE_BW[receiver_mode])):
-                            return False
-                    path = path48 if expected_rate == IQ_RATE else path24
-                    self._iq_file.start(iq, point, expected_rate,
-                                        self._iq_file_loop, path)
-                    self._iq_file_ui_pct = -1
-                    self.be.err = None
-                    return True
-                except Exception as e:
-                    self.be.err = "file: %r" % (e,)
-                    return False
-
-            if fn is None:
-                self.be.err = "generator unavailable"
-                return False
-            if not hasattr(iq, "INJECT_WAVE_TRIANGLE"):
-                self.be.err = "multi-wave IQ generator unavailable"
-                return False
-            name, receiver_mode, kind_attr, carrier, mod_hz, depth, deviation = \
-                self._INJ_PRESETS[self._inj_mode]
-            fm_test = name == "FM"
-            if self._inj_fm_nco and not fm_test:
-                if not self._restore_tester_receiver():
-                    return False
-                self._inj_fm_nco = False
-            hard_max, safe_max, _peak, _gain = self._tester_levels()
-            if self._inj_ampl > hard_max:
-                self._inj_ampl = hard_max
-            if self._inj_ampl > safe_max and not self._inj_overload:
-                self.be.err = "TESTER SAFE <=%d; tap S for OVR" % safe_max
-                return False
-            _wave_name, wave_attr, gate_hz = self._INJ_WAVES[self._inj_wave]
-            noise = 2 if self._inj_live else 0
-            try:
-                if fm_test:
-                    if (getattr(iq, "INJECT_API_VERSION", 0) < 2 or
-                            not hasattr(iq, "INJECT_FM")):
-                        self.be.err = "FM generator needs INJECT_API_VERSION>=2"
-                        return False
-                    # FM is phase-only.  Before the NCO generate +6 kHz and
-                    # translate it exactly to zero; after the NCO inject directly
-                    # at zero.  This keeps +/-4-kHz deviation inside the 6-kHz CHF.
-                    wave_attr = "INJECT_WAVE_SINE"
-                    gate_hz = 0
-                    carrier = 6000 if self._tester_before_nco() else 0
-                kind = getattr(iq, kind_attr)
-                wave = getattr(iq, wave_attr)
-                if receiver_mode is not None and receiver_setup:
-                    if not self.be.set_mode(receiver_mode):
-                        return False
-                    if not self.be.set_bandwidth(
-                            self.p["bw"].get(receiver_mode,
-                                             MODE_BW[receiver_mode])):
-                        return False
-                if fm_test and self._tester_before_nco():
-                    if not self._nco_enabled():
-                        self.be.err = "FM TEST needs NCO block ON"
-                        return False
-                    # Centre only when FM takes ownership.  Amplitude/LIVE edits
-                    # reapply the source tuple but must preserve an operator NCO
-                    # offset made with HOME's left/right tuning controls.
-                    if receiver_setup or not self._inj_fm_nco:
-                        self._tester_nco_set(carrier)
-                        actual = self.be.fine_hz
-                        if actual is None or int(actual) != carrier:
-                            self.be.err = "FM TEST NCO %r != %d" % (actual, carrier)
-                            return False
-                    self._inj_fm_nco = True
-                elif fm_test:
-                    self._inj_fm_nco = False
-                self._iq_file.stop()
-                if fm_test:
-                    fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
-                       gate_hz, noise, point, wave, deviation)
-                else:
-                    fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
-                       gate_hz, noise, point, wave)
-                self.be.err = None
-                return True
-            except Exception as e:
-                self.be.err = "inject: %r" % (e,)
-                return False
-
+            return self._apply_tester_source(receiver_setup)
         def inj_paint():
             self._paint_tester()
 
@@ -3822,11 +4476,11 @@ class SdrApp:
         def inj_amp_cb(e, d=0, lbl=iamp):
             if self._inj_source:
                 # In FILE mode the left small chip is rewind/restart; the right one is
-                # hidden.  Restart uses the same strict header/rate validation.
-                if d < 0:
+                # hidden.  Rewind is available while OFF: the two native buffers are
+                # borrowed by the active source, so replacing them live would expose
+                # an unlabelled ADC gap during file open/prefill.
+                if d < 0 and not self._inj_on:
                     self._iq_file_ui_pct = -1
-                    if self._inj_on:
-                        inj_reapply()
                     inj_paint()
                 return
             hard_max, safe_max, _peak, _gain = self._tester_levels()
@@ -3858,15 +4512,26 @@ class SdrApp:
             inj_paint()
 
         def inj_tg_cb(e):
-            want_on = not self._inj_on
-            self._inj_on = want_on
+            if self._tester_arm_pending:
+                self._tester_arm_pending = False
+                self.be.err = None
+                inj_paint()
+                return
+            if not self._inj_on:
+                if self._tester_tune_pending():
+                    # Keep RX truthful until the older Si5351 + tagged-axis request
+                    # is visible.  sdr_poll arms this exact requested profile once.
+                    self._tester_arm_pending = True
+                    self.be.err = "TESTER waiting for tuning"
+                    inj_paint()
+                    return
+                self._arm_tester_source()
+                return
+            self._inj_on = False
             if not inj_apply():
                 error = self.be.err
-                self._inj_on = False
-                inj_apply()
-                self._inj_overload = False
                 self.be.err = error
-            elif not want_on:
+            else:
                 self._inj_overload = False
             inj_paint()
         for b, cb in ((isb, inj_source_cb), (ipb, inj_point_cb),
@@ -4587,7 +5252,6 @@ class SdrApp:
                 self._queue_station_recenter(requested)
             else:
                 self.update_freq()
-            self._publish_spectrum_center(heard)   # idempotent; also fixes stale TESTER baseline
             if actual != 0:
                 self.be.err = "normal NCO clear returned %d" % actual
                 ok = False
@@ -4599,13 +5263,18 @@ class SdrApp:
             self._commit_current_frequency(achieved)
             ok = False
         elif achieved != old_centre:
-            self._publish_spectrum_center(achieved)
             self.update_freq()
+        # HOME may deliberately change demodulation while TESTER remains armed.
+        # Keep the test source/NCO fixed during that comparison, then restore the
+        # newly selected mode's physical zero/+3k/+6k low-IF policy only on TEST OFF.
+        if self._lo_hz != self._normal_lo_hz(requested, mode):
+            self._queue_station_recenter(requested, mode=mode)
         return ok
 
     def _paint_tester(self):
         # HOME remains alive behind VERIFY.  Keep its shared tuning control truthful
         # even if VERIFY is closed before a FILE reaches EOF.
+        self.update_rx()
         self._update_tuning_role()
         self._paint_output_status()
         w = self._set_widgets.get("inject")
@@ -4676,6 +5345,10 @@ class SdrApp:
             iamp.set_style_text_color(self._C_RED if ferr else self._C_CYAN, 0)
             iamp.remove_flag(lv.obj.FLAG.CLICKABLE)
             idnl.set_text("|<")
+            if self._inj_on:
+                idn.remove_flag(lv.obj.FLAG.CLICKABLE)
+            else:
+                idn.add_flag(lv.obj.FLAG.CLICKABLE)
             iupl.set_text("")
             iup.add_flag(lv.obj.FLAG.HIDDEN)
             if self._inj_on:
@@ -4712,11 +5385,13 @@ class SdrApp:
             else:
                 iwb.add_flag(lv.obj.FLAG.CLICKABLE)
 
-        itgl.set_text("ON" if self._inj_on else "OFF")
+        itgl.set_text("ON" if self._inj_on else
+                      ("WAIT" if self._tester_arm_pending else "OFF"))
         itgl.set_style_text_color(
             lv.color_hex(DARK_TXT if self._inj_on else WHITE), 0)
         itg.set_style_bg_color(
-            lv.color_hex(GREEN if self._inj_on else PANEL2), 0)
+            lv.color_hex(GREEN if self._inj_on else
+                         (CYAN_IN if self._tester_arm_pending else PANEL2)), 0)
         self._paint_mid_labels()
 
     def _finish_iq_file(self, error=None):
@@ -4735,8 +5410,9 @@ class SdrApp:
         if error:
             self.be.err = error
             self._iq_file.error = error
-        if "settings" in _KEEP:
-            self._paint_tester()
+        # Also restores HOME's TST -> RX label when EOF/error happens while VERIFY
+        # is closed.  _paint_tester() safely returns after updating shared HOME state.
+        self._paint_tester()
         return restored
 
     def _poll_iq_file(self):
@@ -4755,9 +5431,12 @@ class SdrApp:
         if st is None:
             self._finish_iq_file(self._iq_file.error or "SDRIQ status failed")
             return
-        if st[10] or st[14]:
-            self._finish_iq_file("SDRIQ UND %d SCHED %d" % (st[10], st[14]))
-            return
+        # UND/SCHED are cumulative transport diagnostics, not terminal states.
+        # Native FILE zero-fills a missed block, preserves the pending FREE mask,
+        # and retries the refill from a later ADC notification.  Stopping here on
+        # the first recoverable UI/render delay truncated otherwise valid files.
+        # A real read/refill exception sets self._iq_file.error + EOF and remains
+        # fail-closed until the EOF path below performs the explicit teardown.
         pct = self._iq_file.percent()
         if pct != self._iq_file_ui_pct:
             self._iq_file_ui_pct = pct
@@ -4767,7 +5446,11 @@ class SdrApp:
         # A zero-byte commit is consumed only after every older data commit.  At this
         # point C has stopped, so closing the file and restoring DA0/DA1 cannot truncate
         # the tail of an ONCE capture.
-        if self._iq_file.eof and not st[1] and not st[2]:
+        # Native EOF/error is fail-closed: requested becomes false but FILE remains
+        # the active owner and supplies zero I/Q until this control-plane stop.  That
+        # keeps HOME's TST label truthful instead of exposing ADC for up to one 2-Hz
+        # status interval.  Do not wait for active to fall by itself.
+        if self._iq_file.eof and not st[1]:
             self._finish_iq_file()
 
     def _refresh_settings(self):
@@ -5208,7 +5891,8 @@ class SdrApp:
                     moved = False
                     if (self._nco_enabled() and
                             abs(int(hz) - self._lo_hz) < (IQ_RATE // 4)):
-                        moved = self._move_live_frequency(int(hz) - old)
+                        moved = self._move_live_frequency(
+                            int(hz) - self._requested_hz)
                     if not moved and int(hz) != self.p["f"]:
                         self._queue_station_recenter(hz)
                 elif int(hz) != old:
@@ -5306,21 +5990,21 @@ class SdrApp:
             ui.get("spectrum-waterfall").get_coords(a)
             local_x = pt.x - a.x1
             local_y = pt.y - a.y1
-            height = a.y2 - a.y1 + 1
             # The native surface is physically 256 px spectrum + 4 px gap +
             # 128 px right panel.  A left tap tunes; a right tap is the zero-widget
             # TIME/I-Q control.  This also fixes the former frequency mapping, which
             # incorrectly stretched the 256 spectrum pixels across all 388 pixels.
             if self._spec_native:
-                if 0 <= local_x < 256:
-                    # The upper half is the zero-widget view selector.  The lower
-                    # half remains the direct station tuner even while the panel is
-                    # OFF, so stopping drawing never removes receiver navigation.
-                    if 0 <= local_y < height and local_y < (height // 2):
+                if 0 <= local_x < 256 and 0 <= local_y < 92:
+                    # Reserve only the existing 18-px label band for view cycling.
+                    # Every measured pixel below it, including the complete live
+                    # histogram, selects the independent NCO marker and never asks
+                    # Si5351/VFO to move.  The header remains usable while OFF.
+                    if local_y < NATIVE_GRAPH_HEADER_H:
                         self.toggle_spectrum_view()
                     else:
                         self.spec_jump(local_x / 255.0)
-                elif 260 <= local_x < 388:
+                elif 260 <= local_x < 388 and 0 <= local_y < 92:
                     self.toggle_scope_view()
             elif 0 <= local_x < 388:
                 # The Python fallback bars span the complete object and have no
@@ -5445,13 +6129,58 @@ class SdrApp:
                 if self._rf_restart_pending:
                     # PGA mode/gain cannot change while ADC scan is active. Perform
                     # one deliberate stop/reconstruct/start here, outside the touch
-                    # callback. The saved mode/code enter the IQADC constructor.
+                    # callback. The saved mode/code enter the IQADC constructor; an
+                    # armed TESTER remains requested and is reattached below.
                     self._rf_restart_pending = False
                     if self.be.running:
-                        self.stop_rx()
-                        self.start_rx()
+                        runtime_state = self._capture_runtime_chain()
+                        if self.stop_rx(preserve_tester=True):
+                            self.start_rx(runtime_state,
+                                          source_hold=self._tester_rearm_pending)
+                hw_error = None
                 if self._hw_pending:
-                    self._apply_hw_pending()  # the ONLY place Si5351 I2C happens
+                    if not self._apply_hw_pending():  # the ONLY Si5351 I2C path
+                        hw_error = self.be.err
+                if self._tester_rearm_pending and not self._hw_pending:
+                    self._tester_rearm_pending = False
+                    rearm_nco = self._tester_rearm_nco
+                    self._tester_rearm_nco = None
+                    if not self.be.running:
+                        self._inj_on = False
+                        self._paint_tester()
+                    elif rearm_nco is not None:
+                        # Restore the exact last TESTER NCO before publishing its
+                        # source request.  Otherwise one ADC ISR could process the
+                        # new GEN/FILE block with IQADC's fresh zero/default NCO.
+                        actual = self.be.set_fine(rearm_nco)
+                        if actual is None or int(actual) != int(rearm_nco):
+                            error = "TESTER NCO restore %r != %d" % (
+                                actual, rearm_nco)
+                            self._inj_on = False
+                            self._apply_tester_source(False)
+                            self.be.err = error
+                            self._paint_tester()
+                    if self._inj_on and not self._apply_tester_source(False):
+                        error = self.be.err
+                        self._inj_on = False
+                        self._apply_tester_source(False)
+                        self.be.err = error
+                        self._paint_tester()
+                    elif self._inj_on:
+                        # Supersede the normal-ADC generation requested by start_rx.
+                        # The first publishable frame is now complete TESTER data at
+                        # the final restored NCO, with truthful HOME markers.
+                        self.update_freq()
+                        self._update_tuning_role()
+                        self._paint_listen_markers()
+                        self._request_tester_generation()
+                        self._paint_tester()
+                        if hw_error is not None:
+                            self.be.err = hw_error
+                if self._axis_pending_token:
+                    self._poll_axis_generation()
+                if self._tester_arm_pending and not self._tester_tune_pending():
+                    self._arm_tester_source()
                 if self._vol_pending:
                     self._vol_pending = False
                     self.be.set_volume(self.p["v"])   # coalesced from the drag
