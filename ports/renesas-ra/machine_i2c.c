@@ -203,6 +203,7 @@ static void machine_i2c_async_abort_and_reinit(machine_i2c_async_obj_t *self) {
     ra_i2c_action_cancel_async(self->bus->i2c_inst, &self->action);
     if (self->bus->freq != 0) {
         ra_i2c_deinit(self->bus->i2c_inst);
+        ra_i2c_recover_bus(self->bus->scl->pin, self->bus->sda->pin);
         ra_i2c_init(self->bus->i2c_inst, self->bus->scl->pin,
             self->bus->sda->pin, self->bus->freq);
     }

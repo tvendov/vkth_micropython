@@ -717,6 +717,54 @@ void ra_i2c_deinit(R_IIC0_Type *i2c_inst) {
     return;
 }
 
+static bool ra_i2c_recovery_scl_high(uint32_t scl) {
+    ra_gpio_write(scl, 1);
+    // Bounded clock stretching: recovery must not hang the completion callback.
+    for (uint32_t wait = 0; wait < 100; ++wait) {
+        mp_hal_delay_us(5);
+        if (ra_gpio_read(scl)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ra_i2c_recover_bus(uint32_t scl, uint32_t sda) {
+    // Only after aborting our own master transfer and disabling RIIC. A reset
+    // releases RIIC, but a slave interrupted mid-read may still drive SDA low.
+    // UM10204 3.1.16: nine clocks, followed by STOP. Never drive high.
+    // The caller must restore peripheral pin mux with ra_i2c_init afterwards.
+    ra_gpio_write(scl, 1);
+    ra_gpio_write(sda, 1);
+    ra_gpio_config(scl, GPIO_MODE_OUTPUT_OD, GPIO_NOPULL, GPIO_LOW_POWER, 0);
+    ra_gpio_config(sda, GPIO_MODE_OUTPUT_OD, GPIO_NOPULL, GPIO_LOW_POWER, 0);
+    if (!ra_i2c_recovery_scl_high(scl)) {
+        return;
+    }
+    if (ra_gpio_read(sda)) {
+        return;
+    }
+    for (uint32_t pulse = 0; pulse < 9; ++pulse) {
+        ra_gpio_write(scl, 0);
+        mp_hal_delay_us(5);
+        if (!ra_i2c_recovery_scl_high(scl)) {
+            return;
+        }
+        // Do not stop at the first high data bit: the slave can drive the next
+        // bit low again. Complete all nine clocks to pass a released-SDA NACK.
+    }
+    // Pull SDA down only while SCL is low, then release it with SCL high.
+    ra_gpio_write(scl, 0);
+    ra_gpio_write(sda, 0);
+    mp_hal_delay_us(5);
+    if (ra_i2c_recovery_scl_high(scl)) {
+        ra_gpio_write(sda, 1);
+        mp_hal_delay_us(5);
+    } else {
+        ra_gpio_write(sda, 1);
+    }
+}
+
 void ra_i2c_xaction_start(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeated_start) {
     uint32_t timeout;
 
@@ -737,7 +785,8 @@ void ra_i2c_xaction_start(R_IIC0_Type *i2c_inst, xaction_t *action, bool repeate
 }
 
 void ra_i2c_xaction_stop() {
-    last_stop = current_xaction->m_stop;
+    // An error ends bus ownership even when the request omitted STOP.
+    last_stop = current_xaction->m_stop || current_xaction->m_error != RA_I2C_ERROR_OK;
 }
 
 void ra_i2c_xunit_write_byte(R_IIC0_Type *i2c_inst, xaction_unit_t *unit) {
@@ -1057,7 +1106,9 @@ ra_i2c_async_status_t ra_i2c_action_poll_async(xaction_t *action) {
     ra_i2c_master_rx_dtc_close();
     ra_i2c_master_tx_dtc_close();
     ra_i2c_xaction_notify_terminal(action);
-    last_stop = action->m_stop;
+    // NACK/timeout/arbitration errors force STOP or lose bus ownership. Do
+    // not request a repeated START on the next transaction after that STOP.
+    last_stop = action->m_stop || action->m_error != RA_I2C_ERROR_OK;
     current_xaction = NULL;
     current_xaction_unit = NULL;
     return action->m_error == RA_I2C_ERROR_OK
