@@ -36,6 +36,7 @@
 #include "pin.h"
 #include "ra/ra_adc.h"
 #include "ra/ra_iq_adc.h"
+#include "ra/ra_tx_hw.h"
 #if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
 #include "ra/ra_storm_adc.h"
 #endif
@@ -254,6 +255,9 @@ static void machine_iqadc_print(const mp_print_t *print,
 static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
                                        size_t n_args, size_t n_kw,
                                        const mp_obj_t *all_args) {
+    if (ra_tx_hw_owns_adc()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
     (void)type;
     enum { ARG_i_pin, ARG_q_pin, ARG_rate, ARG_block, ARG_pga, ARG_gain };
     static const mp_arg_t allowed_args[] = {

@@ -76,6 +76,9 @@
 #define RA_EARLY_PRINT  1       /* for enabling mp_print in boardctrl. */
 
 // Forward declarations for deinit functions
+#if defined(RA6M3) && MICROPY_HW_ENABLE_TX
+bool machine_tx_deinit_all(void);
+#endif
 #if MICROPY_PY_MACHINE_DAC
 bool dac_deinit_all(void);
 #endif
@@ -472,6 +475,16 @@ soft_reset_exit:
      * A bounded quiesce timeout cannot safely continue as a soft reset: force a
      * hardware reset while all retained pointers are still rooted. */
     bool dac_cleanup_ok = true;
+    #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
+    /* TX owns both DACs and the ADC trigger/vector.  It must release them before
+     * legacy cleanup touches those registers or timer/GC state is discarded. */
+    if (!machine_tx_deinit_all()) {
+        NVIC_SystemReset();
+        for (;;) {
+            __WFI();
+        }
+    }
+    #endif
     #if MICROPY_HW_ENABLE_DAC
     dac_cleanup_ok = audiomixer_deinit_all();
     #endif

@@ -15,6 +15,7 @@ MICROPY_HW_ENABLE_TOUCHPAD = 1
 MICROPY_HW_ENABLE_SCI_I2C = 1
 MICROPY_HW_ENABLE_DSP = 1
 MICROPY_HW_ENABLE_RA_SDR = 1
+MICROPY_HW_ENABLE_TX = 1
 # SDR bench profile: Ethernet is deliberately compiled out so its static lwIP,
 # driver and DMA pools can be reassigned to the MicroPython heap.
 MICROPY_PY_LWIP = 0

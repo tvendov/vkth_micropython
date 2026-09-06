@@ -34,8 +34,15 @@
 #include "py/runtime.h"
 #include "pin.h"
 #include "ra/ra_dac.h"
+#include "ra/ra_tx_hw.h"
 
 #if MICROPY_HW_ENABLE_DAC
+
+static void audiomixer_require_unowned(void) {
+    if (ra_tx_hw_owns_dac()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+}
 
 #if defined(MICROPY_HW_DAC1)
 #define AUDIOMIXER_DAC_MAX (2)
@@ -250,12 +257,15 @@ static void audiomixer_stream_stopped(void *context) {
     self->timer_ch = self->requested_timer_ch;
     audiomixer_root_clear(self);
 
-    if (!self->deinitialized) {
+    if (!self->deinitialized && !ra_tx_hw_owns_dac()) {
         ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
     }
 }
 
 static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
+    if (ra_tx_hw_owns_dac()) {
+        return false;
+    }
     if (self == NULL || self->deinitialized) {
         return false;
     }
@@ -319,6 +329,9 @@ static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
 }
 
 static bool audiomixer_stop_output_locked(audiomixer_mixer_obj_t *self, bool center_output) {
+    if (ra_tx_hw_owns_dac()) {
+        return false;
+    }
     if (self == NULL) {
         return false;
     }
@@ -345,6 +358,9 @@ static void audiomixer_stop_all_voices_locked(audiomixer_mixer_obj_t *self) {
 }
 
 static bool audiomixer_mixer_cleanup(audiomixer_mixer_obj_t *self) {
+    if (ra_tx_hw_owns_dac()) {
+        return false;
+    }
     if (self == NULL) {
         return false;
     }
@@ -423,6 +439,7 @@ static void audiomixer_mixer_print(const mp_print_t *print, mp_obj_t self_in, mp
 }
 
 static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+    audiomixer_require_unowned();
     enum {
         ARG_voice_count,
         ARG_sample_rate,
@@ -542,6 +559,7 @@ static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_ar
 }
 
 static mp_obj_t audiomixer_mixer_stop(mp_obj_t self_in) {
+    audiomixer_require_unowned();
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
     audiomixer_stop_all_voices_locked(self);
@@ -554,6 +572,9 @@ static mp_obj_t audiomixer_mixer_stop(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_stop_obj, audiomixer_mixer_stop);
 
 static mp_obj_t audiomixer_mixer_playing(mp_obj_t self_in) {
+    if (ra_tx_hw_owns_dac()) {
+        return mp_const_false;
+    }
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->output_active) {
         (void)ra_dac_stream_is_active(self->dac_ch);
@@ -563,6 +584,7 @@ static mp_obj_t audiomixer_mixer_playing(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_playing_obj, audiomixer_mixer_playing);
 
 static mp_obj_t audiomixer_mixer_deinit(mp_obj_t self_in) {
+    audiomixer_require_unowned();
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!audiomixer_mixer_cleanup(self)) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
@@ -616,6 +638,7 @@ static void audiomixer_voice_print(const mp_print_t *print, mp_obj_t self_in, mp
 }
 
 static mp_obj_t audiomixer_voice_play(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    audiomixer_require_unowned();
     audiomixer_voice_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     audiomixer_mixer_obj_t *mixer = self->mixer;
     audiomixer_voice_state_t *voice = &mixer->voices[self->index];
@@ -669,6 +692,7 @@ static mp_obj_t audiomixer_voice_play(size_t n_args, const mp_obj_t *pos_args, m
 static MP_DEFINE_CONST_FUN_OBJ_KW(audiomixer_voice_play_obj, 1, audiomixer_voice_play);
 
 static mp_obj_t audiomixer_voice_stop(mp_obj_t self_in) {
+    audiomixer_require_unowned();
     audiomixer_voice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiomixer_mixer_obj_t *mixer = self->mixer;
     mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();

@@ -50,6 +50,11 @@
 #define MICROPY_HW_ENABLE_TOUCHPAD  (0)
 #endif
 
+// Autonomous I/Q transmit is enabled by the RA6M3 board build only.
+#ifndef MICROPY_HW_ENABLE_TX
+#define MICROPY_HW_ENABLE_TX (0)
+#endif
+
 #if MICROPY_HW_ENABLE_USBDEV
 // Enable USB-CDC serial port
 #ifndef MICROPY_HW_USB_CDC

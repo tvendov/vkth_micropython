@@ -31,6 +31,7 @@
 #include "py/mperrno.h"
 #include "pin.h"
 #include "ra/ra_dac.h"
+#include "ra/ra_tx_hw.h"
 #include "modmachine.h"
 
 #if MICROPY_HW_ENABLE_IQ_ADC
@@ -39,6 +40,12 @@
 #endif
 
 #if MICROPY_PY_MACHINE_DAC
+
+static void machine_dac_require_unowned(void) {
+    if (ra_tx_hw_owns_dac()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+}
 
 typedef struct _machine_dac_obj_t {
     mp_obj_base_t base;
@@ -148,6 +155,9 @@ static bool machine_dac_stop_one(machine_dac_obj_t *self) {
 }
 
 static bool machine_dac_stop_stream(machine_dac_obj_t *self) {
+    if (ra_tx_hw_owns_dac()) {
+        return false;
+    }
     /* DAC0 is the I owner.  It may not be stopped/restarted while DAC1 keeps a
      * stale Q stream alive: stop Q first, then I.  Stopping Q alone intentionally
      * leaves DAC0 running as the supported mono mode. */
@@ -193,10 +203,12 @@ static void machine_dac_print(const mp_print_t *print, mp_obj_t self_in, mp_prin
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);     // const char *qstr_str(qstr q);
     uint16_t raw = ra_dac_read(self->ch);
     mp_printf(print, "DAC(DA%d [#%d], active=%u, playing=%u, out=%u mV)",
-        self->ch, self->dac->pin, self->active, ra_dac_stream_is_active(self->ch), machine_dac_raw_to_mv(raw));
+        self->ch, self->dac->pin, self->active,
+        !ra_tx_hw_owns_dac() && ra_dac_stream_is_active(self->ch), machine_dac_raw_to_mv(raw));
 }
 
 static mp_obj_t machine_dac_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+    machine_dac_require_unowned();
     mp_hal_pin_obj_t pin_id = MP_OBJ_NULL;
     machine_dac_obj_t *self = MP_OBJ_NULL;
 
@@ -240,6 +252,7 @@ static mp_obj_t machine_dac_make_new(const mp_obj_type_t *type, size_t n_args, s
 
 // DAC.deinit()
 static mp_obj_t machine_dac_deinit(mp_obj_t self_in) {
+    machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (!machine_dac_stop_stream(self)) {
@@ -254,6 +267,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_dac_deinit_obj, machine_dac_deinit);
 
 // DAC.write(value)
 static mp_obj_t machine_dac_write(mp_obj_t self_in, mp_obj_t data) { // mp_obj_t value_in
+    machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_int_t value = mp_obj_get_int(data);
 
@@ -281,6 +295,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_dac_read_obj, machine_dac_read);
 
 // DAC.write_mv(Vout)
 static mp_obj_t machine_dac_write_mv(mp_obj_t self_in, mp_obj_t data) {  // mp_obj_t self_in, mp_obj_t value_in
+    machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_int_t Vout = mp_obj_get_int(data);
 
@@ -309,6 +324,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_dac_read_mv_obj, machine_dac_read_mv);
 
 // DAC.write_timed(data, freq, *, mode=DAC.NORMAL, transfer=DAC.TRANSFER_AUTO, timer=None)
 static mp_obj_t machine_dac_write_timed(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
 
     enum { ARG_data, ARG_freq, ARG_mode, ARG_transfer, ARG_timer };
@@ -390,6 +406,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(machine_dac_write_timed_obj, 1, machine_dac_wr
 // DMAC path with no CPU per sample.  source is an IQADC instance; its audio params
 // (rate, block) drive the stream unless freq is overridden.  Stop with DAC.stop().
 static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
 
     enum { ARG_source, ARG_freq };
@@ -500,6 +517,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(machine_dac_stream_obj, 1, machine_dac_stream)
 
 // DAC.stop()
 static mp_obj_t machine_dac_stop(mp_obj_t self_in) {
+    machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!machine_dac_stop_stream(self)) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
@@ -512,6 +530,11 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_dac_stop_obj, machine_dac_stop);
 
 // DAC.playing()
 static mp_obj_t machine_dac_playing(mp_obj_t self_in) {
+    /* The legacy status path can clean up DMA state.  Do not let it touch a
+     * DAC currently controlled by the paired autonomous transmitter. */
+    if (ra_tx_hw_owns_dac()) {
+        return mp_const_false;
+    }
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);
     bool active = ra_dac_stream_is_active(self->ch);
     #if MICROPY_HW_ENABLE_IQ_ADC

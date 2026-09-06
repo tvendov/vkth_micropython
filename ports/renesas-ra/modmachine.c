@@ -115,6 +115,13 @@ extern const mp_obj_type_t machine_iqadc_type;
 #define MICROPY_PY_MACHINE_IQADC_ENTRY
 #endif
 
+#if defined(RA6M3) && MICROPY_HW_ENABLE_TX
+extern const mp_obj_type_t machine_iqtx_type;
+#define MICROPY_PY_MACHINE_TX_ENTRY { MP_ROM_QSTR(MP_QSTR_IQTX), MP_ROM_PTR(&machine_iqtx_type) },
+#else
+#define MICROPY_PY_MACHINE_TX_ENTRY
+#endif
+
 #if defined(MICROPY_HW_ENCODER_A)
 #define MICROPY_PY_MACHINE_ENCODER_ENTRY { MP_ROM_QSTR(MP_QSTR_Encoder), MP_ROM_PTR(&machine_encoder_type) },
 #else
@@ -134,6 +141,7 @@ extern const mp_obj_type_t machine_iqadc_type;
     MICROPY_PY_MACHINE_ENCODER_ENTRY \
     MICROPY_PY_MACHINE_AUDIOADC_ENTRY \
     MICROPY_PY_MACHINE_IQADC_ENTRY \
+    MICROPY_PY_MACHINE_TX_ENTRY \
     \
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \
     { MP_ROM_QSTR(MP_QSTR_Timer),               MP_ROM_PTR(&machine_timer_type) }, \

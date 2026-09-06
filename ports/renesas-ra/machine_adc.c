@@ -31,6 +31,7 @@
 #include "py/mphal.h"
 #include "py/mperrno.h"
 #include "ra_adc.h"
+#include "ra_tx_hw.h"
 #if defined(RA6M3) && defined(MICROPY_HW_ENABLE_IQ_ADC) && MICROPY_HW_ENABLE_IQ_ADC
 #include "ra_iq_adc.h"
 #endif
@@ -95,12 +96,18 @@ typedef struct _machine_adc_obj_t {
     uint32_t channel;
     uint32_t pin;
     uint32_t sample_time;
+    #if MICROPY_HW_ENABLE_TX
+    uint32_t tx_adc_epoch;
+    #endif
 } machine_adc_obj_t;
 
 /* ADC0/ADC1 scan selection, resolution, S&H and PGA registers are shared with
  * IQADC.  A standalone ADC read used to overwrite that live configuration and
  * leave the SDR corrupted until a full peripheral reconstruction/reset. */
 static void machine_adc_require_unowned(void) {
+    if (ra_tx_hw_owns_adc()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
     #if defined(RA6M3) && defined(MICROPY_HW_ENABLE_IQ_ADC) && MICROPY_HW_ENABLE_IQ_ADC
     if (ra_iq_adc_owns_adc()) {
         mp_raise_OSError(MP_EBUSY);
@@ -113,8 +120,24 @@ static void machine_adc_require_unowned(void) {
     #endif
 }
 
+static void machine_adc_require_current(machine_adc_obj_t *self) {
+    machine_adc_require_unowned();
+    #if MICROPY_HW_ENABLE_TX
+    /* AM/FM may have closed or reconfigured the shared ADC since this object
+     * was constructed. Reconstruct it instead of reading stale/gated hardware. */
+    if (self->tx_adc_epoch != ra_tx_hw_adc_epoch()) {
+        mp_raise_OSError(MP_ENODEV);
+    }
+    #else
+    (void)self;
+    #endif
+}
+
 static void mp_machine_adc_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_adc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    #if MICROPY_HW_ENABLE_TX
+    machine_adc_require_current(self);
+    #endif
     uint8_t resolution = (uint8_t)ra_adc_get_resolution();
     mp_printf(print, "<ADC%u channel=%u>", resolution, self->channel);
 }
@@ -265,16 +288,19 @@ static mp_obj_t mp_machine_adc_make_new(const mp_obj_type_t *type, size_t n_args
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("pga bypass failed"));
     }
     #endif
+    #if MICROPY_HW_ENABLE_TX
+    o->tx_adc_epoch = ra_tx_hw_adc_epoch();
+    #endif
     return MP_OBJ_FROM_PTR(o);
 }
 
 static mp_int_t mp_machine_adc_read(machine_adc_obj_t *self) {
-    machine_adc_require_unowned();
+    machine_adc_require_current(self);
     return ra_adc_read_ch(self->channel);
 }
 
 static mp_int_t mp_machine_adc_read_u16(machine_adc_obj_t *self) {
-    machine_adc_require_unowned();
+    machine_adc_require_current(self);
     mp_uint_t raw = (mp_uint_t)ra_adc_read_ch(self->channel);
     mp_int_t bits = (mp_int_t)ra_adc_get_resolution();
     // Scale raw reading to 16 bit value using a Taylor expansion (for 8 <= bits <= 16)
@@ -286,12 +312,18 @@ static mp_int_t mp_machine_adc_read_u16(machine_adc_obj_t *self) {
 
 static mp_obj_t machine_adc_pga_supported(mp_obj_t self_in) {
     machine_adc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    #if MICROPY_HW_ENABLE_TX
+    machine_adc_require_current(self);
+    #endif
     return mp_obj_new_bool(ra_adc_pga_supported_ch((uint8_t)self->channel));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_adc_pga_supported_obj, machine_adc_pga_supported);
 
 static mp_obj_t machine_adc_pga(size_t n_args, const mp_obj_t *args) {
     machine_adc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    #if MICROPY_HW_ENABLE_TX
+    machine_adc_require_current(self);
+    #endif
     ra_adc_pga_mode_t mode;
     uint8_t gain_code;
 
@@ -311,7 +343,7 @@ static mp_obj_t machine_adc_pga(size_t n_args, const mp_obj_t *args) {
         return mp_obj_new_tuple(MP_ARRAY_SIZE(tuple), tuple);
     }
 
-    machine_adc_require_unowned();
+    machine_adc_require_current(self);
     mode = machine_adc_get_pga_mode(args[1]);
     gain_code = n_args >= 3 ? (uint8_t)mp_obj_get_int(args[2]) : 0;
     if (!ra_adc_pga_config_ch((uint8_t)self->channel, mode, gain_code)) {
@@ -323,7 +355,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_adc_pga_obj, 1, 3, machine_ad
 
 static mp_obj_t machine_adc_set_gain(size_t n_args, const mp_obj_t *args) {
     machine_adc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    machine_adc_require_unowned();
+    machine_adc_require_current(self);
     uint8_t gain_code = (uint8_t)mp_obj_get_int(args[1]);
     ra_adc_pga_mode_t mode = (n_args >= 3 && mp_obj_is_true(args[2])) ? RA_ADC_PGA_DIFFERENTIAL : RA_ADC_PGA_SINGLE;
 
@@ -339,6 +371,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_adc_set_gain_obj, 2, 3, machi
 
 static mp_obj_t machine_adc_gain(mp_obj_t self_in) {
     machine_adc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    #if MICROPY_HW_ENABLE_TX
+    machine_adc_require_current(self);
+    #endif
     ra_adc_pga_mode_t mode;
     uint8_t gain_code;
 

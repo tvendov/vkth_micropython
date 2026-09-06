@@ -16,6 +16,7 @@
 #include "r_dtc.h"
 #include "ra_adc.h"
 #include "ra_iq_adc.h"
+#include "ra_tx_hw.h"
 #include "ra_sdr_caps.h"
 #if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
 #include "ra_storm_adc.h"
@@ -2816,6 +2817,10 @@ static void ra_iq_dtc_build(void) {
 
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     size_t block_samples, ra_adc_pga_mode_t pga_mode, uint8_t pga_gain) {
+    if (ra_tx_hw_owns_adc()) {
+        s_init_error = "tx_owner";
+        return false;
+    }
     uint8_t i_ch;
     uint8_t q_ch;
     uint8_t timer_ch;

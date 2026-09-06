@@ -15,6 +15,7 @@
 #include "ra/ra_iq_adc.h"
 #endif
 #include "ra/ra_storm_adc.h"
+#include "ra/ra_tx_hw.h"
 
 /* ------------------------------------------------------------------ */
 /* Object                                                               */
@@ -52,6 +53,9 @@ static void machine_audioadc_print(const mp_print_t *print,
 static mp_obj_t machine_audioadc_make_new(const mp_obj_type_t *type,
                                           size_t n_args, size_t n_kw,
                                           const mp_obj_t *all_args) {
+    if (ra_tx_hw_owns_adc()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
     (void)type;
     enum { ARG_pin, ARG_fs, ARG_frame };
     static const mp_arg_t allowed_args[] = {

@@ -8,6 +8,7 @@
 #include "ra_iq_adc.h"
 #endif
 #include "ra_storm_adc.h"
+#include "ra_tx_hw.h"
 #include "ra_timer.h"
 #include "ra_utils.h"
 #include "vector_data.h"
@@ -129,6 +130,9 @@ static void ra_storm_update_ready_state(void) {
 }
 
 bool ra_storm_adc_init(uint32_t pin, uint32_t sample_rate_hz, size_t frame_samples) {
+    if (ra_tx_hw_owns_adc()) {
+        return false;
+    }
     uint8_t adc_ch;
     uint8_t timer_ch;
     elc_event_t agt_event;

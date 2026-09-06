@@ -626,6 +626,15 @@ HAL_SRC_C += ra/ra_sdr_caps.c
 SRC_C += machine_iq_adc.c
 endif
 
+# Autonomous I/Q transmit is implemented only for the RA6M3 board profile.
+ifeq ($(CMSIS_MCU),RA6M3)
+ifeq ($(MICROPY_HW_ENABLE_TX),1)
+CFLAGS += -DMICROPY_HW_ENABLE_TX=1
+SRC_C += machine_tx.c
+HAL_SRC_C += ra/ra_tx_hw.c ra/ra_tx_core.c
+endif
+endif
+
 # CTSU (Capacitive Touch Sensing Unit) support
 ifeq ($(MICROPY_HW_ENABLE_TOUCHPAD),1)
 CFLAGS += -DMICROPY_HW_ENABLE_TOUCHPAD=1
