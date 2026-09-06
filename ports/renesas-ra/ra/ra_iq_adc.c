@@ -46,6 +46,8 @@
 typedef struct {
     bool opened0;
     bool opened1;
+    bool scanning0;
+    bool scanning1;
     bool dtc_open;
     bool timer_reserved;
     bool i_pin_enabled;
@@ -77,6 +79,29 @@ static volatile uint8_t s_capture_irq_armed;
 /* Static diagnostic only; points at string literals and therefore survives the
  * cleanup performed on an init failure without allocating or touching the heap. */
 static const char *s_init_error = "none";
+
+#if MICROPY_HW_ENABLE_MEASUREMENT
+static ra_iq_raw_consumer_t s_raw_consumer;
+static void *s_raw_context;
+
+bool ra_iq_adc_set_raw_consumer(ra_iq_raw_consumer_t consumer, void *context) {
+    if (!s_status.initialised || s_status.running || s_iq.scanning0 ||
+        s_iq.scanning1 || s_raw_consumer != NULL || consumer == NULL) {
+        return false;
+    }
+    s_raw_context = context;
+    s_raw_consumer = consumer;
+    return true;
+}
+
+bool ra_iq_adc_raw_owned(void) {
+    return s_raw_consumer != NULL;
+}
+
+float ra_iq_adc_actual_rate(void) {
+    return s_iq.timer_reserved ? ra_agt_timer_get_freq(s_iq.timer_ch) : 0.0f;
+}
+#endif
 
 /* Per-block DSP processing time, measured with the DWT cycle counter around the
  * dsp_process + demod_produce work in the block callback.  The legacy counters are
@@ -2633,7 +2658,21 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
     s_dtc_info[1].p_dest = s_q_buf[next];
     s_dtc_info[0].length = s_status.block_samples;
     s_dtc_info[1].length = s_status.block_samples;
-    (void)R_DTC_Reconfigure((transfer_ctrl_t *)&s_iq.dtc_ctrl, s_dtc_info);
+    if (R_DTC_Reconfigure((transfer_ctrl_t *)&s_iq.dtc_ctrl, s_dtc_info) != FSP_SUCCESS) {
+        s_status.last_error = RA_IQ_ADC_ERR_DTC;
+        s_status.ready = 0U;
+        s_capture_irq_armed = 0U;
+        ra_agt_timer_stop(s_iq.timer_ch);
+        R_BSP_IrqDisable(VECTOR_NUMBER_ADC0_SCAN_END);
+        #if MICROPY_HW_ENABLE_MEASUREMENT
+        if (s_raw_consumer != NULL) {
+            s_raw_consumer(s_raw_context, s_i_buf[finished], s_q_buf[finished],
+                s_status.block_samples, RA_IQ_RAW_DATA_LOSS, true);
+        }
+        #endif
+        /* Foreground must acknowledge stop and release. Keep ownership intact. */
+        return;
+    }
 
     if (s_status.ready) {
         /* The previous block was never taken; it is gone now. */
@@ -2641,7 +2680,8 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
         s_status.last_error = RA_IQ_ADC_ERR_OVERRUN;
     }
 
-    if (!ra_iq_unit1_alive_and_clear()) {
+    bool unit1_alive = ra_iq_unit1_alive_and_clear();
+    if (!unit1_alive) {
         s_status.unit1_stalls++;
         s_status.last_error = RA_IQ_ADC_ERR_UNIT1_STALL;
     }
@@ -2662,20 +2702,27 @@ static void ra_iq_block_callback(adc_callback_args_t *p_args) {
 
     /* Phase-3 DSP on the block just captured (finished half); timed with DWT. */
     uint32_t t0 = DWT->CYCCNT;
-    ra_iq_dsp_process(finished);
+    #if MICROPY_HW_ENABLE_MEASUREMENT
+    if (s_raw_consumer != NULL) {
+        /* Consume before injection/SDR. Python polling cannot overrun raw data. */
+        s_status.ready = 0U;
+        s_raw_consumer(s_raw_context, s_i_buf[finished], s_q_buf[finished],
+            s_status.block_samples, unit1_alive ? 0U : RA_IQ_RAW_DATA_LOSS, false);
+    } else
+    #endif
+    {
+        ra_iq_dsp_process(finished);
 
-    /* Phase-4 demod producer when a demod mode is selected or block 6 is bypassed
-     * into its defined I-pass path.  Reads the
-     * s_i_dc/s_q_dc the DSP call above just filled.  Skipped while a PRE-demod stage
-     * is routed to the DACs: that scope capture is then the sole producer of the audio
-     * ring (I) and the Q ring, and running the demod too would double-write s_audio_ring
-     * (two producers of one SPSC ring).  A post-demod scope stage still runs the demod
-     * (its output is what feeds the audio ring). */
-    uint8_t scope = s_scope_stage;
-    bool predemod_routed = (scope != 0U) && (scope <= RA_IQ_LAST_PREDEMOD_BLK);
-    if (((s_demod_mode != RA_IQ_DEMOD_OFF) ||
-         RA_IQ_BYPASSED(RA_IQ_BLK_DEMOD)) && !predemod_routed) {
-        ra_iq_demod_produce(finished);
+        /* Phase-4 demod producer when a demod mode is selected or block 6 is bypassed
+         * into its defined I-pass path. Reads the s_i_dc/s_q_dc just filled above.
+         * A PRE-demod scope route is the sole producer of both output rings; running
+         * demod there would double-write the ring. A post-demod route still runs it. */
+        uint8_t scope = s_scope_stage;
+        bool predemod_routed = (scope != 0U) && (scope <= RA_IQ_LAST_PREDEMOD_BLK);
+        if (((s_demod_mode != RA_IQ_DEMOD_OFF) ||
+             RA_IQ_BYPASSED(RA_IQ_BLK_DEMOD)) && !predemod_routed) {
+            ra_iq_demod_produce(finished);
+        }
     }
     uint32_t dt = DWT->CYCCNT - t0;
     s_proc_last = dt;
@@ -2798,6 +2845,10 @@ static void ra_iq_dtc_build(void) {
 
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     size_t block_samples) {
+    if (ra_iq_adc_owns_adc()) {
+        s_init_error = "adc_owner";
+        return false;
+    }
     if (ra_tx_hw_owns_adc()) {
         s_init_error = "tx_owner";
         return false;
@@ -2989,8 +3040,6 @@ static void ra_iq_adc_irq_quiesce(void) {
 }
 
 bool ra_iq_adc_deinit_checked(void) {
-    bool was_running = s_status.running != 0U;
-
     /* Safe before every teardown attempt and idempotent on retry.  If hardware
      * shutdown later fails, no display producer continues consuming ISR/DAC data. */
     ra_iq_adc_spectrum_enable(0U);
@@ -3004,22 +3053,25 @@ bool ra_iq_adc_deinit_checked(void) {
     }
     s_demod_mode = RA_IQ_DEMOD_OFF;
 
-    /* No new AGT event can now start a conversion.  Gate the callback and clear
-     * any final scan-end IRQ before touching DTC/ADC ownership.  Keep the public
-     * running flag set until both ScanStop calls succeed so a failed teardown is
-     * retryable rather than silently skipping the scan stop next time. */
+    /* No new AGT event can now start a conversion. Gate the callback first.
+     * Track each armed ADC separately, including a failed partial start; clear
+     * an armed flag only after its ScanStop succeeds so teardown can be retried. */
     s_capture_irq_armed = 0U;
     __DMB();
     if (s_iq.opened0 || s_iq.dtc_open) {
         ra_iq_adc_irq_quiesce();
     }
-    if (s_iq.opened0 && was_running &&
-        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
-        return false;
+    if (s_iq.scanning0) {
+        if (R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.scanning0 = false;
     }
-    if (s_iq.opened1 && was_running &&
-        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
-        return false;
+    if (s_iq.scanning1) {
+        if (R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.scanning1 = false;
     }
     s_status.running = 0U;
     s_status.ready = 0U;
@@ -3077,6 +3129,10 @@ bool ra_iq_adc_deinit_checked(void) {
     memset(&s_iq, 0, sizeof(s_iq));
     memset(&s_status, 0, sizeof(s_status));
     ra_iq_adc_file_detach();
+    #if MICROPY_HW_ENABLE_MEASUREMENT
+    s_raw_consumer = NULL;
+    s_raw_context = NULL;
+    #endif
     return true;
 }
 
@@ -3085,7 +3141,7 @@ void ra_iq_adc_deinit(void) {
 }
 
 bool ra_iq_adc_start(void) {
-    if (!s_status.initialised || s_status.running) {
+    if (!s_status.initialised || s_status.running || s_iq.scanning0 || s_iq.scanning1) {
         return false;
     }
 
@@ -3166,25 +3222,29 @@ bool ra_iq_adc_start(void) {
     s_scope_q_tail = 0U;
     __DMB();
 
-    R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
+    if (R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
+        s_status.last_error = RA_IQ_ADC_ERR_DTC;
+        return false;
+    }
     ra_iq_dtc_build();
     R_BSP_IrqStatusClear(VECTOR_NUMBER_ADC0_SCAN_END);
     R_BSP_IrqStatusClear(VECTOR_NUMBER_ADC1_SCAN_END);
     if (R_DTC_Reconfigure((transfer_ctrl_t *)&s_iq.dtc_ctrl, s_dtc_info) != FSP_SUCCESS) {
+        s_status.last_error = RA_IQ_ADC_ERR_DTC;
         return false;
     }
 
     /* TRGE goes up here; the units then wait for the ELC event.  Both units are
      * armed before the timer runs, so neither can miss the first trigger. */
     if (R_ADC_ScanStart((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
-        R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
         return false;
     }
+    s_iq.scanning1 = true;
     if (R_ADC_ScanStart((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
-        R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl);
-        R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
+        /* Checked stop/deinit also handles this partially armed state. */
         return false;
     }
+    s_iq.scanning0 = true;
 
     s_capture_irq_armed = 1U;
     s_status.running = 1U;
@@ -3195,9 +3255,14 @@ bool ra_iq_adc_start(void) {
     return true;
 }
 
-void ra_iq_adc_stop(void) {
-    if (!s_status.running) {
-        return;
+bool ra_iq_adc_stop_checked(void) {
+    if (!s_status.running && !s_iq.scanning0 && !s_iq.scanning1) {
+        /* DTC can already be enabled when the first ADC ScanStart fails. */
+        if (s_iq.dtc_open && R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
+            s_status.last_error = RA_IQ_ADC_ERR_DTC;
+            return false;
+        }
+        return true;
     }
     /* Stop the demod producer first: it runs from this capture's block callback,
      * so it must be quiesced before the capture itself stops.  The DAC stream is
@@ -3205,23 +3270,37 @@ void ra_iq_adc_stop(void) {
      * empty ring, so it is left for machine.DAC to stop. */
     s_demod_mode = RA_IQ_DEMOD_OFF;
     if (!ra_agt_timer_stop_wait(s_iq.timer_ch)) {
-        return;
+        return false;
     }
     s_capture_irq_armed = 0U;
     __DMB();
     ra_iq_adc_irq_quiesce();
-    if (s_iq.opened0 && R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
-        return;
+    if (s_iq.scanning0) {
+        if (R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.scanning0 = false;
     }
-    if (s_iq.opened1 && R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
-        return;
+    if (s_iq.scanning1) {
+        if (R_ADC_ScanStop((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
+            return false;
+        }
+        s_iq.scanning1 = false;
     }
-    R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl);
+    if (R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
+        s_status.last_error = RA_IQ_ADC_ERR_DTC;
+        return false;
+    }
     s_status.running = 0U;
     s_status.ready = 0U;
     /* No producer remains to publish an invalid snapshot, so make the generation
      * mismatch explicit.  timing() must never report a stale valid load after stop. */
     ra_iq_timing_request_window_reset();
+    return true;
+}
+
+void ra_iq_adc_stop(void) {
+    (void)ra_iq_adc_stop_checked();
 }
 
 bool ra_iq_adc_acquire(const uint16_t **i_block, const uint16_t **q_block,

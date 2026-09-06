@@ -13,9 +13,10 @@ def available():
 def prepare(mode="CW", **config):
     """Explicitly acquire hardware and set neutral DAC levels; do not start."""
     from machine import IQTX
-    modes = {"CW": IQTX.CW, "AM": IQTX.AM, "FM": IQTX.FM}
+    modes = {"CW": IQTX.CW, "AM": IQTX.AM, "FM": IQTX.FM,
+             "USB": IQTX.USB, "LSB": IQTX.LSB}
     if mode not in modes:
-        raise ValueError("choose CW, AM or FM; SSB is not implemented")
+        raise ValueError("choose CW, AM, FM, USB or LSB")
     return IQTX(mode=modes[mode], **config)
 
 

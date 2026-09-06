@@ -55,6 +55,7 @@ typedef enum {
     RA_IQ_ADC_ERR_NONE = 0,
     RA_IQ_ADC_ERR_OVERRUN = -1,
     RA_IQ_ADC_ERR_UNIT1_STALL = -2,
+    RA_IQ_ADC_ERR_DTC = -3,
 } ra_iq_adc_error_t;
 
 /* block_samples must be even and in the inclusive range 10..256: the x2 CMSIS
@@ -74,6 +75,18 @@ bool ra_iq_adc_deinit_checked(void);
 
 bool ra_iq_adc_start(void);
 void ra_iq_adc_stop(void);
+bool ra_iq_adc_stop_checked(void);
+
+#if MICROPY_HW_ENABLE_MEASUREMENT
+#define RA_IQ_RAW_DATA_LOSS (1U)
+typedef void (*ra_iq_raw_consumer_t)(void *context, const uint16_t *a,
+    const uint16_t *b, size_t count, uint32_t flags, bool fatal);
+/* Attach while initialized and stopped. Runs instead of SDR processing;
+ * checked deinit is the only detach operation. */
+bool ra_iq_adc_set_raw_consumer(ra_iq_raw_consumer_t consumer, void *context);
+bool ra_iq_adc_raw_owned(void);
+float ra_iq_adc_actual_rate(void);
+#endif
 
 /* Hands out the half that was completed last.  Returns false when no block is
  * ready.  The pointers stay valid until the block after next completes, which

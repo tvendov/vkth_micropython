@@ -76,6 +76,9 @@
 #define RA_EARLY_PRINT  1       /* for enabling mp_print in boardctrl. */
 
 // Forward declarations for deinit functions
+#if MICROPY_HW_ENABLE_MEASUREMENT
+bool machine_measurement_deinit_all(void);
+#endif
 #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
 bool machine_tx_deinit_all(void);
 #endif
@@ -192,9 +195,9 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
             lfs1_superblock_t *superblock = (void *)&buf[12];
             uint32_t block_size = lfs1_fromle32(superblock->d.block_size);
             uint32_t block_count = lfs1_fromle32(superblock->d.block_count);
-            #if MICROPY_PY_CV2_QSPI
+            #if MICROPY_HW_QSPI_CODE_RESERVE
             if (!block_size || (uint64_t)block_count * block_size > 0x00c00000U) {
-                printf("MPY: cv2 QSPI partition requires filesystem backup/migration\n");
+                printf("MPY: QSPI partition requires filesystem backup/migration\n");
                 return false;
             }
             #endif
@@ -209,9 +212,9 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
             lfs2_superblock_t *superblock = (void *)&buf[20];
             uint32_t block_size = lfs2_fromle32(superblock->block_size);
             uint32_t block_count = lfs2_fromle32(superblock->block_count);
-            #if MICROPY_PY_CV2_QSPI
+            #if MICROPY_HW_QSPI_CODE_RESERVE
             if (!block_size || (uint64_t)block_count * block_size > 0x00c00000U) {
-                printf("MPY: cv2 QSPI partition requires filesystem backup/migration\n");
+                printf("MPY: QSPI partition requires filesystem backup/migration\n");
                 return false;
             }
             #endif
@@ -233,9 +236,9 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
     mp_obj_t mount_point = MP_OBJ_NEW_QSTR(MP_QSTR__slash_flash);
     ret = mp_vfs_mount_and_chdir_protected(bdev, mount_point);
 
-    #if !MICROPY_PY_CV2_QSPI
-    // The opt-in external-code profile must not automatically format storage
-    // after changing its capacity. Migration is a separate explicit action.
+    #if !MICROPY_HW_QSPI_CODE_RESERVE
+    // A board with reserved QSPI code must never auto-format on mount failure,
+    // including builds without OpenCV. Migration is a separate explicit action.
     if (ret == -MP_ENODEV && bdev == MP_OBJ_FROM_PTR(&pyb_flash_obj)
         && reset_mode != BOARDCTRL_RESET_MODE_FACTORY_FILESYSTEM) {
         // No filesystem, bdev is still the default (so didn't detect a possibly corrupt littlefs),
@@ -516,6 +519,14 @@ soft_reset_exit:
     #endif
     /* Stop the ADC/ELC producer after its DAC consumers, but before the generic
      * timer teardown clears internal AGT reservation bookkeeping. */
+    #if MICROPY_HW_ENABLE_MEASUREMENT
+    if (!machine_measurement_deinit_all()) {
+        NVIC_SystemReset();
+        for (;;) {
+            __WFI();
+        }
+    }
+    #endif
     #if MICROPY_HW_ENABLE_AUDIOADC
     dac_cleanup_ok = machine_audioadc_deinit_all() && dac_cleanup_ok;
     #endif

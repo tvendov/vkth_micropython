@@ -23,6 +23,14 @@ include ../../py/mkenv.mk
 -include mpconfigport.mk
 include $(BOARD_DIR)/mpconfigboard.mk
 
+# OpenCV is opt-in. Storage partitioning belongs to the board, not this switch.
+MICROPY_PY_CV2_QSPI ?= 0
+ifneq ($(MICROPY_PY_CV2_QSPI),0)
+ifneq ($(MICROPY_PY_CV2_QSPI),1)
+$(error MICROPY_PY_CV2_QSPI must be 0 or 1)
+endif
+endif
+
 USE_FSP_LPM ?= 1
 USE_FSP_QSPI ?= 0
 USE_FSP_SDHI ?= 0

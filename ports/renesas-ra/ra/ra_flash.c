@@ -258,7 +258,7 @@ bool internal_flash_write(uint8_t *addr, uint32_t NumBytes, uint8_t *pSectorBuff
 }
 
 bool internal_flash_writex(uint8_t *addr, uint32_t NumBytes, uint8_t *pSectorBuff, bool ReadModifyWrite, bool fIncrementDataPtr) {
-    #if MICROPY_PY_CV2_QSPI
+    #if MICROPY_HW_QSPI_CODE_RESERVE
     extern uint8_t _micropy_hw_external_flash_storage_start, _micropy_hw_external_flash_storage_end;
     uintptr_t target = (uintptr_t)addr;
     uintptr_t fs_start = (uintptr_t)&_micropy_hw_external_flash_storage_start;
@@ -373,7 +373,7 @@ bool internal_flash_isblockerased(uint8_t *addr, uint32_t BlockLength) {
 }
 
 bool internal_flash_eraseblock(uint8_t *addr) {
-    #if MICROPY_PY_CV2_QSPI
+    #if MICROPY_HW_QSPI_CODE_RESERVE
     extern uint8_t _micropy_hw_external_flash_storage_start, _micropy_hw_external_flash_storage_end;
     uintptr_t target = (uintptr_t)addr;
     uintptr_t fs_start = (uintptr_t)&_micropy_hw_external_flash_storage_start;

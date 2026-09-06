@@ -10,7 +10,8 @@ MEMORY
   RAM (rwx)          : ORIGIN = 0x1FFE0000, LENGTH = 0x00060000  /* 384KB before FB0 */
   FB0 (rwx)          : ORIGIN = 0x20040000, LENGTH = 0x003FC00   /* 255K */
   DATA_FLASH (rx)    : ORIGIN = 0x40100000, LENGTH = 0x00010000  /* 64KB */
-  QSPI_FLASH (rx)    : ORIGIN = 0x60000000, LENGTH = 0x01000000  /* 16MB/64MB */
+  QSPI_FLASH (rx)    : ORIGIN = 0x60000000, LENGTH = 0x00C00000  /* 12 MiB filesystem, also with OpenCV OFF */
+  QSPI_CODE (rx)     : ORIGIN = 0x60C00000, LENGTH = 0x00400000  /* reserved code; never filesystem storage */
   ID_CODE (rx)       : ORIGIN = 0x0100A150, LENGTH = 0x00000010  /* 32bytes */
 }
 
@@ -316,3 +317,7 @@ _micropy_hw_internal_flash_storage_end   = ORIGIN(FLASH_FS) + LENGTH(FLASH_FS);
 
 _micropy_hw_external_flash_storage_start = ORIGIN(QSPI_FLASH);
 _micropy_hw_external_flash_storage_end   = ORIGIN(QSPI_FLASH) + LENGTH(QSPI_FLASH);
+_micropy_hw_external_code_start = ORIGIN(QSPI_CODE);
+_micropy_hw_external_code_end = ORIGIN(QSPI_CODE) + LENGTH(QSPI_CODE);
+ASSERT(_micropy_hw_external_flash_storage_end == _micropy_hw_external_code_start, "QSPI filesystem/code boundary changed")
+ASSERT(LENGTH(QSPI_FLASH) == 0x00C00000 && LENGTH(QSPI_CODE) == 0x00400000, "VK_RA6M3 requires the 12/4 MiB QSPI layout")

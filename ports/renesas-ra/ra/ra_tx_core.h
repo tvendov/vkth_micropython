@@ -4,10 +4,36 @@
 
 #include "ra_tx_hw.h"
 
+#define RA_TX_SSB_TAPS (255U)
+#define RA_TX_SSB_RING (256U)
+typedef struct {
+    int16_t history[RA_TX_SSB_RING];
+    uint16_t next;
+    bool primed;
+    uint32_t clips;
+} ra_tx_ssb_state_t;
+
+/* One persistent context for the entire stream, never reset at block boundaries.
+ * Fixed 12 kHz analytic voice filter. USB: I+jQ at +f; LSB: conjugate at -f.
+ * Caller validates config once and owns serialization. No heap or float work.
+ * amplitude maps +/-2048 ADC codes to the nominal DAC peak; overload uses one
+ * shared limiter for I and Q. Reset only at an explicit start/new stream.
+ */
+void ra_tx_core_ssb_reset(ra_tx_ssb_state_t *state);
+void ra_tx_core_ssb_sample(ra_tx_ssb_state_t *state, const ra_tx_config_t *config,
+    uint16_t adc, uint16_t *i_code, uint16_t *q_code);
+
 bool ra_tx_core_validate(const ra_tx_config_t *config);
 
+/* Compact setup-time LUT requirements.  The alignment keeps each complete
+ * table inside one 64-KiB address window, so the DTC only has to patch the
+ * low halfword of a future source address.  CW needs no LUT. */
+size_t ra_tx_core_lut_bytes(const ra_tx_config_t *config);
+size_t ra_tx_core_lut_alignment(const ra_tx_config_t *config);
+
 /* Writes little-endian DAC codes into one bank; never called per sample.
- * CW needs no bank and accepts NULL/0. AM/FM require RA_TX_LUT_BYTES.
+ * CW needs no bank and accepts NULL/0. AM and FM use their compact sizes from
+ * ra_tx_core_lut_bytes().
  * Alignment and ownership of the bank are hardware-backend responsibilities.
  */
 bool ra_tx_core_build_lut(const ra_tx_config_t *config, uint8_t *bank, size_t bytes);

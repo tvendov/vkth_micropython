@@ -53,8 +53,23 @@ def neutral(tx):
     return s
 
 
+def lut_contract(status, mode, gain=2):
+    if mode == IQTX.CW:
+        actual = (status['lut_bytes'], status['lut_allocation_bytes'])
+        check(actual == (0, 0), 'CW LUT contract: ' + repr(status))
+        return
+    elif mode == IQTX.AM:
+        expected = (8192, 16383, 7)
+    else:
+        expected = (1024, 2047, 13 + gain)
+    actual = (status['lut_bytes'], status['lut_allocation_bytes'],
+              status['transfer_count'])
+    check(actual == expected, 'compact LUT contract: ' + repr(status))
+
+
 def test_validation():
-    for config in ({'mode':3},{'rate':0},{'rate':48001},{'amplitude':0},
+    for config in ({'mode':5},{'mode':IQTX.USB,'rate':44000},
+                   {'mode':IQTX.LSB,'rate':24000},{'rate':0},{'rate':48001},{'amplitude':0},
                    {'mode':IQTX.AM,'amplitude':1024},{'fm_gain':0},
                    {'ramp_samples':0},{'ramp_samples':257},{'i_zero':-1}):
         raises(lambda:IQTX(**config), ValueError)
@@ -66,7 +81,8 @@ def test_cw():
     try:
         s = neutral(tx)
         emit('cw_prepared',status=s)
-        check(s['lut_allocation_bytes'] == 0 and s['cw_pin'] is None, 'CW resources')
+        lut_contract(s, IQTX.CW)
+        check(s['cw_pin'] is None, 'CW resources')
         raises(lambda:IQTX(), OSError, 16)
         raises(lambda:before.read_u16(), OSError, 16)
         raises(lambda:machine.DAC(machine.Pin('P014')), OSError, 16)
@@ -140,8 +156,7 @@ def test_modulation(mode,gain=2):
     try:
         s = neutral(tx)
         emit('mod_prepared',status=s,heap=gc.mem_free())
-        check(s['lut_allocation_bytes']==131071,'LUT allocation')
-        check(s['transfer_count']==(6 if mode==IQTX.AM else 7+gain),'chain size')
+        lut_contract(s, mode, gain)
         check(s['period_counts']==(s['timer_clock']+22000)//44000,'rounded timer')
         doc_proof(tx)
         tx.start()

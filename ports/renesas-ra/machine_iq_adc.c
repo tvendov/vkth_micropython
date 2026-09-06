@@ -254,6 +254,11 @@ static void machine_iqadc_print(const mp_print_t *print,
 static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
                                        size_t n_args, size_t n_kw,
                                        const mp_obj_t *all_args) {
+    #if MICROPY_HW_ENABLE_MEASUREMENT
+    if (ra_iq_adc_raw_owned()) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+    #endif
     if (ra_tx_hw_owns_adc()) {
         mp_raise_OSError(MP_EBUSY);
     }
@@ -349,7 +354,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_start_obj, machine_iqadc_start);
 
 static mp_obj_t machine_iqadc_stop(mp_obj_t self_in) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    if (self->active) { ra_iq_adc_stop(); }
+    if (self->active && !ra_iq_adc_stop_checked()) { mp_raise_OSError(MP_EIO); }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_stop_obj, machine_iqadc_stop);

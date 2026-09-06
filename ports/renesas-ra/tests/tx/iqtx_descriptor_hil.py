@@ -64,10 +64,30 @@ try:
         tx=IQTX(mode=mode,fm_gain=gain)
         try:
             descriptor=chain(48)
-            i_index=4 if mode==IQTX.AM else 5+gain
+            s=tx.status()
+            if mode==IQTX.AM:
+                i_index=5
+                q_index=None
+                lut_bytes=8192
+                allocation_bytes=16383
+                alignment=8192
+                transfer_count=7
+            else:
+                i_index=10+gain
+                q_index=11+gain
+                lut_bytes=1024
+                allocation_bytes=2047
+                alignment=1024
+                transfer_count=13+gain
             bank=ram(src(descriptor,i_index))
-            check(bank%65536==0,'LUT bank alignment')
-            initial_irq=tx.status()['unexpected_callbacks']
+            check(bank%alignment==0,'compact LUT alignment')
+            ram(bank+lut_bytes-1)
+            check(s['lut_bytes']==lut_bytes,'LUT logical size')
+            check(s['lut_allocation_bytes']==allocation_bytes,'LUT allocation size')
+            check(s['transfer_count']==transfer_count,'chain size')
+            if q_index is not None:
+                check(src(descriptor,q_index)==bank+0x200,'FM Q plane base')
+            initial_irq=s['unexpected_callbacks']
             for run in range(8):
                 tx.start()
                 time.sleep_ms(15+run)
@@ -89,10 +109,10 @@ try:
                     phase=machine.mem16[ram(dest(descriptor,2+gain))]
                     check(phase==s['phase'],'phase snapshot')
                     check(machine.mem16[0x40054104]==phase,'DOC final phase')
-                    offset=(phase>>8)*256
-                    observed_q=src(descriptor,i_index+1)
+                    offset=(phase>>8)*2
+                    observed_q=src(descriptor,q_index)
                     check(observed_i==bank+offset,'FM I patched SAR')
-                    check(observed_q==observed_i+2,'FM Q did not share index')
+                    check(observed_q==bank+0x200+offset,'FM Q patched SAR')
                 emit('stopped_chain',mode=mode,gain=gain,iteration=run,bank=hex(bank),raw=raw,phase=s['phase'],sar_i=hex(observed_i),sar_q=hex(observed_q) if observed_q else None)
         finally: tx.deinit()
     emit('summary',checks=checks,passed=True,analog_pair_captured=False)

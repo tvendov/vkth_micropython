@@ -693,6 +693,30 @@ STATIC mp_obj_t lcd_touched(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_lcd_touched_obj, lcd_touched);
 
+// touch_into(array('i'/'I', ...)): x, y, active, IRQ count, I2C errors.
+// No tuple/wrapper creation, including the no-new-touch path. Caller owns storage.
+STATIC mp_obj_t lcd_touch_into(mp_obj_t self_in, mp_obj_t buffer) {
+    machine_lcd_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_buffer_info_t b;
+    mp_get_buffer_raise(buffer, &b, MP_BUFFER_WRITE);
+    if (b.len < 20 || ((uintptr_t)b.buf & 3) || (b.typecode != 'i' && b.typecode != 'I')) {
+        mp_raise_ValueError(MP_ERROR_TEXT("touch_into needs aligned array('i'/'I') of 5 words"));
+    }
+    if (!self->isinited) return mp_const_false;
+    bool updated = touch_service_pending();
+    int32_t *out = b.buf;
+    FSP_CRITICAL_SECTION_DEFINE;
+    FSP_CRITICAL_SECTION_ENTER;
+    out[0] = s_lcd_touch_x;
+    out[1] = s_lcd_touch_y;
+    out[2] = s_lcd_touch_active;
+    out[3] = (int32_t)s_touch_irq_count;
+    out[4] = (int32_t)s_touch_i2c_errors;
+    FSP_CRITICAL_SECTION_EXIT;
+    return mp_obj_new_bool(updated);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(machine_lcd_touch_into_obj, lcd_touch_into);
+
 STATIC mp_obj_t lcd_touches(mp_obj_t self_in) {
     // machine_lcd_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -2802,6 +2826,7 @@ STATIC const mp_rom_map_elem_t lcd_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_start),               MP_ROM_PTR(&machine_lcd_start_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop),                MP_ROM_PTR(&machine_lcd_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_touched),             MP_ROM_PTR(&machine_lcd_touched_obj) },
+    { MP_ROM_QSTR(MP_QSTR_touch_into),          MP_ROM_PTR(&machine_lcd_touch_into_obj) },
     { MP_ROM_QSTR(MP_QSTR_touches),             MP_ROM_PTR(&machine_lcd_touches_obj) },
     { MP_ROM_QSTR(MP_QSTR_lvgl_setup),          MP_ROM_PTR(&machine_lcd_lvgl_setup_obj) },
     { MP_ROM_QSTR(MP_QSTR_touch_debug),         MP_ROM_PTR(&machine_lcd_touch_debug_obj) },

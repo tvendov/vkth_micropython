@@ -11,6 +11,7 @@ app=sdr_single._KEEP['app']
 was_running=app.be.running
 saved_params=json.loads(json.dumps(app.p))
 dac,dac_q=app.be.dac,app.be.dac_q
+iq=app.be.iq
 heartbeat=[0]
 timer=None
 results=[]
@@ -25,6 +26,27 @@ try:
     app.sdr_timer.pause()
     if app.save_timer: app.save_timer.pause()
     assert not app._inj_on, 'Tester injection is active'
+    assert was_running and iq is not None, 'Active RX is required for the EBUSY handoff proof'
+    rx_before=iq.status()
+    busy_probe=None
+    try:
+        busy_probe=IQTX(mode=IQTX.CW)
+    except OSError as exc:
+        assert exc.args and exc.args[0]==16, 'Active RX raised the wrong error: '+repr(exc)
+    else:
+        try:
+            busy_probe.deinit()
+        finally:
+            raise AssertionError('IQTX acquired resources while RX was active')
+    assert app.be.running, 'RX stopped during the EBUSY probe'
+    assert app.be.iq is iq, 'EBUSY probe replaced the IQADC owner'
+    assert app.be.dac is dac and app.be.dac_q is dac_q, 'EBUSY probe replaced an RX DAC'
+    rx_after=iq.status()
+    assert rx_before['running'] and rx_after['running'], 'IQADC stopped during EBUSY probe'
+    assert rx_after['blocks']>=rx_before['blocks'], 'IQADC block counter went backwards'
+    assert rx_after['last_error']==rx_before['last_error']==0, 'IQADC error during EBUSY probe'
+    emit('active_rx_busy',errno=16,rx_running=True,owners_unchanged=True,
+         blocks_before=rx_before['blocks'],blocks_after=rx_after['blocks'])
     assert app.be.stop_rx(), 'RX resources not released'
     if dac_q is not None: dac_q.deinit()
     if dac is not None: dac.deinit()
@@ -38,6 +60,19 @@ try:
         tx=None
         try:
             tx=IQTX(mode=mode)
+            prepared=tx.status()
+            if mode==IQTX.CW:
+                expected=(0,0,None)
+                actual=(prepared['lut_bytes'],prepared['lut_allocation_bytes'],None)
+            elif mode==IQTX.AM:
+                expected=(8192,16383,7)
+                actual=(prepared['lut_bytes'],prepared['lut_allocation_bytes'],
+                        prepared['transfer_count'])
+            else:
+                expected=(1024,2047,15)
+                actual=(prepared['lut_bytes'],prepared['lut_allocation_bytes'],
+                        prepared['transfer_count'])
+            assert actual==expected, 'Compact LUT contract: '+repr(prepared)
             tx.start()
             if mode==IQTX.CW: tx.key(True)
             before=heartbeat[0]
@@ -56,9 +91,10 @@ try:
             tx.stop()
             s=tx.status()
             assert s['quiesced'] and s['i_code']==2048 and s['q_code']==2048
-            result=dict(mode=mode,result='RUN_PASS',heap_before=free,polls=polls,elapsed_ms=elapsed,ui_heartbeats=beats)
-        except MemoryError as e:
-            result=dict(mode=mode,result='UI_MEMORY_BLOCKED',heap_before=free,error=str(e))
+            result=dict(mode=mode,result='RUN_PASS',heap_before=free,
+                        lut_bytes=expected[0],allocation_bytes=expected[1],
+                        transfer_count=prepared['transfer_count'],polls=polls,
+                        elapsed_ms=elapsed,ui_heartbeats=beats)
         finally:
             if tx is not None: tx.deinit()
             IQTX.release()

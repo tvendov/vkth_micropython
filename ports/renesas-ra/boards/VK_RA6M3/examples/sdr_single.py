@@ -989,6 +989,16 @@ BANDS = (   # name, label, lo Hz, hi Hz, entry-base Hz
     ("10m",  "10 Meter", 28_000_000,  29_700_000,  28_000_000),
 )
 MODES = ("AM", "FM", "USB", "LSB", "CW")
+# Explicit transceiver ownership states.  The top-right button requests a
+# transition; the 100-ms worker performs the checked hardware hand-off.
+TRX_RX_OFF = "RX_OFF"
+TRX_RX = "RX"
+TRX_TO_TX = "TO_TX"
+TRX_TX = "TX"
+TRX_TO_RX = "TO_RX"
+TRX_FAULT = "FAULT"
+TRX_CLEANUP_RETRY_LIMIT = 3
+TX_MODES = ("AM", "FM", "CW", "USB", "LSB")
 # RA6M3 backend demod names.
 MODE_DEMOD = {"AM": "am", "FM": "fm", "USB": "usb", "LSB": "lsb", "CW": "cw"}
 MODE_BW = {"AM": 6000, "FM": 6000, "USB": 2400, "LSB": 2400, "CW": 500}
@@ -1701,6 +1711,19 @@ class SdrApp:
         self._axis_pending_mode = None
         self._vol_pending = False    # firmware volume needs the latest slider value
         self._rx_pending = 0         # 0 none, 1 start, 2 stop (heavy IQADC/DAC bring-up)
+        self._trx_state = TRX_RX_OFF
+        self._trx_pending = None     # requested stable state, serviced first by sdr_poll
+        self._trx_error = None
+        self._trx_cleanup_failures = 0
+        self._tx = None              # GC root for the exclusive machine.IQTX owner
+        self._tx_class = None        # also permits release() after constructor failure
+        self._tx_mode = None
+        self._tx_last_samples = None
+        self._tx_keyed = False       # no physical CW key is assigned by this UI
+        # Ra6m3Backend.stop_rx() stops the streams and drops these references, but
+        # IQTX also requires the still-running DAC channels to be deinitialized.
+        self._trx_dac = None
+        self._trx_dac_q = None
         self._poll_div = 0           # 100 ms GUI tick; status every fifth tick
         self._modal = False          # non-HOME screen/overlay -> pause native framebuffer writes
         self._spectrum_transition_hold = False  # pause only around the physical I2C edge
@@ -2213,6 +2236,251 @@ class SdrApp:
     def cur_bw(self):
         return self.p["bw"].get(self.p["m"], MODE_BW[self.p["m"]])
 
+    def _set_trx_fault(self, error):
+        """Publish a fail-closed ownership state; never imply RX or TX is live."""
+        self._trx_pending = None
+        self._trx_state = TRX_FAULT
+        self._trx_error = str(error)
+        try:
+            self.update_rx()
+        except Exception:
+            pass
+        return False
+
+    def _queue_rx_cleanup(self, error):
+        """Publish recovery intent before UI work, so TX cannot be stranded."""
+        self._trx_error = str(error)
+        self._trx_state = TRX_TO_RX
+        self._trx_pending = TRX_RX
+        try:
+            self.update_rx()
+        except Exception:
+            pass
+        return False
+
+    def _retry_rx_cleanup(self, error):
+        """Retry uncertain native teardown a bounded number of worker ticks."""
+        self._trx_cleanup_failures += 1
+        if self._trx_cleanup_failures >= TRX_CLEANUP_RETRY_LIMIT:
+            return self._set_trx_fault(
+                "%s; cleanup failed %d times" %
+                (error, self._trx_cleanup_failures))
+        return self._queue_rx_cleanup(error)
+
+    def _tx_guard_error(self):
+        """Reason a TX request cannot safely acquire the shared ADC/DAC resources."""
+        mode = self.p["m"]
+        if mode not in TX_MODES:
+            return "%s TX is not implemented" % mode
+        if not self.be.running or self.be.iq is None:
+            return "RX is not running"
+        if (self._inj_on or self._tester_arm_pending or
+                self._inj_prev_scope is not None or
+                getattr(self._iq_file, "_attached", False) or
+                getattr(self._iq_file, "_feeding", False) or
+                getattr(self._iq_file, "_file", None) is not None):
+            return "turn TESTER/FILE off before TX"
+        # Do not bind a transmitter to a VFO/mode which HOME has not yet
+        # published, or let the worker apply an RX low-IF write after TX starts.
+        if (self._hw_pending or self._hw_config_pending or
+                self._lo_pending_hz is not None or
+                self._station_pending_hz is not None or
+                self._axis_pending_token):
+            return "wait for receiver tuning before TX"
+        return None
+
+    def _deinit_saved_rx_dacs(self):
+        """Release physical DAC ownership in the required Q-then-I order."""
+        for name, attr in (("DAC1/Q", "_trx_dac_q"),
+                           ("DAC0/I", "_trx_dac")):
+            obj = getattr(self, attr)
+            if obj is None:
+                continue
+            try:
+                obj.deinit()
+            except Exception as e:
+                return False, "%s deinit: %r" % (name, e)
+            setattr(self, attr, None)
+        return True, None
+
+    def _release_tx_checked(self):
+        """Checked stop/deinit plus static release; success permits RX rebuild."""
+        detail = None
+        deinit_ok = True
+        tx = self._tx
+        if tx is not None:
+            try:
+                st = tx.status()
+                if self._tx_mode == "CW" and st.get("keyed"):
+                    tx.key(False)
+                tx.stop()
+                st = tx.status()
+                if (st.get("running") or not st.get("quiesced") or
+                        st.get("error") or st.get("i_code") != 2048 or
+                        st.get("q_code") != 2048):
+                    detail = "TX stop status: %r" % (st,)
+            except Exception as e:
+                detail = "TX stop: %r" % (e,)
+            try:
+                tx.deinit()
+            except Exception as e:
+                deinit_ok = False
+                if detail is None:
+                    detail = "TX deinit: %r" % (e,)
+
+        # Construction installs its owner before the AM/FM allocation.  This
+        # static path is therefore required even when no object was returned.
+        if self._tx_class is not None:
+            try:
+                self._tx_class.release()
+            except Exception as e:
+                error = "TX release: %r" % (e,)
+                if detail is not None:
+                    error = detail + "; " + error
+                return False, error
+            self._tx_class = None
+        elif not deinit_ok:
+            return False, detail or "TX deinit failed"
+
+        self._tx = None
+        self._tx_mode = None
+        self._tx_last_samples = None
+        self._tx_keyed = False
+        return True, detail
+
+    def _restore_rx_after_tx(self, prior_error=None):
+        """Rebuild the complete App receiver only after TX ownership is gone."""
+        self._trx_state = TRX_TO_RX
+        self.update_rx()
+        gc.collect()
+        if self.start_rx():
+            self._trx_state = TRX_RX
+            self._trx_error = prior_error
+            self._trx_cleanup_failures = 0
+            self.update_rx()
+            return True
+        error = self.be.err or "RX restore failed"
+        if prior_error:
+            error = prior_error + "; " + error
+        return self._set_trx_fault(error)
+
+    def _service_to_tx(self):
+        """Worker-side RX -> baseband TX (USB/LSB use native C DSP)."""
+        guard = self._tx_guard_error()
+        if guard is not None:
+            self._trx_state = TRX_RX if self.be.running else TRX_RX_OFF
+            self._trx_error = guard
+            self.update_rx()
+            return False
+
+        self._trx_error = None
+        # Backend teardown drops its DAC references after stopping the streams.
+        # Root them here so physical channel deinit remains possible afterwards.
+        self._trx_dac_q = self.be.dac_q
+        self._trx_dac = self.be.dac
+        if not self.be.stop_rx():
+            return self._set_trx_fault(
+                self.be.err or "RX resources were not released")
+        ok, error = self._deinit_saved_rx_dacs()
+        if not ok:
+            return self._set_trx_fault(error)
+
+        gc.collect()
+        mode_name = self.p["m"]
+        try:
+            from machine import IQTX
+            self._tx_class = IQTX
+            mode = getattr(IQTX, mode_name)
+            tx = IQTX(mode=mode)
+            self._tx = tx
+            self._tx_mode = mode_name
+            self._tx_last_samples = None
+            prepared = tx.status()
+            if (not prepared.get("owned") or prepared.get("running") or
+                    not prepared.get("quiesced") or prepared.get("error")):
+                raise RuntimeError("TX prepare status: %r" % (prepared,))
+            tx.start()                  # CW deliberately starts key-up
+            running = tx.status()
+            if (not running.get("owned") or not running.get("running") or
+                    running.get("error") or not running.get("outputs_enabled") or
+                    running.get("keyed")):
+                raise RuntimeError("TX start status: %r" % (running,))
+            self._tx_keyed = False
+        except Exception as e:
+            cause = "TX start: %r" % (e,)
+            released, cleanup = self._release_tx_checked()
+            if not released:
+                return self._retry_rx_cleanup(cause + "; " + cleanup)
+            if cleanup:
+                cause += "; " + cleanup
+            return self._restore_rx_after_tx(cause)
+
+        self._trx_state = TRX_TX
+        self._trx_error = None
+        self._trx_cleanup_failures = 0
+        self.update_rx()
+        return True
+
+    def _service_to_rx(self):
+        """Worker-side checked TX release followed by full App RX reconstruction."""
+        released, detail = self._release_tx_checked()
+        if not released:
+            return self._retry_rx_cleanup(detail)
+        # A prior checked RX teardown can retain the IQADC owner for a bounded
+        # retry.  It must be gone before either DAC deinit or reconstruction.
+        if self.be.iq is not None and not self.be.stop_rx():
+            return self._retry_rx_cleanup(
+                self.be.err or "RX teardown retry failed")
+        dacs_released, dac_error = self._deinit_saved_rx_dacs()
+        if not dacs_released:
+            return self._retry_rx_cleanup(dac_error)
+        return self._restore_rx_after_tx(detail or self._trx_error)
+
+    def _service_trx_pending(self):
+        """Consume one button request before any RX worker-side activity."""
+        target = self._trx_pending
+        if target is None:
+            return False
+        self._trx_pending = None
+        if target == TRX_TX:
+            self._service_to_tx()
+        elif target == TRX_RX:
+            self._service_to_rx()
+        return True
+
+    def _poll_tx_status(self):
+        """Slow control/status only; no TX mode has per-sample Python service."""
+        tx = self._tx
+        if tx is None:
+            error = "TX owner handle missing"
+        else:
+            try:
+                st = tx.status()
+                if (not st.get("owned") or not st.get("running") or
+                        st.get("error") or not st.get("outputs_enabled")):
+                    error = "TX runtime status: %r" % (st,)
+                else:
+                    self._tx_keyed = bool(st.get("keyed"))
+                    if self._tx_mode in ("USB", "LSB"):
+                        samples = st.get("dsp_samples")
+                        if (samples is None or samples == self._tx_last_samples or
+                                (self._tx_last_samples is None and samples == 0)):
+                            error = "SSB ADC/DSP samples stopped"
+                        else:
+                            self._tx_last_samples = samples
+                            return True
+                    else:
+                        return True
+            except Exception as e:
+                error = "TX status: %r" % (e,)
+        # The native fault path already disables its outputs.  Queue checked
+        # release and RX rollback instead of constructing shared resources here.
+        self._trx_error = error
+        self._trx_state = TRX_TO_RX
+        self._trx_pending = TRX_RX
+        self.update_rx()
+        return False
+
     def _apply_iq_correction(self, enable_path=True):
         """Apply the RAM profile and make block 3 effective when correction is ON."""
         iq = self.be.iq
@@ -2247,7 +2515,14 @@ class SdrApp:
             return False
 
     def start_rx(self):
+        if (self._trx_state in (TRX_TX, TRX_TO_TX) or self._tx is not None or
+                self._tx_class is not None):
+            self._trx_error = "TX resources must be released before RX"
+            self.update_rx()
+            return False
+        attempted = False
         if self.backend_on() and not self.be.running:
+            attempted = True
             # Keep an old/demo framebuffer stable while IQADC and the physical LO
             # are reconstructed.  _apply_hw_pending releases this short hold as
             # soon as the new generation has been requested from C.
@@ -2298,7 +2573,17 @@ class SdrApp:
                 self._set_spectrum_transition(False)
             self.p["rxauto"] = 1 if self.be.running else 0
             self.touch_params()
+        if self.be.running:
+            self._trx_state = TRX_RX
+            self._trx_error = None
+        elif attempted:
+            self._trx_state = TRX_FAULT
+            self._trx_error = self.be.err or "RX start failed"
+        elif self._trx_state == TRX_TO_RX:
+            self._trx_state = TRX_FAULT
+            self._trx_error = "RX backend is disabled or unavailable"
         self.update_rx()
+        return self.be.running
 
     def stop_rx(self):
         self._tester_arm_pending = False
@@ -2321,6 +2606,8 @@ class SdrApp:
             self.touch_params()
             self._paint_tester()
             self._paint_output_status()
+            self._trx_state = TRX_FAULT
+            self._trx_error = self.be.err or "RX teardown incomplete"
             self.update_rx()
             return False
         self._iq_file.stop()
@@ -2367,37 +2654,59 @@ class SdrApp:
         self.update_freq()                   # drop the fine offset + widen labels off
         self.update_rx()             # clears the counters via paint_status(None)
         self.touch_params()
+        if self._trx_state not in (TRX_TO_TX, TRX_TX, TRX_TO_RX):
+            self._trx_state = TRX_RX_OFF
+            self._trx_error = None
+            self.update_rx()
         return released
 
     def toggle_rx(self):
-        # Direct: RX on/off is a single deliberate press, so a brief one-time blip
-        # during bring-up is fine (unlike a slider drag). Deferring it just made the
-        # button feel dead.
-        if self.be.running:
-            self.stop_rx()
-        else:
-            self.start_rx()
+        """Request an RX<->TX ownership transition; sdr_poll performs it."""
+        if self._trx_pending is not None or self._trx_state in (TRX_TO_TX, TRX_TO_RX):
+            return
+        self._trx_error = None
+        if self._trx_state == TRX_RX:
+            self._trx_cleanup_failures = 0
+            self._trx_state = TRX_TO_TX
+            self._trx_pending = TRX_TX
+        elif self._trx_state == TRX_TX:
+            self._trx_cleanup_failures = 0
+            self._trx_state = TRX_TO_RX
+            self._trx_pending = TRX_RX
+        elif self._trx_state in (TRX_RX_OFF, TRX_FAULT):
+            # OFF and FAULT recover toward the non-transmitting state.  A failed
+            # cleanup is retried before IQADC/DAC construction.
+            self._trx_cleanup_failures = 0
+            self._trx_state = TRX_TO_RX
+            self._trx_pending = TRX_RX
+        self.update_rx()
 
     def update_rx(self):
         ui = self.ui
         run = self.be.running
-        if run:
-            dot, bg, txt = GREEN, GREEN, DARK_TXT
-        elif self.backend_on() and self.be.err:
-            dot, bg, txt = 0xE53935, PANEL2, WHITE   # tried and failed
+        state = self._trx_state
+        if state == TRX_TX:
+            dot, bg, txt, label_text = 0xE53935, 0xE53935, DARK_TXT, "TX"
+        elif state in (TRX_TO_TX, TRX_TO_RX):
+            dot, bg, txt, label_text = CYAN_RX, PANEL2, WHITE, "WAIT"
+        elif state == TRX_FAULT:
+            dot, bg, txt, label_text = 0xE53935, PANEL2, WHITE, "ERR"
+        elif state == TRX_RX and run:
+            dot, bg, txt, label_text = GREEN, GREEN, DARK_TXT, "RX"
+        elif self.backend_on() and (self.be.err or self._trx_error):
+            dot, bg, txt, label_text = 0xE53935, PANEL2, WHITE, "RX"
         else:
-            dot, bg, txt = GRAY2, PANEL2, WHITE      # off / demo mode
+            dot, bg, txt, label_text = GRAY2, PANEL2, WHITE, "RX"
         ui.get("rx-dot").set_style_bg_color(lv.color_hex(dot), 0)
         b = ui.get("rx-button")
         b.set_style_bg_color(lv.color_hex(bg), 0)
-        b.set_style_border_color(lv.color_hex(GREEN if run else BORDER), 0)
+        border = (0xE53935 if state == TRX_FAULT or self._trx_error else
+                  (GREEN if state == TRX_RX and run else BORDER))
+        b.set_style_border_color(lv.color_hex(border), 0)
         label = b.get_child(0)
-        # HOME must never present a hidden synthetic/file source as ordinary RX.
-        # The same hardware button still stops the complete receiver, but its label
-        # identifies the source which currently owns the DSP input.
-        label.set_text("TST" if self._inj_on else "RX")
+        label.set_text(label_text)
         label.set_style_text_color(lv.color_hex(txt), 0)
-        if not run:
+        if state != TRX_RX or not run:
             self.paint_status(None)
 
     def paint_status(self, st):
@@ -2504,6 +2813,9 @@ class SdrApp:
 
     def open_home_choices(self):
         """Replace HOME tuning controls with MODE | FILTER | STEP buttons."""
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         self._mode_expanded = 5
         self.ui.get("tuning-row").add_flag(lv.obj.FLAG.HIDDEN)
         self.ui.get("mode-bar").remove_flag(lv.obj.FLAG.HIDDEN)
@@ -2520,6 +2832,9 @@ class SdrApp:
         self.ui.get("btn-mode-view").add_flag(lv.obj.FLAG.HIDDEN)
 
     def set_mode(self, m):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return False
         p = self.p
         p["m"] = m
         p["vfos"][p["act"]][1] = m   # active VFO state stays coherent before flash save
@@ -2536,6 +2851,7 @@ class SdrApp:
             self._queue_station_recenter(self._requested_hz, mode=m)
         self._paint_output_status()
         self.touch_params()
+        return True
 
     def update_step(self):
         ui, s = self.ui, self.p["s"]
@@ -3522,6 +3838,9 @@ class SdrApp:
         return True
 
     def tune(self, delta):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         if self._tester_nco_tune(delta):
             return
         # While RX is live both arrow pairs navigate the SAME captured panorama:
@@ -3548,6 +3867,9 @@ class SdrApp:
         self._hw_pending = True
 
     def fine(self, delta):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         if self._tester_nco_tune(delta):
             return
         # fine: digital NCO within the capture window while the backend is live
@@ -3603,6 +3925,9 @@ class SdrApp:
             lbl.set_text("%s %s" % ("ABC"[i], self.fmt_freq(f)))
 
     def switch_vfo(self, i):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         p = self.p
         # Once a physical retune has succeeded, its VFO/mode are the effective
         # routing policy even though p[] remains deliberately unpublished until
@@ -3659,6 +3984,9 @@ class SdrApp:
         Tap-to-tune is deliberately NCO-only.  It never asks Si5351 to move and
         therefore never shifts/relabels the FFT or retained waterfall history.
         """
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         frac = min(max(frac, 0.0), 1.0)
         if not self.be.running:
             # With RX stopped there is neither a live panorama nor an NCO marker to
@@ -3810,6 +4138,11 @@ class SdrApp:
 
     def _arm_tester_source(self):
         """Perform the explicit first arm after all older tuning work is settled."""
+        if self._trx_state != TRX_RX or self._trx_pending is not None:
+            self._tester_arm_pending = False
+            self.be.err = "TESTER unavailable outside RX"
+            self._paint_tester()
+            return False
         if self._tester_tune_pending():
             self._tester_arm_pending = True
             self.be.err = "TESTER waiting for tuning"
@@ -5414,6 +5747,9 @@ class SdrApp:
             self._route_widgets["rt%d" % i] = bl
 
             def cyc(e, ii=i, lbl=bl):
+                if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                        self._trx_pending is not None):
+                    return
                 self.p["rt"][ii] = (self.p["rt"][ii] + 1) % len(TARGETS)
                 lbl.set_text(TARGETS[self.p["rt"][ii]][0])
                 if ii == self.p["act"]:
@@ -5443,6 +5779,9 @@ class SdrApp:
         self._route_widgets["cal"] = cvl
 
         def cal_adj(e, d=0, lbl=cvl):
+            if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                    self._trx_pending is not None):
+                return
             self.p["cal"] = round(min(max(self.p["cal"] + d,
                                             CAL_PPM_MIN), CAL_PPM_MAX), 2)
             lbl.set_text("%.2f ppm" % self.p["cal"])
@@ -5472,6 +5811,9 @@ class SdrApp:
         cbs.append(backend_cb)
 
     def open_route_menu(self):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         if "route_menu" in _KEEP:
             if self.ui.w.get("scr-route") is not None:
                 return
@@ -5531,6 +5873,9 @@ class SdrApp:
             self.ui.get("btn-" + name).add_flag(lv.obj.FLAG.HIDDEN)
 
     def open_step_menu(self):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         self._open_bottom_choices(4, STEPS, self.p["s"])
 
     def open_step_controls(self):
@@ -5538,6 +5883,9 @@ class SdrApp:
         self._set_mode_bar(False)
 
     def open_filter_menu(self):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         self._open_bottom_choices(2, BW_CHOICES[self.p["m"]], self.cur_bw())
 
     def toggle_spectrum_view(self):
@@ -5567,6 +5915,9 @@ class SdrApp:
 
     # ---- navigation ----
     def open_entry(self):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            return
         # pre-fill with the current frequency so the user can backspace just a
         # few digits and retype them (partial edit) instead of starting over
         self.entry = "%02d%03d%03d" % (self.p["f"] // 1_000_000,
@@ -5578,6 +5929,9 @@ class SdrApp:
         lv.screen_load(self.ui.get("scr-freq-input"))
 
     def close_entry(self, accept):
+        if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                self._trx_pending is not None):
+            accept = False
         if accept and self.entry:
             hz = self._entry_hz()
             if F_MIN <= hz <= F_MAX:
@@ -5714,6 +6068,9 @@ class SdrApp:
 
         for i, m in enumerate(MODES):
             def mode_cb(e, mm=m, ii=i):
+                if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
+                        self._trx_pending is not None):
+                    return
                 if self._mode_expanded == 2:
                     choices = BW_CHOICES[self.p["m"]]
                     if ii < len(choices):
@@ -5812,6 +6169,18 @@ class SdrApp:
         # changes set _hw_pending explicitly.
         def sdr_poll(t):
             try:
+                # Ownership transitions always run before RX I2C, TESTER or DSP
+                # work. TX sample work is hardware/C; Python is status/cleanup only.
+                if self._trx_pending is not None:
+                    self._service_trx_pending()
+                if self._trx_state == TRX_TX:
+                    self._poll_div += 1
+                    if self._poll_div >= 5:
+                        self._poll_div = 0
+                        self._poll_tx_status()
+                    return
+                if self._trx_state in (TRX_TO_TX, TRX_TO_RX, TRX_FAULT):
+                    return
                 # Defensive release: a lost touch packet must never leave global
                 # LVGL invalidation disabled after a VERIFY drag.
                 if self._set_scroll_gate:
@@ -5843,7 +6212,19 @@ class SdrApp:
                 if self._set_scroll_quiet:
                     self._set_scroll_quiet -= 1
             except Exception as e:
-                self.be.err = "sdr_poll: %r" % (e,)
+                error = "sdr_poll: %r" % (e,)
+                self.be.err = error
+                owns_tx = self._tx is not None or self._tx_class is not None
+                if self._trx_state == TRX_TO_RX:
+                    self._retry_rx_cleanup(error)
+                elif (self._trx_state in (TRX_TO_TX, TRX_TO_RX, TRX_TX) or
+                      owns_tx):
+                    # An unexpected Python/control failure must not strand the
+                    # exclusive IQTX/DAC owner behind a passive ERR state.  Queue
+                    # the same checked release + RX reconstruction transaction used
+                    # by the button; the next worker tick performs it outside this
+                    # exception frame.
+                    self._queue_rx_cleanup(error)
         self.sdr_timer = lv.timer_create(sdr_poll, 100, None)
         _KEEP["sdr_poll"] = sdr_poll
 
@@ -5892,7 +6273,9 @@ def start():
         if old_app._mode_expanded:
             old_app._set_mode_bar(False)
         old_app._set_modal(False)
-        if old_app.backend_on() and old_app.p.get("rxauto") and not old_app.be.running:
+        if (old_app._trx_state == TRX_RX_OFF and
+                old_app._trx_pending is None and old_app.backend_on() and
+                old_app.p.get("rxauto") and not old_app.be.running):
             old_app.start_rx()
         lv.screen_load(old_ui.get("scr-receiver"))
         dd = lv.display_get_default()

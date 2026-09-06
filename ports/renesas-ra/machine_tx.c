@@ -1,4 +1,4 @@
-/* machine.IQTX: explicit control of the RA6M3 autonomous baseband engine. */
+/* machine.IQTX: autonomous CW/AM/FM and C-DSP USB/LSB baseband engines. */
 #include "py/runtime.h"
 #include "py/mperrno.h"
 #include "ra/ra_tx_hw.h"
@@ -8,6 +8,8 @@
 typedef struct {
     mp_obj_base_t base;
     uint8_t *allocation;
+    size_t allocation_bytes;
+    size_t lut_bytes;
     bool active;
     ra_tx_config_t config;
 } machine_tx_obj_t;
@@ -36,7 +38,7 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
     enum { ARG_mode, ARG_rate, ARG_amplitude, ARG_adc_mid, ARG_i_zero, ARG_q_zero, ARG_fm_gain, ARG_ramp_samples };
     static const mp_arg_t allowed[] = {
         { MP_QSTR_mode, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = RA_TX_MODE_CW} },
-        { MP_QSTR_rate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 44000} },
+        { MP_QSTR_rate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
         { MP_QSTR_amplitude, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 800} },
         { MP_QSTR_adc_mid, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 2048} },
         { MP_QSTR_i_zero, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 2048} },
@@ -46,13 +48,19 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed), allowed, args);
+    if (args[ARG_rate].u_int == -1) {
+        args[ARG_rate].u_int = ra_tx_mode_is_ssb(args[ARG_mode].u_int) ? RA_TX_SSB_RATE : 44000;
+    }
     for (size_t i = 0; i < MP_ARRAY_SIZE(allowed); ++i) {
         if (args[i].u_int < 0 || args[i].u_int > UINT16_MAX) {
             mp_raise_ValueError(MP_ERROR_TEXT("TX parameter out of range"));
         }
     }
-    if (args[ARG_mode].u_int > RA_TX_MODE_FM) {
-        mp_raise_ValueError(MP_ERROR_TEXT("only CW, AM and FM are implemented; SSB requires DSP"));
+    if (args[ARG_mode].u_int > RA_TX_MODE_LSB) {
+        mp_raise_ValueError(MP_ERROR_TEXT("TX mode must be CW, AM, FM, USB or LSB"));
+    }
+    if (ra_tx_mode_is_ssb(args[ARG_mode].u_int) && args[ARG_rate].u_int != RA_TX_SSB_RATE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("USB/LSB requires rate=12000"));
     }
     if (args[ARG_fm_gain].u_int != 1 && args[ARG_fm_gain].u_int != 2) {
         mp_raise_ValueError(MP_ERROR_TEXT("fm_gain must be 1 or 2"));
@@ -75,17 +83,24 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
     }
     machine_tx_obj_t *self = mp_obj_malloc(machine_tx_obj_t, type);
     self->allocation = NULL;
+    self->allocation_bytes = 0;
+    self->lut_bytes = 0;
     self->active = false;
     self->config = config;
     MP_STATE_PORT(machine_tx_owner) = MP_OBJ_FROM_PTR(self);
     uint8_t *bank = NULL;
-    if (config.mode != RA_TX_MODE_CW) {
+    size_t bank_bytes = ra_tx_core_lut_bytes(&config);
+    size_t alignment = ra_tx_core_lut_alignment(&config);
+    if (bank_bytes != 0) {
         /* The aligned interior must never be freed/rooted instead of the
          * original block. MemoryError leaves release() available for cleanup. */
-        self->allocation = m_new(uint8_t, RA_TX_LUT_ALLOCATION_BYTES);
-        bank = (uint8_t *)(((uintptr_t)self->allocation + 0xffffU) & ~(uintptr_t)0xffffU);
+        self->allocation_bytes = bank_bytes + alignment - 1U;
+        self->lut_bytes = bank_bytes;
+        self->allocation = m_new(uint8_t, self->allocation_bytes);
+        bank = (uint8_t *)(((uintptr_t)self->allocation + alignment - 1U) &
+            ~(uintptr_t)(alignment - 1U));
     }
-    if (!ra_tx_hw_init(&config, bank, bank == NULL ? 0 : RA_TX_LUT_BYTES)) {
+    if (!ra_tx_hw_init(&config, bank, bank_bytes)) {
         ra_tx_status_t failure;
         ra_tx_hw_get_status(&failure);
         if (ra_tx_hw_deinit_checked()) {
@@ -146,6 +161,8 @@ bool machine_tx_deinit_all(void) {
         machine_tx_obj_t *self = MP_OBJ_TO_PTR(MP_STATE_PORT(machine_tx_owner));
         self->active = false;
         self->allocation = NULL;
+        self->allocation_bytes = 0;
+        self->lut_bytes = 0;
     }
     MP_STATE_PORT(machine_tx_owner) = MP_OBJ_NULL;
     return true;
@@ -196,7 +213,15 @@ static mp_obj_t machine_tx_status(mp_obj_t self_in) {
     STORE_INT(q_code, s.q_code);
     STORE_INT(transfer_count, s.transfer_count);
     STORE_INT(unexpected_callbacks, s.unexpected_irqs);
-    STORE_INT(lut_allocation_bytes, self->allocation == NULL ? 0 : RA_TX_LUT_ALLOCATION_BYTES);
+    STORE_BOOL(cpu_dsp, ra_tx_mode_is_ssb(s.mode));
+    STORE_INT(dsp_samples, s.dsp_samples);
+    STORE_INT(dsp_last_cycles, s.dsp_last_cycles);
+    STORE_INT(dsp_max_cycles, s.dsp_max_cycles);
+    STORE_INT(dsp_budget_cycles, s.dsp_budget_cycles);
+    STORE_INT(dsp_deadline_misses, s.dsp_deadline_misses);
+    STORE_INT(dsp_clips, s.dsp_clips);
+    STORE_INT(lut_bytes, self->lut_bytes);
+    STORE_INT(lut_allocation_bytes, self->allocation == NULL ? 0 : self->allocation_bytes);
     STORE_INT(adc_mid, self->config.adc_mid);
     STORE_INT(fm_gain, self->config.fm_gain);
     mp_float_t rate = s.timer_period ? (mp_float_t)s.timer_clock_hz / s.timer_period : 0;
@@ -215,6 +240,8 @@ static const mp_rom_map_elem_t machine_tx_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_CW), MP_ROM_INT(RA_TX_MODE_CW) },
     { MP_ROM_QSTR(MP_QSTR_AM), MP_ROM_INT(RA_TX_MODE_AM) },
     { MP_ROM_QSTR(MP_QSTR_FM), MP_ROM_INT(RA_TX_MODE_FM) },
+    { MP_ROM_QSTR(MP_QSTR_USB), MP_ROM_INT(RA_TX_MODE_USB) },
+    { MP_ROM_QSTR(MP_QSTR_LSB), MP_ROM_INT(RA_TX_MODE_LSB) },
     { MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&machine_tx_start_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&machine_tx_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_key), MP_ROM_PTR(&machine_tx_key_obj) },

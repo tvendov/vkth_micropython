@@ -1,4 +1,4 @@
-/* RA6M3 autonomous baseband transmitter. No per-sample CPU processing. */
+/* RA6M3 I/Q transmitter: autonomous CW/AM/FM, bounded C FIR ISR for USB/LSB. */
 #ifndef MICROPY_INCLUDED_RENESAS_RA_TX_HW_H
 #define MICROPY_INCLUDED_RENESAS_RA_TX_HW_H
 
@@ -14,6 +14,8 @@ typedef enum {
     RA_TX_MODE_CW = 0,
     RA_TX_MODE_AM = 1,
     RA_TX_MODE_FM = 2,
+    RA_TX_MODE_USB = 3,
+    RA_TX_MODE_LSB = 4,
 } ra_tx_mode_t;
 
 typedef enum {
@@ -24,6 +26,7 @@ typedef enum {
     RA_TX_ERROR_ADC,
     RA_TX_ERROR_DTC,
     RA_TX_ERROR_STOP_TIMEOUT,
+    RA_TX_ERROR_DSP_DEADLINE,
 } ra_tx_error_t;
 
 typedef struct {
@@ -56,11 +59,24 @@ typedef struct {
     uint16_t q_code;
     uint8_t transfer_count;
     uint32_t unexpected_irqs;
+    uint32_t dsp_samples;
+    uint32_t dsp_last_cycles;
+    uint32_t dsp_max_cycles;
+    uint32_t dsp_budget_cycles;
+    uint32_t dsp_deadline_misses;
+    uint32_t dsp_clips;
 } ra_tx_status_t;
 
-#define RA_TX_LUT_BYTES (65536U)
-#define RA_TX_LUT_ALLOCATION_BYTES (2U * RA_TX_LUT_BYTES - 1U)
+#define RA_TX_AM_LUT_BYTES (8192U)
+#define RA_TX_AM_LUT_ALIGNMENT (8192U)
+#define RA_TX_FM_LUT_BYTES (1024U)
+#define RA_TX_FM_LUT_ALIGNMENT (1024U)
 #define RA_TX_MAX_RAMP_SAMPLES (256U)
+#define RA_TX_SSB_RATE (12000U)
+
+static inline bool ra_tx_mode_is_ssb(ra_tx_mode_t mode) {
+    return mode == RA_TX_MODE_USB || mode == RA_TX_MODE_LSB;
+}
 
 #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
 bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes);

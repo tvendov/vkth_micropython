@@ -115,6 +115,13 @@ extern const mp_obj_type_t machine_iqadc_type;
 #define MICROPY_PY_MACHINE_IQADC_ENTRY
 #endif
 
+#if MICROPY_HW_ENABLE_MEASUREMENT
+extern const mp_obj_type_t machine_measurement_type;
+#define MICROPY_PY_MACHINE_MEASUREMENT_ENTRY { MP_ROM_QSTR(MP_QSTR_Measurement), MP_ROM_PTR(&machine_measurement_type) },
+#else
+#define MICROPY_PY_MACHINE_MEASUREMENT_ENTRY
+#endif
+
 #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
 extern const mp_obj_type_t machine_iqtx_type;
 #define MICROPY_PY_MACHINE_TX_ENTRY { MP_ROM_QSTR(MP_QSTR_IQTX), MP_ROM_PTR(&machine_iqtx_type) },
@@ -141,6 +148,7 @@ extern const mp_obj_type_t machine_iqtx_type;
     MICROPY_PY_MACHINE_ENCODER_ENTRY \
     MICROPY_PY_MACHINE_AUDIOADC_ENTRY \
     MICROPY_PY_MACHINE_IQADC_ENTRY \
+    MICROPY_PY_MACHINE_MEASUREMENT_ENTRY \
     MICROPY_PY_MACHINE_TX_ENTRY \
     \
     { MP_ROM_QSTR(MP_QSTR_RTC),                 MP_ROM_PTR(&machine_rtc_type) }, \

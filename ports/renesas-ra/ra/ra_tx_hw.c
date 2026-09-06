@@ -1,6 +1,7 @@
 /*
  * RA6M3 baseband TX: AGT -> ADC0 -> DTC -> DOC -> LUT -> DAC0/1.
- * No sample callback, buffer refill or CPU NCO. See the board TX README.
+ * CW/AM/FM: no sample callback, buffer refill or CPU NCO.
+ * USB/LSB: ADC0 scan-end C ISR, persistent fixed-point analytic voice FIR.
  * Manual R01UH0886EJ0120: sections 18 (DTC), 47 (ADC), 48 (DAC), 52 (DOC).
  */
 #include <stddef.h>
@@ -33,9 +34,12 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__, "DTC byte patch requir
 
 #define TX_ELC_ADC0 (8U)
 #define TX_WAIT_US (200U)
-#define TX_MAX_TRANSFERS (9U)
+#define TX_MAX_TRANSFERS (15U)
 #define TX_DAC_DISABLED (0x1fU) /* DACR reserved bits 4:0 must be written 1 */
 #define TX_DAC_OUTPUT_MASK (0xc0U) /* RA6M3 DACR.DAOE1:DAOE0, manual 48.2.2 */
+
+_Static_assert(sizeof(ra_tx_ssb_state_t) <= 2U * RA_TX_MAX_RAMP_SAMPLES * sizeof(uint16_t),
+    "SSB history must reuse the existing CW workspace without growing it");
 
 typedef struct {
     bool ready, timer_reserved, adc_open, dtc_open, dac_open, pin_enabled, elc_owned, doc_open;
@@ -53,9 +57,14 @@ typedef struct {
     transfer_cfg_t dtc_cfg;
     transfer_info_t info[TX_MAX_TRANSFERS];
     volatile uint16_t raw, phase;
-    uint16_t bias, hold;
-    uint16_t ramp[RA_TX_MAX_RAMP_SAMPLES];
-    uint16_t shape[RA_TX_MAX_RAMP_SAMPLES];
+    uint16_t bias, hold, lut_base, index, q_plane;
+    union {
+        struct {
+            uint16_t ramp[RA_TX_MAX_RAMP_SAMPLES];
+            uint16_t shape[RA_TX_MAX_RAMP_SAMPLES];
+        } cw;
+        ra_tx_ssb_state_t ssb;
+    } dsp; /* CW and SSB are exclusive: reuse the existing static RAM. */
     uint32_t hold_settings, hold_source, hold_counts;
 } tx_state_t;
 
@@ -68,8 +77,10 @@ static void tx_cutoff(void) {
     if (tx.timer_reserved) {
         ra_agt_timer_stop((uint32_t)tx.status.timer_channel);
     }
-    if (tx.dtc_open) {
+    if (tx.adc_open || tx.dtc_open) {
         R_BSP_IrqDisable(tx.irq);
+    }
+    if (tx.dtc_open) {
         R_ICU->IELSR_b[tx.irq].DTCE = 0;
     }
     if (tx.dac_open) {
@@ -104,9 +115,35 @@ static void tx_unexpected_irq(void *unused) {
     tx_cutoff();
 }
 
-static void tx_adc_fault(adc_callback_args_t *args) {
-    (void)args;
-    tx_unexpected_irq(NULL);
+static void tx_adc_callback(adc_callback_args_t *args) {
+    if (!ra_tx_mode_is_ssb(tx.config.mode)) {
+        tx_unexpected_irq(NULL);
+        return;
+    }
+    if (args == NULL || args->event != ADC_EVENT_SCAN_COMPLETE || !tx.ready ||
+        !tx.status.running || tx.status.error != RA_TX_ERROR_NONE) {
+        tx_unexpected_irq(NULL);
+        return;
+    }
+    uint32_t began = DWT->CYCCNT;
+    uint16_t i_code, q_code;
+    tx.raw = R_ADC0->ADDR[1];
+    ra_tx_core_ssb_sample(&tx.dsp.ssb, &tx.config, tx.raw, &i_code, &q_code);
+    R_DAC->DADR[0] = i_code;
+    R_DAC->DADR[1] = q_code;
+    uint32_t elapsed = DWT->CYCCNT - began;
+    ++tx.status.dsp_samples;
+    tx.status.dsp_clips = tx.dsp.ssb.clips;
+    tx.status.dsp_last_cycles = elapsed;
+    if (elapsed > tx.status.dsp_max_cycles) {
+        tx.status.dsp_max_cycles = elapsed;
+    }
+    /* This times the C DSP body, not interrupt entry/exit or missed ADC IRQs.
+     * A measured over-budget body is a fault, never silently keep transmitting. */
+    if (elapsed >= tx.status.dsp_budget_cycles) {
+        ++tx.status.dsp_deadline_misses;
+        (void)tx_error(RA_TX_ERROR_DSP_DEADLINE, FSP_ERR_TIMEOUT);
+    }
 }
 
 static void tx_transfer(unsigned index, void const *src, void *dest, transfer_size_t size, bool last) {
@@ -136,13 +173,15 @@ static void tx_build_chain(void) {
     }
     tx_transfer(0, (void *)&R_ADC0->ADDR[1], (void *)&tx.raw, TRANSFER_SIZE_2_BYTE, false);
     if (tx.config.mode == RA_TX_MODE_AM) {
-        /* DOC forms 2*ADC (byte offset), not a phase accumulator in AM. */
-        tx_transfer(1, (void *)&tx.raw, (void *)&R_DOC->DODSR, TRANSFER_SIZE_2_BYTE, false);
+        /* Form low16(lut + 2*ADC).  An 8-KiB-aligned 8-KiB table never
+         * crosses a 64-KiB window, so the descriptor's upper half stays fixed. */
+        tx_transfer(1, &tx.lut_base, (void *)&R_DOC->DODSR, TRANSFER_SIZE_2_BYTE, false);
         tx_transfer(2, (void *)&tx.raw, (void *)&R_DOC->DODIR, TRANSFER_SIZE_2_BYTE, false);
-        tx_transfer(3, (void *)&R_DOC->DODSR, (void *)&tx.info[4].p_src, TRANSFER_SIZE_2_BYTE, false);
-        tx_transfer(4, tx.lut, (void *)&R_DAC->DADR[0], TRANSFER_SIZE_2_BYTE, false);
-        tx_transfer(5, &tx.config.q_zero, (void *)&R_DAC->DADR[1], TRANSFER_SIZE_2_BYTE, true);
-        tx.status.transfer_count = 6;
+        tx_transfer(3, (void *)&tx.raw, (void *)&R_DOC->DODIR, TRANSFER_SIZE_2_BYTE, false);
+        tx_transfer(4, (void *)&R_DOC->DODSR, (void *)&tx.info[5].p_src, TRANSFER_SIZE_2_BYTE, false);
+        tx_transfer(5, tx.lut, (void *)&R_DAC->DADR[0], TRANSFER_SIZE_2_BYTE, false);
+        tx_transfer(6, &tx.config.q_zero, (void *)&R_DAC->DADR[1], TRANSFER_SIZE_2_BYTE, true);
+        tx.status.transfer_count = 7;
         return;
     }
     unsigned n = 1;
@@ -151,12 +190,27 @@ static void tx_build_chain(void) {
     }
     tx_transfer(n++, &tx.bias, (void *)&R_DOC->DODIR, TRANSFER_SIZE_2_BYTE, false);
     tx_transfer(n++, (void *)&R_DOC->DODSR, (void *)&tx.phase, TRANSFER_SIZE_2_BYTE, false);
-    unsigned i_out = n + 2;
-    unsigned q_out = n + 3;
-    tx_transfer(n++, (uint8_t *)&tx.phase + 1, (uint8_t *)&tx.info[i_out].p_src + 1, TRANSFER_SIZE_1_BYTE, false);
-    tx_transfer(n++, (uint8_t *)&tx.phase + 1, (uint8_t *)&tx.info[q_out].p_src + 1, TRANSFER_SIZE_1_BYTE, false);
-    tx_transfer(n++, tx.lut, (void *)&R_DAC->DADR[0], TRANSFER_SIZE_2_BYTE, false);
-    tx_transfer(n++, tx.lut + 2, (void *)&R_DAC->DADR[1], TRANSFER_SIZE_2_BYTE, true);
+    /* Compact planar FM addressing.  Preserve the full phase, turn its high
+     * byte into a zero-extended index, and form low16(lut + 2*index).  I lives
+     * in the first 512-byte plane and Q in the second.  Patch both future SARs
+     * and finally restore the phase accumulator for the next ADC event. */
+    tx_transfer(n++, (uint8_t *)&tx.phase + 1, (uint8_t *)&tx.index, TRANSFER_SIZE_1_BYTE, false);
+    tx_transfer(n++, &tx.lut_base, (void *)&R_DOC->DODSR, TRANSFER_SIZE_2_BYTE, false);
+    for (unsigned i = 0; i < 2; ++i) {
+        tx_transfer(n++, &tx.index, (void *)&R_DOC->DODIR, TRANSFER_SIZE_2_BYTE, false);
+    }
+    unsigned patch_i = n++;
+    unsigned add_q_plane = n++;
+    unsigned patch_q = n++;
+    unsigned i_out = n++;
+    unsigned q_out = n++;
+    unsigned restore_phase = n++;
+    tx_transfer(patch_i, (void *)&R_DOC->DODSR, (void *)&tx.info[i_out].p_src, TRANSFER_SIZE_2_BYTE, false);
+    tx_transfer(add_q_plane, &tx.q_plane, (void *)&R_DOC->DODIR, TRANSFER_SIZE_2_BYTE, false);
+    tx_transfer(patch_q, (void *)&R_DOC->DODSR, (void *)&tx.info[q_out].p_src, TRANSFER_SIZE_2_BYTE, false);
+    tx_transfer(i_out, tx.lut, (void *)&R_DAC->DADR[0], TRANSFER_SIZE_2_BYTE, false);
+    tx_transfer(q_out, tx.lut + 0x200U, (void *)&R_DAC->DADR[1], TRANSFER_SIZE_2_BYTE, false);
+    tx_transfer(restore_phase, (void *)&tx.phase, (void *)&R_DOC->DODSR, TRANSFER_SIZE_2_BYTE, true);
     tx.status.transfer_count = n;
 }
 
@@ -176,6 +230,11 @@ static bool tx_quiesce(void) {
         }
         /* No further AGT event can start a scan. */
         (void)R_ADC_ScanStop((adc_ctrl_t *)&tx.adc);
+        if (ra_tx_mode_is_ssb(tx.config.mode)) {
+            R_BSP_IrqDisable(tx.irq);
+            R_BSP_IrqStatusClear(tx.irq);
+            NVIC_ClearPendingIRQ(tx.irq);
+        }
     }
     if (tx.dtc_open) {
         R_BSP_IrqDisable(tx.irq);
@@ -229,23 +288,28 @@ static bool tx_arm(void) {
     if (!ra_agt_timer_set_counter((uint32_t)tx.status.timer_channel, tx.status.timer_period - 1U)) {
         return tx_error(RA_TX_ERROR_TIMER, FSP_ERR_INVALID_ARGUMENT);
     }
-    fsp_err_t err = R_DTC_Enable((transfer_ctrl_t *)&tx.dtc);
-    if (err != FSP_SUCCESS) {
-        return tx_error(RA_TX_ERROR_DTC, err);
+    fsp_err_t err;
+    if (tx.dtc_open) {
+        err = R_DTC_Enable((transfer_ctrl_t *)&tx.dtc);
+        if (err != FSP_SUCCESS) {
+            return tx_error(RA_TX_ERROR_DTC, err);
+        }
     }
     if (tx.adc_open) {
         err = R_ADC_ScanStart((adc_ctrl_t *)&tx.adc);
         if (err != FSP_SUCCESS) {
-            (void)R_DTC_Disable((transfer_ctrl_t *)&tx.dtc);
+            if (tx.dtc_open) {
+                (void)R_DTC_Disable((transfer_ctrl_t *)&tx.dtc);
+            }
             return tx_error(RA_TX_ERROR_ADC, err);
         }
     }
     R_BSP_IrqStatusClear(tx.irq);
     NVIC_ClearPendingIRQ(tx.irq);
     __DMB();
-    R_BSP_IrqEnable(tx.irq);
     tx.status.running = true;
     tx.status.quiesced = false;
+    R_BSP_IrqEnable(tx.irq);
     ra_agt_timer_start((uint32_t)tx.status.timer_channel);
     return true;
 }
@@ -254,8 +318,12 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
     if (tx.status.owned) {
         return tx_error(RA_TX_ERROR_BUSY, FSP_ERR_IN_USE);
     }
-    if (!ra_tx_core_validate(config) || (config->mode != RA_TX_MODE_CW &&
-        (lut == NULL || ((uintptr_t)lut & 0xffffU) || lut_bytes < RA_TX_LUT_BYTES))) {
+    size_t required = ra_tx_core_lut_bytes(config);
+    size_t alignment = ra_tx_core_lut_alignment(config);
+    uintptr_t address = (uintptr_t)lut;
+    if (!ra_tx_core_validate(config) || (required != 0 &&
+        (lut == NULL || (address & (alignment - 1U)) || lut_bytes < required ||
+        (address & 0xffffU) + required > 0x10000U))) {
         return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
     }
     #if MICROPY_HW_ENABLE_IQ_ADC
@@ -279,6 +347,9 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
     memset(&tx, 0, sizeof(tx));
     tx.config = *config;
     tx.lut = lut;
+    tx.lut_base = (uint16_t)(uintptr_t)lut;
+    tx.index = 0;
+    tx.q_plane = 0x200U;
     tx.status.mode = config->mode;
     tx.status.requested_rate_hz = config->sample_rate_hz;
     tx.status.timer_channel = -1;
@@ -309,6 +380,12 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
     }
     tx.status.timer_period = ra_agt_timer_get_period(ch);
     tx.status.quiesced = true;
+    if (ra_tx_mode_is_ssb(config->mode)) {
+        CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+        DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk; /* never reset a shared cycle counter */
+        tx.status.dsp_budget_cycles = (uint32_t)((uint64_t)R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_ICLK)
+            * tx.status.timer_period / tx.status.timer_clock_hz);
+    }
 
     /* Unbuffered DAC: external high-impedance I/Q input required. No amplifier
      * startup short-to-ground sequence, and no claim of simultaneous latching. */
@@ -328,7 +405,7 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
     }
     tx.bias = ra_tx_core_fm_bias(config);
     if (config->mode == RA_TX_MODE_CW) {
-        ra_tx_core_ramp(tx.shape, config->ramp_samples, 0, UINT16_MAX);
+        ra_tx_core_ramp(tx.dsp.cw.shape, config->ramp_samples, 0, UINT16_MAX);
     }
     if (config->mode != RA_TX_MODE_CW) {
         /* Pre-existing standalone ADC objects must be reconstructed afterward;
@@ -348,7 +425,7 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
         tx.adc_cfg.scan_end_ipl = 5;
         tx.adc_cfg.scan_end_b_irq = FSP_INVALID_VECTOR;
         tx.adc_cfg.scan_end_b_ipl = BSP_IRQ_DISABLED;
-        tx.adc_cfg.p_callback = tx_adc_fault;
+        tx.adc_cfg.p_callback = tx_adc_callback;
         tx.adc_cfg.p_context = NULL;
         tx.adc_cfg.p_extend = &tx.adc_ext;
         tx.adc_ext.clearing = ADC_CLEAR_AFTER_READ_OFF;
@@ -377,14 +454,18 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
         FSP_REGISTER_READ(R_ELC->ELSR[TX_ELC_ADC0].HA);
         R_ELC->ELCR |= R_ELC_ELCR_ELCON_Msk;
         tx.elc_owned = true;
-        R_BSP_MODULE_START(FSP_IP_DOC, 0);
-        tx.doc_open = true;
-        R_DOC->DOCR = 0x41; /* addition; clear overflow; no DOC IRQ is routed */
-        R_DOC->DODSR = 0;
+        if (!ra_tx_mode_is_ssb(config->mode)) {
+            R_BSP_MODULE_START(FSP_IP_DOC, 0);
+            tx.doc_open = true;
+            R_DOC->DOCR = 0x41; /* addition; clear overflow; no DOC IRQ is routed */
+            R_DOC->DODSR = 0;
+        }
     }
-    tx_build_chain();
-    if (!tx_open_chain()) {
-        return false;
+    if (!ra_tx_mode_is_ssb(config->mode)) {
+        tx_build_chain();
+        if (!tx_open_chain()) {
+            return false;
+        }
     }
     tx.ready = true;
     return true; /* no trigger until explicit start() */
@@ -400,9 +481,18 @@ bool ra_tx_hw_start(void) {
     if (!tx_quiesce()) {
         return false;
     }
-    tx_build_chain();
-    if (!tx_open_chain()) {
-        return false;
+    if (ra_tx_mode_is_ssb(tx.config.mode)) {
+        ra_tx_core_ssb_reset(&tx.dsp.ssb);
+        tx.status.dsp_samples = 0;
+        tx.status.dsp_clips = 0;
+        tx.status.dsp_last_cycles = 0;
+        tx.status.dsp_max_cycles = 0;
+        tx.status.dsp_deadline_misses = 0;
+    } else {
+        tx_build_chain();
+        if (!tx_open_chain()) {
+            return false;
+        }
     }
     tx.phase = 0;
     if (tx.doc_open) {
@@ -438,7 +528,7 @@ bool ra_tx_hw_key(bool down) {
     }
     uint16_t from = R_DAC->DADR[0];
     tx.hold = tx.config.i_zero + (down ? tx.config.amplitude : 0);
-    ra_tx_core_scale_ramp(tx.ramp, tx.shape, tx.config.ramp_samples, from, tx.hold);
+    ra_tx_core_scale_ramp(tx.dsp.cw.ramp, tx.dsp.cw.shape, tx.config.ramp_samples, from, tx.hold);
     /* The last ramp event writes back D0, THEN the three descriptors change D0
      * into a fixed repeat/hold. The last descriptor is itself endless repeat,
      * so the normal ramp completion never delivers a CPU interrupt (18.4.1). */
@@ -449,7 +539,7 @@ bool ra_tx_hw_key(bool down) {
     tx.info[0].transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
     tx.info[0].transfer_settings_word_b.src_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED;
     tx.info[0].transfer_settings_word_b.chain_mode = TRANSFER_CHAIN_MODE_END;
-    tx.info[0].p_src = tx.ramp;
+    tx.info[0].p_src = tx.dsp.cw.ramp;
     tx.info[0].length = tx.config.ramp_samples;
     tx_transfer(1, &tx.hold_settings, &tx.info[0].transfer_settings_word, TRANSFER_SIZE_4_BYTE, false);
     tx_transfer(2, &tx.hold_source, (void *)&tx.info[0].p_src, TRANSFER_SIZE_4_BYTE, false);

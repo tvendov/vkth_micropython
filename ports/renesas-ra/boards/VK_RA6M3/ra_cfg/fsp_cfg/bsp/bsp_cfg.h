@@ -29,8 +29,10 @@ extern "C" {
 #define BSP_CFG_STACK_MAIN_BYTES (0x4000)
 #if defined(MICROPY_PY_CV2_QSPI) && (MICROPY_PY_CV2_QSPI == 1)
 // The external-code profile reserves additional OpenCV state and a C arena.
-// The final linker report checks this 192 KiB MicroPython heap against SRAM.
-#define BSP_CFG_HEAP_BYTES (0x30000)
+// Eight prepared filters per camera require extra setup-only workspace.
+// The linker gate checks this 204 KiB heap, the full 16 KiB stack and all
+// static data remain below the separately reserved GLCDC framebuffer.
+#define BSP_CFG_HEAP_BYTES (0x33000)
 #elif defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
 #define BSP_CFG_HEAP_BYTES (0x47000)
 #else
