@@ -612,8 +612,8 @@ else
 CFLAGS += -DMICROPY_HW_ENABLE_AUDIOADC=0
 endif
 
-# Coherent I/Q capture (SDR receive path).  Needs the second ADC unit, the
-# dedicated sample-and-hold channels and the PGA.  Gated on the board feature
+# Coherent I/Q capture (SDR receive path).  Needs the second ADC unit and the
+# dedicated sample-and-hold channels.  Gated on the board feature
 # flag MICROPY_HW_ENABLE_RA_SDR (set in boards/<BOARD>/mpconfigboard.mk), NOT on
 # the MCU: the RA6-family capability layer (ra_sdr_caps.c) supplies the portable
 # facts so the same driver runs on register-compatible RA6 members.  The driver
@@ -787,6 +787,8 @@ HAL_SRC_C += $(addprefix $(HAL_DIR)/$(CRYPTO_DIR)/,\
 endif
 endif
 
+include cv2_qspi.mk
+
 OBJ += $(PY_O)
 OBJ += $(addprefix $(BUILD)/, $(LIB_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(LIBM_SRC_C:.c=.o))
@@ -822,7 +824,11 @@ $(PY_BUILD)/formatfloat.o: COPT += -Os
 $(PY_BUILD)/parsenum.o: COPT += -Os
 $(PY_BUILD)/mpprint.o: COPT += -Os
 
+ifeq ($(MICROPY_PY_CV2_QSPI),1)
+all: $(TOP)/lib/fsp/README.md $(BUILD)/firmware.bin
+else
 all: $(TOP)/lib/fsp/README.md $(BUILD)/firmware.hex $(BUILD)/firmware.bin
+endif
 
 # For convenience, automatically fetch required submodules if they don't exist
 $(TOP)/lib/fsp/README.md:
@@ -846,8 +852,8 @@ endif
 
 define GENERATE_BIN
 	$(ECHO) "GEN $(1)"
-	$(Q)$(OBJCOPY) -O binary -j .id_code $(2) $(BUILD)/id_code.bin
-	$(Q)$(OBJCOPY) -O binary --remove-section=.id_code $(2) $(1)
+	$(if $(filter 1,$(MICROPY_PY_CV2_QSPI)),$(Q)$(PYTHON) $(SPARKFUN_CV2_DIR)/platforms/ra6m3/package_image.py --elf $(2) --objcopy $(OBJCOPY) --output $(1) --baseline $(CV2_BASELINE_BIN),$(Q)$(OBJCOPY) -O binary -j .id_code $(2) $(BUILD)/id_code.bin)
+	$(if $(filter 1,$(MICROPY_PY_CV2_QSPI)),,$(Q)$(OBJCOPY) -O binary --remove-section=.id_code $(2) $(1))
 endef
 
 define GENERATE_HEX
@@ -858,13 +864,18 @@ endef
 .PHONY:
 
 $(BUILD)/firmware.bin: $(BUILD)/firmware.elf
-	$(call GENERATE_BIN,$@,$^)
+	$(call GENERATE_BIN,$@,$(BUILD)/firmware.elf)
 
+ifeq ($(MICROPY_PY_CV2_QSPI),1)
+$(BUILD)/firmware.hex: $(BUILD)/firmware.bin
+	$(call GENERATE_BIN,$(BUILD)/firmware.bin,$(BUILD)/firmware.elf)
+else
 $(BUILD)/firmware.hex: $(BUILD)/firmware.elf
 	$(call GENERATE_HEX,$@,$^)
+endif
 
 $(BUILD)/firmware.elf: $(OBJ)
-	$(call GENERATE_ELF,$@,$^)
+	$(call GENERATE_ELF,$@,$(if $(filter 1,$(MICROPY_PY_CV2_QSPI)),$(OBJ),$^))
 
 MAKE_PINS = boards/make-pins.py
 BOARD_PINS = $(BOARD_DIR)/pins.csv

@@ -8,7 +8,7 @@ the script, whether it passes or fails.
 
 import gc
 import time
-from machine import ADC, DAC, IQADC
+from machine import DAC, IQADC
 
 
 RATE = 48000
@@ -81,7 +81,7 @@ dac = None
 try:
     quiesce_existing_app()
     gc.collect()
-    iq = IQADC("P000", "P004", rate=RATE, block=BLOCK, pga=ADC.PGA_BYPASS)
+    iq = IQADC("P000", "P004", rate=RATE, block=BLOCK)
     iq.start()
     dac = DAC("P014")
     dac.stream_from(iq)

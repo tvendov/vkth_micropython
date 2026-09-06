@@ -5,9 +5,9 @@
  * were first written RA6M3-only, with the portable facts baked in as literals.
  * This layer hoists those facts into two const tables so the same driver can run
  * on register-compatible members of the RA6 family (RA6M3, RA6M5) without
- * touching the register-level S&H / PGA / DTC / ELC logic.
+ * touching the register-level S&H / ADC / DTC / ELC logic.
  *
- *   ra_sdr_mcu_facts_t   - facts that follow the MCU (ADC unit layout, PGA layout,
+ *   ra_sdr_mcu_facts_t   - facts that follow the MCU (ADC and I/Q input layout,
  *                          ELC output slots, sampling-time reset values).  Selected
  *                          at compile time by the CMSIS_MCU define.
  *   ra_sdr_board_facts_t - facts that follow the board / generated vector table
@@ -47,12 +47,10 @@ typedef struct {
     uint8_t adc0_first_ch;          /* channel enum of unit-0 first channel (0)    */
     uint8_t adc1_first_ch;          /* channel enum of unit-1 first channel (32)   */
 
-    bool pga_layout_valid;          /* PGA channel/pin table verified for this MCU */
-    uint8_t pga_channels_per_unit;  /* channels per unit that carry a PGA (3)       */
-    uint8_t pga_adc0_first_ch;      /* first PGA channel on unit 0 (AN000 = 0)      */
-    uint8_t pga_adc1_first_ch;      /* first PGA channel on unit 1 (AN100 = 32)     */
-    uint32_t pgavss0_pin;           /* PGAVSS000 pin enum (P003) for unit 0         */
-    uint32_t pgavss1_pin;           /* PGAVSS100 pin enum (P007) for unit 1         */
+    bool iq_input_layout_valid;     /* coherent I/Q input table verified for MCU    */
+    uint8_t iq_channels_per_unit;   /* dedicated S&H input channels per unit (3)    */
+    uint8_t iq_adc0_first_ch;       /* first I input channel (AN000 = 0)            */
+    uint8_t iq_adc1_first_ch;       /* first Q input channel (AN100 = 32)           */
 
     uint8_t elc_adc0_slot;          /* ELC ELSR index feeding unit 0 (ELC_AD00 = 8) */
     uint8_t elc_adc1_slot;          /* ELC ELSR index feeding unit 1 (ELC_AD10 = 10)*/

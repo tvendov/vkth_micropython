@@ -18,7 +18,7 @@ import array
 import gc
 import os
 import time
-from machine import ADC, DAC, IQADC
+from machine import DAC, IQADC
 import sdr_single
 
 
@@ -281,8 +281,7 @@ try:
     quiesce_existing_app()
     gc.collect()
     source = new_source()
-    iq = IQADC("P000", "P004", rate=RATE, block=BLOCK,
-               pga=ADC.PGA_BYPASS)
+    iq = IQADC("P000", "P004", rate=RATE, block=BLOCK)
     check(iq.FILE_API_VERSION == 1, "FILE API")
     iq.start()
     iq.tune(0)

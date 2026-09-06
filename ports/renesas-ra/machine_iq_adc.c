@@ -1,7 +1,7 @@
 /*
  * IQADC - coherent I/Q ADC capture, Python wrapper.
  * Wraps ra_iq_adc (AGT + ELC + ADC0/ADC1 + DTC ping-pong, RA6M3 only).
- * API: IQADC(i_pin, q_pin, rate=, block=, pga=, gain=)
+ * API: IQADC(i_pin, q_pin, rate=, block=)
  *      .start() .stop() .read_block(ib, qb) .blocks() .overruns()
  *      .unit1_stalls() .last_error() .ready() .status() .deinit()
  *      .demod(mode) .audio_status() .read_audio(buf)
@@ -248,8 +248,7 @@ static void machine_iqadc_print(const mp_print_t *print,
 }
 
 /* ------------------------------------------------------------------ */
-/* make_new: IQADC(i_pin, q_pin, *, rate=48000, block=128,             */
-/*                 pga=PGA_BYPASS, gain=0)                              */
+/* make_new: IQADC(i_pin, q_pin, *, rate=48000, block=128)             */
 /* ------------------------------------------------------------------ */
 
 static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
@@ -259,14 +258,12 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
         mp_raise_OSError(MP_EBUSY);
     }
     (void)type;
-    enum { ARG_i_pin, ARG_q_pin, ARG_rate, ARG_block, ARG_pga, ARG_gain };
+    enum { ARG_i_pin, ARG_q_pin, ARG_rate, ARG_block };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_i_pin, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_q_pin, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_rate,  MP_ARG_KW_ONLY  | MP_ARG_INT, {.u_int = 48000} },
         { MP_QSTR_block, MP_ARG_KW_ONLY  | MP_ARG_INT, {.u_int = 128} },
-        { MP_QSTR_pga,   MP_ARG_KW_ONLY  | MP_ARG_INT, {.u_int = (int)RA_ADC_PGA_BYPASS} },
-        { MP_QSTR_gain,  MP_ARG_KW_ONLY  | MP_ARG_INT, {.u_int = 0} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args,
@@ -280,41 +277,20 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
         ((args[ARG_block].u_int & 1) != 0)) {
         mp_raise_ValueError(MP_ERROR_TEXT("block must be even 10..256"));
     }
-    if (args[ARG_pga].u_int == (int)RA_ADC_PGA_OFF) {
-        mp_raise_ValueError(MP_ERROR_TEXT("pga OFF rejected"));
-    }
-    if ((args[ARG_pga].u_int != (int)RA_ADC_PGA_BYPASS)
-        && (args[ARG_pga].u_int != (int)RA_ADC_PGA_SINGLE)
-        && (args[ARG_pga].u_int != (int)RA_ADC_PGA_DIFFERENTIAL)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("bad pga"));
-    }
-    if (args[ARG_gain].u_int < 0) {
-        mp_raise_ValueError(MP_ERROR_TEXT("bad gain"));
-    }
-    if ((args[ARG_pga].u_int == (int)RA_ADC_PGA_SINGLE)
-        && (args[ARG_gain].u_int > (int)RA_ADC_PGA_GAIN_13_333)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("bad gain"));
-    }
-    if ((args[ARG_pga].u_int == (int)RA_ADC_PGA_DIFFERENTIAL)
-        && (args[ARG_gain].u_int > (int)RA_ADC_PGA_DIFF_GAIN_5_667)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("bad gain"));
-    }
-    if ((args[ARG_pga].u_int == (int)RA_ADC_PGA_BYPASS)
-        && (args[ARG_gain].u_int != 0)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("bypass gain must be 0"));
-    }
-
     const machine_pin_obj_t *ip = machine_pin_find(args[ARG_i_pin].u_obj);
     const machine_pin_obj_t *qp = machine_pin_find(args[ARG_q_pin].u_obj);
 
-    /* The I/Q pins must land in the PGA / dedicated-S&H channel range of each
-     * unit; those ranges come from the capability layer.  On VK_RA6M3 they are
+    /* The I/Q pins must land in the dedicated-S&H channel range of each unit;
+     * those ranges come from the capability layer.  On VK_RA6M3 they are
      * AN000..AN002 (unit 0) and AN100..AN102 (unit 1). */
     const ra_sdr_mcu_facts_t *mcu = ra_sdr_caps_get()->mcu;
-    uint8_t i_lo = mcu->pga_adc0_first_ch;
-    uint8_t i_hi = (uint8_t)(mcu->pga_adc0_first_ch + mcu->pga_channels_per_unit - 1U);
-    uint8_t q_lo = mcu->pga_adc1_first_ch;
-    uint8_t q_hi = (uint8_t)(mcu->pga_adc1_first_ch + mcu->pga_channels_per_unit - 1U);
+    if (!mcu->iq_input_layout_valid) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I/Q input layout unavailable"));
+    }
+    uint8_t i_lo = mcu->iq_adc0_first_ch;
+    uint8_t i_hi = (uint8_t)(mcu->iq_adc0_first_ch + mcu->iq_channels_per_unit - 1U);
+    uint8_t q_lo = mcu->iq_adc1_first_ch;
+    uint8_t q_hi = (uint8_t)(mcu->iq_adc1_first_ch + mcu->iq_channels_per_unit - 1U);
 
     uint8_t i_ch, q_ch;
     if (!ra_adc_pin_to_ch(ip->pin, &i_ch) || (i_ch < i_lo) || (i_ch > i_hi)) {
@@ -347,9 +323,7 @@ static mp_obj_t machine_iqadc_make_new(const mp_obj_type_t *type,
     self->rate  = (uint32_t)args[ARG_rate].u_int;
     self->block = (uint16_t)args[ARG_block].u_int;
 
-    if (!ra_iq_adc_init(self->i_pin, self->q_pin, self->rate, self->block,
-                        (ra_adc_pga_mode_t)args[ARG_pga].u_int,
-                        (uint8_t)args[ARG_gain].u_int)) {
+    if (!ra_iq_adc_init(self->i_pin, self->q_pin, self->rate, self->block)) {
         mp_printf(&mp_plat_print, "IQADC_INIT_FAIL:%s\n", ra_iq_adc_init_error_name());
         mp_printf(&mp_plat_print, "IQADC_AGT_REJECT:%u,%u\n",
             (unsigned)ra_agt_timer_reserve_error(0U),
@@ -930,26 +904,6 @@ static mp_obj_t machine_iqadc_tune(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tune_obj, 1, 2,
     machine_iqadc_tune);
 
-/* pga_gain([code]) -> int.  RF front-end PGA gain (0..14 = x2.0..x13.3), applied to both
- * I and Q channels so they stay matched; always returns the current code.  Only has effect
- * when the unit was created in a PGA mode other than BYPASS (a no-op otherwise). */
-static mp_obj_t machine_iqadc_pga_gain(size_t n_args, const mp_obj_t *args) {
-    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
-    if (n_args >= 2) {
-        if (!ra_iq_adc_set_pga_gain((uint8_t)mp_obj_get_int(args[1]))) {
-            /* ADPGAGS cannot be changed while ADC scanning is active.  Never
-             * return the old code as if a requested live write had succeeded. */
-            mp_raise_OSError(MP_EBUSY);
-        }
-    }
-    uint8_t code = 0;
-    (void)ra_iq_adc_get_pga_gain(&code);
-    return mp_obj_new_int(code);
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_pga_gain_obj, 1, 2,
-    machine_iqadc_pga_gain);
-
 /* tap(stage[, buf]) -> int|None.  Per-stage verification tap: arm 'stage' (0=off, 1=decim,
  * 2=nco, 3=chfilt).  With buf = array('h') the last decimated snapshot is copied as
  * interleaved [i0,q0,i1,q1,...] and the i/q pair count is returned (None until a fresh
@@ -1183,8 +1137,8 @@ static MP_DEFINE_CONST_FUN_OBJ_2(machine_iqadc_file_status_into_obj,
 
 /* block(id[, enable]) -> int.  Per-block ON/OFF for verification, ids 1..11.
  * DECIM OFF keeps the mandatory Fs/2 adapter but selects every other raw pair;
- * DEMOD OFF selects I-pass.  PGA reflects the constructor's hardware mode and
- * LIMITER is fixed safe, so writes to ids 1 and 11 are intentionally ignored.
+ * DEMOD OFF selects I-pass.  INPUT and LIMITER are fixed safe, so writes to
+ * ids 1 and 11 are intentionally ignored.
  * Always returns the effective state (1=on, 0=off). */
 static mp_obj_t machine_iqadc_block(size_t n_args, const mp_obj_t *args) {
     machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -1198,7 +1152,7 @@ static mp_obj_t machine_iqadc_block(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_block_obj, 2, 3, machine_iqadc_block);
 
 /* scope([stage]) -> int.  Route ONE DSP block's output to the DAC(s) for oscilloscope
- * inspection: stage 0 = off, else the block id 1..11 (1=PGA 2=decim 3=iqcorr 4=nco
+ * inspection: stage 0 = off, else the block id 1..11 (1=input 2=decim 3=iqcorr 4=nco
  * 5=chfilt 6=demod 7=af 8=squelch 9=agc 10=vol 11=limiter).  A pre-demod block (1..5,
  * complex) routes I->DAC0 and Q->DAC1; a post-demod block (6..11, mono) routes the mono
  * signal->DAC0 only.  With no arg returns the current stage.  Setting resets the ring
@@ -1275,14 +1229,8 @@ static mp_obj_t machine_iqadc_filter_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_iqadc_filter_status_obj, machine_iqadc_filter_status);
 
-/* spectrum(buf) -> bin_count | None.  buf must be array('f') (float32) with
- * len >= RA_IQ_SPECTRUM_N.  On the first call it enables spectrum accumulation in
- * the ADC block callback (a gated int16 copy; the FFT itself runs here, not in the
- * ISR).  Returns None when no completed snapshot is ready yet; otherwise fills buf
- * with the fftshift-ed magnitude spectrum (DC at buf[N/2]) and returns N.  The
- * float window + CMSIS FFT run in this call (control plane, FPU is fine). */
-/* Raw float iq.spectrum(buf) removed to reclaim flash for iq.gain() (the firmware region
- * was full): the UI uses the alloc-free iq.spectrum_bars() reducer instead. */
+/* Raw float iq.spectrum(buf) is not exposed: the UI uses the compact,
+ * allocation-free iq.spectrum_bars() reducer instead. */
 
 static mp_obj_t machine_iqadc_spectrum_stop(mp_obj_t self_in) {
     (void)self_in;
@@ -1384,7 +1332,6 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_squelch),      MP_ROM_PTR(&machine_iqadc_squelch_obj) },
     { MP_ROM_QSTR(MP_QSTR_smeter),       MP_ROM_PTR(&machine_iqadc_smeter_obj) },
     { MP_ROM_QSTR(MP_QSTR_tune),         MP_ROM_PTR(&machine_iqadc_tune_obj) },
-    { MP_ROM_QSTR(MP_QSTR_gain),         MP_ROM_PTR(&machine_iqadc_pga_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_tap),          MP_ROM_PTR(&machine_iqadc_tap_obj) },
     { MP_ROM_QSTR(MP_QSTR_inject),       MP_ROM_PTR(&machine_iqadc_inject_obj) },
     { MP_ROM_QSTR(MP_QSTR_inject_mid),   MP_ROM_PTR(&machine_iqadc_inject_mid_obj) },

@@ -100,7 +100,10 @@
 #endif
 
 // Python internal features
-#define MICROPY_TRACKED_ALLOC       (MICROPY_SSL_MBEDTLS || MICROPY_BLUETOOTH_BTSTACK || MICROPY_HW_ENABLE_BLE)
+#define MICROPY_TRACKED_ALLOC       (MICROPY_SSL_MBEDTLS || MICROPY_BLUETOOTH_BTSTACK || MICROPY_HW_ENABLE_BLE || MICROPY_PY_CV2_QSPI)
+#ifndef MICROPY_PY_CV2_QSPI
+#define MICROPY_PY_CV2_QSPI (0)
+#endif
 #define MICROPY_READER_VFS          (1)
 #define MICROPY_ENABLE_GC           (1)
 // Enable split GC heap on RA6M5 boards that expose OSPI RAM as a second area.

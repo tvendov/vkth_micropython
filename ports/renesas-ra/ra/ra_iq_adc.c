@@ -518,7 +518,7 @@ static uint32_t ra_iq_isqrt32(uint32_t x) {
 /* Per-block ON/OFF for verification: a set bit BYPASSES that block (short to the
  * next), so a stage can be removed from the chain to isolate it.  These definitions
  * must precede ra_iq_audio_stage(), which applies the squelch/AGC/volume bypasses. */
-#define RA_IQ_BLK_PGA     1U
+#define RA_IQ_BLK_INPUT   1U
 #define RA_IQ_BLK_DECIM   2U
 #define RA_IQ_BLK_IQCORR  3U
 #define RA_IQ_BLK_NCO     4U
@@ -1089,8 +1089,8 @@ static inline void ra_iq_scope_capture_iq(uint8_t blk, uint16_t m) {
 
 /* Bench signal injection: one block-atomic synthetic complex source can replace the
  * stream at raw IN, a selectable signed/decimated MID block input, or filtered complex
- * OUT.  IN emulates a pre-PGA amplitude by applying the configured hardware gain;
- * MID/OUT use centred int16 counts and skip every earlier ADC-dependent DSP stage.
+ * OUT.  IN uses direct ADC counts; MID/OUT use centred int16 counts and skip
+ * every earlier ADC-dependent DSP stage.
  * Control-plane publishes the complete point + MID selector configuration; the ISR
  * generates only at the chosen boundary while ADC/DTC/AGT retain the cadence. */
 static volatile uint8_t s_inject_enable;
@@ -1328,12 +1328,7 @@ static inline void ra_iq_inject_next_q15(ra_iq_inject_run_t *r,
 }
 
 static void ra_iq_inject_fill_raw(uint8_t half, uint16_t n) {
-    ra_adc_pga_mode_t md = RA_ADC_PGA_BYPASS;
-    uint8_t code = 0U;
-    (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
-    int32_t a = RA_IQ_BYPASSED(RA_IQ_BLK_PGA) ? s_inject_ampl :
-        (int32_t)(((int64_t)s_inject_ampl *
-        (int64_t)ra_adc_pga_gain_milli(md, code)) / 1000);
+    int32_t a = s_inject_ampl;
     ra_iq_inject_run_t run;
     ra_iq_inject_run_begin(&run);
     bool negative_q = run.kind == (uint8_t)RA_IQ_INJECT_LSB;
@@ -1509,15 +1504,10 @@ static inline int16_t ra_iq_file_s16le(const uint8_t *p) {
     return (int16_t)value;
 }
 
-/* FILE at IN replaces samples that would otherwise have passed through the
- * analogue PGA before reaching the 12-bit ADC result register.  The file is
- * already digital, so model that one front-end stage numerically: apply the
- * selected gain in milli-units to signed S16LE, then map full-scale S16 to the
- * unsigned 12-bit ADC range.  int64_t keeps the multiply exact; saturation
- * reproduces ADC clipping.  A bypassed PGA supplies gain_milli == 1000 (x1). */
-static inline uint16_t ra_iq_file_s16_to_adc(int16_t sample,
-    uint32_t gain_milli) {
-    int64_t scaled = ((int64_t)sample * (int64_t)gain_milli) / 16000;
+/* FILE at IN maps signed S16LE directly to the unsigned 12-bit ADC range.
+ * int64_t keeps the scale exact and saturation reproduces ADC clipping. */
+static inline uint16_t ra_iq_file_s16_to_adc(int16_t sample) {
+    int64_t scaled = (int64_t)sample / 16;
     int64_t adc = (int64_t)RA_IQ_ADC_MIDPOINT + scaled;
     if (adc < 0) {
         adc = 0;
@@ -1607,15 +1597,6 @@ static void ra_iq_file_fill_raw(uint8_t half, uint16_t n) {
         ++s_file.source_blocks;
         return;
     }
-    ra_adc_pga_mode_t md = RA_ADC_PGA_BYPASS;
-    uint8_t code = 0U;
-    (void)ra_adc_pga_get_ch(s_iq.i_ch, &md, &code);
-    /* This is a SIMULATED PGA, not another hardware pass: FILE at IN bypasses
-     * the ADC pins, so reproduce exactly the gain used by the synthetic IN
-     * source.  PGA bypass remains unity and therefore bit-identical to the old
-     * S16LE / 16 mapping. */
-    uint32_t sim_pga_gain_milli = RA_IQ_BYPASSED(RA_IQ_BLK_PGA) ? 1000U :
-        ra_adc_pga_gain_milli(md, code);
     uint16_t written = 0U;
     bool underrun = false;
     while (written < n) {
@@ -1633,9 +1614,9 @@ static void ra_iq_file_fill_raw(uint8_t half, uint16_t n) {
         }
         for (uint16_t k = 0U; k < available; ++k) {
             s_i_buf[half][written + k] = ra_iq_file_s16_to_adc(
-                ra_iq_file_s16le(src + (uint32_t)k * 4U), sim_pga_gain_milli);
+                ra_iq_file_s16le(src + (uint32_t)k * 4U));
             s_q_buf[half][written + k] = ra_iq_file_s16_to_adc(
-                ra_iq_file_s16le(src + (uint32_t)k * 4U + 2U), sim_pga_gain_milli);
+                ra_iq_file_s16le(src + (uint32_t)k * 4U + 2U));
         }
         written = (uint16_t)(written + available);
         ra_iq_file_consume_chunk(available);
@@ -2134,9 +2115,9 @@ static void ra_iq_dsp_process(uint8_t half) {
             ra_iq_inject_fill_raw(half, n);
         }
 
-        /* Scope routing, PGA stage: the raw front-end block BEFORE decimation.  A
+        /* Scope routing, INPUT stage: the raw front-end block before decimation.  A
          * later TEST entry deliberately publishes nothing at this upstream tap. */
-        if (s_scope_stage == RA_IQ_BLK_PGA) {
+        if (s_scope_stage == RA_IQ_BLK_INPUT) {
             uint32_t ih = s_ring_head;
             uint32_t qh = s_scope_q_head;
             bool q_active = s_scope_q_consumer_active != 0U;
@@ -2816,7 +2797,7 @@ static void ra_iq_dtc_build(void) {
 }
 
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
-    size_t block_samples, ra_adc_pga_mode_t pga_mode, uint8_t pga_gain) {
+    size_t block_samples) {
     if (ra_tx_hw_owns_adc()) {
         s_init_error = "tx_owner";
         return false;
@@ -2851,14 +2832,12 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     if ((i_ch >= channels_per_unit) || (q_ch < channels_per_unit)) {
         return false;
     }
-    s_init_error = "pga_channel";
-    if (!ra_adc_pga_supported_ch(i_ch) || !ra_adc_pga_supported_ch(q_ch)) {
-        return false;
-    }
-    /* ADC12 does not work on these six channels with ADPGACR at its initial
-     * value (Table 47.14), so OFF is not a usable request here. */
-    s_init_error = "pga_mode";
-    if (pga_mode == RA_ADC_PGA_OFF) {
+    s_init_error = "input_channel";
+    if (!caps->mcu->iq_input_layout_valid ||
+        (i_ch < caps->mcu->iq_adc0_first_ch) ||
+        (i_ch >= (uint8_t)(caps->mcu->iq_adc0_first_ch + caps->mcu->iq_channels_per_unit)) ||
+        (q_ch < caps->mcu->iq_adc1_first_ch) ||
+        (q_ch >= (uint8_t)(caps->mcu->iq_adc1_first_ch + caps->mcu->iq_channels_per_unit))) {
         return false;
     }
     #if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
@@ -2885,10 +2864,8 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     s_dec_use_cmsis = 0U;
     s_dec_requested_cmsis = 0U;
     s_dec_bypassed_last = 0U;
-    /* Start from a truthful hardware view, never from a prior object's VERIFY
-     * mask.  PGA is fixed/read-only: BYPASS means block 1 is reported OFF. */
-    s_block_bypass = (pga_mode == RA_ADC_PGA_BYPASS) ?
-        (uint16_t)(1U << RA_IQ_BLK_PGA) : 0U;
+    /* Start from a truthful fixed-input view, never from a prior VERIFY mask. */
+    s_block_bypass = 0U;
     s_inject_enable = 0U;
     s_inject_requested_enable = 0U;
     s_inject_kind = (uint8_t)RA_IQ_INJECT_IQ;
@@ -2956,11 +2933,10 @@ bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     }
     s_iq.opened1 = true;
 
-    /* The PGA path has to be selected after the units are open, because the
-     * module-stop bits must already be clear. */
-    s_init_error = "pga_config";
-    if (!ra_adc_pga_config_ch(i_ch, pga_mode, pga_gain)
-        || !ra_adc_pga_config_ch(q_ch, pga_mode, pga_gain)) {
+    /* These dedicated S&H inputs require their fixed direct ADC route after
+     * the units are open and while scanning is still stopped. */
+    s_init_error = "direct_input";
+    if (!ra_adc_prepare_direct_ch(i_ch) || !ra_adc_prepare_direct_ch(q_ch)) {
         ra_iq_adc_deinit();
         return false;
     }
@@ -3064,7 +3040,7 @@ bool ra_iq_adc_deinit_checked(void) {
     }
     if (s_iq.opened0) {
         ra_iq_sh_teardown(R_ADC0, (uint8_t)(s_iq.i_ch % RA_IQ_ADC_CHANNELS_PER_UNIT));
-        if (!ra_adc_pga_config_ch(s_iq.i_ch, RA_ADC_PGA_OFF, 0U)) {
+        if (!ra_adc_release_direct_ch(s_iq.i_ch)) {
             return false;
         }
         if (R_ADC_Close((adc_ctrl_t *)&s_iq.adc0_ctrl) != FSP_SUCCESS) {
@@ -3074,7 +3050,7 @@ bool ra_iq_adc_deinit_checked(void) {
     }
     if (s_iq.opened1) {
         ra_iq_sh_teardown(R_ADC1, (uint8_t)(s_iq.q_ch % RA_IQ_ADC_CHANNELS_PER_UNIT));
-        if (!ra_adc_pga_config_ch(s_iq.q_ch, RA_ADC_PGA_OFF, 0U)) {
+        if (!ra_adc_release_direct_ch(s_iq.q_ch)) {
             return false;
         }
         if (R_ADC_Close((adc_ctrl_t *)&s_iq.adc1_ctrl) != FSP_SUCCESS) {
@@ -3565,20 +3541,6 @@ int32_t ra_iq_adc_get_tune(void) {
     return s_tune_hz;
 }
 
-/* Live PGA (RF front-end) gain, applied to BOTH I and Q channels so they stay matched.
- * gain_code is an RA_ADC_PGA_GAIN_* enum (0x0..0xE = x2.0..x13.3). Only has effect when
- * the unit was created in a PGA mode other than BYPASS -- ra_adc_pga_set_gain_ch returns
- * false otherwise, so this is a safe no-op in bypass. Control-plane only, never the ISR. */
-bool ra_iq_adc_set_pga_gain(uint8_t gain_code) {
-    return ra_adc_pga_set_gain_ch(s_iq.i_ch, gain_code)
-           && ra_adc_pga_set_gain_ch(s_iq.q_ch, gain_code);
-}
-
-bool ra_iq_adc_get_pga_gain(uint8_t *gain_code) {
-    ra_adc_pga_mode_t mode;
-    return ra_adc_pga_get_ch(s_iq.i_ch, &mode, gain_code);
-}
-
 /* Arm the per-stage verification tap (0 = off).  Control-plane. */
 void ra_iq_adc_set_tap(uint8_t stage) {
     s_tap_stage = stage;
@@ -3962,12 +3924,11 @@ void ra_iq_adc_file_get_status(ra_iq_file_status_t *status) {
     __set_PRIMASK(primask);
 }
 
-/* Per-block ON/OFF.  PGA is a read-only mirror of the constructor's physical
- * hardware mode and LIMITER is fixed safe, so neither accepts a software toggle.
+/* Per-block ON/OFF.  INPUT and LIMITER are fixed safe, so neither accepts a software toggle.
  * DECIM OFF selects its defined no-FIR Fs/2 adapter; DEMOD OFF selects I-pass. */
 void ra_iq_adc_set_block(uint8_t block, uint8_t enable) {
     if ((block == 0U) || (block > RA_IQ_BLK_LIMITER) ||
-        (block == RA_IQ_BLK_PGA) || (block == RA_IQ_BLK_LIMITER)) {
+        (block == RA_IQ_BLK_INPUT) || (block == RA_IQ_BLK_LIMITER)) {
         return;
     }
     uint16_t before = s_block_bypass;

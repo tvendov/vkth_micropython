@@ -710,49 +710,20 @@ bool ra_adc_deinit(void) {
 }
 
 /* ---------------------------------------------------------------------------
- * Programmable Gain Amplifier (PGA) - RA6M3 only.
- * R01UH0886EJ0120 Rev.1.20, sections 47.2.33 to 47.2.35, 47.3.12, Table 47.11.
+ * Fixed direct routing for RA6M3 dedicated S&H inputs.
  *
- * All three registers are read-modify-written a nibble at a time.  The reset
- * values are never assumed: the Markdown conversion of the manual does not
- * reproduce the reset rows of ADPGACR and ADPGADCR0 reliably, and reserved bits
- * in ADPGACR are documented as "read as 1, write 1".  Read-modify-write
- * preserves whatever the silicon reports, which is correct either way.
+ * Table 47.11 requires ADPGACR=9h for ADC12 to read AN000..AN002 and
+ * AN100..AN102 directly.  No configurable amplification is exposed.  The
+ * register is read-modify-written one nibble at a time to preserve reserved
+ * bits, and it is changed only while the ADC scan is stopped.
  * ------------------------------------------------------------------------- */
 
 #if defined(RA6M3)
 
-#define RA_ADC_PGA_CH_PER_UNIT (3U)
-#define RA_ADC_PGA_ACR_BYPASS  (0x9U)   /* SEL0 | GEN         : amplifier bypassed */
-#define RA_ADC_PGA_ACR_AMP     (0xEU)   /* SEL1 | ENAMP | GEN : through amplifier  */
-#define RA_ADC_PGA_DCR_DEN     (0x8U)   /* PnDEN inside the ADPGADCR0 nibble       */
+#define RA_ADC_DIRECT_CH_PER_UNIT (3U)
+#define RA_ADC_DIRECT_ACR         (0x9U)
 
-static const uint16_t ra_adc_pga_gain_tbl[15] = {
-    2000, 2500, 2667, 2857, 3077, 3333, 3636, 4000,
-    4444, 5000, 5714, 6667, 8000, 10000, 13333
-};
-
-static const uint16_t ra_adc_pga_diff_gain_tbl[4] = { 1500, 2333, 4000, 5667 };
-
-/* ADPGAGS0 nibble that must accompany each ADPGADCR0.PnDG value (47.2.34). */
-static const uint8_t ra_adc_pga_diff_gs_tbl[4] = { 0x1U, 0x5U, 0x9U, 0xBU };
-
-static bool ra_adc_pga_locate(uint8_t ch, R_ADC0_Type **reg, uint8_t *idx) {
-    uint8_t unit_ch;
-    if (ch >= (2U * ADC_CHANNELS_PER_UNIT)) {
-        return false;
-    }
-    unit_ch = (uint8_t)(ch % ADC_CHANNELS_PER_UNIT);
-    if (unit_ch >= RA_ADC_PGA_CH_PER_UNIT) {
-        return false;
-    }
-    *reg = ra_adc_reg_for_channel(ch);
-    *idx = unit_ch;
-    return true;
-}
-
-/* Note 13 of the module-stop table: MSTPD15 and MSTPD16 must be 0 to use a PGA. */
-static void ra_adc_pga_module_start(uint8_t ch) {
+static void ra_adc_direct_module_start(uint8_t ch) {
     if (ch >= ADC_CHANNELS_PER_UNIT) {
         ra_adc1_module_start();
     } else {
@@ -760,14 +731,7 @@ static void ra_adc_pga_module_start(uint8_t ch) {
     }
 }
 
-static uint32_t ra_adc_pga_pgavss_pin(uint8_t ch) {
-    if (ch >= ADC_CHANNELS_PER_UNIT) {
-        return P007; /* PGAVSS100 for AN100..AN102. */
-    }
-    return P003; /* PGAVSS000 for AN000..AN002. */
-}
-
-static void ra_adc_pga_nibble(volatile uint16_t *reg, uint8_t idx, uint16_t value) {
+static void ra_adc_direct_nibble(volatile uint16_t *reg, uint8_t idx, uint16_t value) {
     uint16_t shift = (uint16_t)(idx * 4U);
     uint16_t v = *reg;
     v &= (uint16_t) ~(uint16_t)(0xFU << shift);
@@ -775,253 +739,59 @@ static void ra_adc_pga_nibble(volatile uint16_t *reg, uint8_t idx, uint16_t valu
     *reg = v;
 }
 
-static uint16_t ra_adc_pga_nibble_get(volatile uint16_t *reg, uint8_t idx) {
-    return (uint16_t)((*reg >> (idx * 4U)) & 0xFU);
-}
-
-/* Table 47.14: when any PGA of a unit uses differential input, ALL PGA
- * amplifiers of that unit must be set to differential input in ADPGADCR0.
- * Single-ended and differential PGA therefore cannot be mixed inside one unit. */
-static bool ra_adc_pga_unit_has_diff(R_ADC0_Type *reg, uint8_t except_idx) {
+static void ra_adc_direct_clear_unit(R_ADC0_Type *reg) {
     uint8_t i;
-    for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
-        if (i == except_idx) {
-            continue;
-        }
-        if ((ra_adc_pga_nibble_get(&reg->ADPGACR, i) == RA_ADC_PGA_ACR_AMP)
-            && ((ra_adc_pga_nibble_get(&reg->ADPGADCR0, i) & RA_ADC_PGA_DCR_DEN) != 0U)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/* PnDEN is a unit-wide constraint on RA6M3: direct ADC input on AN007/AN107
- * requires all three PGA differential-enable bits of that ADC unit to be 0.
- * Once the last differential amplifier is gone, clear the entire low 12-bit
- * field instead of leaving stale PnDEN bits on inactive channels. */
-static void ra_adc_pga_clear_unit_diff(R_ADC0_Type *reg) {
-    uint8_t i;
-    for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
-        ra_adc_pga_nibble(&reg->ADPGADCR0, i, 0x0U);
+    for (i = 0; i < RA_ADC_DIRECT_CH_PER_UNIT; i++) {
+        ra_adc_direct_nibble(&reg->ADPGACR, i, 0x0U);
+        ra_adc_direct_nibble(&reg->ADPGAGS0, i, 0x0U);
+        ra_adc_direct_nibble(&reg->ADPGADCR0, i, 0x0U);
     }
 }
 
-bool ra_adc_pga_prepare_direct_ch(uint8_t ch) {
+bool ra_adc_prepare_direct_ch(uint8_t ch) {
     R_ADC0_Type *reg;
     uint8_t unit_ch;
-    uint8_t i;
 
     if (ch >= (2U * ADC_CHANNELS_PER_UNIT)) {
-        return true; /* Internal channels do not use the external PGA path. */
+        return true; /* Internal channels need no external routing. */
     }
     unit_ch = (uint8_t)(ch % ADC_CHANNELS_PER_UNIT);
-    if ((unit_ch >= RA_ADC_PGA_CH_PER_UNIT) && (unit_ch != 7U)) {
-        return true; /* Channel is outside the PGA/PGAVSS pin group. */
+    if ((unit_ch >= RA_ADC_DIRECT_CH_PER_UNIT) && (unit_ch != 7U)) {
+        return true;
     }
 
     reg = ra_adc_reg_for_channel(ch);
+    ra_adc_direct_module_start(ch);
     if (reg->ADCSR_b.ADST) {
         return false;
     }
-    ra_adc_pga_module_start(ch);
-
-    /* A standalone ADC object must not inherit another object's amplifier or
-     * differential routing.  Normalize the complete three-amplifier unit. */
-    for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
-        ra_adc_pga_nibble(&reg->ADPGACR, i, 0x0U);
-        ra_adc_pga_nibble(&reg->ADPGAGS0, i, 0x0U);
-    }
-    ra_adc_pga_clear_unit_diff(reg);
-
-    if (unit_ch < RA_ADC_PGA_CH_PER_UNIT) {
-        ra_adc_pga_nibble(&reg->ADPGACR, unit_ch, RA_ADC_PGA_ACR_BYPASS);
+    ra_adc_direct_clear_unit(reg);
+    if (unit_ch < RA_ADC_DIRECT_CH_PER_UNIT) {
+        ra_adc_direct_nibble(&reg->ADPGACR, unit_ch, RA_ADC_DIRECT_ACR);
     }
     return true;
 }
 
-bool ra_adc_pga_supported_ch(uint8_t ch) {
+bool ra_adc_release_direct_ch(uint8_t ch) {
     R_ADC0_Type *reg;
-    uint8_t idx;
-    return ra_adc_pga_locate(ch, &reg, &idx);
-}
+    uint8_t unit_ch;
 
-bool ra_adc_pga_supported(uint32_t pin) {
-    uint8_t ch;
-    if (!ra_adc_pin_to_ch(pin, &ch)) {
-        return false;
+    if (ch >= (2U * ADC_CHANNELS_PER_UNIT)) {
+        return true;
     }
-    return ra_adc_pga_supported_ch(ch);
-}
-
-bool ra_adc_pga_config_ch(uint8_t ch, ra_adc_pga_mode_t mode, uint8_t gain_code) {
-    R_ADC0_Type *reg;
-    uint8_t idx;
-    uint8_t i;
-
-    if (!ra_adc_pga_locate(ch, &reg, &idx)) {
-        return false;
+    unit_ch = (uint8_t)(ch % ADC_CHANNELS_PER_UNIT);
+    if (unit_ch >= RA_ADC_DIRECT_CH_PER_UNIT) {
+        return true;
     }
-    /* The path bits must not move while a scan is in progress. */
+    reg = ra_adc_reg_for_channel(ch);
+    ra_adc_direct_module_start(ch);
     if (reg->ADCSR_b.ADST) {
         return false;
     }
-    ra_adc_pga_module_start(ch);
-
-    /* Drop the path first, so the amplifier is never enabled with a stale gain. */
-    ra_adc_pga_nibble(&reg->ADPGACR, idx, 0x0U);
-
-    switch (mode) {
-        case RA_ADC_PGA_OFF:
-            ra_adc_pga_nibble(&reg->ADPGAGS0, idx, 0x0U);
-            /* Leave PnDEN alone while another amplifier of the unit is differential. */
-            if (!ra_adc_pga_unit_has_diff(reg, idx)) {
-                ra_adc_pga_clear_unit_diff(reg);
-            }
-            return true;
-
-        case RA_ADC_PGA_BYPASS:
-            ra_adc_pga_nibble(&reg->ADPGAGS0, idx, 0x0U);
-            if (!ra_adc_pga_unit_has_diff(reg, idx)) {
-                ra_adc_pga_clear_unit_diff(reg);
-            }
-            ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_BYPASS);
-            return true;
-
-        case RA_ADC_PGA_SINGLE:
-            if (gain_code > (uint8_t)RA_ADC_PGA_GAIN_13_333) {
-                return false;
-            }
-            if (ra_adc_pga_unit_has_diff(reg, idx)) {
-                return false;   /* would mix single-ended and differential in one unit */
-            }
-            /* Table 47.14 note 4: with differential input disabled the associated
-             * PGAVSS pin still needs ASEL = 1 and must be wired to AVSS0 on the board. */
-            ra_adc_set_pin(ra_adc_pga_pgavss_pin(ch), true);
-            ra_adc_pga_clear_unit_diff(reg);
-            ra_adc_pga_nibble(&reg->ADPGAGS0, idx, gain_code);
-            ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_AMP);
-            return true;
-
-        case RA_ADC_PGA_DIFFERENTIAL:
-            if (gain_code > (uint8_t)RA_ADC_PGA_DIFF_GAIN_5_667) {
-                return false;
-            }
-            ra_adc_set_pin(ra_adc_pga_pgavss_pin(ch), true);
-            /* Every amplifier of the unit must carry PnDEN, not just this one. */
-            for (i = 0; i < RA_ADC_PGA_CH_PER_UNIT; i++) {
-                uint16_t dcr = ra_adc_pga_nibble_get(&reg->ADPGADCR0, i);
-                ra_adc_pga_nibble(&reg->ADPGADCR0, i,
-                    (uint16_t)(RA_ADC_PGA_DCR_DEN | (dcr & 0x3U)));
-            }
-            ra_adc_pga_nibble(&reg->ADPGAGS0, idx, ra_adc_pga_diff_gs_tbl[gain_code]);
-            ra_adc_pga_nibble(&reg->ADPGADCR0, idx,
-                (uint16_t)(RA_ADC_PGA_DCR_DEN | (gain_code & 0x3U)));
-            ra_adc_pga_nibble(&reg->ADPGACR, idx, RA_ADC_PGA_ACR_AMP);
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-bool ra_adc_pga_config(uint32_t pin, ra_adc_pga_mode_t mode, uint8_t gain_code) {
-    uint8_t ch;
-    if (!ra_adc_pin_to_ch(pin, &ch)) {
-        return false;
-    }
-    return ra_adc_pga_config_ch(ch, mode, gain_code);
-}
-
-bool ra_adc_pga_get_ch(uint8_t ch, ra_adc_pga_mode_t *mode, uint8_t *gain_code) {
-    R_ADC0_Type *reg;
-    uint8_t idx;
-    uint16_t acr, dcr, gs;
-
-    if (!ra_adc_pga_locate(ch, &reg, &idx)) {
-        return false;
-    }
-    acr = ra_adc_pga_nibble_get(&reg->ADPGACR, idx);
-    dcr = ra_adc_pga_nibble_get(&reg->ADPGADCR0, idx);
-    gs = ra_adc_pga_nibble_get(&reg->ADPGAGS0, idx);
-
-    if (acr == RA_ADC_PGA_ACR_AMP) {
-        if ((dcr & RA_ADC_PGA_DCR_DEN) != 0U) {
-            if (mode != NULL) {
-                *mode = RA_ADC_PGA_DIFFERENTIAL;
-            }
-            if (gain_code != NULL) {
-                *gain_code = (uint8_t)(dcr & 0x3U);
-            }
-        } else {
-            if (mode != NULL) {
-                *mode = RA_ADC_PGA_SINGLE;
-            }
-            if (gain_code != NULL) {
-                *gain_code = (uint8_t)gs;
-            }
-        }
-    } else if (acr == RA_ADC_PGA_ACR_BYPASS) {
-        if (mode != NULL) {
-            *mode = RA_ADC_PGA_BYPASS;
-        }
-        if (gain_code != NULL) {
-            *gain_code = 0U;
-        }
-    } else {
-        if (mode != NULL) {
-            *mode = RA_ADC_PGA_OFF;
-        }
-        if (gain_code != NULL) {
-            *gain_code = 0U;
-        }
-    }
+    ra_adc_direct_nibble(&reg->ADPGACR, unit_ch, 0x0U);
+    ra_adc_direct_nibble(&reg->ADPGAGS0, unit_ch, 0x0U);
+    ra_adc_direct_nibble(&reg->ADPGADCR0, unit_ch, 0x0U);
     return true;
-}
-
-bool ra_adc_pga_get(uint32_t pin, ra_adc_pga_mode_t *mode, uint8_t *gain_code) {
-    uint8_t ch;
-    if (!ra_adc_pin_to_ch(pin, &ch)) {
-        return false;
-    }
-    return ra_adc_pga_get_ch(ch, mode, gain_code);
-}
-
-bool ra_adc_pga_set_gain_ch(uint8_t ch, uint8_t gain_code) {
-    ra_adc_pga_mode_t mode;
-    uint8_t current;
-
-    if (!ra_adc_pga_get_ch(ch, &mode, &current)) {
-        return false;
-    }
-    if ((mode != RA_ADC_PGA_SINGLE) && (mode != RA_ADC_PGA_DIFFERENTIAL)) {
-        return false;
-    }
-    return ra_adc_pga_config_ch(ch, mode, gain_code);
-}
-
-bool ra_adc_pga_set_gain(uint32_t pin, uint8_t gain_code) {
-    uint8_t ch;
-    if (!ra_adc_pin_to_ch(pin, &ch)) {
-        return false;
-    }
-    return ra_adc_pga_set_gain_ch(ch, gain_code);
-}
-
-uint32_t ra_adc_pga_gain_milli(ra_adc_pga_mode_t mode, uint8_t gain_code) {
-    if (mode == RA_ADC_PGA_SINGLE) {
-        if (gain_code > (uint8_t)RA_ADC_PGA_GAIN_13_333) {
-            return 0U;
-        }
-        return (uint32_t)ra_adc_pga_gain_tbl[gain_code];
-    }
-    if (mode == RA_ADC_PGA_DIFFERENTIAL) {
-        if (gain_code > (uint8_t)RA_ADC_PGA_DIFF_GAIN_5_667) {
-            return 0U;
-        }
-        return (uint32_t)ra_adc_pga_diff_gain_tbl[gain_code];
-    }
-    return 1000U;
 }
 
 #endif /* RA6M3 */

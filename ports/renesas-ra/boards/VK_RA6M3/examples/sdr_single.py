@@ -999,17 +999,6 @@ BW_CHOICES = {"AM":  (3000, 4000, 6000, 9000),
               "USB": (1800, 2100, 2400, 3000),
               "LSB": (1800, 2100, 2400, 3000),
               "CW":  (250, 500, 1000)}
-# RF front-end PGA factor per gain code 0..14 (matches be.set_rf_gain codes). The
-# gains panel shows "x<factor>" instead of the raw code so the label reads like the
-# other multiplier readouts.
-PGA_FACT = (2.0, 2.5, 2.667, 2.857, 3.077, 3.333, 3.636, 4.0,
-            4.444, 5.0, 5.714, 6.667, 8.0, 10.0, 13.333)
-# Integer form of the same hardware gain table.  TESTER IN uses this exact
-# fixed-point model because the synthetic source is deliberately generated as a
-# pre-PGA ADC signal.  Float rounding would put the AM x2.667 boundary at 511,
-# while the C path remains clean at 512 and clips at 513.
-PGA_GAIN_MILLI = (2000, 2500, 2667, 2857, 3077, 3333, 3636, 4000,
-                  4444, 5000, 5714, 6667, 8000, 10000, 13333)
 AGC_MODES = ("OFF", "FAST", "SLOW", "MAN")
 # UI mode label -> firmware agc() mode string. Module constant so set_agc never
 # allocates a dict literal per call.
@@ -1017,22 +1006,22 @@ _AGC_MODE_MAP = {"OFF": "off", "FAST": "fast", "SLOW": "slow",
                  "MAN": "manual", "MANUAL": "manual"}
 
 
-def tester_peak_counts(ampl, gain_milli, depth_pct):
+def tester_peak_counts(ampl, depth_pct):
     """Worst positive TESTER peak, matching the C Q15 operation order."""
-    a = (int(ampl) * int(gain_milli)) // 1000
+    a = int(ampl)
     depth_q15 = (int(depth_pct) * 32768 + 50) // 100
     env_q15 = 32768 + ((depth_q15 * 32767) >> 15)
     sample_a = (a * env_q15) >> 15
     return (sample_a * 32767) >> 15
 
 
-def tester_safe_amplitude(hard_max, gain_milli, depth_pct):
+def tester_safe_amplitude(hard_max, depth_pct):
     """Largest requested amplitude whose modeled 12-bit peak stays <= 2047."""
     lo = 0
     hi = int(hard_max)
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        if tester_peak_counts(mid, gain_milli, depth_pct) <= 2047:
+        if tester_peak_counts(mid, depth_pct) <= 2047:
             lo = mid
         else:
             hi = mid - 1
@@ -1098,8 +1087,6 @@ def _fresh_params():
     out["beon"] = 1               # backend_enabled: master IQADC/DAC switch
     out["again"] = 1.0            # agc_manual_gain
     out["atgt"] = 0.5             # agc_target
-    out["rfe"] = 1                # RF PGA enabled; 0 selects the hardware bypass path
-    out["rf"] = 0                 # RF PGA gain code 0..14
     out["iqe"] = 0                # saved I/Q correction enable
     out["iqa"] = 1.0              # saved Q amplitude multiplier
     out["iqp"] = 0.0              # saved I-to-Q phase coefficient (not degrees)
@@ -1169,11 +1156,6 @@ def load_params():
                                   AGC_TARGET_MIN), AGC_TARGET_MAX)
         except Exception:
             out["atgt"] = 0.5
-        out["rfe"] = 0 if p.get("re") == 0 else 1
-        try:
-            out["rf"] = min(max(int(p.get("rf", 0)), 0), 14)   # RF PGA gain code 0..14
-        except Exception:
-            out["rf"] = 0
         out["iqe"] = 1 if p.get("qe") else 0
         try:
             out["iqa"] = min(max(float(p.get("qa", 1.0)), 0.50), 1.50)
@@ -1204,8 +1186,6 @@ def save_params(p):
                "E": 1 if p.get("beon", 1) else 0,
                "G": round(float(p.get("again", 1.0)), 3),
                "T": round(float(p.get("atgt", 0.5)), 3),
-               "re": 1 if p.get("rfe", 1) else 0,
-               "rf": int(p.get("rf", 0)),
                "qe": 1 if p.get("iqe") else 0,
                "qa": round(float(p.get("iqa", 1.0)), 4),
                "qp": round(float(p.get("iqp", 0.0)), 4)}
@@ -1272,23 +1252,20 @@ class Ra6m3Backend:
         self.agc = DEFAULTS["a"]
         self.agc_gain = 1.0
         self.agc_target = 0.5
-        self.rf_enabled = True         # True=PGA_SINGLE, False=hardware PGA_BYPASS
         self.vol = DEFAULTS["v"]
-        self.rf_code = 0             # RF PGA gain code 0..14 (only effective off BYPASS)
         self.fine_hz = 0             # digital NCO offset within the +/- fs/2 window
         self.scope_stage = 0         # cached physical DAC route (0 = normal mono AF)
-        self.source_hold = False     # zero-I/Q TESTER owner during a PGA reconstruction
         # Preallocated, alloc-free UI buffers filled by the C accessors (spectrum_bars /
         # counters). Nothing in the poll loop creates a MicroPython object -> GC never
         # runs -> the realtime ADC ISR is never stalled.
         self._bars = array.array("h", bytes(2 * len(SPEC_HEIGHTS)))   # int16 heights 0..50
         self._ctr = array.array("i", bytes(4 * 6))                    # counter snapshot
         try:
-            from machine import IQADC, ADC, DAC
-            self._IQADC, self._ADC, self._DAC = IQADC, ADC, DAC
+            from machine import IQADC, DAC
+            self._IQADC, self._DAC = IQADC, DAC
             self.available = True
         except Exception as e:
-            self._IQADC = self._ADC = self._DAC = None
+            self._IQADC = self._DAC = None
             self.available = False
             self.err = "demo mode: %r" % (e,)
 
@@ -1312,7 +1289,7 @@ class Ra6m3Backend:
         return round(p, 4)
 
     # ---- lifecycle ----
-    def start_rx(self, source_hold=False):
+    def start_rx(self):
         if not self.available or self.running:
             return self.running
         if self.iq is not None:
@@ -1322,31 +1299,11 @@ class Ra6m3Backend:
             self.err = "IQADC teardown incomplete; reset required"
             return False
         try:
-            kw = {"rate": IQ_RATE, "block": IQ_BLOCK}
-            # P000/P004 are PGA-capable ADC0/ADC1 channels. PGA mode and gain are
-            # constructor-time settings: the RA ADC layer rejects them while ADST=1.
-            # BYPASS is a real hardware pass-through, not PGA_OFF (which disables ADC).
-            pga_name = "PGA_SINGLE" if self.rf_enabled else "PGA_BYPASS"
-            pga = getattr(self._ADC, pga_name, None)
-            if pga is None:
-                raise RuntimeError(pga_name + " unavailable")
-            kw["pga"] = pga
-            kw["gain"] = self.rf_code if self.rf_enabled else 0
-            self.iq = self._IQADC(IQ_PIN_I, IQ_PIN_Q, **kw)
+            # Fixed unity direct-input path on P000/P004.  The receiver exposes no
+            # selectable analogue gain state.
+            self.iq = self._IQADC(IQ_PIN_I, IQ_PIN_Q,
+                                  rate=IQ_RATE, block=IQ_BLOCK)
             self.dac = self._DAC(DAC_PIN)
-            if source_hold:
-                # A PGA change reconstructs IQADC while TESTER remains selected in
-                # HOME.  Publish a zero-I/Q IN source before the first ADC block so
-                # the fresh chain is fail-closed: ADC/DTC still provide cadence, but
-                # no real input can reach any DSP or scope/DAC stage before GEN/FILE
-                # is restored.
-                if (not hasattr(self.iq, "INJECT_POINT_IN") or
-                        not hasattr(self.iq, "INJECT_WAVE_SINE")):
-                    raise RuntimeError("TESTER source hold unavailable")
-                self.iq.inject(True, 0, 0, self.iq.INJECT_IQ, 0, 0, 0, 0,
-                               self.iq.INJECT_POINT_IN,
-                               self.iq.INJECT_WAVE_SINE)
-                self.source_hold = True
             self.iq.start()
             # Float 4-pole channel filter has the real wide-band coefficients needed
             # by 6/9-kHz verification and cursor rejection; the integer kernel clamps
@@ -1388,7 +1345,7 @@ class Ra6m3Backend:
             except Exception:
                 pass
         # stop() only halts conversions; it deliberately keeps ADC0/ADC1, DTC,
-        # ELC, AGT and PGA configured so the same IQADC object can be restarted.
+        # ELC, AGT and ADC configured so the same IQADC object can be restarted.
         # The application discards that object here, therefore retaining those
         # owners is both unnecessary and unsafe: an intervening machine.ADC user
         # could rewrite shared ADC registers, and the next STOP/START would inherit
@@ -1406,7 +1363,6 @@ class Ra6m3Backend:
         self.dac_q = None
         self.running = False
         self.fine_hz = 0
-        self.source_hold = False
         return iq_released
 
     # ---- settings: cached always, pushed only while RX is up ----
@@ -1415,7 +1371,6 @@ class Ra6m3Backend:
         self.set_agc(self.agc)
         self.set_bandwidth(self.bw)
         self.set_volume(self.vol)
-        # RF PGA was already committed by the IQADC constructor, before ADST.
 
     def set_mode(self, mode):
         self.mode = mode
@@ -1508,23 +1463,6 @@ class Ra6m3Backend:
     def set_volume(self, percent):
         self.vol = int(percent)
         return self._call(self.iq, "volume", self.vol_gain(percent))
-
-    def set_rf_gain(self, code):
-        # Cache the constructor-time RF PGA gain.  SdrApp reconstructs RX after a
-        # live slider release instead of pretending that an ADST-time write worked.
-        self.rf_code = max(0, min(int(code), 14))
-        return not self.running
-
-    def set_rf_enabled(self, enabled):
-        """Cache constructor-time PGA_SINGLE/BYPASS mode for the next IQADC."""
-        self.rf_enabled = bool(enabled)
-        return not self.running
-
-    def rf_gain(self):
-        try:
-            return self.iq.gain()
-        except Exception:
-            return self.rf_code
 
     def agc_gain_now(self):
         """Live AGC gain as a factor (auto-AGC moves it, manual holds it); None if down."""
@@ -1823,21 +1761,16 @@ class SdrApp:
         self._iqc_amp = self.p["iqa"]       # Q amplitude multiplier
         self._iqc_phase = self.p["iqp"]     # I leakage added to Q (not degrees)
         self._iqc_dirty = False
-        self._rf_restart_pending = False
         self._tester_arm_pending = False
-        self._tester_rearm_pending = False
-        self._tester_rearm_nco = None
         self._kernels = {"dec_kernel": 0, "hil_kernel": 0,
                          "chf_kernel": 0, "mag_kernel": 0}
-        # Per-block DSP verification table. _blk_on maps block id 1..11 -> bool.
-        # PGA ON/BYP is persisted and applied by reconstructing IQADC because its
-        # hardware mode is constructor-time; its gain is changed through RF GAIN.
-        # _scope_id is
-        # the ONE block whose output is routed to the DAC(s) via iq.scope() (0 = none).
+        # Per-block DSP verification table. IDs 2..11 retain the firmware ABI; raw
+        # input ID 1 remains an internal scope tap and is not a processing block.
+        # _scope_id is the ONE block whose output is routed to the DAC(s) via
+        # iq.scope() (0 = normal receiver output).
         # _tap_stage (0..3) stays the one-of UART tap; only blocks 2/4/5 map to stages
         # 1/2/3, every other block's tap control is rendered disabled (firmware has no tap).
-        self._blk_on = {i: True for i in range(1, 12)}
-        self._blk_on[1] = bool(self.p["rfe"])
+        self._blk_on = {i: True for i in range(2, 12)}
         self._scope_id = 0
         self._tap_id = 0             # block id currently holding the one-of UART tap (0 = none)
         self._set_lbls = {}
@@ -2300,97 +2233,6 @@ class SdrApp:
             self.be.err = "iq_correction: %r" % (e,)
             return False
 
-    def _capture_runtime_chain(self):
-        """Snapshot VERIFY-only state before a constructor-time PGA rebuild.
-
-        IQADC construction resets the block mask and decimator, while the backend
-        deliberately selects the f32 channel filter.  Read the live getters instead
-        of trusting Python's possibly unopened VERIFY cache, then pass this immutable
-        tuple through the synchronous stop/start edge.
-        """
-        iq = self.be.iq
-        if iq is None:
-            return None
-        block_mask = 0
-        block_fn = getattr(iq, "block", None)
-        if block_fn is not None:
-            for bid in range(2, 11):
-                try:
-                    on = bool(block_fn(bid))
-                    self._blk_on[bid] = on
-                except Exception:
-                    on = self._blk_on.get(bid, True)
-                if on:
-                    block_mask |= 1 << bid
-        else:
-            for bid in range(2, 11):
-                if self._blk_on.get(bid, True):
-                    block_mask |= 1 << bid
-
-        af_index = self._af_preset
-        af_fn = getattr(iq, "audio_filter", None)
-        if af_fn is not None:
-            try:
-                current_af = af_fn()
-                for index, (_label, value) in enumerate(self._AF_PRESETS):
-                    if value == current_af:
-                        af_index = index
-                        break
-            except Exception:
-                pass
-        self._af_preset = af_index
-
-        kernel_bits = 0
-        for index, name in enumerate(("dec_kernel", "hil_kernel",
-                                      "chf_kernel", "mag_kernel")):
-            enabled = bool(self._kernels.get(name, 0))
-            fn = getattr(iq, name, None)
-            if fn is not None:
-                try:
-                    enabled = bool(fn())
-                except Exception:
-                    pass
-            self._kernels[name] = 1 if enabled else 0
-            if enabled:
-                kernel_bits |= 1 << index
-        return (self.be.mode, self.be.bw, block_mask, af_index,
-                kernel_bits, self._tap_stage)
-
-    def _restore_runtime_chain(self, state):
-        """Restore one captured VERIFY chain onto a freshly constructed IQADC."""
-        if state is None:
-            return True
-        iq = self.be.iq
-        if iq is None:
-            self.be.err = "runtime chain unavailable"
-            return False
-        _mode, _bandwidth, block_mask, af_index, kernel_bits, tap_stage = state
-        try:
-            # Mode/bandwidth/AGC/volume were already applied by backend.start_rx().
-            # These controls are App/VERIFY-only and must be restored explicitly.
-            getattr(iq, "audio_filter")(self._AF_PRESETS[af_index][1])
-            for index, name in enumerate(("dec_kernel", "hil_kernel",
-                                          "chf_kernel", "mag_kernel")):
-                enabled = 1 if (kernel_bits & (1 << index)) else 0
-                actual = bool(getattr(iq, name)(enabled))
-                if actual != bool(enabled):
-                    raise RuntimeError(name + " readback")
-                self._kernels[name] = enabled
-            block_fn = getattr(iq, "block")
-            for bid in range(2, 11):
-                enabled = 1 if (block_mask & (1 << bid)) else 0
-                actual = bool(block_fn(bid, enabled))
-                if actual != bool(enabled):
-                    raise RuntimeError("block %d readback" % bid)
-                self._blk_on[bid] = bool(enabled)
-            getattr(iq, "tap")(tap_stage)
-            self._tap_stage = tap_stage
-            self.be.err = None
-            return True
-        except Exception as e:
-            self.be.err = "runtime restore: %r" % (e,)
-            return False
-
     def _save_iq_profile(self):
         """Commit the currently applied manual I/Q profile to data flash."""
         self.p["iqe"] = 1 if self._iqc_on else 0
@@ -2404,79 +2246,30 @@ class SdrApp:
             self.be.err = "IQ save: %r" % (e,)
             return False
 
-    def _set_rf_gain(self, code):
-        """Persist RF PGA code; defer a required RX reconstruction to the worker."""
-        code = min(max(int(code), 0), 14)
-        self.p["rf"] = code
-        self.be.rf_code = code
-        self.touch_params()
-        if self.be.running:
-            self._rf_restart_pending = True
-        return code
-
-    def _set_rf_enabled(self, enabled):
-        """Persist PGA_SINGLE/BYPASS and queue one safe IQADC reconstruction."""
-        enabled = bool(enabled)
-        self.p["rfe"] = 1 if enabled else 0
-        self.be.rf_enabled = enabled
-        self._blk_on[1] = enabled
-        self.touch_params()
-        if self.be.running:
-            self._rf_restart_pending = True
-        return enabled
-
-    def start_rx(self, runtime_state=None, source_hold=False):
+    def start_rx(self):
         if self.backend_on() and not self.be.running:
-            # Only the internal PGA reconstruction path may request this hold, and
-            # only while the persistent TESTER request is still truthful in HOME.
-            source_hold = bool(source_hold and self._tester_rearm_pending and
-                               self._inj_on)
             # Keep an old/demo framebuffer stable while IQADC and the physical LO
             # are reconstructed.  _apply_hw_pending releases this short hold as
             # soon as the new generation has been requested from C.
             self._set_spectrum_transition(True)
-            self.be.mode = (self.p["m"] if runtime_state is None
-                            else runtime_state[0])
-            self.be.bw = (self.cur_bw() if runtime_state is None
-                          else runtime_state[1])
+            self.be.mode = self.p["m"]
+            self.be.bw = self.cur_bw()
             self.be.agc = self.p["a"]
             self.be.agc_gain = self.p["again"]
             self.be.agc_target = self.p["atgt"]
             self.be.vol = self.p["v"]
-            self.be.rf_enabled = bool(self.p["rfe"])
-            self.be.rf_code = self.p["rf"]
-            self.be.start_rx(source_hold=source_hold)
+            self.be.start_rx()
             if self.be.running:
-                # RX reconstruction proves only ADC/DSP/DAC ownership.  Re-arm the
+                # RX construction proves ADC/DSP/DAC ownership.  Re-arm the
                 # active Si5351 route as well, even when the cached LO already equals
                 # the selected station: a prior I2C fault or external synth reset can
                 # otherwise leave CLKx disabled while STOP/START appears successful.
                 # The 100-ms worker performs the actual I2C transaction.
                 self._queue_hw_config()
-                # A normal START makes an enabled IQ correction effective.  A PGA
-                # reconstruction first restores its parameters, then the captured
-                # independent block-3 BYP state below.
-                chain_ok = self._apply_iq_correction(runtime_state is None)
-                chain_error = None if chain_ok else self.be.err
+                self._apply_iq_correction(True)
                 # Squelch belongs to the App's inline/VERIFY state rather than the
                 # persisted receiver parameters; reapply it to each fresh IQADC.
                 self._apply_gain("SQL", self._squelch)
-                if runtime_state is not None:
-                    restored = self._restore_runtime_chain(runtime_state)
-                    if not restored:
-                        chain_error = self.be.err
-                    chain_ok = restored and chain_ok
-                    if not chain_ok:
-                        # Do not re-arm a source onto a chain which is different from
-                        # the controls shown to the operator.  Explicitly release the
-                        # zero-I/Q startup hold before HOME falls back from TST to RX.
-                        chain_error = chain_error or "runtime restore failed"
-                        self._tester_rearm_pending = False
-                        self._tester_rearm_nco = None
-                        self._inj_on = False
-                        self._apply_tester_source(False)
-                        self.be.err = chain_error
-                        self._paint_tester()
                 # IQADC starts with NCO=0.  Preload the selected station against the
                 # last confirmed physical LO while capture is held.  The worker then
                 # establishes the final LO+NCO pair and its tagged FFT generation.
@@ -2502,27 +2295,13 @@ class SdrApp:
                 # and briefly, and the DTC/DMAC ping-pong absorbs the sub-ms pause.
                 gc.collect()
             else:
-                if source_hold:
-                    # Constructor/start/hold failure must not leave persistent UI
-                    # state claiming TESTER ownership after backend teardown.
-                    start_error = self.be.err
-                    self._tester_rearm_pending = False
-                    self._tester_rearm_nco = None
-                    self._inj_on = False
-                    self._inj_overload = False
-                    self.be.err = start_error
-                    self._paint_tester()
                 self._set_spectrum_transition(False)
             self.p["rxauto"] = 1 if self.be.running else 0
             self.touch_params()
         self.update_rx()
 
-    def stop_rx(self, preserve_tester=False):
-        resume_tester = bool(preserve_tester and self._inj_on)
+    def stop_rx(self):
         self._tester_arm_pending = False
-        self._tester_rearm_nco = (self.be.fine_hz if
-                                  resume_tester and self._tester_before_nco()
-                                  else None)
         # Stop acquisition before FILE is detached.  Reversing this order would let
         # one last ISR fall through to real ADC while HOME still truthfully says TST.
         # IQADC.deinit() first invalidates the native borrowed pointers; the idempotent
@@ -2530,13 +2309,9 @@ class SdrApp:
         released = self.be.stop_rx()
         if not released:
             # Checked teardown retained the native IQADC owner.  Its stop state is
-            # uncertain, so FILE buffers must remain rooted/attached and a PGA restart
-            # must not construct a competing owner.  Keep TST truthful when it was
-            # active and require an explicit hardware recovery instead of falling
-            # through to ADC or pretending that the restart succeeded.
-            self._tester_rearm_pending = False
-            self._tester_rearm_nco = None
-            self._rf_restart_pending = False
+            # uncertain, so FILE buffers must remain rooted/attached.  Keep TST
+            # truthful when it was active and require explicit hardware recovery
+            # instead of falling through to ADC or pretending STOP succeeded.
             self._hw_config_pending = False
             self._cancel_frequency_pending()
             self._clear_axis_pending()
@@ -2565,18 +2340,13 @@ class SdrApp:
         if self._lo_hz != normal_lo:
             self._lo_pending_hz = normal_lo
             self._hw_pending = True
-        # A user STOP clears TESTER.  A PGA reconstruction preserves the requested
-        # source configuration and re-arms it only after the fresh IQADC and pending
-        # Si5351 transaction are complete in the worker.
-        if not resume_tester:
-            self._inj_fm_nco = False
-        self._tester_rearm_pending = resume_tester
-        if not resume_tester:
-            self._inj_on = False
-            self._inj_overload = False
+        # A user STOP always clears TESTER and restores the normal receiver route.
+        self._inj_fm_nco = False
+        self._inj_on = False
+        self._inj_overload = False
         self._update_tuning_role()
-        self._paint_tester()          # VERIFY may stay open across a queued PGA rebuild
-        if not resume_tester and self._inj_prev_scope is not None:
+        self._paint_tester()
+        if self._inj_prev_scope is not None:
             self._scope_id = self._inj_prev_scope
             self.be.set_scope(self._scope_id)   # RX is down: update the cached route only
             self._inj_prev_scope = None
@@ -2823,14 +2593,12 @@ class SdrApp:
         self.open_pick_menu("AGC", tuple((v, v) for v in AGC_MODES),
                             self.p["a"], pick)
 
-    # ---- gains panel (RF / AF / AGC on 5 vertical sliders) ----
+    # ---- gains panel (AF / AGC / SQL plus the reserved ATT slot) ----
     def _gain_spec(self, key):
         """(lo, hi, cur_int, fmt) for a gain slider. fmt(v_int) -> label string.
         The slider works in integers; AGC packs gain*10 so 0.1 steps stay on-grid."""
         if key == "AF":
             return 0, 100, int(self.p["v"]), lambda v: "%d%%" % v
-        if key == "RF":
-            return 0, 14, int(self.p["rf"]), lambda v: "x%.1f" % PGA_FACT[v]
         if key == "SQL":
             return 0, 2000, int(self._squelch), lambda v: "%d" % v
         # AGC: slider integer = gain * 10 (float ~0.1..8.0 -> 1..80)
@@ -2838,7 +2606,7 @@ class SdrApp:
 
     def _gain_available(self, key):
         """Whether a named slider has a truthful writable backend right now."""
-        if key in ("RF", "AF", "SQL"):
+        if key in ("AF", "SQL"):
             return True
         if key == "AGC":
             return self.p["a"] == "MAN"
@@ -2860,8 +2628,6 @@ class SdrApp:
         existing set_volume so the vol-value label + save timer still fire."""
         if key == "AF":
             self.set_volume(v_int)
-        elif key == "RF":
-            self._set_rf_gain(v_int)
         elif key == "AGC":
             candidate = v_int / 10.0
             if self.be.set_agc(self.be.agc, gain=candidate):
@@ -2942,12 +2708,11 @@ class SdrApp:
         self._bind_active_slider()
 
     def _build_gains(self):
-        # Replace only the 400x226 HOME body below SDR RECEIVER.  Five columns are
+        # Replace only the 400x226 HOME body below SDR RECEIVER.  Four columns are
         # packed against its RIGHT edge, immediately beside the existing 56-px
-        # right-side slot, which stays in place. RF, AF and SQL are writable; AGC
-        # gain is writable only in MAN mode. RF is applied by one controlled RX
-        # reconstruction after release because the ADC forbids live PGA writes.
-        # ATT remains N/A because there is no attenuator backend API.
+        # right-side slot, which stays in place. AF and SQL are writable; AGC gain
+        # is writable only in MAN mode. ATT remains N/A because there is no
+        # attenuator backend API.
         panel = _base(lv.obj(self.ui.get("main-column")))
         panel.set_size(400, 226)
         panel.set_style_pad_all(0, 0)
@@ -2960,8 +2725,8 @@ class SdrApp:
         self._gains_cbs = cbs        # keep every event cb alive for the panel lifetime
         self._gain_vlbls_all = {}
 
-        for key in ("RF", "AF", "AGC", "SQL", "ATT"):
-            supported = key in ("RF", "AF", "AGC", "SQL")
+        for key in ("AF", "AGC", "SQL", "ATT"):
+            supported = key in ("AF", "AGC", "SQL")
             live = self._gain_available(key)
             col = _flex(_base(lv.obj(panel)), lv.FLEX_FLOW.COLUMN,
                         lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER,
@@ -3013,7 +2778,7 @@ class SdrApp:
                 _lbl(col, "N/A", 12, GRAY2)
 
     def _refresh_gains(self):
-        """Re-read RF/AF/AGC/SQL into the inline sliders + value labels.
+        """Re-read AF/AGC/SQL into the inline sliders + value labels.
         Called on every open so a re-shown panel never displays the stale
         values captured at build time."""
         if not self._gain_available(self._active_gain):
@@ -3358,9 +3123,9 @@ class SdrApp:
         """Supersede any pre-source FFT request with one source-derived frame."""
         if not self.be.running or not self._spectrum_generation_api:
             return 0
-        # A PGA rebuild may already own an unpublished station/VFO transaction.
+        # A station/VFO transaction may already be awaiting a publishable frame.
         # Carry that identity to the replacement token; only the data boundary is
-        # restarted after GEN/FILE and its final NCO have been restored.
+        # restarted after GEN/FILE and its final NCO have been established.
         station = self._axis_pending_station_hz
         vfo = self._axis_pending_vfo
         mode = self._axis_pending_mode
@@ -3972,14 +3737,14 @@ class SdrApp:
     _INJ_MID_DEFAULT = 1
     _DEMOD_MODES = ("AM", "FM", "USB", "LSB", "CW", "THRU")
     _TAP_STAGES = ("OFF", "decim", "nco", "chfilt")
-    # The 11-block DSP chain: (id, name, complex?). Pre-demod blocks 1..5 are complex
-    # (SCOPE routes I->DAC0 / Q->DAC1, label "->I/Q"); post-demod 6..11 are mono
-    # (SCOPE routes mono DAC, label "->DAC"). Only ids 2/4/5 have a firmware UART tap.
-    _BLOCKS = ((1, "PGA", True), (2, "Decimation", True), (3, "IQ correction", True),
+    # Ten visible DSP stages keep their fixed firmware IDs 2..11.  Complex stages
+    # 2..5 route I->DAC0 / Q->DAC1; post-demod 6..11 route mono audio to DAC0.
+    # Raw input remains the internal scope ABI at ID 1, but is not a processing row.
+    _BLOCKS = ((2, "Decimation", True), (3, "IQ correction", True),
                (4, "NCO / tune", True), (5, "Channel filter", True),
                (6, "Demod", False), (7, "AF filter", False), (8, "Squelch", False),
                (9, "AGC", False), (10, "Volume", False), (11, "Limiter", False))
-    _OUTPUT_STAGE = ("FINAL", "PGA", "DECIM", "IQC", "NCO", "CHF",
+    _OUTPUT_STAGE = ("FINAL", "INPUT", "DECIM", "IQC", "NCO", "CHF",
                      "DEMOD", "AF", "SQL", "AGC", "VOL", "LIMIT")
     # block id -> UART tap stage passed to iq.tap(); absent => no tap (control greyed).
     _BLK_TAP = {2: 1, 4: 2, 5: 3}
@@ -4074,7 +3839,6 @@ class SdrApp:
             if fn is not None:
                 try:
                     fn(False)
-                    self.be.source_hold = False
                 except Exception as e:
                     self.be.err = "inject: %r" % (e,)
                     ok = False
@@ -4103,8 +3867,8 @@ class SdrApp:
 
         if self._inj_source:
             # Native GEN and FILE are mutually exclusive.  FILE owns borrowed Python
-            # buffers, but all control remains in App state so it can be re-armed after
-            # a required IQADC/PGA reconstruction without retaining the VERIFY tree.
+            # buffers, while all control remains in App state rather than the
+            # transient VERIFY tree.
             expected_rate = IQ_RATE if self._inj_point == 0 else IQ_RATE // 2
             profile = self._iq_file_profiles[self._iq_file_preset]
             _name, receiver_mode, path48, path24 = profile
@@ -4139,7 +3903,6 @@ class SdrApp:
                 path = path48 if expected_rate == IQ_RATE else path24
                 self._iq_file.start(iq, point, expected_rate,
                                     self._iq_file_loop, path)
-                self.be.source_hold = False
                 if receiver_setup:
                     self._commit_tester_receiver_mode(receiver_mode)
                 self._iq_file_ui_pct = -1
@@ -4210,7 +3973,6 @@ class SdrApp:
             else:
                 fn(True, carrier, self._inj_ampl, kind, mod_hz, depth,
                    gate_hz, noise, point, wave)
-            self.be.source_hold = False
             if receiver_setup:
                 self._commit_tester_receiver_mode(receiver_mode)
             self.be.err = None
@@ -4265,20 +4027,19 @@ class SdrApp:
         lv.screen_load(self.ui.get("scr-settings"))
 
     def _build_settings(self):
-        # Full-screen backend/DSP VERIFICATION view: a per-block table of the 11-block
+        # Full-screen backend/DSP VERIFICATION view: a per-block table of the ten
         # DSP chain. A compact header (INJECT toggle + amplitude, live AGC-gain and
         # S-meter read-outs) sits above a VERTICALLY SCROLLABLE column of block rows.
         # Each block row exposes: name, an ON/OFF bypass toggle (iq.block(id,1|0)), a
         # one-of UART TAP (iq.tap(stage); only ids 2/4/5 are tappable, the rest greyed),
-        # and a one-of SCOPE ->DAC route (iq.scope(id)). RF gain / squelch / audio-filter
-        # / kernels follow as extra rows below the 11 blocks. The 11-row table cannot fit
+        # and a one-of SCOPE ->DAC route (iq.scope(id)). Squelch / audio-filter /
+        # kernels follow as extra rows below the stages. The table cannot fit
         # 272 px without scroll, so the rows container is intentionally scrollable.
         # Callbacks live on self._settings_cbs for the screen lifetime.
         # Shared styles are created once and outlive the transient screen tree; the
         # widgets below are rebuilt every open (build-on-open, delete-on-close) so
-        # VERIFY holds no RAM while the operator is on the receiver.  RF PGA and
-        # the explicitly saved I/Q profile are the two deliberate persistent
-        # exceptions; the remaining bench controls are runtime-only.
+        # VERIFY holds no RAM while the operator is on the receiver.  The explicitly
+        # saved I/Q profile is persistent; the remaining bench controls are runtime-only.
         st = _verify_styles()
 
         scr = _base(lv.obj(None))
@@ -4652,7 +4413,6 @@ class SdrApp:
                 nl.add_event_cb(mid_cb, lv.EVENT.CLICKED, None)
                 cbs.append(mid_cb)
 
-            fixed_pga = bid == 1
             safety_limiter = bid == 11
             on0 = True if safety_limiter else self._blk_on.get(bid, True)
             proc_text = "SAFE" if safety_limiter else ("ON" if on0 else "BYP")
@@ -4679,17 +4439,7 @@ class SdrApp:
 
             blk_w[bid] = (r, nl, name, ob, ol, sb, sl, tb2, tl)
 
-            if fixed_pga:
-                def pga_cb(e, b=ob, bl=ol):
-                    actual = self._set_rf_enabled(not bool(self.p["rfe"]))
-                    bl.set_text("ON" if actual else "BYP")
-                    bl.set_style_text_color(
-                        lv.color_hex(DARK_TXT if actual else WHITE), 0)
-                    b.set_style_bg_color(
-                        lv.color_hex(GREEN if actual else PANEL2), 0)
-                ob.add_event_cb(pga_cb, lv.EVENT.CLICKED, None)
-                cbs.append(pga_cb)
-            elif not safety_limiter:
+            if not safety_limiter:
                 def on_cb(e, i=bid, b=ob, bl=ol):
                     v = 0 if self._blk_on.get(i, True) else 1
                     ok, current = iq_call("block", i, v)
@@ -4752,7 +4502,7 @@ class SdrApp:
             sb.add_event_cb(scope_cb, lv.EVENT.CLICKED, None)
             cbs.append(scope_cb)
 
-        # -- extra bench knobs (still useful) as rows below the 11-block table --
+        # -- extra bench knobs below the DSP-stage table --
         def _krow(label):
             r = _brow()
             l = lv.label(r)
@@ -4761,27 +4511,6 @@ class SdrApp:
             l.add_style(st["name"], 0)
             g = _grp(r, 270)
             return r, g
-
-        # RF PGA is configured symmetrically for I/Q before ADC scanning starts.
-        # Its ON/BYP mode lives in block row 1; gain changes here queue the same
-        # controlled RX reconstruction and are never written under ADST.
-        _r, gg = _krow("RF PGA")
-        gdn, _ = _sbtn(gg, "-", 34, 20)
-        gval = lv.label(gg)
-        gval.set_text("x%.1f" % PGA_FACT[self.p["rf"]])
-        gval.add_style(st["name"], 0)
-        gval.set_style_text_color(lv.color_hex(CYAN_RX), 0)
-        gup, _ = _sbtn(gg, "+", 34, 20)
-        self._set_widgets["rf"] = gval
-
-        def rf_cb(e, d=0, lbl=gval):
-            code = self._set_rf_gain(self.p["rf"] + d)
-            lbl.set_text("x%.1f" % PGA_FACT[code])
-        for b, d in ((gdn, -1), (gup, +1)):
-            def _rfc(e, dd=d):
-                rf_cb(e, dd)
-            b.add_event_cb(_rfc, lv.EVENT.CLICKED, None)
-            cbs.append(_rfc)
 
         # SQUELCH -/+ threshold (verify-only).  Firmware envelope units span roughly
         # 0..2048; the former 0..100 range could never tune a practical gate.
@@ -5052,38 +4781,15 @@ class SdrApp:
         self._set_scr_partial = None
         return scr
 
-    def _tester_pga_milli(self):
-        """Effective TESTER-IN PGA factor, preferring live firmware readback."""
-        if self._inj_point != 0:
-            return 1000
-        enabled = bool(self._blk_on.get(1, self.p.get("rfe", 1)))
-        code = int(self.be.rf_code if self.be.running else self.p.get("rf", 0))
-        iq = self.be.iq
-        if iq is not None:
-            try:
-                enabled = bool(iq.block(1))
-            except Exception:
-                pass
-            if enabled:
-                try:
-                    code = int(iq.gain())
-                except Exception:
-                    pass
-        if not enabled:
-            return 1000
-        code = min(max(code, 0), len(PGA_GAIN_MILLI) - 1)
-        return PGA_GAIN_MILLI[code]
-
     def _tester_levels(self):
-        """Return hard max, safe max, current post-PGA peak and gain x1000."""
+        """Return hard max, safe max and current unity-input peak."""
         name, _receiver_mode, _kind, _carrier, _mod_hz, depth, _deviation = \
             self._INJ_PRESETS[self._inj_mode]
         hard_max = 1000 if name == "AM" else 2000
         depth = depth if name == "AM" else 0
-        gain_milli = self._tester_pga_milli()
-        safe_max = tester_safe_amplitude(hard_max, gain_milli, depth)
-        peak = tester_peak_counts(self._inj_ampl, gain_milli, depth)
-        return hard_max, safe_max, peak, gain_milli
+        safe_max = tester_safe_amplitude(hard_max, depth)
+        peak = tester_peak_counts(self._inj_ampl, depth)
+        return hard_max, safe_max, peak, 1000
 
     def _tester_point_label(self):
         if self._inj_point == 1:
@@ -5093,7 +4799,7 @@ class SdrApp:
     def _tester_first_visible_block(self):
         """First SCOPE block that contains TESTER rather than the real ADC."""
         if self._inj_point == 0:
-            return 1
+            return 2
         if self._inj_point == 1:
             return 3 + self._inj_mid       # IQC=3, NCO=4, CHF=5
         return 5                           # OUT is before block-5 tap/scope capture
@@ -5187,8 +4893,8 @@ class SdrApp:
             return
         scope = self._scope_id
         # SCOPE 0 is the normal receiver route: DA0 comes from the final Limiter.
-        stage = scope if 1 <= scope <= 11 else 11
-        marker.set_pos(1, (stage - 1) * _VERIFY_SCROLL_STEP + 4)
+        stage = scope if 2 <= scope <= 11 else 11
+        marker.set_pos(1, (stage - 2) * _VERIFY_SCROLL_STEP + 4)
         # Cyan = complex I/Q on DA0/DA1; green = mono audio heard on DA0.
         marker.set_style_bg_color(
             lv.color_hex(CYAN_RX if 1 <= scope <= 5 else GREEN), 0)
@@ -5459,12 +5165,12 @@ class SdrApp:
         read-outs (AGC gain, S-meter) keep updating via _consume_status while open."""
         w = self._set_widgets
 
-        # Read back the real block mask while IQADC is live. Getter-only block(id) is
-        # control-context safe; PGA reflects the constructor's SINGLE/BYPASS mode.
+        # Read back the real DSP block mask while IQADC is live. Getter-only
+        # block(id) is control-context safe.
         iq = self.be.iq
         block_fn = getattr(iq, "block", None) if iq is not None else None
         if block_fn is not None:
-            for bid in range(1, 11):
+            for bid in range(2, 11):
                 try:
                     self._blk_on[bid] = bool(block_fn(bid))
                 except Exception:
@@ -5476,13 +5182,7 @@ class SdrApp:
         blk_w = w["blocks"]
         for bid, tpl in blk_w.items():
             r, _nl, _name, ob, ol, sb, sl, tb2, tl = tpl
-            if bid == 1:
-                on0 = self._blk_on.get(1, True)
-                ol.set_text("ON" if on0 else "BYP")
-                ol.set_style_text_color(
-                    lv.color_hex(DARK_TXT if on0 else WHITE), 0)
-                ob.set_style_bg_color(lv.color_hex(GREEN if on0 else PANEL2), 0)
-            elif bid == 11:
+            if bid == 11:
                 ol.set_text("SAFE")
                 ol.set_style_text_color(lv.color_hex(GRAY2), 0)
                 ob.set_style_bg_color(lv.color_hex(PANEL2), 0)
@@ -5505,8 +5205,6 @@ class SdrApp:
 
         self._paint_output_status()
         self._paint_listen_markers()
-
-        w["rf"].set_text("x%.1f" % PGA_FACT[self.p["rf"]])
 
         # SQUELCH threshold.
         w["squelch"].set_text("%d" % self._squelch)
@@ -6126,57 +5824,8 @@ class SdrApp:
                         self._set_scroll_idle += 1
                         if self._set_scroll_idle >= 10:  # 1-s lost-release fail-safe
                             self._end_verify_scroll_gate()
-                if self._rf_restart_pending:
-                    # PGA mode/gain cannot change while ADC scan is active. Perform
-                    # one deliberate stop/reconstruct/start here, outside the touch
-                    # callback. The saved mode/code enter the IQADC constructor; an
-                    # armed TESTER remains requested and is reattached below.
-                    self._rf_restart_pending = False
-                    if self.be.running:
-                        runtime_state = self._capture_runtime_chain()
-                        if self.stop_rx(preserve_tester=True):
-                            self.start_rx(runtime_state,
-                                          source_hold=self._tester_rearm_pending)
-                hw_error = None
                 if self._hw_pending:
-                    if not self._apply_hw_pending():  # the ONLY Si5351 I2C path
-                        hw_error = self.be.err
-                if self._tester_rearm_pending and not self._hw_pending:
-                    self._tester_rearm_pending = False
-                    rearm_nco = self._tester_rearm_nco
-                    self._tester_rearm_nco = None
-                    if not self.be.running:
-                        self._inj_on = False
-                        self._paint_tester()
-                    elif rearm_nco is not None:
-                        # Restore the exact last TESTER NCO before publishing its
-                        # source request.  Otherwise one ADC ISR could process the
-                        # new GEN/FILE block with IQADC's fresh zero/default NCO.
-                        actual = self.be.set_fine(rearm_nco)
-                        if actual is None or int(actual) != int(rearm_nco):
-                            error = "TESTER NCO restore %r != %d" % (
-                                actual, rearm_nco)
-                            self._inj_on = False
-                            self._apply_tester_source(False)
-                            self.be.err = error
-                            self._paint_tester()
-                    if self._inj_on and not self._apply_tester_source(False):
-                        error = self.be.err
-                        self._inj_on = False
-                        self._apply_tester_source(False)
-                        self.be.err = error
-                        self._paint_tester()
-                    elif self._inj_on:
-                        # Supersede the normal-ADC generation requested by start_rx.
-                        # The first publishable frame is now complete TESTER data at
-                        # the final restored NCO, with truthful HOME markers.
-                        self.update_freq()
-                        self._update_tuning_role()
-                        self._paint_listen_markers()
-                        self._request_tester_generation()
-                        self._paint_tester()
-                        if hw_error is not None:
-                            self.be.err = hw_error
+                    self._apply_hw_pending()  # the ONLY Si5351 I2C path
                 if self._axis_pending_token:
                     self._poll_axis_generation()
                 if self._tester_arm_pending and not self._tester_tune_pending():

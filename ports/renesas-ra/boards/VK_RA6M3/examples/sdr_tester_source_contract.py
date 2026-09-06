@@ -64,24 +64,21 @@ backend_source = source[source.index("class Ra6m3Backend") :
                         source.index("class SdrApp")]
 app_source = source[source.index("class SdrApp") :]
 
-# A PGA reconstruction that preserves TESTER must never start the fresh DSP on
-# real ADC data.  A zero-I/Q source owner is published before IQADC.start(), and
-# every failure path drops the persistent TST claim instead of exposing ADC under it.
+# The receiver owns one fixed-unity direct input.  Starting RX must not expose
+# constructor-time gain choices or the old stop/rebuild/rearm path.
 backend_start = method(backend_source, "start_rx")
-check("source_hold=False" in backend_start,
-      "backend start has no fail-closed TESTER hold")
 check("if self.iq is not None:" in backend_start and
       "IQADC teardown incomplete; reset required" in backend_start and
       backend_start.index("if self.iq is not None:") <
       backend_start.index("self._IQADC("),
       "failed checked teardown does not latch out a later ADC start")
-for token in ('self.iq.inject(True, 0, 0, self.iq.INJECT_IQ',
-              'self.iq.INJECT_POINT_IN', 'self.iq.INJECT_WAVE_SINE'):
-    check(token in backend_start, "TESTER startup hold is missing " + token)
-check(backend_start.index("self.iq.inject(True") <
+check("source_hold" not in backend_start and "pga=" not in backend_start and
+      "self._ADC" not in backend_start,
+      "backend still exposes a constructor-time input-gain path")
+check(backend_start.index("self._IQADC(") <
       backend_start.index("self.iq.start()") <
       backend_start.index("self.dac.stream_from(self.iq)"),
-      "TESTER hold must precede the first ADC block and DAC stream")
+      "direct IQADC start must precede the DAC stream")
 
 update_rx = method(app_source, "update_rx")
 check('label.set_text("TST" if self._inj_on else "RX")' in update_rx,
@@ -126,60 +123,44 @@ check("self._axis_pending_vfo is not None" in commit_mode and
       "TEST profile can corrupt the old VFO during a pending VFO publication")
 
 stop_rx = method(app_source, "stop_rx")
-check("preserve_tester=False" in stop_rx and
-      "self._tester_rearm_pending = resume_tester" in stop_rx and
-      "self._tester_rearm_nco" in stop_rx,
-      "PGA reconstruction cannot preserve TESTER request/NCO state")
+check("preserve_tester" not in stop_rx and "_tester_rearm" not in stop_rx,
+      "stop_rx still exposes the removed reconstruction/rearm path")
 check(stop_rx.index("released = self.be.stop_rx()") <
       stop_rx.index("self._iq_file.stop()"),
       "FILE is detached before ADC acquisition stops")
 release_fail = stop_rx[stop_rx.index("if not released:"):
                        stop_rx.index("self._iq_file.stop()")]
-for token in ("self._tester_rearm_pending = False",
-              "self._tester_rearm_nco = None",
-              "self._rf_restart_pending = False",
-              "self._hw_config_pending = False",
+for token in ("self._hw_config_pending = False",
               "self._cancel_frequency_pending()",
               "self._clear_axis_pending()", "return False"):
     check(token in release_fail,
           "checked teardown failure does not abort safely: " + token)
 
-capture_chain = method(app_source, "_capture_runtime_chain")
-restore_chain = method(app_source, "_restore_runtime_chain")
-for token in ("block_mask", "audio_filter", "dec_kernel", "hil_kernel",
-              "chf_kernel", "mag_kernel"):
-    check(token in capture_chain and token in restore_chain,
-          "PGA runtime-chain restore is missing " + token)
-check("if self.stop_rx(preserve_tester=True):" in source and
-      "self.start_rx(runtime_state," in source and
-      "source_hold=self._tester_rearm_pending" in source and
-      "self._apply_tester_source(False)" in source and
-      "self.be.set_fine(rearm_nco)" in source,
-      "worker does not restore chain/mode/NCO around PGA reconstruction")
-poll = source[source.index("        def sdr_poll(t):"):
-              source.index("        self.sdr_timer =", source.index("        def sdr_poll(t):"))]
-rearm = poll[poll.index("if self._tester_rearm_pending"):
-             poll.index("if self._axis_pending_token")]
-check(rearm.index("self.be.set_fine(rearm_nco)") <
-      rearm.index("self._apply_tester_source(False)") <
-      rearm.index("self._request_tester_generation()"),
-      "PGA rearm order must be exact NCO -> source -> fresh frame")
-for token in ("self.update_freq()", "self._update_tuning_role()",
-              "self._paint_listen_markers()", "self._paint_tester()"):
-    check(token in rearm, "PGA rearm success repaint is missing " + token)
 start_rx = method(app_source, "start_rx")
-check("source_hold=False" in start_rx and
-      "self.be.start_rx(source_hold=source_hold)" in start_rx,
-      "App cannot carry fail-closed TESTER ownership into backend start")
-restore_fail = start_rx[start_rx.index("if not chain_ok:"):]
-check("self._inj_on = False" in restore_fail and
-      "self._apply_tester_source(False)" in restore_fail and
-      "self._paint_tester()" in restore_fail,
-      "runtime-chain restore failure leaves TESTER hold/paint ON")
-check("if source_hold:" in restore_fail and
-      "self._tester_rearm_pending = False" in restore_fail and
-      "self._inj_on = False" in restore_fail,
-      "backend start failure leaves HOME claiming TST")
+check("runtime_state" not in start_rx and "source_hold" not in start_rx and
+      "self.be.start_rx()" in start_rx,
+      "App start still carries the removed reconstruction state")
+
+# IDs 2..11 stay stable for the visible processing blocks.  Raw ID 1 remains
+# represented by the INPUT label so existing firmware scope/block ABI is not shifted.
+check('_BLOCKS = ((2, "Decimation", True)' in source,
+      "VERIFY does not start at fixed block id 2")
+check('_OUTPUT_STAGE = ("FINAL", "INPUT", "DECIM"' in source,
+      "raw block id 1 is no longer reserved as INPUT")
+first_visible = method(app_source, "_tester_first_visible_block")
+check("if self._inj_point == 0:" in first_visible and
+      "return 2" in first_visible,
+      "TESTER IN does not select the first visible block")
+
+for forbidden in (("PG" + "A"), ("pg" + "a"), 'out["rfe"]',
+                  'p.get("rfe"', 'self.p["rfe"]', 'out["rf"]',
+                  'p.get("rf"', 'self.p["rf"]', "rf_enabled", "rf_code",
+                  "set_rf_gain", "set_rf_enabled", "_rf_restart_pending",
+                  "_tester_rearm_pending", "_tester_rearm_nco",
+                  "source_hold", "preserve_tester", "_capture_runtime_chain",
+                  "_restore_runtime_chain"):
+    check(forbidden not in source,
+          "obsolete input-gain/reconstruction symbol remains: " + forbidden)
 
 restore = method(app_source, "_restore_tester_receiver")
 check("self._normal_lo_hz(requested, mode)" in restore and

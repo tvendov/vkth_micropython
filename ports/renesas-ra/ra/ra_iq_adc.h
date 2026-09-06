@@ -60,12 +60,10 @@ typedef enum {
 /* block_samples must be even and in the inclusive range 10..256: the x2 CMSIS
  * decimator requires a whole number of output samples and the 11-tap hand kernel
  * needs ten preceding raw samples of history.  i_pin must be an AN000..AN002 pin,
- * q_pin an AN100..AN102 pin: only those six
- * channels carry the dedicated sample-and-hold circuits and the PGA.
- * pga_mode is applied to both channels; RA_ADC_PGA_BYPASS is the safe default,
- * and RA_ADC_PGA_OFF is rejected because ADC12 does not work in that state. */
+ * q_pin an AN100..AN102 pin: only those six channels carry the dedicated
+ * sample-and-hold circuits.  Both inputs always use the fixed direct ADC path. */
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
-    size_t block_samples, ra_adc_pga_mode_t pga_mode, uint8_t pga_gain);
+    size_t block_samples);
 /* True while IQADC owns any shared ADC/trigger resource, including a partially
  * constructed instance, until checked deinit releases it.  While true, the
  * ordinary machine.ADC path must not rewrite ADC0/ADC1 scan registers. */
@@ -178,11 +176,6 @@ void ra_iq_adc_get_smeter(int32_t *rms, float *dbfs);
 void ra_iq_adc_set_tune(int32_t hz);
 int32_t ra_iq_adc_get_tune(void);
 
-/* Live RF/PGA gain on both I/Q channels. gain_code = RA_ADC_PGA_GAIN_* (0..14); effective
- * only when the unit runs in a PGA mode other than BYPASS. Returns false (no-op) otherwise. */
-bool ra_iq_adc_set_pga_gain(uint8_t gain_code);
-bool ra_iq_adc_get_pga_gain(uint8_t *gain_code);
-
 /* Per-stage verification tap: arm a stage (0=off, 1=decim, 2=nco, 3=chfilt) and read the
  * last decimated I/Q snapshot as interleaved i/q pairs for numeric comparison over UART. */
 void ra_iq_adc_set_tap(uint8_t stage);
@@ -291,12 +284,11 @@ void ra_iq_adc_file_hold(void);
 void ra_iq_adc_file_detach(void);
 void ra_iq_adc_file_get_status(ra_iq_file_status_t *status);
 
-/* Per-block ON/OFF for verification, block id 1..11 (PGA..LIMITER).
+/* Per-block ON/OFF for verification, block id 1..11 (INPUT..LIMITER).
  * Most enable=0 paths short the block to the next.  DECIM keeps the mandatory
  * Fs/2 rate adapter and selects every other raw sample (no FIR; not bit-identical
- * across the rate change).  DEMOD bypass maps I directly to mono audio.  PGA is
- * a read-only reflection of the constructor's hardware mode, and LIMITER is a
- * fixed safety stage; set_block cannot change either one. */
+ * across the rate change).  DEMOD bypass maps I directly to mono audio.  INPUT
+ * and LIMITER are fixed safety stages; set_block cannot change either one. */
 void ra_iq_adc_set_block(uint8_t block, uint8_t enable);
 uint8_t ra_iq_adc_get_block(uint8_t block);
 
@@ -438,7 +430,7 @@ bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n);
  * which CAPTURES what the DAC plays; this routes a chosen DSP block OUT to the
  * DAC hardware so it can be watched on a real oscilloscope).  A single selector
  * (0 = off, else RA_IQ_BLK_* block id 1..RA_IQ_BLK_LIMITER):
- *   - pre-demod block (PGA/decim/iqcorr/nco/chfilt, complex I/Q): the decimated
+ *   - pre-demod block (input/decim/iqcorr/nco/chfilt, complex I/Q): the decimated
  *     I is fed to the DAC0 audio ring.  If DAC1 is streaming from this IQADC, Q is
  *     fed to the parallel scope Q ring and the I/Q pair is published atomically;
  *     otherwise DAC0 remains a fully independent mono output.

@@ -13,7 +13,7 @@ Edit the CONFIG block, then:  mpremote connect COM18 run sdr_scope_test.py
 Do a J-Link reset before running (this board needs it). Ctrl-C / reset to stop.
 """
 
-from machine import IQADC, ADC, DAC
+from machine import IQADC, DAC
 import time
 
 # ---- CONFIG -------------------------------------------------------------
@@ -28,7 +28,7 @@ IQ_CORR = None          # None, or (amp, phase) e.g. (1.0, 0.0)
 
 
 def main():
-    iq = IQADC("P000", "P004", rate=RATE, block=BLOCK, pga=ADC.PGA_BYPASS)
+    iq = IQADC("P000", "P004", rate=RATE, block=BLOCK)
     iq.start()
 
     if IQ_CORR is not None:

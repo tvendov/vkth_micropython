@@ -11,7 +11,7 @@
 #if MICROPY_HW_ENABLE_IQ_ADC
 
 #include "hal_data.h"       /* BSP_FEATURE_AGT_MAX_CHANNEL_NUM, IRQn_Type, FSP_INVALID_VECTOR */
-#include "ra_gpio.h"        /* P003 / P007 / P014 pin enums               */
+#include "ra_gpio.h"        /* P014 pin enum                              */
 #include "ra_adc.h"         /* AN000 / AN100 channel enums                */
 #include "ra_iq_adc.h"      /* RA_IQ_ADC_MAX_BLOCK_SAMPLES                */
 #include "ra_sdr_caps.h"
@@ -38,12 +38,10 @@ static const ra_sdr_mcu_facts_t s_mcu_facts = {
     .adc0_first_ch = AN000,             /* 0  */
     .adc1_first_ch = AN100,             /* 32 */
 
-    .pga_layout_valid = true,
-    .pga_channels_per_unit = 3U,
-    .pga_adc0_first_ch = AN000,         /* 0  */
-    .pga_adc1_first_ch = AN100,         /* 32 */
-    .pgavss0_pin = P003,                /* PGAVSS000 */
-    .pgavss1_pin = P007,                /* PGAVSS100 */
+    .iq_input_layout_valid = true,
+    .iq_channels_per_unit = 3U,
+    .iq_adc0_first_ch = AN000,          /* 0  */
+    .iq_adc1_first_ch = AN100,          /* 32 */
 
     .elc_adc0_slot = 8U,                /* ELC_AD00, r_elc_api.h ELC_PERIPHERAL_ADC0 */
     .elc_adc1_slot = 10U,               /* ELC_AD10, r_elc_api.h ELC_PERIPHERAL_ADC1 */
@@ -56,11 +54,10 @@ static const ra_sdr_mcu_facts_t s_mcu_facts = {
 
 #elif defined(RA6M5)
 
-/* RA6M5 shares the ADC12 / S&H / PGA / ELC register model with RA6M3.  The ADC
- * unit layout, ELC slots and sampling-time reset values are identical (verified,
- * SDR-RA6M5-VERIFY-20260822).  The PGA channel/pin table has NOT yet been
- * verified against the RA6M5 pinout, so pga_layout_valid is left false until it
- * is; callers must treat the PGA facts as provisional while that flag is false. */
+/* RA6M5 shares the ADC12 / S&H / ELC register model with RA6M3.  The ADC unit
+ * layout, ELC slots and sampling-time reset values are identical (verified,
+ * SDR-RA6M5-VERIFY-20260822).  The coherent I/Q input table has not yet been
+ * verified against the RA6M5 pinout, so construction remains disabled there. */
 static const ra_sdr_mcu_facts_t s_mcu_facts = {
     .mcu_name = "RA6M5",
 
@@ -76,12 +73,10 @@ static const ra_sdr_mcu_facts_t s_mcu_facts = {
     .adc0_first_ch = AN000,             /* 0  */
     .adc1_first_ch = AN100,             /* 32 */
 
-    .pga_layout_valid = false,          /* RA6M5 PGA table not yet verified */
-    .pga_channels_per_unit = 3U,
-    .pga_adc0_first_ch = AN000,         /* 0  */
-    .pga_adc1_first_ch = AN100,         /* 32 */
-    .pgavss0_pin = P003,
-    .pgavss1_pin = P007,
+    .iq_input_layout_valid = false,
+    .iq_channels_per_unit = 3U,
+    .iq_adc0_first_ch = AN000,          /* 0  */
+    .iq_adc1_first_ch = AN100,          /* 32 */
 
     .elc_adc0_slot = 8U,
     .elc_adc1_slot = 10U,

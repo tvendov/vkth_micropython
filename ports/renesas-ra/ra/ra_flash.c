@@ -258,6 +258,13 @@ bool internal_flash_write(uint8_t *addr, uint32_t NumBytes, uint8_t *pSectorBuff
 }
 
 bool internal_flash_writex(uint8_t *addr, uint32_t NumBytes, uint8_t *pSectorBuff, bool ReadModifyWrite, bool fIncrementDataPtr) {
+    #if MICROPY_PY_CV2_QSPI
+    extern uint8_t _micropy_hw_external_flash_storage_start, _micropy_hw_external_flash_storage_end;
+    uintptr_t target = (uintptr_t)addr;
+    uintptr_t fs_start = (uintptr_t)&_micropy_hw_external_flash_storage_start;
+    uintptr_t fs_end = (uintptr_t)&_micropy_hw_external_flash_storage_end;
+    if (target < fs_start || target > fs_end || NumBytes > fs_end - target) return false;
+    #endif
     fsp_err_t err = FSP_SUCCESS;
     bool flag;
     uint32_t count;
@@ -287,8 +294,17 @@ bool internal_flash_writex(uint8_t *addr, uint32_t NumBytes, uint8_t *pSectorBuf
         #if MICROPY_HW_HAS_QSPI_FLASH
         for (uint16_t idx = 0; ((err == FSP_SUCCESS) && (idx < FLASH_SECTOR_SIZE)); idx += FLASH_PAGE_SIZE)
         {
+            #if MICROPY_PY_CV2_QSPI
+            uint32_t qspi_irq_state = ra_disable_irq();
+            #endif
             err = R_QSPI_Write(&g_qspi0_ctrl, &buf_addr[idx], &flash_addr[idx], FLASH_PAGE_SIZE);
+            #if MICROPY_PY_CV2_QSPI
+            if (err == FSP_SUCCESS) err = R_QSPI_Wait_WIP(&g_qspi0_ctrl);
+            __DSB(); __ISB();
+            ra_enable_irq(qspi_irq_state);
+            #else
             err = R_QSPI_Wait_WIP(&g_qspi0_ctrl);
+            #endif
         }
         #else
         uint32_t state = ra_disable_irq();
@@ -357,13 +373,29 @@ bool internal_flash_isblockerased(uint8_t *addr, uint32_t BlockLength) {
 }
 
 bool internal_flash_eraseblock(uint8_t *addr) {
+    #if MICROPY_PY_CV2_QSPI
+    extern uint8_t _micropy_hw_external_flash_storage_start, _micropy_hw_external_flash_storage_end;
+    uintptr_t target = (uintptr_t)addr;
+    uintptr_t fs_start = (uintptr_t)&_micropy_hw_external_flash_storage_start;
+    uintptr_t fs_end = (uintptr_t)&_micropy_hw_external_flash_storage_end;
+    if (target < fs_start || target >= fs_end || FLASH_SECTOR_SIZE > fs_end - target) return false;
+    #endif
     uint32_t error_code = 0;
     fsp_err_t err = FSP_SUCCESS;
     g_b_flash_event_erase_complete = false;
     #if MICROPY_HW_HAS_QSPI_FLASH
     if (!lmemprob((uint8_t *)((uint32_t)addr & FLASH_BUF_ADDR_MASK), FLASH_SECTOR_SIZE)) {
+        #if MICROPY_PY_CV2_QSPI
+        uint32_t qspi_irq_state = ra_disable_irq();
+        #endif
         err = R_QSPI_Erase(&g_qspi0_ctrl, (uint8_t *const)addr, FLASH_SECTOR_SIZE);
+        #if MICROPY_PY_CV2_QSPI
+        if (err == FSP_SUCCESS) err = R_QSPI_Wait_WIP(&g_qspi0_ctrl);
+        __DSB(); __ISB();
+        ra_enable_irq(qspi_irq_state);
+        #else
         err = R_QSPI_Wait_WIP(&g_qspi0_ctrl);
+        #endif
     }
     #else
     uint32_t state = ra_disable_irq();

@@ -192,6 +192,12 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
             lfs1_superblock_t *superblock = (void *)&buf[12];
             uint32_t block_size = lfs1_fromle32(superblock->d.block_size);
             uint32_t block_count = lfs1_fromle32(superblock->d.block_count);
+            #if MICROPY_PY_CV2_QSPI
+            if (!block_size || (uint64_t)block_count * block_size > 0x00c00000U) {
+                printf("MPY: cv2 QSPI partition requires filesystem backup/migration\n");
+                return false;
+            }
+            #endif
             len = block_count * block_size;
             break;
         }
@@ -203,6 +209,12 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
             lfs2_superblock_t *superblock = (void *)&buf[20];
             uint32_t block_size = lfs2_fromle32(superblock->block_size);
             uint32_t block_count = lfs2_fromle32(superblock->block_count);
+            #if MICROPY_PY_CV2_QSPI
+            if (!block_size || (uint64_t)block_count * block_size > 0x00c00000U) {
+                printf("MPY: cv2 QSPI partition requires filesystem backup/migration\n");
+                return false;
+            }
+            #endif
             len = block_count * block_size;
             break;
         }
@@ -221,6 +233,9 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
     mp_obj_t mount_point = MP_OBJ_NEW_QSTR(MP_QSTR__slash_flash);
     ret = mp_vfs_mount_and_chdir_protected(bdev, mount_point);
 
+    #if !MICROPY_PY_CV2_QSPI
+    // The opt-in external-code profile must not automatically format storage
+    // after changing its capacity. Migration is a separate explicit action.
     if (ret == -MP_ENODEV && bdev == MP_OBJ_FROM_PTR(&pyb_flash_obj)
         && reset_mode != BOARDCTRL_RESET_MODE_FACTORY_FILESYSTEM) {
         // No filesystem, bdev is still the default (so didn't detect a possibly corrupt littlefs),
@@ -230,6 +245,7 @@ MP_NOINLINE static bool init_flash_fs(uint reset_mode) {
             ret = mp_vfs_mount_and_chdir_protected(bdev, mount_point);
         }
     }
+    #endif
 
     if (ret != 0) {
         printf("MPY: can't mount flash\n");
@@ -253,6 +269,13 @@ int main(void) {
     ra_init();
 
     MICROPY_BOARD_EARLY_INIT();
+
+    #if MICROPY_PY_CV2_QSPI
+    // QSPI is opened by ra_init; run the deferred C++ constructors only after
+    // verifying that the external image belongs to this internal firmware.
+    extern void cv2_qspi_boot(void);
+    cv2_qspi_boot();
+    #endif
 
     // basic sub-system init
     #if MICROPY_PY_THREAD
