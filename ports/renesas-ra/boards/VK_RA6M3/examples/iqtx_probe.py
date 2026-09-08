@@ -26,7 +26,11 @@ def show(tx):
     for name in sorted(s):
         print(name, s[name])
     fs = s["actual_rate"]
-    if s["mode"] == 2:
+    if s["mode"] == 2 and s.get("deviation_hz", 0):
+        print("Voice FM peak deviation +/-Hz", s["deviation_hz"])
+        print("MIC gain percent", s["mic_gain"], "I/Q peak DAC codes", s["amplitude"])
+        print("DC estimate", s["dc_estimate"], "audio peak since start", s["audio_peak"])
+    elif s["mode"] == 2:
         scale = fs * s["fm_gain"] / 65536
         print("FM Hz/ADC-code", scale)
         print("FM endpoint Hz", -s["adc_mid"] * scale,

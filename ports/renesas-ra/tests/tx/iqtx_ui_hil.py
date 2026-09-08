@@ -69,13 +69,14 @@ try:
                 actual=(prepared['lut_bytes'],prepared['lut_allocation_bytes'],
                         prepared['transfer_count'])
             else:
-                expected=(1024,2047,15)
+                expected=(1024,2047,0)  # voice FM uses bounded C ISR, not DOC
                 actual=(prepared['lut_bytes'],prepared['lut_allocation_bytes'],
                         prepared['transfer_count'])
             assert actual==expected, 'Compact LUT contract: '+repr(prepared)
             tx.start()
             if mode==IQTX.CW: tx.key(True)
             before=heartbeat[0]
+            sample_before=tx.status().get('dsp_samples',0)
             start=time.ticks_ms()
             polls=0
             while time.ticks_diff(time.ticks_ms(),start)<3000:
@@ -88,6 +89,13 @@ try:
             elapsed=time.ticks_diff(time.ticks_ms(),start)
             beats=heartbeat[0]-before
             assert beats>=10, 'LVGL heartbeat stalled'
+            if mode==IQTX.FM:
+                assert s['cpu_dsp'] and s['dsp_samples']!=sample_before, 'FM ADC/DSP stalled'
+                assert s['dsp_deadline_misses']==0, 'FM C sample over budget'
+                assert s['i_enabled'] and s['q_enabled'], 'FM DAC output disabled'
+                tx.fm_configure(deviation_hz=4000,mic_gain=150,amplitude=400)
+                applied=tx.status()
+                assert (applied['deviation_hz'],applied['mic_gain'],applied['amplitude'])==(4000,150,400)
             tx.stop()
             s=tx.status()
             assert s['quiesced'] and s['i_code']==2048 and s['q_code']==2048

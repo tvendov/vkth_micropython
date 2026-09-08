@@ -34,7 +34,11 @@ extern "C" {
 // static data remain below the separately reserved GLCDC framebuffer.
 #define BSP_CFG_HEAP_BYTES (0x33000)
 #elif defined(MICROPY_PY_LVGL) && (MICROPY_PY_LVGL == 1)
-#define BSP_CFG_HEAP_BYTES (0x47000)
+// RX DAC 512-sample portions: ping-pong buffers grow by 3072 B and the two
+// audio/IQ rings by 6144 B. Reserve that 9 KiB explicitly, keeping the full
+// 16 KiB stack and the single GLCDC framebuffer unchanged. The linker checks
+// the remaining alignment/control-state bytes against the RAM/FB boundary.
+#define BSP_CFG_HEAP_BYTES (0x47000 - 0x2400)
 #else
 #define BSP_CFG_HEAP_BYTES (0xA000)
 #endif

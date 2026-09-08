@@ -39,7 +39,7 @@
 #if MICROPY_HW_ENABLE_DAC
 
 static void audiomixer_require_unowned(void) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         mp_raise_OSError(MP_EBUSY);
     }
 }
@@ -257,13 +257,13 @@ static void audiomixer_stream_stopped(void *context) {
     self->timer_ch = self->requested_timer_ch;
     audiomixer_root_clear(self);
 
-    if (!self->deinitialized && !ra_tx_hw_owns_dac()) {
+    if (!self->deinitialized && !ra_tx_hw_owns_dac() && !ra_dac_pair_is_owned()) {
         ra_dac_write(self->dac_ch, AUDIOMIXER_DAC_MIDPOINT);
     }
 }
 
 static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         return false;
     }
     if (self == NULL || self->deinitialized) {
@@ -329,7 +329,7 @@ static bool audiomixer_start_output_locked(audiomixer_mixer_obj_t *self) {
 }
 
 static bool audiomixer_stop_output_locked(audiomixer_mixer_obj_t *self, bool center_output) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         return false;
     }
     if (self == NULL) {
@@ -358,7 +358,7 @@ static void audiomixer_stop_all_voices_locked(audiomixer_mixer_obj_t *self) {
 }
 
 static bool audiomixer_mixer_cleanup(audiomixer_mixer_obj_t *self) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         return false;
     }
     if (self == NULL) {
@@ -572,7 +572,7 @@ static mp_obj_t audiomixer_mixer_stop(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_stop_obj, audiomixer_mixer_stop);
 
 static mp_obj_t audiomixer_mixer_playing(mp_obj_t self_in) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         return mp_const_false;
     }
     audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);

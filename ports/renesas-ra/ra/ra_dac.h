@@ -47,6 +47,7 @@ typedef enum {
     RA_DAC_STREAM_STATUS_TRANSFER_BUSY,
     RA_DAC_STREAM_STATUS_LOOP_UNSUPPORTED,
     RA_DAC_STREAM_STATUS_HW_ERROR,
+    RA_DAC_STREAM_STATUS_BUSY,
 } ra_dac_stream_status_t;
 
 typedef enum {
@@ -87,5 +88,38 @@ bool ra_dac_stream_is_active(uint8_t ch);
 int8_t ra_dac_stream_timer(uint8_t ch);
 ra_dac_hw_stage_t ra_dac_stream_last_stage(uint8_t ch);
 int32_t ra_dac_stream_last_error(uint8_t ch);
+
+/* Exclusive, CPU-fed DAC0/DAC1 pair. Foreground lifecycle calls are serialized.
+ * Open reserves the pair before touching hardware and leaves AGT stopped.
+ * Any partial failure after acquisition retains the owner until close succeeds.
+ * Four disjoint 4-byte-aligned buffers remain alive until successful close.
+ * Fill is called only on the completed channel's inactive buffer. False faults
+ * BOTH channels; fault is bounded/IRQ-safe and must not close/free anything. */
+typedef struct {
+    uint16_t *buffers[2][2]; /* [channel][ping/pong] */
+    size_t count;
+    uint32_t rate;
+    uint16_t i_zero, q_zero;
+    bool (*fill)(void *context, uint8_t channel, uint16_t *buffer, size_t count);
+    void (*fault)(void *context);
+    void *context;
+    /* Alternative to fill: both completed planes are writable in one call.
+     * Exactly one of fill/fill_pair must be supplied. */
+    bool (*fill_pair)(void *context, uint16_t *i, uint16_t *q, size_t count);
+} ra_dac_pair_config_t;
+/* Logical reservation survives close; release only after all coupled hardware
+ * has closed. A failed reservation has no peripheral side effects. */
+bool ra_dac_pair_reserve(const void *owner);
+bool ra_dac_pair_release(const void *owner);
+bool ra_dac_pair_reserved_by(const void *owner);
+bool ra_dac_pair_is_owned(void);
+bool ra_dac_pair_owned_by(const void *owner);
+ra_dac_stream_status_t ra_dac_pair_open(void *owner, const ra_dac_pair_config_t *config);
+bool ra_dac_pair_timing(const void *owner, uint32_t *clock_hz, uint32_t *period);
+bool ra_dac_pair_start(const void *owner);
+bool ra_dac_pair_running(const void *owner);
+/* Bounded fault stop, retains ownership and buffers; safe from a capture ISR. */
+void ra_dac_pair_abort(const void *owner);
+bool ra_dac_pair_close(const void *owner);
 
 #endif /* RA_RA_DAC_H_ */

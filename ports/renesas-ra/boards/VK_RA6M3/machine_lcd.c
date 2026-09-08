@@ -30,6 +30,7 @@
 #include "py/mphal.h"
 #include "modmachine.h"
 #include "hal_data.h"
+#include "ra_tx_hw.h"
 #if defined(USE_FSP_DRW)
 #include "dave2d_port.h"
 #endif
@@ -283,6 +284,8 @@ static uint32_t s_lcd_fft_max_us;
 static int32_t s_lcd_const_peak;
 static uint8_t s_lcd_scope_view;
 static uint8_t s_lcd_right_clear_pending;
+static uint32_t s_lcd_scope_source;
+static uint32_t s_lcd_scope_tx_epoch;
 static uint32_t s_lcd_scope_last_ms;
 static uint32_t s_lcd_render_start_us;
 static uint32_t s_lcd_render_last_us;
@@ -371,14 +374,20 @@ static void lcd_native_capture_apply(bool attached) {
     #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
     bool active = attached && (s_lcd_spectrum_obj != NULL) &&
         !s_lcd_spectrum_paused;
+    bool tx_owned = ra_tx_hw_owns_resources();
     bool spectrum_active = attached && (s_lcd_spectrum_obj != NULL) &&
         (((s_lcd_spectrum_view != LCD_VIEW_OFF) && !s_lcd_spectrum_paused) ||
          s_lcd_spectrum_vfo_pending);
-    ra_iq_adc_spectrum_enable(spectrum_active);
-    ra_iq_adc_constellation_enable(active &&
+    ra_iq_adc_spectrum_enable(spectrum_active && !tx_owned);
+    ra_iq_adc_constellation_enable(active && !tx_owned &&
         (s_lcd_scope_view == LCD_SCOPE_VIEW_IQ));
-    ra_iq_adc_scope_enable(active &&
-        (s_lcd_scope_view == LCD_SCOPE_VIEW_TIME));
+    if (!tx_owned) {
+        ra_iq_adc_scope_enable(active && (s_lcd_scope_view == LCD_SCOPE_VIEW_TIME));
+    }
+    #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
+    (void)ra_tx_hw_scope_enable(active && tx_owned &&
+        (s_lcd_scope_view != LCD_SCOPE_VIEW_OFF));
+    #endif
     #else
     (void)attached;
     #endif
@@ -414,6 +423,8 @@ void machine_lcd_lvgl_soft_reset(void) {
         s_lcd_const_peak = 32;
         s_lcd_scope_view = LCD_SCOPE_VIEW_TIME;
         s_lcd_right_clear_pending = 0U;
+        s_lcd_scope_source = 0U;
+        s_lcd_scope_tx_epoch = 0U;
         s_lcd_scope_last_ms = 0U;
         s_lcd_render_start_us = 0U;
         s_lcd_render_last_us = 0U;
@@ -1477,10 +1488,16 @@ static bool lcd_waterfall_write(const float *magnitudes, float ref_peak,
 /* Convert the newest 512-sample DAC frame into the 128 final screen Y positions
  * before waiting for VSYNC.  This finishes long before the producer can wrap back
  * to the claimed ping-pong half, so no third capture buffer is needed. */
-static bool lcd_scope_prepare(const int16_t *samples, size_t n,
-    const lv_area_t *obj_area, int16_t *scope_y) {
+static bool lcd_scope_prepare_rate(const int16_t *samples, size_t n,
+    const lv_area_t *obj_area, int16_t *scope_y, uint32_t rate_hz) {
     if ((samples == NULL) || (scope_y == NULL) ||
         (n < (2U * LCD_SCOPE_PIXELS))) {
+        return false;
+    }
+    /* Fixed 1/24000 s per pixel in RX and TX. Resample the display positions,
+     * never the TX audio. Frame and index bounds remain explicit. */
+    size_t span = ((LCD_SCOPE_PIXELS - 1U) * rate_hz) / 24000U + 1U;
+    if (!rate_hz || span >= n) {
         return false;
     }
 
@@ -1504,7 +1521,7 @@ static bool lcd_scope_prepare(const int16_t *samples, size_t n,
     }
     size_t trigger = 0U;
     bool armed = false;
-    size_t max_trigger = n - LCD_SCOPE_PIXELS;
+    size_t max_trigger = n - span;
     for (size_t k = 0U; k <= max_trigger; ++k) {
         int32_t v = samples[k];
         if (v <= -hysteresis) {
@@ -1525,7 +1542,7 @@ static bool lcd_scope_prepare(const int16_t *samples, size_t n,
     int32_t lower_h = y2 - center_y - 1;
     int32_t half_h = (upper_h < lower_h) ? upper_h : lower_h;
     for (uint32_t x = 0U; x < LCD_SCOPE_PIXELS; ++x) {
-        int32_t v = samples[trigger + x];
+        int32_t v = samples[trigger + (x * rate_hz) / 24000U];
         /* TIME is an oscilloscope, not a second hidden AGC.  DAC0 is exactly
          * 0..4095, captured here as -2048..2047, so a fixed 2048-count divisor
          * preserves real amplitude changes.  The receiver AGC, when enabled,
@@ -1539,6 +1556,11 @@ static bool lcd_scope_prepare(const int16_t *samples, size_t n,
         scope_y[x] = (int16_t)y;
     }
     return true;
+}
+
+static bool lcd_scope_prepare(const int16_t *samples, size_t n,
+    const lv_area_t *obj_area, int16_t *scope_y) {
+    return lcd_scope_prepare_rate(samples, n, obj_area, scope_y, 24000U);
 }
 
 static void lcd_scope_draw(uint16_t *fb, uint32_t stride,
@@ -1971,7 +1993,7 @@ static void lcd_spectrum_publish_render_ready(void) {
  * transaction.  A WF tick can reach this helper when the DAC frame is ready but
  * the FFT frame is not; in that case the left framebuffer is the waterfall
  * history and must not be touched. */
-static void lcd_scope_write(const int16_t *samples, size_t n) {
+static void lcd_scope_write_rate(const int16_t *samples, size_t n, uint32_t rate_hz) {
     if ((s_lcd_spectrum_obj == NULL) || !lv_obj_is_valid(s_lcd_spectrum_obj) ||
         !lv_obj_is_visible(s_lcd_spectrum_obj)) {
         return;
@@ -1982,7 +2004,7 @@ static void lcd_scope_write(const int16_t *samples, size_t n) {
         return;
     }
     int16_t scope_y[LCD_SCOPE_PIXELS];
-    if (!lcd_scope_prepare(samples, n, &obj_area, scope_y)) {
+    if (!lcd_scope_prepare_rate(samples, n, &obj_area, scope_y, rate_hz)) {
         return;
     }
 
@@ -1997,7 +2019,7 @@ static void lcd_scope_write(const int16_t *samples, size_t n) {
     uint32_t t0 = (uint32_t)mp_hal_ticks_us();
     uint32_t stride = g_display0_cfg.input[0].hstride;
     uint16_t *fb = (uint16_t *)g_display0_cfg.input[0].p_base;
-    if (s_lcd_spectrum_view == LCD_VIEW_SPECTRUM) {
+    if (!ra_tx_hw_owns_resources() && s_lcd_spectrum_view == LCD_VIEW_SPECTRUM) {
         lcd_spectrum_draw_direct(fb, stride, &obj_area);
     }
     lcd_scope_draw(fb, stride, &obj_area, scope_y);
@@ -2007,6 +2029,10 @@ static void lcd_scope_write(const int16_t *samples, size_t n) {
     if (elapsed > s_lcd_waterfall_max_us) {
         s_lcd_waterfall_max_us = elapsed;
     }
+}
+
+static void lcd_scope_write(const int16_t *samples, size_t n) {
+    lcd_scope_write_rate(samples, n, 24000U);
 }
 
 #if defined(MICROPY_HW_ENABLE_IQ_ADC) && (MICROPY_HW_ENABLE_IQ_ADC == 1)
@@ -2066,11 +2092,47 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
      * while no same-screen modal overlay is open.  lv_obj_is_visible() alone is
      * insufficient: objects on an inactive LVGL screen still have no HIDDEN flag. */
     if (s_lcd_spectrum_paused ||
+        !lv_obj_is_visible(s_lcd_spectrum_obj) ||
         (lv_obj_get_screen(s_lcd_spectrum_obj) != lv_screen_active())) {
+        lcd_native_capture_apply(false);
         return;
     }
 
+    #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
+    ra_tx_status_t tx_status;
+    ra_tx_hw_get_status(&tx_status);
+    uint32_t source = !tx_status.owned ? 0U :
+        ((tx_status.running && !tx_status.error && !tx_status.af_error &&
+          tx_status.mode != RA_TX_MODE_CW) ? 1U : 2U);
+    uint32_t epoch = source ? ra_tx_hw_adc_epoch() : 0U;
+    if (source != s_lcd_scope_source || epoch != s_lcd_scope_tx_epoch) {
+        s_lcd_scope_source = source;
+        s_lcd_scope_tx_epoch = epoch;
+        s_lcd_right_clear_pending = 1U;
+        s_lcd_left_clear_pending = 1U;
+        s_lcd_spectrum_valid = 0U;
+        s_lcd_scope_last_ms = 0U;
+        lcd_native_capture_apply(true);
+    }
+    #endif
     lcd_native_clear_pending();
+    #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
+    if (source) {
+        lcd_native_capture_apply(true);
+        uint32_t tx_now = (uint32_t)mp_hal_ticks_ms();
+        if (source == 1U && s_lcd_scope_view != LCD_SCOPE_VIEW_OFF &&
+            (uint32_t)(tx_now - s_lcd_scope_last_ms) >= LCD_SCOPE_FRAME_MS) {
+            const int16_t *samples;
+            size_t n;
+            uint32_t rate_hz;
+            if (ra_tx_hw_scope_frame(&samples, &n, &rate_hz)) {
+                s_lcd_scope_last_ms = tx_now;
+                lcd_scope_write_rate(samples, n, rate_hz);
+            }
+        }
+        return; /* No RX DAC/FFT/IQ frames can represent TX microphone audio. */
+    }
+    #endif
     if ((s_lcd_spectrum_view == LCD_VIEW_OFF) &&
         (s_lcd_scope_view == LCD_SCOPE_VIEW_OFF) &&
         !s_lcd_spectrum_vfo_pending) {
@@ -2249,6 +2311,9 @@ static void lcd_lv_spectrum_event_cb(lv_event_t *e) {
     }
     if ((code != LV_EVENT_DRAW_MAIN) || (obj != s_lcd_spectrum_obj)) {
         return;
+    }
+    if (ra_tx_hw_owns_resources()) {
+        return; /* Do not repaint the last RX spectrum while transmitting. */
     }
 
     if ((s_lcd_spectrum_view == LCD_VIEW_WATERFALL) ||

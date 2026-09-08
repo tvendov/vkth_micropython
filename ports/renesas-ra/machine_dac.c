@@ -42,7 +42,7 @@
 #if MICROPY_PY_MACHINE_DAC
 
 static void machine_dac_require_unowned(void) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         mp_raise_OSError(MP_EBUSY);
     }
 }
@@ -93,8 +93,8 @@ extern const mp_obj_type_t machine_iqadc_type;
  * must not share buffers.  DMAC clocks these to DADR, so they must outlive the transfer
  * (static) and be aligned for the transfer size (REQ-RT-004). */
 #define MACHINE_DAC_STREAM_CH (2)
-static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_a[MACHINE_DAC_STREAM_CH][RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
-static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[MACHINE_DAC_STREAM_CH][RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2];
+static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_a[MACHINE_DAC_STREAM_CH][RA_IQ_AUDIO_DMA_SAMPLES];
+static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[MACHINE_DAC_STREAM_CH][RA_IQ_AUDIO_DMA_SAMPLES];
 
 /* DAC ping-pong refill, runs in the DMAC ISR.  ctx carries the DAC channel index:
  * channel 0 (DAC0) pulls s_audio_ring (the demod audio, or the routed mono / pre-demod
@@ -105,6 +105,17 @@ static uint16_t BSP_ALIGN_VARIABLE(4) machine_dac_stream_buf_b[MACHINE_DAC_STREA
 static bool machine_dac_iq_fill(void *ctx, uint16_t *buf, size_t n) {
     machine_dac_obj_t *self = (machine_dac_obj_t *)ctx;
     uint8_t ch = self->ch;
+    if (!ra_iq_adc_audio_chunk_ready(ch, n)) {
+        /* Startup/source handoff: retain the partial queue, never interleave a
+         * short producer block with a long gap inside the new 512-sample buffer. */
+        for (size_t k = 0U; k < n; ++k) {
+            buf[k] = 2048U;
+        }
+        if (ch == 0U) {
+            ra_iq_adc_scope_push(buf, n);
+        }
+        return true;
+    }
     if (ch == 1U) {
         ra_iq_adc_scope_pull_q(buf, n);
         return true;
@@ -155,7 +166,7 @@ static bool machine_dac_stop_one(machine_dac_obj_t *self) {
 }
 
 static bool machine_dac_stop_stream(machine_dac_obj_t *self) {
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         return false;
     }
     /* DAC0 is the I owner.  It may not be stopped/restarted while DAC1 keeps a
@@ -204,7 +215,7 @@ static void machine_dac_print(const mp_print_t *print, mp_obj_t self_in, mp_prin
     uint16_t raw = ra_dac_read(self->ch);
     mp_printf(print, "DAC(DA%d [#%d], active=%u, playing=%u, out=%u mV)",
         self->ch, self->dac->pin, self->active,
-        !ra_tx_hw_owns_dac() && ra_dac_stream_is_active(self->ch), machine_dac_raw_to_mv(raw));
+        !ra_tx_hw_owns_dac() && !ra_dac_pair_is_owned() && ra_dac_stream_is_active(self->ch), machine_dac_raw_to_mv(raw));
 }
 
 static mp_obj_t machine_dac_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
@@ -404,7 +415,8 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(machine_dac_write_timed_obj, 1, machine_dac_wr
 // DAC.stream(source, *, freq=None)
 // Plays a demodulator's generic audio stream through this DAC's own double-buffered
 // DMAC path with no CPU per sample.  source is an IQADC instance; its audio params
-// (rate, block) drive the stream unless freq is overridden.  Stop with DAC.stop().
+// supply the rate unless freq is overridden; the DAC consumes independent
+// 512-sample portions.  Stop with DAC.stop().
 static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     machine_dac_require_unowned();
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
@@ -423,8 +435,8 @@ static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_m
     }
 
     uint32_t freq;
-    size_t sample_count;
-    ra_iq_adc_get_audio_params(&freq, &sample_count);
+    const size_t sample_count = RA_IQ_AUDIO_DMA_SAMPLES;
+    ra_iq_adc_get_audio_params(&freq, NULL);
     if (args[ARG_freq].u_obj != mp_const_none) {
         mp_int_t f = mp_obj_get_int(args[ARG_freq].u_obj);
         if (f <= 0) {
@@ -434,9 +446,6 @@ static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_m
     }
     if (freq == 0U) {
         mp_raise_ValueError(MP_ERROR_TEXT("freq should be > 0"));
-    }
-    if (sample_count == 0 || sample_count > (RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("invalid audio block"));
     }
 
     if (self->ch >= MACHINE_DAC_STREAM_CH) {
@@ -457,13 +466,14 @@ static mp_obj_t machine_dac_stream(size_t n_args, const mp_obj_t *pos_args, mp_m
     }
     uint16_t *buf_a = machine_dac_stream_buf_a[self->ch];
     uint16_t *buf_b = machine_dac_stream_buf_b[self->ch];
+    if (!machine_dac_stop_stream(self)) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
+    }
+    /* Static buffers may still belong to an earlier invocation of stream_from.
+     * Quiesce that DMA before writing the new startup silence. */
     for (size_t i = 0; i < sample_count; ++i) {
         buf_a[i] = 2048U;
         buf_b[i] = 2048U;
-    }
-
-    if (!machine_dac_stop_stream(self)) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("DAC stop timeout"));
     }
     self->iq_stream = 1U;
     uint32_t pair_primask = 0U;
@@ -532,7 +542,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_dac_stop_obj, machine_dac_stop);
 static mp_obj_t machine_dac_playing(mp_obj_t self_in) {
     /* The legacy status path can clean up DMA state.  Do not let it touch a
      * DAC currently controlled by the paired autonomous transmitter. */
-    if (ra_tx_hw_owns_dac()) {
+    if (ra_tx_hw_owns_dac() || ra_dac_pair_is_owned()) {
         return mp_const_false;
     }
     machine_dac_obj_t *self = MP_OBJ_TO_PTR(self_in);

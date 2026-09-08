@@ -79,6 +79,9 @@
 #if MICROPY_HW_ENABLE_MEASUREMENT
 bool machine_measurement_deinit_all(void);
 #endif
+#if MICROPY_HW_ENABLE_IQ_GENERATOR
+bool machine_iq_generator_deinit_all(void);
+#endif
 #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
 bool machine_tx_deinit_all(void);
 #endif
@@ -505,6 +508,14 @@ soft_reset_exit:
     /* TX owns both DACs and the ADC trigger/vector.  It must release them before
      * legacy cleanup touches those registers or timer/GC state is discarded. */
     if (!machine_tx_deinit_all()) {
+        NVIC_SystemReset();
+        for (;;) {
+            __WFI();
+        }
+    }
+    #endif
+    #if MICROPY_HW_ENABLE_IQ_GENERATOR
+    if (!machine_iq_generator_deinit_all()) {
         NVIC_SystemReset();
         for (;;) {
             __WFI();

@@ -582,6 +582,35 @@ static void test_ssb_stopband_and_delay(void) {
     puts("PASS SSB stopband and matched I/Q delay: 3.5..5.5 kHz rejection, 127-sample group delay");
 }
 
+#include "test_tx_fm.inc"
+
+static void test_file_source_validation(void) {
+    const ra_tx_mode_t modes[] = {RA_TX_MODE_AM, RA_TX_MODE_USB, RA_TX_MODE_LSB, RA_TX_MODE_FM};
+    for (unsigned n = 0; n < sizeof(modes) / sizeof(modes[0]); ++n) {
+        ra_tx_config_t c = defaults(modes[n]);
+        c.file_source = true;
+        c.sample_rate_hz = ra_tx_mode_is_ssb(c.mode) ? RA_TX_SSB_RATE : 24000;
+        if (c.mode == RA_TX_MODE_FM) {
+            c.deviation_hz = 2500;
+            c.mic_gain = 100;
+        }
+        CHECK(ra_tx_core_validate(&c));
+        CHECK(ra_tx_uses_cpu(&c));
+        c.adc_mid = 2047;
+        CHECK(!ra_tx_core_validate(&c));
+        c.adc_mid = 2048;
+        c.sample_rate_hz = 44000;
+        CHECK(!ra_tx_core_validate(&c));
+    }
+    ra_tx_config_t c = defaults(RA_TX_MODE_CW);
+    c.file_source = true;
+    c.sample_rate_hz = 24000;
+    CHECK(!ra_tx_core_validate(&c));
+    c.mode = RA_TX_MODE_FM; /* raw-FM has no defined FILE audio conditioning */
+    CHECK(!ra_tx_core_validate(&c));
+    puts("PASS FILE configuration: AF rates/midpoint, CPU path, CW/raw-FM rejection");
+}
+
 int main(void) {
     test_validation();
     test_lut_contract();
@@ -594,6 +623,11 @@ int main(void) {
     test_ssb_sidebands();
     test_ssb_stream_continuity_and_limits();
     test_ssb_stopband_and_delay();
-    printf("PASS actual C TX core: 11 groups, %lu checks\n", checks);
+    test_voice_fm_validation_dc();
+    test_voice_fm_tone_and_level();
+    test_voice_fm_stream_limiter();
+    test_voice_fm_filter();
+    test_file_source_validation();
+    printf("PASS actual C TX core: 16 groups, %lu checks\n", checks);
     return 0;
 }

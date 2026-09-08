@@ -1,0 +1,71 @@
+ports/renesas-ra/tests/tx/test_sdr_tx_switch.py
+PASS R:AM/R:USB/R:LSB -> FILE TX, AF label, hidden/OFF feed, EOF drain, teardown
+PASS SDR TX switch: source contract, guards, ownership, rollback, labels, Si5351 RX/TX clocks
+Host-only mocks/AST; no LVGL runtime, target registers, analog output or RF verified.
+ports/renesas-ra/tests/tx/test_sdr_tx_home.py
+PASS HOME callbacks: mode/step/filter/keypad/arrows, deferred x1 clock, independent RX restore
+PASS MIC/real FILE selector, independent decoder/RF modes, FM offset, LOOP, prefill and AF label
+PASS clock/FILE/release/allocation/start failures, invalid choices: no fallback MIC or overlapping owner
+HOST ONLY: actual Python methods; touch/render, native device behavior and RF NOT VERIFIED.
+ports/renesas-ra/tests/tx/test_sdr_fm_controls.py
+PASS FM UI: separate controls, 0/100% TX level, rollback, RX restore and non-FM guards
+PASS FM persistence scheduling: no flash save in TX; deferred save after RX
+SDR saved: b'{"V": [[14205000, "USB"], [7100000, "LSB"], [30000000, "FM"]], "A": 0, "R": [1, 1, 1], "C": 17.76, "s": 1000, "v": 72, "a": "FAST", "f": 14205000, "m": "USB", "B": [6000, 6000, 2400, 2400, 500], "X": 0, "E": 1, "G": 1.0, "T": 0.5, "qe": 0, "qa": 1.0, "qp": 0.0, "txdev": 5000, "txmic": 1600, "txlevel": 100}'
+SDR saved: b'{"V": [[40000000, "USB"], [40000000, "USB"], [40000000, "USB"]], "A": 0, "R": [1, 1, 1], "C": -200.0, "s": 1000, "v": 72, "a": "SLOW", "f": 40000000, "m": "USB", "B": [6000, 6000, 2400, 2400, 500], "X": 0, "E": 1, "G": 64.0, "T": 0.5, "qe": 0, "qa": 1.5, "qp": -0.5, "txdev": 5000, "txmic": 1600, "txlevel": 100}'
+PASS FM dataflash record: roundtrip, old-record defaults and 512-byte bound
+PASS BACKEND: contextual route, FM callbacks, read-only other TX, BACK keeps TX, RX restore, failure cleanup
+Host-only actual Python methods; LVGL layout/touch, device and RF NOT VERIFIED.
+C:\Users\teodor\Desktop\stem\sdr\SDR_TRANCEIVER_RA6M3\tests\sdr_ui_contracts.py
+test_agc_cache_commits_only_after_live_backend_accepts (__main__.SdrUiContracts) ... ok
+test_app_start_rearms_active_synth_route (__main__.SdrUiContracts) ... ok
+test_backend_teardown_releases_iqadc_ownership (__main__.SdrUiContracts) ... ok
+test_direct_input_has_no_obsolete_gain_or_restart_surface (__main__.SdrUiContracts) ... ok
+test_si5351_rejects_unsupported_frequency_without_i2c_write (__main__.SdrUiContracts) ... ok
+test_source_contains_persistence_and_event_contracts (__main__.SdrUiContracts) ... ok
+test_tester_am_headroom_matches_fixed_unity_input (__main__.SdrUiContracts) ... ok
+test_verify_uses_fixed_visible_ids_and_preserves_raw_id_one (__main__.SdrUiContracts) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.399s
+
+OK
+C:\Users\teodor\Desktop\stem\sdr\SDR_TRANCEIVER_RA6M3\tests\sdr_navigation_source_contract.py
+SDR NAVIGATION SOURCE CONTRACT PASS
+C:\Users\teodor\Desktop\stem\sdr\SDR_TRANCEIVER_RA6M3\tests\sdr_tester_source_contract.py
+SDR TESTER SOURCE CONTRACT PASS
+ports/renesas-ra/tests/tx/run_host_tests.py
+Compiling actual ra_tx_core.c with: C:\msys_64\mingw64\bin\gcc.exe
+PASS validation: full 16-bit ADC midpoint/amplitude/offset domains and mode/rate/gain/ramp boundaries
+PASS bank contract: mode sizes, alignment/allocation bounds, CW no LUT, invalid calls preserve memory
+PASS AM: compact 4096-entry LUT, all ADC codes, calibration/headroom extremes and guards
+PASS FM planar LUT and SAR model: every 16-bit phase, I/Q planes, axis points and guards
+PASS FM bias and DOC model: all midpoint biases, 196608 ADC/phase cases, wrap and low-bit retention
+PASS CW ramps: every length 1..256, rising/falling/constant, exact endpoints, reversal and no-op
+PASS integer CW scaling: all lengths/shapes, symmetric rounding, DAC/full-word extremes and reversal
+PASS SSB validation/DC: fixed rate, both DAC headrooms, no LUT, biased-input priming and state guards
+SSB quantisation mean mode=3 Hz=2400 I=0.200000 Q=0.000000 DAC codes
+SSB quantisation mean mode=4 Hz=2400 I=0.200000 Q=0.000000 DAC codes
+PASS SSB actual C output: 56 USB/LSB tones 300..3000 Hz, worst image rejection 67.85 dB
+PASS SSB stream: arbitrary chunk boundaries identical, USB/LSB conjugate, restart, overdrive and DAC limits
+PASS SSB stopband and matched I/Q delay: 3.5..5.5 kHz rejection, 127-sample group delay
+PASS voice FM validation/DC: actual-rate guards, arbitrary bias, DC-step settling, carrier at silence
+PASS voice FM tones: 1 kHz, deviations 100/2500/4000/5000 Hz at three actual rates; independent DAC level
+PASS voice FM stream: arbitrary chunks, bias invariance, live phase continuity, limiter, ADC rails and restart
+PASS voice FM conditioning: 3-kHz Butterworth knee and 10-kHz rejection; no pre-emphasis claimed
+PASS FILE configuration: AF rates/midpoint, CPU path, CW/raw-FM rejection
+PASS actual C TX core: 16 groups, 7055977 checks
+Host C math/address-model tests only; target registers, ISR counts and RF are NOT VERIFIED.
+ports/renesas-ra/tests/tx/test_tx_af.py
+PASS TX FILE AF actual C: 1465 checks; wrap, exact modulator/trace samples, underrun, OFF, scales
+ports/renesas-ra/tests/rx/test_dac_chunks.py
+PASS actual C mono/paired queue, refill, wrap, scope, route lifecycle
+PASS 127532407 assertions; 99200 modeled DMA periods; producer sizes 5..128
+PASS source integration; target IRQ timing and analog output NOT VERIFIED
+
+Algorithm : SHA256
+Hash      : 77A174D221E5872179138C705BCEA50C562987AB694EEA26E3732D6E919658A6
+Path      : C:\Users\teodor\Desktop\stem\sdr\SDR_TRANCEIVER_RA6M3\sdr_single.py
+
+Algorithm : SHA256
+Hash      : 77A174D221E5872179138C705BCEA50C562987AB694EEA26E3732D6E919658A6
+Path      : C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\boards\VK_RA6M3\examples\sdr_single.py

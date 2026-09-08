@@ -35,6 +35,8 @@
 
 #define RA_IQ_ADC_MIN_BLOCK_SAMPLES (10)
 #define RA_IQ_ADC_MAX_BLOCK_SAMPLES (256)
+/* DAC transport size is independent of the ADC/DSP producer block. */
+#define RA_IQ_AUDIO_DMA_SAMPLES (512U)
 
 typedef struct {
     uint8_t initialised;
@@ -78,14 +80,9 @@ void ra_iq_adc_stop(void);
 bool ra_iq_adc_stop_checked(void);
 
 #if MICROPY_HW_ENABLE_MEASUREMENT
-#define RA_IQ_RAW_DATA_LOSS (1U)
-typedef void (*ra_iq_raw_consumer_t)(void *context, const uint16_t *a,
-    const uint16_t *b, size_t count, uint32_t flags, bool fatal);
+#include "ra_iq_capture.h"
 /* Attach while initialized and stopped. Runs instead of SDR processing;
  * checked deinit is the only detach operation. */
-bool ra_iq_adc_set_raw_consumer(ra_iq_raw_consumer_t consumer, void *context);
-bool ra_iq_adc_raw_owned(void);
-float ra_iq_adc_actual_rate(void);
 #endif
 
 /* Hands out the half that was completed last.  Returns false when no block is
@@ -296,6 +293,11 @@ void ra_iq_adc_file_stop(void);
 void ra_iq_adc_file_hold(void);
 void ra_iq_adc_file_detach(void);
 void ra_iq_adc_file_get_status(ra_iq_file_status_t *status);
+/* TX borrows the stopped receiver DSP, not its ADC/DTC. 48-kS/s IN or 24-kS/s
+ * MID/OUT SDRIQ becomes 24-kS/s AF in the existing ring; foreground service only. */
+bool ra_iq_adc_file_decode_begin(uint8_t demod, int32_t tune_hz);
+size_t ra_iq_adc_file_decode_service(void);
+bool ra_iq_adc_file_audio_next(uint16_t *sample, uint8_t decimation);
 
 /* Per-block ON/OFF for verification, block id 1..11 (INPUT..LIMITER).
  * Most enable=0 paths short the block to the next.  DECIM keeps the mandatory
@@ -342,6 +344,13 @@ uint8_t ra_iq_adc_get_demod(void);
  * (sample_rate_hz/2), sample_count is the decimated block length (block_samples/2).
  * Either pointer may be NULL. */
 void ra_iq_adc_get_audio_params(uint32_t *freq_hz, size_t *sample_count);
+
+/* DMAC-only whole-chunk gate.  Preserve a short queue until n samples exist;
+ * paired I/Q callbacks share one readiness decision, whichever channel runs first.
+ * On false the caller must emit n mid-scale samples without pulling either ring.
+ * The audio underrun counter includes these withheld DAC0 samples.  Do not mix
+ * read_audio() debug consumption with a running DMA consumer. */
+bool ra_iq_adc_audio_chunk_ready(uint8_t ch, size_t n);
 
 /* Generic SPSC consumer of the audio ring.  Pops n samples into buf; on an empty
  * ring writes 2048 (mid-scale silence) and counts an underrun so the stream never
@@ -438,6 +447,8 @@ uint32_t ra_iq_adc_spectrum_rebase(void);
 void ra_iq_adc_scope_enable(uint8_t on);
 void ra_iq_adc_scope_push(const uint16_t *samples, size_t n);
 bool ra_iq_adc_scope_frame(const int16_t **samples, size_t *n);
+/* Exclusive TX monitor loan; refused while RX owns ADC or its scope is enabled. */
+bool ra_iq_adc_scope_workspace(int16_t **first, int16_t **second, size_t *n);
 
 /* Per-block scope ROUTING to the two DACs (distinct from ra_iq_adc_scope_push,
  * which CAPTURES what the DAC plays; this routes a chosen DSP block OUT to the

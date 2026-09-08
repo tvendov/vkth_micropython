@@ -1,4 +1,4 @@
-/* Floating-point work runs at setup; key-edge scaling uses integer math. */
+/* Float only at setup; sample processing and live FM updates use integer math. */
 #include <math.h>
 #include <string.h>
 
@@ -15,14 +15,27 @@ static void ra_tx_core_put_u16(uint8_t *where, uint16_t value) {
 
 bool ra_tx_core_validate(const ra_tx_config_t *config) {
     if (config == NULL || config->sample_rate_hz < 8000U || config->sample_rate_hz > 48000U
-        || config->amplitude == 0U || config->adc_mid == 0U || config->adc_mid >= RA_TX_DAC_MAX
+        || (config->amplitude == 0U && !ra_tx_is_voice_fm(config))
+        || config->adc_mid == 0U || config->adc_mid >= RA_TX_DAC_MAX
         || config->i_zero > RA_TX_DAC_MAX || config->q_zero > RA_TX_DAC_MAX
         || config->ramp_samples == 0U || config->ramp_samples > RA_TX_MAX_RAMP_SAMPLES
         || (config->fm_gain != 1U && config->fm_gain != 2U)) {
         return false;
     }
+    if (config->deviation_hz != 0 &&
+        (config->mode != RA_TX_MODE_FM || config->deviation_hz < 100U ||
+        config->deviation_hz > 5000U || config->mic_gain > 1600U ||
+        2U * (config->deviation_hz + 3000U) >= config->sample_rate_hz)) {
+        return false;
+    }
 
     uint32_t amplitude = config->amplitude;
+    if (config->file_source && (config->adc_mid != 2048U || config->mode == RA_TX_MODE_CW ||
+        (ra_tx_mode_is_ssb(config->mode) ? config->sample_rate_hz != RA_TX_SSB_RATE :
+         config->sample_rate_hz != 24000U) ||
+        (config->mode == RA_TX_MODE_FM && !ra_tx_is_voice_fm(config)))) {
+        return false;
+    }
     switch (config->mode) {
         case RA_TX_MODE_CW:
             return amplitude <= RA_TX_DAC_MAX - config->i_zero;
@@ -67,6 +80,26 @@ size_t ra_tx_core_lut_alignment(const ra_tx_config_t *config) {
     return 1;
 }
 
+static bool tx_build_iq_lut(uint8_t *bank, size_t bytes, int32_t magnitude,
+    int32_t i_zero, int32_t q_zero) {
+    if (bank == NULL || bytes < RA_TX_FM_LUT_BYTES) {
+        return false;
+    }
+    for (uint32_t index = 0; index < 256U; ++index) {
+        float angle = (2.0f * RA_TX_PI_F * (float)index) / 256.0f;
+        int32_t i_code = i_zero + lroundf(magnitude * cosf(angle));
+        int32_t q_code = q_zero + lroundf(magnitude * sinf(angle));
+        /* I and Q occupy separate 512-byte planes, including for the DTC path. */
+        ra_tx_core_put_u16(bank + 2U * index, (uint16_t)i_code);
+        ra_tx_core_put_u16(bank + 0x200U + 2U * index, (uint16_t)q_code);
+    }
+    return true;
+}
+
+bool ra_tx_core_build_iq_lut(uint8_t *bank, size_t bytes) {
+    return tx_build_iq_lut(bank, bytes, 32767, 0, 0);
+}
+
 bool ra_tx_core_build_lut(const ra_tx_config_t *config, uint8_t *bank, size_t bytes) {
     if (!ra_tx_core_validate(config)) {
         return false;
@@ -91,15 +124,8 @@ bool ra_tx_core_build_lut(const ra_tx_config_t *config, uint8_t *bank, size_t by
             ra_tx_core_put_u16(bank + 2U * adc, (uint16_t)(config->i_zero + envelope));
         }
     } else {
-        for (uint32_t index = 0; index < 256U; ++index) {
-            float angle = (2.0f * RA_TX_PI_F * (float)index) / 256.0f;
-            int32_t i_code = (int32_t)config->i_zero + lroundf(config->amplitude * cosf(angle));
-            int32_t q_code = (int32_t)config->q_zero + lroundf(config->amplitude * sinf(angle));
-            /* Planar layout keeps the DTC address builder short: I occupies
-             * the first 512 bytes and Q the second 512 bytes. */
-            ra_tx_core_put_u16(bank + 2U * index, (uint16_t)i_code);
-            ra_tx_core_put_u16(bank + 0x200U + 2U * index, (uint16_t)q_code);
-        }
+        return ra_tx_is_voice_fm(config) ? ra_tx_core_build_iq_lut(bank, bytes) :
+               tx_build_iq_lut(bank, bytes, config->amplitude, config->i_zero, config->q_zero);
     }
     return true;
 }
@@ -147,6 +173,110 @@ uint16_t ra_tx_core_fm_bias(const ra_tx_config_t *config) {
         return 0;
     }
     return (uint16_t)(0U - (uint32_t)config->fm_gain * config->adc_mid);
+}
+
+static int32_t tx_fm_round(int64_t value, unsigned bits) {
+    int64_t half = (int64_t)1 << (bits - 1U);
+    return (int32_t)(value >= 0 ? (value + half) >> bits : -((-value + half) >> bits));
+}
+
+uint32_t ra_tx_core_fm_step(uint32_t clock_hz, uint32_t period, uint16_t deviation_hz) {
+    /* Validate the actual timer ratio, not just the requested rate. This margin
+     * is a rate/voice-band guard, not a guarantee of RF spectral compliance. */
+    if (clock_hz == 0 || period == 0 || period > 65536U ||
+        deviation_hz < 100U || deviation_hz > 5000U ||
+        2ULL * (deviation_hz + 3000U) * period >= clock_hz) {
+        return 0;
+    }
+    return (uint32_t)((((uint64_t)deviation_hz * period << 32) + clock_hz / 2U) / clock_hz);
+}
+
+bool ra_tx_core_fm_reset(ra_tx_fm_state_t *state, const ra_tx_config_t *config,
+    uint32_t clock_hz, uint32_t period) {
+    if (state == NULL || !ra_tx_core_validate(config) || !ra_tx_is_voice_fm(config)) {
+        return false;
+    }
+    uint32_t step = ra_tx_core_fm_step(clock_hz, period, config->deviation_hz);
+    if (step == 0) {
+        return false;
+    }
+    memset(state, 0, sizeof(*state));
+    state->max_step = step;
+    float fs = (float)clock_hz / period;
+    state->dc_alpha = lroundf((1.0f - expf(-2.0f * RA_TX_PI_F * 30.0f / fs)) * 1073741824.0f);
+    float w = 2.0f * RA_TX_PI_F * 3000.0f / fs;
+    float cosine = cosf(w), alpha = sinf(w) * 0.70710678118f;
+    float norm = 1.0f / (1.0f + alpha);
+    state->b0 = lroundf((1.0f - cosine) * 0.5f * norm * 268435456.0f);
+    state->b1 = 2 * state->b0;
+    state->b2 = state->b0;
+    state->a1 = lroundf(-2.0f * cosine * norm * 268435456.0f);
+    state->a2 = lroundf((1.0f - alpha) * norm * 268435456.0f);
+    return true;
+}
+
+static int32_t tx_fm_lut(const uint8_t *plane, unsigned index) {
+    unsigned code = (unsigned)plane[2 * index] | ((unsigned)plane[2 * index + 1] << 8);
+    return code >= 32768U ? (int32_t)code - 65536 : (int32_t)code;
+}
+
+static uint16_t tx_fm_output(const uint8_t *plane, uint32_t phase, uint16_t zero, uint16_t amplitude) {
+    unsigned index = phase >> 24;
+    int32_t first = tx_fm_lut(plane, index);
+    int32_t next = tx_fm_lut(plane, (index + 1U) & 255U);
+    int32_t wave = first + tx_fm_round((int64_t)(next - first) * ((phase >> 8) & 65535U), 16);
+    return (uint16_t)(zero + tx_fm_round((int64_t)wave * amplitude, 15));
+}
+
+void ra_tx_core_iq_sample(const uint8_t *lut, uint32_t phase,
+    uint16_t i_zero, uint16_t q_zero, uint16_t amplitude,
+    uint16_t *i_code, uint16_t *q_code) {
+    *i_code = tx_fm_output(lut, phase, i_zero, amplitude);
+    *q_code = tx_fm_output(lut + 512, phase, q_zero, amplitude);
+}
+
+void ra_tx_core_fm_sample(ra_tx_fm_state_t *state, const ra_tx_config_t *config,
+    const uint8_t *lut, uint16_t adc, uint16_t *i_code, uint16_t *q_code) {
+    /* Called only with a prepared context/validated config and immutable LUT.
+     * First input primes DC, suppressing startup from arbitrary microphone bias.
+     * This does not reset phase or history at later buffer/control boundaries. */
+    if (adc >= RA_TX_DAC_MAX || adc == 0) {
+        ++state->adc_rails;
+        if (adc > RA_TX_DAC_MAX) {
+            adc = RA_TX_DAC_MAX;
+        }
+    }
+    int32_t input = (int32_t)adc * 4096;
+    if (!state->primed) {
+        state->dc = input;
+        state->primed = true;
+    }
+    state->dc += tx_fm_round((int64_t)(input - state->dc) * state->dc_alpha, 30);
+    int32_t x = input - state->dc;
+    int32_t y = tx_fm_round((int64_t)state->b0 * x + (int64_t)state->b1 * state->x1 +
+        (int64_t)state->b2 * state->x2 - (int64_t)state->a1 * state->y1 -
+        (int64_t)state->a2 * state->y2, 28);
+    state->x2 = state->x1;
+    state->x1 = x;
+    state->y2 = state->y1;
+    state->y1 = y;
+    int32_t audio = (int32_t)((int64_t)y * config->mic_gain / 100);
+    const int32_t limit = 2048 * 4096;
+    if (audio > limit || audio < -limit) {
+        audio = audio > 0 ? limit : -limit;
+        ++state->clips;
+    }
+    state->last_audio = (int16_t)tx_fm_round(audio, 12);
+    unsigned peak = state->last_audio < 0 ? -state->last_audio : state->last_audio;
+    if (peak > state->audio_peak) {
+        state->audio_peak = peak;
+    }
+    int32_t delta = tx_fm_round((int64_t)audio * state->max_step, 23);
+    state->phase += (uint32_t)delta;
+    /* Linear interpolation improves phase resolution without increasing LUT RAM.
+     * Output level never enters the phase/deviation calculation. */
+    ra_tx_core_iq_sample(lut, state->phase, config->i_zero, config->q_zero,
+        config->amplitude, i_code, q_code);
 }
 
 void ra_tx_core_ssb_reset(ra_tx_ssb_state_t *state) {

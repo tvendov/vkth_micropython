@@ -1,0 +1,1451 @@
+# RA6 SDR next steps
+
+Постоянно правило от 2026-09-07: **след всяка работна итерация** се обновяват
+този файл и `ra6m3_done.md`, без напомняне. Тук се поддържат оставащите задачи,
+приоритетите и пречките; в done — действително направеното и проверките.
+
+## Текущ приоритет — 2026-09-08: контекстен TX HOME, първи етап
+
+По последното искане започна промяна на UI потока. Това заменя предходната
+забрана за UI промени по-долу, но НЕ включва оптимизация на render-а,
+нов framebuffer или промяна на аудиобуферите. Текущата итерация е локална:
+източник + host тестове + Git; няма build, качване, COM или J-Link.
+
+| Контрола / задача | Направено в този етап | Остава / критерий за приемане |
+| --- | --- | --- |
+| HOME заглавие | `SDR TRANSMITTER` при TX, старото заглавие при RX | Физически layout/touch тест на 480×272 |
+| Централен бутон | `модулация / FIX / стъпка`; отваря съществуващия долен ред | `FIX` е фиксиран native TX филтър, НЕ действащ RX избор |
+| Модулация | AM/USB/LSB/FM през отложен checked stop/configure/start | Многократни преходи на платката; CW key-up не се предлага като HOME audio TX |
+| Честота | Keypad, << / >> и - / + командват TX Si5351 ×1 | Измерване на CLK и аналогов I/Q след смяна; това е прекъсвано пренастройване |
+| Стъпка | Същата долна контрола работи и в TX | Физически hold/repeat; заявки по време на зает worker не се трупат |
+| Източник вместо AGC | MIC и наличните R:AM/R:USB/R:LSB/R:FM | HIL: източникът се сменя без преминаване през RX VERIFY |
+| FILE срещу RF модулация | Декодиращият режим, точката, rate и offset са отделни от TX режима | Проверка R:AM→USB, R:USB→AM, R:FM→AM; FILE рестартира отначало при reconfigure |
+| FILE LOOP / BACK | Запазва избрания LOOP; подава данни и докато заявката чака worker | Продължителен тест през менюта, OFF/ON и край на файл |
+| Осцилоскоп | Запазен native AF; надпис MIC или R:... | Проверка на реалната форма и DAC, не само надпис/host mock |
+| Ляв спектър | Не се предлага RX RF скала/превключване в TX; native TX вече изчиства RX кадъра | Истински TX FFT/спектър е отделна задача |
+| HOME/BACKEND gain | FM MIC/DEV/LEVEL остават работещите native контроли; FILE текстът е контекстен | AM/SSB live level/depth/AF gain и настройваем TX филтър още не са внедрени |
+| Връщане RX | Запазени и възстановени mode/frequency/step; VFO записите не се променят от TX | HIL на нормален изход и отказ; clock restore преди RX ADC |
+| Откази | Host покрива clock/FILE/release/constructor/start; няма скрит MIC fallback | Реални fault tests и повторен AM allocation отказ |
+| Документи/Git | Каноничните два дневника се обновяват; точни snapshots в firmware Git | Не са независими дневници; при следващ commit snapshots се синхронизират |
+
+Следващ ред:
+1. След разрешение — качване само на приложението и кратка цифрова/визуална
+   HOME проверка; тестовете остават в RAM. Преди евентуален firmware build
+   проверка на общия build профил: RadioOnly, OpenCV OFF, без LAB.
+2. AM/SSB native контроли и проверен headroom; да не се отключва RX VOL
+   срещу несъществуващ TX setter. Генераторен AF вход остава отделно от RX GEN.
+3. Многорежимен FILE soak, AM LUT allocation и SSB clips от предходния отчет.
+4. Аналогови CLK/I/Q и RF проверки. Host PASS не ги замества.
+
+## Предходен приоритет — 2026-09-08: AM/SSB/FM I/Q и Si5351
+
+Потребителят отложи UI оптимизацията: интерфейсът не се променя; кратки
+отклонения при преход между екрани са допустими. Това не разрешава
+недостиг на аудио или ограничаване на сигнала в установен TX режим.
+
+- [x] Отделен свеж старт за R:AM, R:USB, R:LSB и R:FM; по 20 s HOME и
+  10 LOOP обиколки. Без file underruns и без DSP deadline misses. AF кадрите
+  напредват. Това е цифров тест, не измерване на аналоговите I/Q изходи.
+- [x] CLK1 регистров план при 3.500 MHz: AM RX 14.012, SSB RX 14.000,
+  FM RX 14.024 MHz; TX 3.500 MHz за всички; възстановяване на RX PASS.
+  FILE FM decoder NCO е -6000 Hz и не се прибавя към TX носещата.
+- [ ] USB/LSB FILE ниво: и двата файла добавят 80 DSP clips за 20 s;
+  първо да се интегрира/провери запасът преди limiter, без UI промяна.
+  Предходната RAM проба с 75% е диагностична, не качена поправка.
+- [ ] Синтетичен вход към TX: текущият RX TESTER GEN се блокира от
+  `_tx_guard_error`. Да се осигури тест през коректно предаване на ресурси,
+  не чрез премахване на защитата. Host синтетичните C проверки са PASS,
+  но не доказват генераторен вход през приложението на платката.
+- [ ] Аналогови измервания: CLK честота, AM дълбочина/насищане, USB/LSB
+  знак и потискане на образа, FM девиация/непрекъсната фаза/IQ радиус.
+  После реалните файлове през външния модулатор. Без отделен микрофонен
+  тест на този етап; при FILE микрофонът не е източникът.
+- [ ] Многорежимен R:FM преход в една сесия и повторен AM start остават
+  отделни lifecycle проверки. Свежият FM PASS не затваря стария отказ.
+
+Всички четири HIL теста са само в RAM, с normal J-Link reset след всеки.
+Няма build, flash, редакция на UI или постоянни параметри. Подробностите
+и имената на протоколите са в done, запис от 2026-09-08.
+
+## Предходен приоритет, потвърден от потребителя на 2026-09-07
+
+Редът е **Si5351 TX clock → 1 → 2 → 3 → 5** от последния статус:
+
+0. Съгласуване на TX множителя с текущия външен модулатор. Същият Si5351
+   CLK се препрограмира след спирането на RX и преди TX; при връщане се
+   възстановява RX LO с неговия множител преди старта на ADC. TX не използва
+   RX low-IF/NCO. Потребителят потвърди TX ×1 спрямо RX ×4 с „ок“.
+   Качването и регистровата проверка за AM/USB/LSB/FM са PASS; остава
+   физическата проверка на CLK/външен модулатор в т. 5.
+1. Началният FILE audio underrun е поправен и Python вариантът е качен.
+   AM/USB/LSB в HOME: по 7 LOOP обиколки, по 3 OFF/ON на scope и връщане
+   RX — 0 startup/steady underruns. Краткият RAM вариант мина и за FM.
+   Това НЕ затваря отделните menu/повторен AM start проблеми от т. 3.
+2. Ограничаване при USB/LSB: причината е възпроизведена с C decoder AF
+   capture + действителния C TX core на host. 16 ограничения/3 s при пик
+   2367 > 2048; DAC кодовете са 1248..2848, не крайни 0/4095. Да се провери
+   FILE headroom преди decoder limiter, без прикриване/нулиране на clips.
+   RAM probe с 75% на съществуващия decoder volume е PASS: AF 405..3584,
+   0 rails/SSB clips за 3 s и при двата файла. Остава интеграция с отделна
+   проверка на FILE/MIC нивата; тази настройка НЕ е качена във firmware.
+3. Продължителен FILE LOOP, менюта/OFF/ON, EOF и RX↔TX: НЕ е затворено.
+   HOME AM/USB/LSB + scope OFF/ON са PASS; свеж AM ONCE/EOF→RX е PASS.
+   Оставащите дефекти:
+   - Menu redraw до 73.432 ms надвишава 64-ms prefill. Само нов Python
+     timer или checkpoints не са достатъчно решение. Да се осигури и
+     измери времеви резерв за целия render, с преизползване на наличната RAM.
+   - Повторен AM start може да откаже на 16383-B LUT allocation. Да се
+     прегледа защо CPU FILE-AM изисква DTC alignment/таблица и дали може
+     да използва същата аритметика без динамична LUT; MIC DTC да се запази.
+   - Разширеният R:FM handoff остава на TESTER guard; да се провери с
+     правилния FILE NCO -6000, без тестът да го презаписва с нула.
+5. Физическо измерване на I/Q DAC и външния модулатор за AM/SSB/FM.
+
+Точка 4 (микрофонен тест) е отложена по този ред. За т. 5 са нужни
+свързаната схема и достъпни измервания; цифровите броячи не я заместват.
+
+## Допълнение: общ LAB ADC/DAC адаптер, 2026-09-08
+
+Тази LAB стъпка не променя потвърдения SDR приоритет по-горе.
+
+- [x] `ra_lab_session_hw`: общ собственик на ADC и двата DAC,
+  една IQ фаза/таблица, директно двуплоскостно попълване и общ отказ
+  към RMS. Логическите резервации се запазват при частичен стоп.
+- [x] 82 C групи, 53 проверки на портовите резервации, 291 на DMA
+  обработчика, 43 статични проверки, осем ARM обекта и LAB build PASS.
+  Регистрите и периферните функции в host тестовете са заместители.
+- [ ] Общ хардуерен такт и ADC проба след установяване на DAC.
+  Днешният адаптер използва два отделни AGT таймера и не е синхронен.
+- [ ] Python слой с две логически роли, защитени препратки и проверен
+  рестарт; да се докаже запазване на новия адаптер в крайния ELF.
+  Засега `ra_lab_session_hw_init/poll` са само в компилирания обект.
+- [ ] Физическа проверка след разрешение: форми, фаза, времеви резерв,
+  ADC/DAC връзка, стоп на граница на блок и 100 старта.
+- [ ] Преди следващо радио качване: изричен RadioOnly профил и
+  прекомпилация/проверка на общите артефакти. LAB build приключи на
+  08.09, 12:04:07 UTC; не е качван. Не се стартира паралелен build.
+
+Подробности: `sdr_lab/SESSION_HW_API.md`, `plan.md` и `done.md`.
+
+## Допълнение: IQ в общата C сесия, 2026-09-07 (история)
+
+- [x] C Session версия 2 приема MONO или IQ източник върху същия
+  MeasurementEngine; обща I/Q заявка и отказ към всички RMS потребители.
+  72 LAB C групи, GCC анализ, ARM обекти и 34 статични проверки PASS.
+- [ ] Реален общ ADC/DAC адаптер: един собственик, една IQ фаза/таблица,
+  използване на готовия DAC пренос, свързване към
+  `ra_lab_session_output_fail`, общо начало и отложена ADC проба след
+  установяване на изхода. Засега периферният адаптер на сесията е тестов.
+- [ ] Преди LAB firmware/хардуерен етап: нова компилация с LAB и
+  проверка на конфигурацията. ELF вече не съвпада с предходния IQ
+  отчет, а SDR разделът по-долу отчита отделен RadioOnly build.
+  Тази C итерация не е компилирала или качвала firmware.
+
+## Допълнение: самостоятелен LAB IQGenerator, 2026-09-07
+
+Кодът, host проверките и пълният LAB build с IQGenerator са готови;
+`sdr_lab/build/iq_firmware_audit.json` е PASS. Това не отменя реда на
+SDR задачите по-долу и не е качване на образа на платката.
+
+- [ ] След отделно разрешение: физическа проверка на DAC0/P014=I и
+  DAC1/P015=Q, начални DC преходи, честота, 90 градуса и граници на
+  буферите. Подготовката включва средните нива преди общия AGT старт.
+- [ ] Измерване на времевия резерв, общ стоп/отказ, 100 цикъла и
+  натоварен дисплей. Текущият контрол изисква постоянни часовници и
+  ненулиран DWT; софтуерните броячи не доказват физически изход.
+- [ ] Отделен следващ LAB етап: общ ADC/DAC собственик, установяване
+  преди ADC пробата, общ индекс и обезсилване на измерването при DAC
+  отказ. Синхронна DAC двойка сама по себе си не синхронизира ADC.
+- [x] Преди RadioOnly build/deployment: изрично избиране на
+  конфигурацията и повторна компилация на зависимите обекти в същия
+  `build-VK_RA6M3`, без паралелен build. Изпълнено на 2026-09-07 за TX AF:
+  текущият архивиран и качен образ е RadioOnly, OpenCV OFF, без LAB
+  Measurement/IQGenerator. При следваща смяна на профила повторната
+  компилация остава задължителна. LAB build скриптовете не качват firmware.
+
+Интерфейс, ограничения и пълни критерии: `sdr_lab/IQ_GENERATOR_API.md`,
+`sdr_lab/plan.md`, `sdr_lab/done.md`. Няма нови UI или PWM функции.
+
+## Актуални следващи задачи — 2026-09-07: FM предаване
+
+Този раздел е текущият план. Текстът след „Исторически план“ е запазен като
+история от 2026-08-22; старите му твърдения за липсващи режими, AGC и UI
+интеграция не описват състоянието на днешния код.
+
+Отправна версия: commit `200b8d43c0a36c7848241be4e0d020d4a2fc5951`,
+анотиран таг `vk-ra6m3-ssb-tx-opencv-off-pre-fm-v1`.
+Checkpoint-ът и анализът са завършени. **FM-A/B: C обработката, контекстният
+HOME/BACKEND интерфейс, хост тестовете и OpenCV OFF build са готови.
+Качването, readback и краткият FM/HOME/BACKEND цифров тест са завършени.
+Физически touch, продължителен тест и аналогово/RF потвърждение още липсват.**
+
+Статус след прекъсване на 2026-09-07: deployment процесът е завършил с
+`FM_DEPLOY_READBACK_PASS` и J-Link reset (`AIRCR.SYSRESETREQ`). Потребителят
+уточни правилото: **тестови скриптове не се записват във flash в тази задача**.
+Следващите проверки се изпълняват само в RAM/REPL, без нов flash и без
+добавяне към boot/main. Последващо изрично указание: **след всеки тест се
+изпълнява J-Link reset**, не MicroPython Ctrl-D. Локалните manifests показват само обновени
+`sdr_single.mpy` и `sdr_single.py.source` и запазени предишни копия; тестови
+файлове не са добавяни. Общият конфигуриран heap е 290 816 B; свободният heap
+при зареден UI е измерен отделно: след GC free66 400 B / allocated217 696 B,
+сбор284 096 B. Основният FM RAM тест мина; след всяка от двете проверки е
+изпълнен J-Link reset. Тестови файлове не са записвани на платката.
+Подробностите и границите на проверките са в [ra6m3_done.md](ra6m3_done.md).
+
+Изискване, уточнено на 2026-09-07: **и HOME плъзгачите, и BACKEND са контекстни**.
+SDR -> меню PLL/VFO + CAL -> долният BACKEND отваря RX VERIFY при RX и
+TX BACKEND при TX. Не се добавя втори вход за TX настройки. BACK затваря
+настройките, без да спира предаването; RX стойностите и избраният плъзгач се пазят.
+
+### Ред за изпълнение
+
+- [x] **TX AF от MIC и FILE — код и хост проверки, 2026-09-07.**
+  Изискването включва и двата източника: при FILE записът заменя MIC изцяло.
+  Осцилоскопът показва аудиото преди TX модулацията, с надпис `AF MIC`,
+  `AF R:AM`, `AF R:USB` или `AF R:LSB`. Не показва стар RX кадър
+  или суровите I/Q от файла като аудио.
+  - MIC: пасивен DMAC snapshot от действителния TX ADC; автономният
+    AM/raw-FM DTC модулатор не се заменя с CPU само заради дисплея.
+  - FILE: съществуващият RX DSP декодира SDRIQ без собственост върху ADC.
+    AGT консумира полученото AF и подава една и съща стойност към monitor
+    и TX модулатор. MIC ADC не се стартира; при недостиг има тишина,
+    не автоматично връщане към микрофона.
+  - Преизползват се scope `2×512×int16 = 2048 B` и съществуващият audio ring;
+    няма нов framebuffer. Времевият мащаб отчита sample rate, вертикалният
+    остава фиксиран. При смяна на собственик/източник старата следа се чисти.
+  - В TX докосването сменя AF/OFF; OFF и отваряне на меню спират само
+    наблюдението. Независим 20-ms timer обслужва FILE и при скрити графики.
+    RX запазва TIME/I-Q/OFF. При keyed CW няма AF; показва се `AF --`.
+  - Избира се активен FILE в RX TESTER, после TX. Записът се отваря отначало
+    със същите path, input point, rate и LOOP. ONCE изчаква аудио опашката
+    и заявява проверено връщане в RX. Режимът на записа определя декодера,
+    избраната TX модулация определя изхода. FILE към keyed CW е отказан.
+  - Хост проверки: R:AM/USB/LSB handoff, надпис, prefill, OFF/меню, EOF;
+    actual-C AF queue/capture/renderer тестове. Това НЕ доказва реалното
+    декодиране/чуване на файловете, target timing или физическия I/Q изход.
+
+- [x] **TX AF — RadioOnly build, качване/readback и кратък FILE HIL.**
+  На 2026-09-07: общата build директория, OpenCV OFF, `-j16`, heap 281600 B.
+  Firmware SHA256 `a440c435a65fd6d76c1806ce6bebcead9119fba0823ba012055a10807d218ed6`.
+  Поправен `BYTEARRAY_TYPECODE` в `machine_tx.c`; действителните bytearray
+  буфери вече се приемат. В първото AF-only качване TX clock промяната
+  беше изключена. След изричното потвърждение е качен TX ×1 и е проверен
+  регистрово; последващият Python FILE-start fix също е качен. Актуалният
+  артефакт е `backups/tx-file-start-1120000058-20260907-205209`, не старият
+  AF-only Python. C firmware остава със SHA256, посочен по-горе.
+  R:AM/USB/LSB от `/flash/iqbank/*48.sdriq`, IN, LOOP: успешен RX→TX→RX,
+  надписи `AF R:*`, нови AF кадри и непостоянни sample стойности. AF изходът
+  е 24 kS/s за AM и 12 kS/s за USB/LSB. OFF спира monitor, не FILE DSP;
+  повторното включване възстановява новите кадри. Краткият RAM-only HIL
+  е PASS; след него J-Link reset. Няма тестови файлове във flash.
+
+- [ ] **TX AF — начални underrun, продължителен FILE и MIC HIL.**
+  Краткият FILE тест НЕ е безусловен zero-underrun/zero-clip PASS:
+  при установяването са натрупани 471 AM и 406 LSB FILE underruns, USB 0.
+  След началното изчакване няма нови през измерените 3 s за всеки запис.
+  USB и LSB status показват по 16 DSP clips; да се разграничат преходът и
+  устойчивият сигнал и да се измери нивото. AF monitor тестът не ги решава.
+  - Да се изследва времето между prefill, TX start, UI обновяване и първи
+    FILE service. Приемане: повторяем старт без загубени AF samples при
+    нормален UI; недостигът остава видим, не се маскира с MIC fallback.
+  - Допълнително: 24-kS/s MID/OUT файлове, voice-FM FILE и записен NCO.
+  - LOOP дълъг run; ONCE/EOF/грешка; refill под GC и натоварено UI;
+    липса на MIC fallback и контролирано връщане в RX.
+  - MIC тон/тишина/ниво, реално отваряне на меню и физически touch.
+    Да се измери целият FILE IRQ (включително ring/scope), DSP и refill margin.
+    Съществуващият DSP брояч сам не включва целия FILE callback.
+  - Да се провери наличен DMAC ресурс за MIC snapshot, съвместимост с AM DTC,
+    bounded teardown и повторно включване след грешка.
+  - Отделно: физически MIC/IQ DAC измервания и RF AM/SSB/FM оценка.
+    Без такава проверка не се обявява работещ аналогов/RF тракт.
+- [x] RX DAC порции по 512 семпъла — C промяна и хост тестове на 2026-09-07.
+  ADC/DSP остава 128 сурови / 64 обработени семпъла при номинални 48/24 kS/s.
+  DAC консумира отделни порции по 512: 46,875 callbacks/s вместо 375.
+  Ring буферите са по 2048 позиции; mono и I/Q изчакват цяла порция.
+  Статичните масиви растат с 9216 B; резервираният heap е намален явно
+  от 290 816 на 281 600 B. Стекът и директният framebuffer не се променят.
+  Хост симулацията мина 99 200 DMA периода. Финалният shared build мина
+  с OpenCV OFF и -j16; map потвърди heap 281 600 B и guard 1296 B.
+  Качена и прочетена обратно на 2026-09-07; Python и целият външен flash
+  са запазени. RAM-only HIL за mono/IQ, GEN/ADC и R:AM LOOP мина.
+- [x] RX DAC 512 — качване и RAM-only проверки на старт, TESTER/FILE handoff,
+  mono/IQ превключване и underrun/overrun. Измерени DMA презареждания
+  46,875 Hz на DAC0/DAC1, 21,333 ms на порция. R:AM LOOP върху HOME:
+  над 10 повторения на двусекундния тестов запис,
+  без нови FILE/audio underrun и ring overrun след началното установяване.
+  Началните и преходните неутрални порции са отчетени отделно в done.
+- [ ] RX DAC 512 — продължителен тест, аналогов изход, IRQ време и CPU товар.
+  Да се изследват началните FILE underruns (3 в краткия тест) и закъснението
+  при смяна на източник; успешният steady-state тест не ги изключва.
+  21,333 ms е номиналният период на порцията, не общата аудио латентност.
+  Двата начални неутрални DMA буфера дават поне 42,667 ms до първите
+  полезни семпли; изчакването на цяла порция може да добави още един период.
+  След всеки тест на платката — J-Link reset. Без тестови файлове във flash.
+- [ ] REPL — дълги команди при работещ RX губят байтове. В тази итерация
+  тестовият код беше зареден само в RAM при спрян RX, с echo и SHA-256
+  проверка преди изпълнение. Причината и сравнение с предходния firmware
+  остават неизмерени; не е основание да се обяви UART или DAC за поправен.
+  При TX AF качването проблемът се повтори и с raw-paste; първите пет
+  опита приключиха преди flash запис. Използван е проверен еднократен
+  SAFE_MODE чрез RAM reset_mode при breakpoint преди boot.py. Това не
+  променя boot/main или flash и не е поправка на UART. След теста — нормален
+  J-Link reset. Процедурата и точният артефакт са записани в done.
+- [ ] AM/SSB към външен модулатор — проверката да използва **синтетичен вход,
+  не микрофон**. На 2026-09-07 реалният C core мина хост тестовете, но хардуерният
+  IQTX още чете P001; няма native SYNTH source. Да се подава преди AM LUT/SSB
+  филтрите, без reset на състоянието между порциите и без заобикаляне на DSP.
+  RX TESTER/FILE guard не се маха самостоятелно; той пази ownership.
+- [x] TX clock — потребителят потвърди ×1 за текущата връзка. Python промяната
+  е качена отделно, без C firmware rebuild. Регистровият RAM тест потвърди
+  същия CLK1: RX AM 14.012 MHz / SSB 14.000 MHz / FM 14.024 MHz → TX
+  3.500 MHz → съответния RX план. TX не наследява RX low-IF/NCO.
+  Това не прави ×1 универсално за друг модулатор; при бъдещ QSE с делител
+  /2 или /4 множителят се съгласува отново. Реална CLK/RF честота не е измерена.
+- [ ] AM/SSB електрическа проверка — TX P014=I/P015=Q е с DAAMPCR=0,
+  за разлика от RX аудио DAC, който включва вътрешния буфер. Да се съгласуват
+  товарът, DC нивата, двата възстановяващи филтъра и I/Q закъснението.
+  AM носещата е DC над i_zero и не трябва да се премахва с AC-свързване.
+  RF страничната лента и качеството не са доказани с цифровите тестове.
+- [ ] AM/SSB контроли — native amplitude800 се задава по подразбиране;
+  live MIC/TX LEVEL в UI сега работят само за FM. Нужно е истинско управление
+  на тестовото ниво/AM дълбочина и калибровка за избрания външен модулатор.
+- [x] UI план — коригиран по изричното решение: **оставаме с LVGL, без
+  нова графична библиотека или собствен renderer/widgets/touch engine**.
+  Избрани: стандартни LVGL файлови RGB565 images с частично декодиране,
+  по-малко декоративни обекти и само необходимите активни менюта/контроли.
+  Подробно: [ui_memory_alternatives_plan.md](ui_memory_alternatives_plan.md).
+  Пазим редактируем Python, OpenCV OFF, 12/4 MiB и един RGB565 framebuffer.
+- [ ] UI прототип — след базовото измерване: стандартен LVGL image и после
+  един панел със стандартни LVGL контроли и ресурси от външния flash.
+  Проверка на LVGL filesystem bridge, row decoder, cache и draw backend. Няма разрешение от
+  тази планова итерация за нов flash, промяна на boot/main или layout на паметта.
+- [ ] UI/RAM — да се разграничат приемателните условия: един основен директен
+  framebuffer (наличен по source/map), липса на временни графични слоеве
+  (непотвърдена) и лек модел на контролите (сега остават LVGL обекти).
+  Да се измерят UI обектите и временните layers преди промени; да не се
+  отчита директното рисуване само по себе си като решен heap разход.
+  Анализът от 2026-09-07 е в done; няма нов build или тест на платката.
+- [ ] HEAP — актуална разбивка на **217 696 B заети** от чист boot до
+  import, файлови буфери, display/HOME, менюта и RX/TX. Да се отдели разходът
+  на самата диагностика. Старият startup отчет от 2026-09-06 не е актуална
+  разбивка. На 2026-09-07 локално е затворена аритметиката:
+  **217 696 заети + 6 720 GC таблици/остатък + 66 400 свободни = 290 816 B**.
+  Няма нов тест на платката в тази итерация. Бъдещите тестове са само в RAM,
+  с J-Link reset след всеки; без запис на тестови файлове във flash.
+- [x] Запазване на всички текущи промени в Git преди FM реворка: 30 файла.
+- [x] Анализ на FM фазовото натрупване, девиацията, входната среда и UI връзките.
+- [x] FM-1 — C/хост: премахване на постоянната съставка от микрофонния вход P001.
+  Различната средна стойност на ADC не трябва да отмества носещата. Запазване
+  на непрекъснатото фазово състояние през цялото предаване, без reset на всяка
+  порция данни. Да се проверят старт, тишина и промяна на входното отместване.
+- [x] FM-2 — C/хост: девиация в Hz, независима от амплитудата на I/Q DAC.
+  Девиацията е максималното отклонение от носещата, а не честотата на звука.
+  Да се използва действителният timer период. Да се валидират допустимите
+  комбинации от девиация, звукова лента и семплираща честота. Само смяна на
+  44 с 48 kS/s не решава сегашния недостиг за +/-4 или +/-5 kHz.
+- [x] FM-3 — C/хост: отделно микрофонно усилване, ограничаване на звуковата лента и
+  ограничител на пиковата девиация. Претоварването да е видимо в диагностиката.
+  Не се връща PGA. Честотното предкоригиране на звука (pre-emphasis) остава
+  отделна опция според избрания FM профил, а не неявна настройка.
+- [x] FM-4 — Код/хост: управление от HOME и контекстния BACKEND: „MIC“ (входно усилване),
+  „DEV +/-kHz“ (девиация) и „TX LEVEL“ (амплитуда на I/Q изходите).
+  Да се показват действително приложените стойности. RX VOL/AF, AGC и FILTER
+  да не изглеждат като действащи FM TX контроли. TX настройките да се пазят
+  отделно от RX и да се възстановяват при следващо включване на TX.
+  Реализирано за FM; AM/CW/USB/LSB показват TX конфигурация за четене, защото
+  още нямат съответните live setters. Визуален/touch тест на платката предстои.
+- [x] FM-5 — Код/хост: диагностика за напредък на семплите, входно ниво,
+  претоварване и грешки. При C обработка — last/max време и бюджет.
+  DAC0 и DAC1 вече се отчитат поотделно; `outputs_enabled` изисква двата бита.
+  Това още не е измерване на аналоговия изход или ISR бюджета на платката.
+- [x] FM-6 — Хост регресии на действителния C код: тишина с различен DC,
+  известен тон и девиация, непрекъсната фаза, претоварване, DAC граници,
+  независимост между девиация и TX ниво; запазване на CW/AM/USB/LSB.
+  Да се изпитат и UI настройките, RX/TX превключването и освобождаването
+  на ресурсите. Няма Python обработка или алокация на всеки семпъл.
+  C частта: PASS 15 групи / 7 055 959 проверки. RX/TX state-machine и FM
+  HOME/BACKEND/persistence тестовете минават с хост заместители. MPY compile PASS.
+- [x] FM-7 — Build в съществуващата `build-VK_RA6M3`, OpenCV **OFF**, `-j16`,
+  с изрично зададен работещ Python. Да се отчетат RAM, heap, flash и времевият
+  бюджет. Запазени са 12 MiB файлове / 4 MiB резерв във външния QSPI.
+  Резултат: BIN 1 585 016 B, heap 290 816 B, CV2 символи 0; native TX state
+  1524 B (+16 B). Времето на C ISR остава за FM-8, не е доказано с build.
+- [ ] FM-8 — След отделно качване: цифров тест на платката и аналогов тест
+  с калибриран 1 kHz вход. Да се измерят DC отместване, девиация, I/Q форма,
+  стабилност с GUI и спектрални примеси. RF тестът изисква подходящ товар/
+  изолиран стенд и отделно потвърден RF тракт; статусът на DAC не го доказва.
+  **Частично готово:** FM RX/TX, HOME/контекстен BACKEND, live параметри,
+  BACK без спиране и RX restore — PASS в RAM. 518 853 семпъла за11 797 158us
+  (~43 981.2/s), C max853/2728цикъла (~31.27%), error/deadline/unexpected0.
+  Двата DAC enable бита са активни. Не е доказано аналогово FM качество.
+
+### Следваща итерация
+
+1. Качването и първите runtime проверки са изпълнени. Да не се повтаря flash.
+   Всички следващи тестове остават само в RAM/REPL, с J-Link reset след всеки.
+   `/flash/sdr_single.mpy` е новият runtime;
+   редактируемият източник е `/flash/sdr_single.py.source`.
+2. Физически touch/визуален тест: RX -> TX, HOME плъзгачи и SDR -> BACKEND,
+   промяна MIC/DEV/TX LEVEL, BACK, повторно отваряне и TX -> RX.
+   Същият кодов път вече минава с реални LVGL events/callback-и на платката;
+   трите контроли са в границите на екрана. Това не замества физическия touch.
+   Да се измери свободният heap и при отворен TX BACKEND; да няма задържани
+   ROUTE и VERIFY дървета едновременно или непрекъснато трептене.
+3. Продължителен FM тест и нови AM/CW/USB/LSB регресии. Основният кратък FM
+   цифров HIL вече мина: семпли, C last/max/budget, нулеви deadline misses,
+   отделни DAC enable битове и live setter readback. Всичко се изпълнява в RAM.
+4. След това аналогов 1 kHz тест и реална девиация. Няма автоматичен RF тест.
+5. Отделна задача: live TX контролите за AM/CW/USB/LSB. Засега показването им
+   е контекстно, но конфигурацията е за четене; не се обещават несъществуващи setters.
+
+### Ограничения за следващата работа
+
+Последното документирано състояние на платката е USB TX; при този анализ и
+документален checkpoint няма нова хардуерна проверка. Редактиране на файлове
+не трябва да превключва или ресетва платката. При нужда от нов обработващ FM
+път да се запазят компактните буфери и да се измери допълнителното CPU време.
+Увеличаване на фазовата таблица се решава след измерване, не предварително.
+
+## Исторически план — 2026-08-22
+
+This document records the proposed next work after the current VK_RA6M3 SDR bring-up.
+The current base is no longer only a plan: coherent I/Q capture, PGA setup, raw block
+readout, DC removal/x2 decimation and AM-to-DAC output already exist.  The remaining
+work should move the implementation from a VK_RA6M3-specific proof to a reusable
+RA6-family SDR layer, then add SSB and AGC before the heavier CMSIS-DSP features.
+
+## Current baseline
+
+Already implemented and validated on VK_RA6M3:
+
+- `ra/ra_iq_adc.c` and `ra/ra_iq_adc.h`: AGT -> ELC -> ADC0/ADC1 synchronous capture -> DTC chain -> ping-pong blocks.
+- `machine_iq_adc.c`: `machine.IQADC` Python wrapper with `start()`, `stop()`, `read_block()`, `status()`, `blocks()`, `overruns()`, `ready()`.
+- `ra/ra_adc.c`, `ra/ra_adc.h`, `machine_adc.c`: PGA modes and gain control for ADC12 PGA-capable channels.
+- `ra_iq_dsp_process()`: per-block DC mean removal and x2 decimation in C.
+- `ra_iq_am_produce()` and DAC stream glue: integer AM envelope, DC blocking, lock-free audio ring, DAC DMAC ping-pong output.
+- `MICROPY_HW_ENABLE_DSP = 1` for `VK_RA6M3`: CMSIS-DSP build base is enabled.
+
+Known limits:
+
+- USB/LSB/CW demodulation is implemented and functionally hardware-verified, but
+  sideband correctness and CW 700 Hz beat still need proof with a real offset carrier.
+- SDR AGC is not implemented.
+- CMSIS-DSP is compiled, but no FFT convolution or spectrum path exists yet.
+
+## Progress (2026-08-22)
+
+- **Step 0 — RA6M5 verification: partial (headers), report written.** ADC12 / S&H /
+  PGA / ELC are register-compatible RA6M3 <-> RA6M5 at the FSP-header level; three
+  facts remain open because they need the RA6M5 manual/datasheet (Table 47.14 valid
+  combinations, `MSTPCRC.MSTPC14 == ELC`, S&H AC timing). See
+  `RA6M5-VERIFY-20260822.md` for the evidence table and the caps implications.
+- **§1 increment 1 — caps layer + feature build gate: DONE, hardware-verified.**
+  Added `ra/ra_sdr_caps.h` / `ra/ra_sdr_caps.c` (MCU-family facts + board facts +
+  `ra_sdr_caps_get()`), switched the build gate from `ifeq (CMSIS_MCU,RA6M3)` to
+  `MICROPY_HW_ENABLE_RA_SDR`, replaced the `#if defined(RA6M3)` guards in
+  `ra_iq_adc.c/.h` with `#if MICROPY_HW_ENABLE_IQ_ADC`, and moved the ELC slots
+  (8/10), the unit-membership channel count (32) and the I/Q pin validation
+  (AN000..AN002 / AN100..AN102) onto caps. RA6M3 values are unchanged. Regression on
+  VK_RA6M3 / COM18 after a J-Link reset: capture `blocks` grow, `overruns` and
+  `unit1_stalls = 0`, DSP counters correct, AM-to-DAC `am_active=1` with
+  `audio_underruns = 0` / `ring_overruns = 0`, and the caps-based pin check correctly
+  rejects a same-unit pair (`IQADC("P000","P001")` -> ValueError). RA6M3 mcu-facts
+  carry `pga_layout_valid = true`; the RA6M5 stub carries `false` until the open
+  manual items above are closed.
+
+Remaining in §1: VK_RA6M5 board opt-in (`MICROPY_HW_ENABLE_RA_SDR = 1`) plus its
+`ra_gen/vector_data` slots (ADC0_SCAN_END, ADC1_SCAN_END, DMAC0_INT) and verified
+I/Q + DAC pins; then the RA6M5 compile/vector/pin check (execution-order step 3).
+
+## 0. RA6M5 manual verification gate
+
+Do not write the shared RA6 caps code until the RA6M5 hardware manual is checked.
+The current engine depends on specific ADC/PGA/ELC semantics, not only on board
+pin names and vector numbers.
+
+Confirm these RA6M5 facts first:
+
+- ADC12 has dedicated sample-and-hold support on the same logical channels used
+  for I/Q capture: AN000..AN002 on unit 0 and AN100..AN102 on unit 1.
+- The ADC12 PGA register layout matches the RA6M3 path: ADPGACR nibble values,
+  bypass/amplifier selection, PnDEN handling, and the single-ended vs differential
+  gain register semantics.
+- The RA6M5 manual has the equivalent of the RA6M3 Table 47.14 combinations for
+  ASEL / ADPGACR / ADSHCR.
+- ELC_AD00 and ELC_AD10 exist and their ELSR slot numbers are confirmed. Do not
+  assume slots 8 and 10 until the RA6M5 manual says so.
+- ADC0 and ADC1 are separate ADC units and both support synchronous ELC trigger.
+- The ELC module-stop bit used by the current code is the same, or the difference
+  is captured in the MCU facts.
+- The S&H timing constants used by the current code (`RA_IQ_ADSSTR`,
+  `RA_IQ_SSTSH`) are valid for RA6M5 or have RA6M5-specific values.
+
+If any of these differ, the shared layer is not only a pin/vector abstraction; the
+capture logic or PGA driver also needs an MCU-specific branch.
+
+## 1. RA6M5/general RA6 layer
+
+### Goal
+
+Move the SDR code from "works on VK_RA6M3" to a shared RA6-family layer that can support
+RA6M3, RA6M5 and closely related RA6 devices without duplicating the capture engine.
+Board-specific items must stay in board configuration; peripheral logic should stay in
+`ra/`.
+
+### Proposed structure
+
+Use compile-time const facts. Do not build a generic HAL framework; this project only
+needs VK_RA6M3 and VK_RA6M5 at this stage.
+
+Split the data into two sources:
+
+- MCU-family facts: ADC/PGA/ELC register semantics and channel layout.
+- Board facts: generated IRQ vector availability, DAC output choice and board-level
+  pins.
+
+The final `ra_sdr_caps_t` can assemble both, but it must not duplicate vector numbers
+that already exist in `boards/<BOARD>/ra_gen/vector_data.h`.
+
+### Channel numbering rule
+
+Use the internal channel numbering used by the current RA ADC code, not mixed AN
+labels:
+
+```text
+ADC unit 0 channels: internal 0..31
+ADC unit 1 channels: internal 32..63
+AN000 -> internal 0
+AN001 -> internal 1
+AN002 -> internal 2
+AN100 -> internal 32
+AN101 -> internal 33
+AN102 -> internal 34
+```
+
+Avoid fields such as `adc1_pga_first_ch = 100`; that is an AN label, not the
+internal index used by `ra_adc_pin_to_ch()` and `ra_iq_adc_init()`.
+
+### MCU-family facts
+
+Suggested internal structure:
+
+```c
+typedef struct _ra_sdr_mcu_facts_t {
+    const char *mcu_name;
+
+    bool has_adc0;
+    bool has_adc1;
+    bool has_elc;
+    bool has_dtc;
+    bool has_dmac;
+    bool has_agt;
+    bool has_dac;
+
+    uint8_t adc_channels_per_unit;       /* 32 for the current RA6 path */
+    uint8_t adc0_first_ch;               /* 0 */
+    uint8_t adc1_first_ch;               /* 32 */
+
+    bool pga_layout_valid;
+    uint8_t pga_channels_per_unit;       /* 3 if AN000..002 / AN100..102 */
+    uint8_t pga_adc0_first_ch;           /* internal index, normally 0 */
+    uint8_t pga_adc1_first_ch;           /* internal index, normally 32 */
+    uint32_t pgavss0_pin;
+    uint32_t pgavss1_pin;
+
+    uint8_t elc_adc0_slot;               /* confirm per MCU manual */
+    uint8_t elc_adc1_slot;               /* confirm per MCU manual */
+    uint8_t elc_mstp_bit;                /* confirm per MCU manual */
+
+    uint8_t adc_adsstr;
+    uint8_t adc_sstsh;
+    uint16_t max_block_samples;
+} ra_sdr_mcu_facts_t;
+```
+
+Suggested files:
+
+- Add `ra/ra_sdr_caps.h`.
+- Add `ra/ra_sdr_caps.c`.
+- Add `ra/ra_sdr_caps_ra6m3.c`.
+- Add `ra/ra_sdr_caps_ra6m5.c`.
+
+Select MCU facts by CMSIS MCU macro, but only after the manual verification gate
+above is complete.
+
+### Board facts
+
+Suggested board-side structure:
+
+```c
+typedef struct _ra_sdr_board_facts_t {
+    IRQn_Type adc0_scan_end_irq;
+    IRQn_Type adc1_scan_end_irq;
+    bool has_adc1_scan_end_vector;
+
+    bool has_dmac_dac_vector;
+    IRQn_Type dmac_dac_irq;
+
+    uint32_t default_dac_pin;
+    uint8_t default_dac_ch;
+
+    uint8_t agt_channel_count;
+} ra_sdr_board_facts_t;
+```
+
+The board facts should be built from generated/vector definitions:
+
+```c
+#if defined(VECTOR_NUMBER_ADC0_SCAN_END)
+    .adc0_scan_end_irq = VECTOR_NUMBER_ADC0_SCAN_END,
+#endif
+
+#if defined(VECTOR_NUMBER_ADC1_SCAN_END)
+    .adc1_scan_end_irq = VECTOR_NUMBER_ADC1_SCAN_END,
+    .has_adc1_scan_end_vector = true,
+#endif
+
+#if defined(VECTOR_NUMBER_DMAC0_INT)
+    .has_dmac_dac_vector = true,
+    .dmac_dac_irq = VECTOR_NUMBER_DMAC0_INT,
+#endif
+```
+
+Do not hard-code VK_RA6M3 vector slot numbers inside the shared engine. VK_RA6M3
+needed ADC1_SCAN_END and DMAC0/1 vector slots added; VK_RA6M5 must be checked the
+same way.
+
+### Combined caps
+
+The public caps view can combine MCU and board facts:
+
+```c
+typedef struct _ra_sdr_caps_t {
+    const ra_sdr_mcu_facts_t *mcu;
+    const ra_sdr_board_facts_t *board;
+} ra_sdr_caps_t;
+```
+
+The capture engine should validate:
+
+```c
+const ra_sdr_caps_t *caps = ra_sdr_caps_get();
+
+if (!caps->mcu->has_adc0 || !caps->mcu->has_adc1 ||
+    !caps->mcu->has_elc || !caps->mcu->has_dtc ||
+    !caps->board->has_adc1_scan_end_vector) {
+    return false;
+}
+```
+
+DAC audio output should separately validate:
+
+```c
+if (!caps->mcu->has_dac || !caps->mcu->has_dmac ||
+    !caps->board->has_dmac_dac_vector) {
+    return false;
+}
+```
+
+### PGA scope
+
+The PGA layer is not just pins. It also relies on MCU-specific register semantics:
+
+- ADPGACR nibble values for OFF/BYPASS/AMP.
+- ADPGADCR0 PnDEN handling.
+- single-ended gain codes.
+- differential gain codes.
+- the rule that mixed single-ended/differential usage inside one ADC unit is unsafe.
+
+`ra_adc.c` can share the current implementation only when `pga_layout_valid` is true
+for the selected MCU facts. If RA6M5 differs, add a small MCU branch inside the PGA
+layer; do not pretend different PGAVSS pins are enough.
+
+### Build gating
+
+Current build gating should become feature-based, for example:
+
+```make
+ifeq ($(MICROPY_HW_ENABLE_RA_SDR),1)
+HAL_SRC_C += ra/ra_iq_adc.c
+HAL_SRC_C += ra/ra_sdr_caps.c
+endif
+```
+
+Then each board opts in:
+
+```make
+MICROPY_HW_ENABLE_RA_SDR = 1
+MICROPY_HW_ENABLE_DSP = 1
+```
+
+Avoid gating only on MCU name:
+
+```make
+ifeq ($(CMSIS_MCU),RA6M3)
+```
+
+because RA6M5 can share the same structure but has its own board pins, vectors and
+generated FSP configuration.
+
+Also replace internal `#if defined(RA6M3)` guards in `ra_iq_adc.c` with
+`MICROPY_HW_ENABLE_RA_SDR` or caps-based checks. Otherwise the Makefile gate and C
+preprocessor gate will disagree.
+
+### Pin pairing policy
+
+The RA6-family SDR layer should validate I/Q pins before opening the capture:
+
+- I pin must map to ADC unit 0.
+- Q pin must map to ADC unit 1.
+- Both channels should be single-channel scans.
+- PGA-capable channels should be detected through `ra_adc_pga_supported_ch()`.
+- Differential PGA must require valid PGAVSS board wiring.
+- Unit membership must be computed with internal channel indices and
+  `caps->mcu->adc_channels_per_unit`, not AN label numbers.
+
+Suggested API:
+
+```c
+bool ra_iq_adc_pin_pair_valid(uint32_t i_pin, uint32_t q_pin);
+bool ra_iq_adc_get_caps(ra_sdr_caps_t *out);
+```
+
+Python exposure:
+
+```python
+IQADC.caps()
+IQADC.pin_pair_valid("P000", "P004")
+```
+
+### Acceptance tests
+
+- RA6M5 manual verification is recorded before enabling `MICROPY_HW_ENABLE_RA_SDR`
+  for VK_RA6M5.
+- VK_RA6M3 still builds and `IQADC("P000", "P004", ...)` still works.
+- A RA6M5 board can opt in by adding only board capability/vector/pin data, not a copied capture driver.
+- Invalid same-unit pairs are rejected before ADC/DTC setup.
+- PGA capability reports per pin, not per board assumption.
+- DAC double-buffer output refuses to start if no DMAC IRQ vector is available.
+- VK_RA6M5 `VECTOR_DATA_IRQ_COUNT` and free vector slots are checked before adding
+  ADC1_SCAN_END or DMAC vectors.
+
+## 2. DSP filter path
+
+### Goal
+
+Replace the current minimal receiver DSP path with a filtered path that is suitable
+for AM, SSB and CW before AGC is added. AGC must not be asked to amplify aliases,
+wideband noise or out-of-channel energy.
+
+Target chain:
+
+```text
+ADC I/Q
+  -> DC removal
+  -> proper x2 FIR decimator
+  -> manual I/Q imbalance correction
+  -> mode filter:
+       AM  low-pass 5 kHz
+       USB low-pass 3 kHz + Hilbert/phasing
+       LSB low-pass 3 kHz + Hilbert/phasing
+       CW  narrow filter / 700 Hz tone path
+  -> AGC
+  -> DAC stream
+```
+
+### Decimation filter
+
+The current x2 decimation is a two-sample average. It is useful as a bring-up step,
+but it is a weak anti-alias filter. Replace it with a proper x2 FIR decimator:
+
+```text
+ADC I/Q at rate Fs
+  -> half-band / low-pass FIR
+  -> decimate by 2
+  -> I/Q at Fs/2
+```
+
+Initial implementation should be integer Q15 and allocation-free. CMSIS can be used
+later, but the first path should remain safe in the block callback.
+
+Acceptance:
+
+- same output rate as today: `audio_rate = IQADC rate / 2`;
+- no Python allocation in the block callback;
+- visible reduction of alias/high-frequency energy compared with the current
+  two-sample average.
+
+### Mode filters
+
+Filters should be selected by demod mode, run before the AGC stage, and be
+runtime-configurable from the user interface. The defaults below are only startup
+presets, not fixed compile-time behaviour.
+
+AM:
+
+```text
+I/Q after decimation and I/Q correction
+  -> low-pass around 5 kHz
+  -> AM envelope
+  -> optional audio low-pass
+```
+
+USB:
+
+```text
+I/Q after decimation and I/Q correction
+  -> low-pass around 3 kHz
+  -> Hilbert/phasing USB
+```
+
+LSB:
+
+```text
+I/Q after decimation and I/Q correction
+  -> low-pass around 3 kHz
+  -> Hilbert/phasing LSB
+```
+
+CW:
+
+```text
+I/Q after decimation and I/Q correction
+  -> narrow CW filter
+  -> 700 Hz tone path
+```
+
+Initial bandwidth targets:
+
+| mode | first bandwidth target | purpose |
+|------|------------------------|---------|
+| AM   | 5 kHz low-pass         | speech AM, remove wideband noise |
+| USB  | 3 kHz low-pass         | SSB speech passband |
+| LSB  | 3 kHz low-pass         | SSB speech passband |
+| CW   | narrow around 700 Hz   | isolate beat tone / reduce noise |
+
+### User-interface control
+
+The UI must be able to change filter settings while the receiver is running. The
+control plane may allocate and validate parameters, but the realtime block callback
+must only read an already-prepared fixed-size configuration.
+
+Required runtime controls:
+
+| mode | UI controls | default |
+|------|-------------|---------|
+| AM   | audio/channel low-pass bandwidth | 5 kHz |
+| USB  | SSB bandwidth, low cut, high cut | 300..3000 Hz |
+| LSB  | SSB bandwidth, low cut, high cut | 300..3000 Hz |
+| CW   | tone frequency, CW filter bandwidth | 700 Hz tone, narrow filter |
+
+Suggested Python/control API:
+
+```python
+iq.filter("am", bandwidth=5000)
+iq.filter("usb", low=300, high=3000)
+iq.filter("lsb", low=300, high=3000)
+iq.filter("cw", tone=700, bandwidth=500)
+iq.filter_status()
+```
+
+Suggested UI widgets:
+
+```text
+mode selector: AM / USB / LSB / CW
+AM bandwidth: 3 kHz / 5 kHz / 6 kHz
+SSB bandwidth: 1.8 kHz / 2.4 kHz / 2.7 kHz / 3.0 kHz
+SSB low cut: 100..500 Hz
+SSB high cut: 1800..3200 Hz
+CW bandwidth: 100 / 250 / 500 / 700 Hz
+CW tone: 400..1000 Hz
+```
+
+Validation rules:
+
+- reject filter changes that exceed Nyquist for the current `IQADC rate / 2`;
+- reject `low >= high` for SSB;
+- clamp or reject CW tone outside the audio output bandwidth;
+- reset only the affected filter state, not the whole audio ring, to avoid a mode-change underrun;
+- expose the active effective settings in `filter_status()` so the UI can show what
+  the firmware actually accepted.
+
+### Implementation note
+
+Prefer one small filter framework used by all demod modes:
+
+```c
+ra_iq_filter_reset(mode, sample_rate);
+ra_iq_filter_process_iq(mode, i, q, &i_out, &q_out);
+ra_iq_filter_process_audio(mode, audio);
+```
+
+Do not create separate ad hoc filter code inside each demod branch unless the mode
+requires it. Keep filter state static, fixed-size and reset on `start()` or demod
+mode change.
+
+For UI-driven changes, use double-buffered filter configuration:
+
+```text
+UI/Python writes inactive config
+    -> validates limits
+    -> marks pending
+block boundary swaps active config
+    -> resets only the corresponding filter state
+```
+
+This keeps the ISR path deterministic and avoids partially-applied filter parameters.
+
+### Pipeline structure note: do not port Teensy AudioStream first
+
+The current firmware already has a working block pipeline. The scheduler is not a
+separate framework; it is the ADC block callback:
+
+```text
+AGT/ELC/ADC/DTC
+  -> ra_iq_block_callback()
+       -> ra_iq_dsp_process()
+       -> ra_iq_demod_produce()
+            -> AM / USB / LSB / CW
+            -> AGC
+            -> volume / limiter
+            -> audio ring
+  -> DAC.stream_from(iqadc)
+```
+
+This is close enough to the useful part of the Teensy `AudioStream` discipline:
+fixed-size blocks, deterministic processing order and no per-sample Python.
+Therefore the next step is not to port the Teensy C++ `AudioStream` framework.
+That would add a graph scheduler, C++ object model and I2S/audio-library
+assumptions that the RA6 transport does not need.
+
+Use this rule instead:
+
+```text
+first:  keep the current working callback path
+second: measure per-stage processing time
+third:  extract DSP into a small static C pipeline only when it reduces risk
+```
+
+If extraction is needed, keep it minimal:
+
+```text
+ra_iq_adc.c
+  = hardware transport: AGT/ELC/ADC/DTC, ping-pong, block callback, status
+
+ra_sdr_pipeline.c / .h
+  = fixed-order DSP block processor, no heap, no Python, no dynamic graph
+
+ra_sdr_filters.c / .h
+  = x2 FIR decimator, AM/SSB/CW mode filters, Hilbert/CW helpers
+
+ra_sdr_agc.c / .h
+  = AGC servo, limiter and related status
+```
+
+The first extracted interface should be a static processor, not a generic
+framework:
+
+```c
+size_t ra_sdr_pipeline_process(
+    ra_sdr_pipeline_t *p,
+    const uint16_t *i_raw,
+    const uint16_t *q_raw,
+    size_t n_raw,
+    uint16_t *audio_out,
+    size_t audio_cap
+);
+```
+
+Do not introduce function-pointer stage graphs, heap allocation or C++ objects in
+the realtime path unless timing measurements prove that the simpler fixed-order C
+pipeline is not enough.
+
+## 3. SSB USB/LSB Hilbert demodulation
+
+### Goal
+
+Add a low-resource phasing demodulator for USB/LSB after the existing DC removal and
+decimation stage. This should be the next DSP step after AM, before FFT convolution.
+
+### Signal chain
+
+```text
+I/Q raw block
+    -> DC mean removal
+    -> x2 decimation
+    -> optional audio band limiting
+    -> Hilbert phase shift
+    -> USB/LSB sum or difference
+    -> audio ring / readout / DAC
+```
+
+### First implementation
+
+Start with a fixed small odd-tap Hilbert FIR, similar in spirit to the low-resource
+uSDX/uSDR-pico approach, not the full Teensy FFT path.
+
+Possible C state:
+
+```c
+typedef enum _ra_iq_demod_mode_t {
+    RA_IQ_DEMOD_AM,
+    RA_IQ_DEMOD_USB,
+    RA_IQ_DEMOD_LSB,
+    RA_IQ_DEMOD_CW,
+} ra_iq_demod_mode_t;
+
+typedef struct _ra_iq_ssb_state_t {
+    int16_t i_delay[31];
+    int16_t q_delay[31];
+    uint8_t pos;
+    int16_t last_audio_peak;
+} ra_iq_ssb_state_t;
+```
+
+For a first pass:
+
+- Apply Hilbert FIR to Q.
+- Delay I by the matching group delay.
+- USB/LSB selects `I_delay - Q_hilbert` or `I_delay + Q_hilbert`.
+- Output signed audio, then convert to DAC mid-scale if using DAC.
+
+Keep the AM path intact:
+
+```python
+iq.demod("am")
+iq.demod("usb")
+iq.demod("lsb")
+```
+
+### Filter coefficients
+
+Do not hide coefficients in the middle of code. Put them in a small table with sample-rate
+assumption documented:
+
+```c
+static const int16_t ra_iq_hilbert31_q15[31] = { ... };
+```
+
+Add a separate coefficient-generation note or script later if multiple bandwidths are needed.
+
+### Acceptance tests
+
+- With synthetic I/Q input, USB and LSB produce opposite sideband rejection.
+- With Q inverted or I/Q swapped, status/debug makes the problem visible.
+- AM path still works.
+- No allocation in block callback.
+- Processing time fits inside one block period.
+
+## 4. SDR AGC
+
+### Goal
+
+Add a real SDR AGC loop. The current code has counters and an AM DC blocker, but not an
+attack/decay-controlled gain loop.
+
+### Placement
+
+Use two AGC levels eventually:
+
+```text
+I/Q level AGC      -> protects demod input / normalizes weak signals
+audio AGC          -> stabilizes speaker/stream output after demod
+```
+
+First implement only audio AGC after demod:
+
+```text
+demodulated signed audio
+    -> peak/RMS estimate
+    -> attack/decay gain update
+    -> scaled audio
+    -> clip limiter
+```
+
+### Proposed state
+
+```c
+typedef struct _ra_iq_agc_state_t {
+    bool enabled;
+    uint16_t target_peak;
+    uint16_t attack_q15;
+    uint16_t decay_q15;
+    uint32_t gain_q15;
+    uint16_t last_peak;
+    uint32_t clips;
+} ra_iq_agc_state_t;
+```
+
+Preset modes:
+
+```text
+off
+fast
+slow
+manual
+```
+
+Python API:
+
+```python
+iq.agc("off")
+iq.agc("fast")
+iq.agc("slow")
+iq.agc("manual", gain=2.0)
+iq.agc_status()
+```
+
+### Interaction with PGA
+
+PGA and AGC must not be treated as the same thing:
+
+- PGA is analog gain before ADC.
+- AGC is digital gain after sampling/demod.
+- If ADC peaks are clipping, AGC cannot fix it; status must report clipping/peak.
+- PGA changes should remain blocked while capture is running, unless a later design proves safe retuning.
+
+### Acceptance tests
+
+- Strong signal reduces AGC gain quickly.
+- Weak signal increases AGC gain slowly.
+- Clip counter increments when audio saturates.
+- Manual mode bypasses attack/decay.
+- AGC status is readable from Python without disturbing capture.
+
+## 5. Teensy/CMSIS FFT, spectrum and IQ correction
+
+### Goal
+
+Use the enabled CMSIS-DSP build as a later advanced layer, not as the next bring-up step.
+Manual I/Q imbalance correction should come before SSB and AGC. Spectrum visibility
+can follow; FFT convolution stays later.
+
+### Proposed phases
+
+Phase A: manual I/Q imbalance correction
+
+```text
+I/Q block
+    -> amplitude correction
+    -> phase correction
+    -> demod
+```
+
+Python API:
+
+```python
+iq.iq_correction(enable=True, amp=1.0, phase=0.0)
+iq.iq_correction_status()
+```
+
+Automatic correction should be a later step. Start with manual parameters so the
+correction path is testable.
+
+Phase B: spectrum only
+
+```text
+decimated I/Q block
+    -> window
+    -> CMSIS complex FFT
+    -> magnitude
+    -> spectrum buffer for Python/UI
+```
+
+Python API:
+
+```python
+iq.spectrum()
+iq.spectrum_status()
+```
+
+Phase C: FFT convolution filtering
+
+```text
+I/Q block
+    -> FFT
+    -> multiply by complex filter mask
+    -> inverse FFT
+    -> overlap/add
+    -> demod/audio
+```
+
+This needs more RAM and stricter block sizing than the current AM path. Do not mix it into
+the ISR path until memory and timing are measured.
+
+### Acceptance tests
+
+- CMSIS FFT symbols are linked and used by a real function, not only compiled.
+- Spectrum buffer shows a synthetic tone in the expected bin.
+- Manual IQ amplitude correction changes measured image rejection in the expected direction.
+- FFT path can be disabled at build time to keep the small SDR path usable.
+
+## Recommended execution order
+
+0. Verify RA6M5 ADC/PGA/ELC facts against the RA6M5 manual.
+1. Add caps layer, build gate and internal guard changes while preserving the working VK_RA6M3 path.
+2. Build and run the VK_RA6M3 regression tests.
+3. Enable VK_RA6M5 only after compile, pins and vectors are verified.
+4. Add or keep manual I/Q imbalance correction before demod.
+5. Measure current per-stage DSP time inside the block callback.
+6. Replace the x2 average with a proper x2 FIR decimator.
+7. Add mode filters: AM 5 kHz LPF, SSB 3 kHz LPF, CW narrow/700 Hz path.
+8. Extract DSP into `ra_sdr_pipeline.c` only if it keeps the code clearer without
+   changing the working transport path.
+9. Prove USB/LSB sideband correctness and CW 700 Hz beat with a real offset carrier.
+10. Add audio AGC, then optional I/Q-level AGC.
+11. Add CMSIS spectrum buffer.
+12. Add FFT convolution only after RAM and timing are measured.
+
+## Do not regress
+
+These behaviours must remain true after each phase:
+
+- `IQADC(...).start()` runs without hard fault.
+- `read_block()` stays zero-allocation when caller buffers are preallocated.
+- DTC/ADC block callback does not call Python and does not allocate.
+- `blocks` increases at the expected rate.
+- `overruns` and `unit1_stalls` stay zero during normal test windows.
+- PGA modes still reject unsafe changes while scan is running.
+- AM-to-DAC path still works when SSB/AGC/CMSIS features are disabled.
+
+## Review notes incorporated (2026-08-22)
+
+Firmware-side comments on the plan above. The analog chain (input amplifiers,
+anti-alias and reconstruction filters, audio amplifier) is handled on the board
+and is intentionally out of scope for this document.
+
+The second review pass tightened the plan in these ways:
+
+1. RA6M5 ADC/PGA/ELC manual verification is now step 0 and blocks shared-code work.
+2. Caps are split into MCU-family facts and board facts, so generated vector numbers
+   are not duplicated in shared code.
+3. Channel numbering is fixed to internal indices: unit 0 starts at 0, unit 1 starts
+   at 32. AN labels are documentation only.
+4. DAC/DMAC vector availability, default DAC pin/channel, max block size, AGT channel
+   count, S&H timing constants and PGA layout validity are explicit capability items.
+5. I/Q imbalance correction is moved before SSB and AGC.
+6. A real channel/IF filter and a better anti-alias decimator are called out before
+   demodulator work.
+
+## AGC implementation design (RMS envelope + gain servo)
+
+Concretizes the SDR AGC step. Audio AGC only for v1 (I/Q-level AGC is a later
+step). It runs in C on the demod audio, mode-agnostic, integer, in the block
+callback (REQ-RT-002/003: no FPU/CMSIS/alloc/Python in the ISR).
+
+### Placement
+
+Every demod case (am/usb/lsb/cw) currently computes a signed `audio` sample and
+then centers it to 2048 and pushes it to the ring. Factor that tail into one shared
+path and insert the AGC just before centering:
+
+    demod case -> audio (signed) -> [AGC] -> 2048 + audio -> clamp -> ring
+
+so a single AGC serves all modes without duplication.
+
+### RMS envelope (not peak)
+
+Track the signal RMS with a one-pole smoothed mean-square, then take the integer
+square root. RMS is smoother than a peak follower and does not spike on transients,
+which suits voice/CW AGC:
+
+    int32_t p  = (audio * audio);              // instantaneous power; |audio|<~2048 so p fits int32
+    ms        += (p - ms) >> ms_sh;            // one-pole mean-square; window ~ 2^ms_sh samples
+    int32_t env = isqrt32((uint32_t)ms);       // RMS = sqrt(mean-square)
+
+`ms_sh` sets the RMS window (e.g. ms_sh=8 -> ~256 samples ~ 10 ms at 24 kHz).
+`isqrt32` is a small integer square root (bitwise or two Newton steps), ~15 cycles;
+at 24 kHz that is negligible.
+
+### Gain servo (slow, keeps output RMS at target)
+
+The gain follows the smoothed RMS, not the instantaneous sample, so it never
+distorts inside an audio cycle:
+
+    int32_t out_env = (env * gain_q15) >> 15;
+    if (out_env > target)  gain_q15 -= (gain_q15 >> loop_sh) + 1;   // reduce
+    else                   gain_q15 += (gain_q15 >> loop_sh) + 1;   // increase
+    clamp gain_q15 to [gain_min, gain_max];
+
+`loop_sh` large -> slow, smooth gain movement. The multiplicative +/- keeps the
+loop stable across the dynamic range; the +1 guarantees progress at small gains.
+
+### Apply + peak limiter (safety net)
+
+    int32_t s = (audio * gain_q15) >> 15;
+    if (s >  peak_max) { s =  peak_max; clips++; }
+    else if (s < -peak_max) { s = -peak_max; clips++; }
+
+The limiter only catches fast transients the slow servo has not yet reduced.
+
+### Modes (att/window/loop/target presets)
+
+| mode   | RMS window (ms_sh) | loop (loop_sh) | notes |
+|--------|--------------------|-----------------|-------|
+| off    | -                  | -               | gain fixed 1.0 (bypass) |
+| fast   | short              | fast            | AM, quick fades |
+| slow   | longer             | slow            | SSB/CW; slow gain does not pump on keying |
+| manual | -                  | servo off       | fixed user gain |
+
+CW pumping is avoided by the slow loop (recovery longer than the gap between
+elements), not a special case.
+
+### Fixed point / state / RT
+
+- gain, target in Q15; env/ms in the audio amplitude/power domain. Integer only.
+- State (gain_q15, ms, target, ms_sh, loop_sh, gain_min/max, peak_max, clips, mode)
+  is single-producer (block callback) owned; reset on demod/mode select. Config is
+  written from Python (control plane) and read in the callback; a torn read of a
+  parameter is a harmless transient.
+
+### PGA vs AGC
+
+PGA is analog gain before the ADC; AGC is digital gain after demod. AGC cannot fix
+ADC clipping, so `clips` and the envelope are exposed in status. They stay separate
+for v1; closing the loop (audio AGC driving the PGA when digital gain saturates) is
+a later step.
+
+### Python API
+
+    iq.agc("off"|"fast"|"slow"|"manual", gain=1.0, target=0.5)
+    iq.agc_status()   # {mode, gain, env, clips, target}
+
+### Known limits (v1)
+
+- On silence the servo ramps to `gain_max` and amplifies noise; a squelch threshold
+  (mute below an env floor) is a later refinement.
+- Default target ~ half full scale; `gain_max` bounds noise gain during quiet.
+- isqrt per sample is acceptable at 24 kHz; if ever tight, compute env once per
+  small sub-block instead of per sample.
+
+## CMSIS-DSP migration strategy (hybrid) — timing-gated
+
+Timing gate MET (SDR-RA6M3-TIMING-20260822): the integer block-boundary DSP path
+costs at most 19.4% of the block budget (USB Hilbert, 62 235 of 320 000 cyc @
+120 MHz). ~80% headroom, so a full f32 realtime pipeline is timing-feasible.
+
+CMSIS-DSP migration should be hybrid:
+- Q15 CMSIS kernels for realtime block callback filters/demod where practical.
+- F32 CMSIS kernels for spectrum, calibration, optional heavy DSP and UI-facing
+  analysis.
+- Full f32 realtime pipeline only after timing proves it fits.
+
+Per-stage migration order (each behind a switch, re-measure iq.timing() after each):
+1. Decimation: hand FIR -> arm_fir_decimate_q15 (already half-band, 11-tap).
+2. Hilbert (SSB): hand 31-tap -> arm_fir_q15.
+3. Channel filter: cascaded one-pole -> arm_biquad_cascade_df1_q15 (also fixes the
+   1-pole fc >= fs/2pi ~ 3820 Hz saturation, so a real 5 kHz AM skirt becomes possible).
+4. AM magnitude: alpha-max-beta-min -> arm_cmplx_mag_f32 (f32, per-block, cheap).
+5. Spectrum stays f32 (already arm_cfft_f32 + arm_cmplx_mag_f32).
+Keep the working integer path as a compile/runtime fallback throughout.
+
+### Stage 1 result (decimator) — CMSIS REJECTED, keep integer
+
+Measured on target (COM18, rate=48000 block=128, 120 MHz), iq.dec_kernel A/B:
+
+| kernel                        | DSP-only max | %block | USB max | %block |
+|-------------------------------|--------------|--------|---------|--------|
+| hand integer half-band FIR    | 17 430       | 5.4%   | 63 356  | 19.8%  |
+| CMSIS arm_fir_decimate_q15    | 37 954       | 11.9%  | 83 719  | 26.2%  |
+
+CMSIS is ~2x slower here (+~20 500 cyc/block). Reason: the half-band filter has only
+5 non-zero taps of 11 (center + the +/-1, +/-3 pairs); the hand loop skips the zero
+taps, while the generic arm_fir_decimate_q15 runs all 11 taps and adds state-memmove +
+call overhead. Sparse half-band beats generic FIR. Verdict: keep the integer decimator
+as default; the iq.dec_kernel switch stays as A/B infrastructure for stages 2-5. I/Q
+coherence held (unit1_stalls=0) on the CMSIS path, so it is correct, just not faster.
+Lesson: CMSIS is not automatically faster — a structure-aware hand kernel can win.
+
+### Stage 2 result (SSB Hilbert) — CMSIS ADOPTED as default
+
+Measured on target (COM18, USB/LSB, decimator on integer default), iq.hil_kernel A/B:
+
+| kernel                    | USB max | %block | LSB max | %block |
+|---------------------------|---------|--------|---------|--------|
+| hand modulo-31 loop       | 59 224  | 18.5%  | 60 058  | 18.8%  |
+| CMSIS arm_fir_q15         | 50 021  | 15.6%  | 49 983  | 15.6%  |
+
+CMSIS is ~15% faster (-~9 200 cyc/block). Opposite of stage 1: the Hilbert is a DENSE
+antisymmetric 32-tap FIR, so CMSIS's SIMD (__SMLALD pair MACs) beats the hand loop even
+though the hand loop skips the ~half zero taps -- the modulo-31 circular index and the
+per-tap branch cost more than the saved MACs. Verdict: CMSIS is the default for the
+Hilbert; the hand loop stays as iq.hil_kernel(False) fallback. unit1_stalls=0.
+
+Two CMSIS gotchas found and fixed (both would hard-fault or misalign):
+- arm_fir_q15 REQUIRES numTaps even and >= 4. The 31-tap filter is padded to 32 by
+  PREPENDING one zero coefficient (oldest tap), which keeps the group delay at 15; the
+  doc's trailing-zero pad would push it to 16 and misalign I vs H(Q).
+- state buffer is numTaps + blockSize q15 words when ARM_MATH_DSP is defined (Cortex-M4),
+  not numTaps + blockSize - 1.
+
+Rule refined: CMSIS wins on DENSE kernels (SIMD amortised over all taps), loses on SPARSE
+ones (hand zero-skipping beats running every tap). Decide per stage by measurement.
+
+### Stage 3 result (channel filter) — f32 biquad ADDED (switchable), integer stays default
+
+Operator chose f32 over q15 for this stage (accuracy over a wide cutoff; q15 biquads
+quantise their near-unit-circle feedback badly at narrow BW). Implemented as a 4-pole
+Butterworth (two arm_biquad_cascade_df1_f32 sections, Q = 0.5412 / 1.3066), I and Q with
+their own df1 state and a shared coefficient set designed in the control plane by
+bilinear/cookbook from the cutoff and audio fs. Selectable with iq.chf_kernel; the
+integer one-pole cascade stays the default and fallback.
+
+Measured on target (COM18, AM):
+
+| cutoff | integer one-pole      | f32 biquad          |
+|--------|-----------------------|---------------------|
+| 2 kHz  | 31 463 (9.8%), bypass 0 | 36 868 (11.5%), bypass 0 |
+| 5 kHz  | 25 915 (8.1%), bypass 1 | 37 086 (11.6%), bypass 0 |
+
+f32 costs ~5 400 cyc more but fixes the integer one-pole's alpha = 2*pi*fc/fs >= 1
+saturation: at 5 kHz the integer path bypasses (passes everything), the f32 path actually
+filters (bypass=0). unit1_stalls=0 on both, and this is the first FPU use inside the ADC
+block-callback ISR -- Cortex-M4F lazy stacking handles it (no fault). Integer stays the
+default because it filters every narrow mode (CW 1k, SSB 3k, all < 3820 Hz) correctly and
+cheaper; f32 is opt-in via iq.chf_kernel(True) for an accurate wideband / 5 kHz AM skirt.
+
+Hybrid picture after 3 stages: decimator = integer (sparse, hand wins), Hilbert = CMSIS
+q15 (dense, SIMD wins, default), channel filter = f32 biquad on demand (accuracy). Type
+per stage, chosen by measurement -- exactly the hybrid the plan called for.
+
+### Stage 4 result (AM envelope) — f32 exact magnitude ADDED (switchable), integer default
+
+iq.mag_kernel: 0 = integer alpha-max-beta-min (default), 1 = f32 arm_cmplx_mag_f32
+(exact sqrt(i^2+q^2)). Measured on target (AM): f32 costs only +2 300 cyc (9.1% vs 8.4%
+of the block) -- VSQRT on the M4F is cheap -- and removes the ~4% peak approximation
+ripple of alpha-max-beta-min. unit1_stalls=0 on both. Integer stays default (cheapest,
+proven); f32 is opt-in for cleaner AM. The exact magnitude feeds the same integer Q8 DC
+blocker + audio stage, so only the envelope accuracy changes, not the output scale.
+
+Hybrid migration complete for the four candidate stages:
+  1 decimator     -> integer (sparse half-band; hand zero-skipping beats CMSIS)   DEFAULT int
+  2 SSB Hilbert   -> CMSIS q15 arm_fir_q15 (dense; SIMD wins ~15%)                DEFAULT CMSIS
+  3 channel filter-> f32 arm_biquad_cascade_df1_f32 (accuracy, fixes 3820 Hz sat) opt-in f32
+  4 AM envelope   -> f32 arm_cmplx_mag_f32 (exact, +0.7% block)                   opt-in f32
+  5 spectrum      -> already f32 (arm_cfft_f32 + arm_cmplx_mag_f32)               DONE
+All switchable at runtime for A/B; every default chosen by on-target measurement, not
+by assuming a type. Worst-case whole-chain cost stays well under the 320000-cyc budget.
+
+## Front-end architecture (from the SDR UI app) + open gaps
+
+The receiver is a Tayloe/quadrature (I/Q) direct-conversion front end (Elektor SDR
+Shield 2.0 scheme). Reference: C:\Users\teodor\Desktop\stem\sdr\SDR_TRANCEIVER_UI\
+sdr_single - back.py.
+
+- LO: Si5351A/MS5351M triple clock gen over I2C(1) (P205/P206). Fixed PLLA = 25 MHz x 32
+  = 800 MHz; fractional MultiSynth per output. Crystal cal XTAL_PPM = 17.76 (measured
+  +500 Hz at 28.160790 MHz). CLK0/CLK2 = VFO connectors, CLK1 = receiver LO.
+- Tayloe detector needs the LO at 4x the tuned frequency: program Si5351 CLK1 to 4 x F
+  (TARGETS "Si5351 CLK1 x4"). So COARSE tuning = Si5351 CLK1 = 4*F; DIGITAL FINE-TUNE =
+  the iq.tune() NCO within the +/-12 kHz baseband.
+- UI FILTERS (channel bandwidth) per mode: AM 6k, FM 12k, USB 2.4k, LSB 2.4k, CW 500.
+  Firmware per-mode defaults now match (except FM, below).
+
+Open gaps:
+- FM demod is in the UI MODES but NOT in the C demod (only AM/USB/LSB/CW). FM needs a
+  phase-differentiator / atan2 discriminator on the complex baseband + a 12k channel
+  filter. Separate task, not started.
+- UI<->firmware wiring: the UI still uses a demo spectrum and drives only the Si5351.
+  Wire iq.spectrum() -> waterfall, iq.smeter() -> level, mode buttons -> iq.demod(),
+  VOL -> DAC/volume, AGC -> iq.agc(), fine-tune -> iq.tune(), coarse -> Si5351 CLK1 x4.
+  Separate integration task.

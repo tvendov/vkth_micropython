@@ -79,10 +79,70 @@ static volatile uint8_t s_capture_irq_armed;
 /* Static diagnostic only; points at string literals and therefore survives the
  * cleanup performed on an init failure without allocating or touching the heap. */
 static const char *s_init_error = "none";
+static bool ra_iq_adc_hardware_owned(void);
+static bool ra_iq_adc_init_owned(const void *owner, uint32_t i_pin, uint32_t q_pin,
+    uint32_t sample_rate_hz, size_t block_samples);
 
 #if MICROPY_HW_ENABLE_MEASUREMENT
 static ra_iq_raw_consumer_t s_raw_consumer;
 static void *s_raw_context;
+static const void *s_capture_owner;
+
+bool ra_iq_capture_reserved_by(const void *owner) {
+    return owner != NULL && s_capture_owner == owner;
+}
+
+bool ra_iq_capture_reserve(const void *owner) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool ok = owner != NULL && !ra_iq_adc_owns_adc() && !ra_tx_hw_owns_adc();
+    #if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
+    ok = ok && !ra_storm_adc_owns_adc();
+    #endif
+    if (ok) { s_capture_owner = owner; }
+    __set_PRIMASK(primask);
+    return ok;
+}
+
+bool ra_iq_capture_release(const void *owner) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool ok = ra_iq_capture_reserved_by(owner) && !ra_iq_adc_hardware_owned();
+    if (ok) { s_capture_owner = NULL; }
+    __set_PRIMASK(primask);
+    return ok;
+}
+
+bool ra_iq_capture_open(const void *owner, uint32_t a_pin, uint32_t b_pin,
+    uint32_t rate, size_t block, ra_iq_raw_consumer_t sink, void *context) {
+    return ra_iq_capture_reserved_by(owner) && sink != NULL &&
+           ra_iq_adc_init_owned(owner, a_pin, b_pin, rate, block) &&
+           ra_iq_adc_set_raw_consumer(sink, context);
+}
+
+bool ra_iq_capture_start(const void *owner) {
+    return ra_iq_capture_reserved_by(owner) && s_raw_consumer != NULL && ra_iq_adc_start();
+}
+
+bool ra_iq_capture_running(const void *owner) {
+    return ra_iq_capture_reserved_by(owner) && s_capture_irq_armed != 0U &&
+           s_status.running && s_iq.scanning0 && s_iq.scanning1;
+}
+
+bool ra_iq_capture_close(const void *owner) {
+    return ra_iq_capture_reserved_by(owner) && ra_iq_adc_deinit_checked();
+}
+
+void ra_iq_capture_halt(const void *owner) {
+    if (!ra_iq_capture_reserved_by(owner)) { return; }
+    s_capture_irq_armed = 0U;
+    __DMB();
+    if (s_iq.timer_reserved) { ra_agt_timer_stop(s_iq.timer_ch); }
+    if (s_iq.opened0 || s_iq.dtc_open) {
+        R_BSP_IrqDisable(VECTOR_NUMBER_ADC0_SCAN_END);
+    }
+    /* Scanning flags/ownership stay set until checked foreground teardown. */
+}
 
 bool ra_iq_adc_set_raw_consumer(ra_iq_raw_consumer_t consumer, void *context) {
     if (!s_status.initialised || s_status.running || s_iq.scanning0 ||
@@ -95,7 +155,7 @@ bool ra_iq_adc_set_raw_consumer(ra_iq_raw_consumer_t consumer, void *context) {
 }
 
 bool ra_iq_adc_raw_owned(void) {
-    return s_raw_consumer != NULL;
+    return s_raw_consumer != NULL || s_capture_owner != NULL;
 }
 
 float ra_iq_adc_actual_rate(void) {
@@ -379,11 +439,14 @@ static void ra_iq_chf_compute(uint32_t hz, uint32_t fs) {
  * producer only, s_ring_tail by the consumer only; each publishes its index after
  * the data write so no critical section is needed (REQ-RT-002).  count = (head -
  * tail) & MASK.  The DAC itself is owned by machine.DAC, not this file. */
-/* 512 entries = 8 blocks of buffering at the default 64-sample decimated block, ample
- * for the DMAC refill cadence; halved from 1024 to make room for the parallel scope Q
- * ring (s_scope_ring_q, same size) without growing total SRAM past the RA6M3 budget. */
-#define RA_IQ_AUDIO_RING (512U)
+/* A deferred partial portion + the next DAC period + a producer batch must fit,
+ * even when the decimated block does not divide 512 (e.g. a 10 -> 5 sample block).
+ * 2047 usable entries provide that headroom.  ADC/DSP blocks stay unchanged. */
+#define RA_IQ_AUDIO_RING (2048U)
 #define RA_IQ_AUDIO_RING_MASK (RA_IQ_AUDIO_RING - 1U)
+_Static_assert((RA_IQ_AUDIO_RING & RA_IQ_AUDIO_RING_MASK) == 0U, "audio ring must be power of two");
+_Static_assert(RA_IQ_AUDIO_RING > 2U * RA_IQ_AUDIO_DMA_SAMPLES + RA_IQ_ADC_MAX_BLOCK_SAMPLES / 2U,
+    "audio ring needs chunk and producer headroom");
 
 static uint16_t s_audio_ring[RA_IQ_AUDIO_RING];
 static volatile uint32_t s_ring_head;   /* producer owns */
@@ -404,6 +467,10 @@ static uint16_t s_scope_ring_q[RA_IQ_AUDIO_RING];
 static volatile uint32_t s_scope_q_head;   /* producer owns */
 static volatile uint32_t s_scope_q_tail;   /* consumer owns */
 static volatile uint8_t s_scope_q_consumer_active;
+/* First completed DAC channel latches readiness; the peer must use the same
+ * answer even if the ADC publishes another block between the two IRQs. */
+static volatile uint8_t s_audio_chunk_seen;
+static volatile uint8_t s_audio_chunk_ready;
 
 /* Convert a signed baseband/audio sample to a 0..4095 DAC code centred at mid-scale,
  * the same 2048 + clamp mapping the audio tail uses.  Producer-side, integer only. */
@@ -1957,6 +2024,7 @@ static void ra_iq_source_transition_reset(uint16_t raw_n, uint16_t complex_n) {
     __disable_irq();
     s_ring_tail = s_ring_head;
     s_scope_q_tail = s_scope_q_head;
+    s_audio_chunk_seen = 0U;
     /* TIME is captured from each newly refilled DAC0 DMA buffer.  Drop both a
      * completed frame and any partial frame from the old owner together with the
      * old audio queues.  The in-flight DAC buffer is not recaptured: after it
@@ -2845,7 +2913,18 @@ static void ra_iq_dtc_build(void) {
 
 bool ra_iq_adc_init(uint32_t i_pin, uint32_t q_pin, uint32_t sample_rate_hz,
     size_t block_samples) {
-    if (ra_iq_adc_owns_adc()) {
+    return ra_iq_adc_init_owned(NULL, i_pin, q_pin, sample_rate_hz, block_samples);
+}
+
+static bool ra_iq_adc_init_owned(const void *owner, uint32_t i_pin, uint32_t q_pin,
+    uint32_t sample_rate_hz, size_t block_samples) {
+    #if MICROPY_HW_ENABLE_MEASUREMENT
+    bool reserved_elsewhere = s_capture_owner != NULL && s_capture_owner != owner;
+    #else
+    (void)owner;
+    bool reserved_elsewhere = false;
+    #endif
+    if (reserved_elsewhere || ra_iq_adc_hardware_owned()) {
         s_init_error = "adc_owner";
         return false;
     }
@@ -3024,12 +3103,20 @@ const char *ra_iq_adc_init_error_name(void) {
 }
 
 bool ra_iq_adc_owns_adc(void) {
+    #if MICROPY_HW_ENABLE_MEASUREMENT
+    if (s_capture_owner != NULL) { return true; }
+    #endif
+    return ra_iq_adc_hardware_owned();
+}
+
+static bool ra_iq_adc_hardware_owned(void) {
     /* Cover partial construction as well as the fully initialised state.  An init
      * failure can occur after one ADC unit or the trigger resources were opened;
      * ordinary machine.ADC must stay out until checked teardown releases every
      * low-level owner. */
     return (s_status.initialised != 0U) || s_iq.opened0 || s_iq.opened1 ||
-        s_iq.dtc_open || s_iq.elc_enabled || s_iq.timer_reserved;
+        s_iq.dtc_open || s_iq.elc_enabled || s_iq.timer_reserved ||
+        s_iq.i_pin_enabled || s_iq.q_pin_enabled;
 }
 
 static void ra_iq_adc_irq_quiesce(void) {
@@ -3220,6 +3307,7 @@ bool ra_iq_adc_start(void) {
     s_ring_tail = 0U;
     s_scope_q_head = 0U;
     s_scope_q_tail = 0U;
+    s_audio_chunk_seen = 0U;
     __DMB();
 
     if (R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
@@ -4003,6 +4091,90 @@ void ra_iq_adc_file_get_status(ra_iq_file_status_t *status) {
     __set_PRIMASK(primask);
 }
 
+bool ra_iq_adc_file_decode_begin(uint8_t demod, int32_t tune_hz) {
+    if (ra_iq_adc_owns_adc() || !ra_tx_hw_owns_resources() ||
+        (demod != RA_IQ_DEMOD_AM && demod != RA_IQ_DEMOD_USB &&
+         demod != RA_IQ_DEMOD_LSB && demod != RA_IQ_DEMOD_FM && demod != RA_IQ_DEMOD_CW)) {
+        return false;
+    }
+    /* Do NOT set initialised/running: no receiver peripheral is owned. The TX
+     * owner excludes every hardware RX constructor while these states are lent. */
+    s_status.sample_rate_hz = 48000U;
+    s_status.block_samples = 128U;
+    ra_iq_adc_file_detach();
+    ra_iq_adc_set_inject(0, RA_IQ_INJECT_IQ, 0, 0, 0, 0, 0, 0, 0, 0);
+    ra_iq_adc_set_inject_mid(RA_IQ_INJECT_MID_NCO);
+    ra_iq_adc_spectrum_enable(0);
+    ra_iq_adc_constellation_enable(0);
+    ra_iq_adc_scope_enable(0);
+    s_scope_stage = RA_IQ_BLK_LIMITER;
+    s_scope_q_consumer_active = 0;
+    s_block_bypass = 0;
+    s_iqc_enable = 0;
+    s_dec_use_cmsis = s_dec_requested_cmsis = 0;
+    s_hil_use_cmsis = 0;
+    s_chf_use_f32 = 1;
+    s_mag_use_f32 = 1;
+    arm_biquad_cascade_df1_init_f32(&s_chf_bq_i, RA_IQ_CHF_STAGES, s_chf_coeffs, s_chf_state_i);
+    arm_biquad_cascade_df1_init_f32(&s_chf_bq_q, RA_IQ_CHF_STAGES, s_chf_coeffs, s_chf_state_q);
+    ra_iq_adc_set_demod(demod);
+    ra_iq_adc_set_tune(tune_hz);
+    ra_iq_adc_set_squelch(0);
+    ra_iq_adc_set_agc(RA_IQ_AGC_MODE_MANUAL, RA_IQ_AGC_GAIN_UNITY, 1024);
+    ra_iq_adc_set_volume(32768);
+    s_ring_head = s_ring_tail = s_scope_q_head = s_scope_q_tail = 0;
+    s_source_path_last = RA_IQ_SOURCE_OWNER_ADC | RA_IQ_SOURCE_ENTRY_RAW;
+    ra_iq_source_transition_reset(128, 64);
+    return true;
+}
+
+size_t ra_iq_adc_file_decode_service(void) {
+    if (ra_iq_adc_owns_adc() || !ra_tx_hw_owns_resources() ||
+        !s_file.attached) {
+        return 0;
+    }
+    /* Bounded foreground work, >=21 ms scheduling margin with a 20-ms feeder.
+     * The only concurrent operation is the TX IRQ advancing ring_tail. */
+    for (unsigned blocks = 0; blocks < 24; ++blocks) {
+        if (((s_ring_head - s_ring_tail) & RA_IQ_AUDIO_RING_MASK) >= 1536U ||
+            !s_file.requested_on || s_file.terminal_hold) {
+            break;
+        }
+        bool data = s_file.active_index >= 0 ||
+            s_file.state[0] == RA_IQ_FILE_READY || s_file.state[1] == RA_IQ_FILE_READY;
+        if (!data) {
+            break; /* wait for refill; never process the old physical ADC buffers */
+        }
+        ra_iq_dsp_process(0);
+        ra_iq_demod_produce(0);
+    }
+    return (s_ring_head - s_ring_tail) & RA_IQ_AUDIO_RING_MASK;
+}
+
+bool ra_iq_adc_file_audio_next(uint16_t *sample, uint8_t decimation) {
+    if (!sample || (decimation != 1 && decimation != 2)) {
+        return false;
+    }
+    uint32_t tail = s_ring_tail;
+    uint32_t available = (s_ring_head - tail) & RA_IQ_AUDIO_RING_MASK;
+    if (available < decimation) {
+        *sample = 2048; /* FILE silence, never MIC fallback */
+        s_audio.audio_underruns++;
+        return false;
+    }
+    __DMB();
+    uint32_t value = s_audio_ring[tail & RA_IQ_AUDIO_RING_MASK];
+    if (decimation == 2) {
+        /* SSB's existing 300..2700-Hz post-demod filter precedes this 24->12k
+         * adapter. Average each pair; no per-block phase/reset discontinuity. */
+        value = (value + s_audio_ring[(tail + 1U) & RA_IQ_AUDIO_RING_MASK] + 1U) / 2U;
+    }
+    *sample = value;
+    __DMB();
+    s_ring_tail = (tail + decimation) & RA_IQ_AUDIO_RING_MASK;
+    return true;
+}
+
 /* Per-block ON/OFF.  INPUT and LIMITER are fixed safe, so neither accepts a software toggle.
  * DECIM OFF selects its defined no-FIR Fs/2 adapter; DEMOD OFF selects I-pass. */
 void ra_iq_adc_set_block(uint8_t block, uint8_t enable) {
@@ -4144,6 +4316,42 @@ void ra_iq_adc_get_audio_params(uint32_t *freq_hz, size_t *sample_count) {
     }
 }
 
+bool ra_iq_adc_audio_chunk_ready(uint8_t ch, size_t n) {
+    if (ch > 1U || n == 0U || n > RA_IQ_AUDIO_DMA_SAMPLES) {
+        return false;
+    }
+    /* Protect only the snapshots and pair decision, not the buffer copies. */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool paired = s_scope_q_consumer_active && s_scope_stage != 0U &&
+        s_scope_stage <= RA_IQ_LAST_PREDEMOD_BLK;
+    bool ready;
+    if (paired) {
+        uint8_t bit = (uint8_t)(1U << ch);
+        if (s_audio_chunk_seen == 0U) {
+            s_audio_chunk_ready =
+                ((s_ring_head - s_ring_tail) & RA_IQ_AUDIO_RING_MASK) >= n &&
+                ((s_scope_q_head - s_scope_q_tail) & RA_IQ_AUDIO_RING_MASK) >= n;
+        }
+        /* Repeated completion without the peer must not consume a second I/Q
+         * portion.  The existing stream health path handles a stopped peer. */
+        ready = !(s_audio_chunk_seen & bit) && s_audio_chunk_ready;
+        s_audio_chunk_seen |= bit;
+        if (s_audio_chunk_seen == 3U) {
+            s_audio_chunk_seen = 0U;
+        }
+    } else {
+        s_audio_chunk_seen = 0U;
+        ready = ch == 0U &&
+            ((s_ring_head - s_ring_tail) & RA_IQ_AUDIO_RING_MASK) >= n;
+    }
+    if (!ready && ch == 0U) {
+        s_audio.audio_underruns += n;
+    }
+    __set_PRIMASK(primask);
+    return ready;
+}
+
 size_t ra_iq_adc_audio_pull(uint16_t *buf, size_t n) {
     uint32_t tail = s_ring_tail;
     uint32_t head = s_ring_head;
@@ -4183,6 +4391,7 @@ void ra_iq_adc_set_scope(uint8_t stage) {
     s_scope_q_tail = s_scope_q_head;
     __DMB();
     s_scope_stage = stage;
+    s_audio_chunk_seen = 0U;
     __DMB();
     __set_PRIMASK(primask);
     if (stage != previous_stage) {
@@ -4238,6 +4447,7 @@ void ra_iq_adc_scope_q_consumer(uint8_t active) {
     s_scope_q_tail = s_scope_q_head;
     __DMB();
     s_scope_q_consumer_active = 1U;
+    s_audio_chunk_seen = 0U;
     __DMB();
     __set_PRIMASK(primask);
 }
@@ -4500,6 +4710,16 @@ void ra_iq_adc_scope_enable(uint8_t on) {
         s_scope_ready = -1;
     }
     ra_enable_irq(irq_state);
+}
+
+bool ra_iq_adc_scope_workspace(int16_t **first, int16_t **second, size_t *n) {
+    if (!first || !second || !n || ra_iq_adc_owns_adc() || s_scope_enable) {
+        return false;
+    }
+    *first = s_scope_audio[0];
+    *second = s_scope_audio[1];
+    *n = RA_IQ_SPEC_N;
+    return true;
 }
 
 /* Called only by the DAC DMAC refill callback, immediately after audio_pull has
