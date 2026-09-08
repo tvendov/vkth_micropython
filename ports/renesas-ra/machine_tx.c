@@ -40,7 +40,7 @@ static machine_tx_obj_t *machine_tx_require_active(mp_obj_t self_in) {
 static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_mode, ARG_rate, ARG_amplitude, ARG_adc_mid, ARG_i_zero, ARG_q_zero,
         ARG_fm_gain, ARG_ramp_samples, ARG_deviation_hz, ARG_mic_gain, ARG_file_mode, ARG_file_tune,
-        ARG_audio_gain, ARG_am_depth, ARG_file_gain };
+        ARG_audio_gain, ARG_am_depth, ARG_file_gain, ARG_gen_frequency_dhz, ARG_gen_level, ARG_gen_wave };
     static const mp_arg_t allowed[] = {
         { MP_QSTR_mode, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = RA_TX_MODE_CW} },
         { MP_QSTR_rate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
@@ -57,12 +57,15 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
         { MP_QSTR_audio_gain, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
         { MP_QSTR_am_depth, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 50} },
         { MP_QSTR_file_gain, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 100} },
+        { MP_QSTR_gen_frequency_dhz, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_gen_level, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 50} },
+        { MP_QSTR_gen_wave, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed), allowed, args);
     if (args[ARG_rate].u_int == -1) {
         args[ARG_rate].u_int = ra_tx_mode_is_ssb(args[ARG_mode].u_int) ? RA_TX_SSB_RATE :
-            (args[ARG_file_mode].u_int >= 0 ? 24000 : 44000);
+            (args[ARG_file_mode].u_int >= 0 || args[ARG_gen_frequency_dhz].u_int > 0 ? 24000 : 44000);
     }
     /* Explicit old fm_gain keeps the raw DOC experiment compatible. New FM
      * defaults to conditioned voice with +/-2.5 kHz peak deviation. */
@@ -92,6 +95,11 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
     if (args[ARG_mode].u_int > RA_TX_MODE_LSB) {
         mp_raise_ValueError(MP_ERROR_TEXT("TX mode must be CW, AM, FM, USB or LSB"));
     }
+    if (args[ARG_gen_frequency_dhz].u_int < 0 || args[ARG_gen_frequency_dhz].u_int > 30000 ||
+        args[ARG_gen_level].u_int < 0 || args[ARG_gen_level].u_int > 100 ||
+        args[ARG_gen_wave].u_int < 0 || args[ARG_gen_wave].u_int > 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid GEN frequency, level or wave"));
+    }
     if (ra_tx_mode_is_ssb(args[ARG_mode].u_int) && args[ARG_rate].u_int != RA_TX_SSB_RATE) {
         mp_raise_ValueError(MP_ERROR_TEXT("USB/LSB requires rate=12000"));
     }
@@ -109,10 +117,15 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
         .ramp_samples = args[ARG_ramp_samples].u_int,
         .deviation_hz = args[ARG_deviation_hz].u_int,
         .mic_gain = args[ARG_mic_gain].u_int,
-        .audio_controls = args[ARG_audio_gain].u_int >= 0,
+        .audio_controls = args[ARG_audio_gain].u_int >= 0 ||
+            (args[ARG_gen_frequency_dhz].u_int > 0 && args[ARG_mode].u_int == RA_TX_MODE_AM),
         .audio_gain = args[ARG_audio_gain].u_int >= 0 ? args[ARG_audio_gain].u_int : 100,
         .am_depth = args[ARG_am_depth].u_int,
         .file_source = args[ARG_file_mode].u_int >= 0,
+        .gen_source = args[ARG_gen_frequency_dhz].u_int > 0,
+        .gen_frequency_dhz = args[ARG_gen_frequency_dhz].u_int,
+        .gen_level = args[ARG_gen_level].u_int,
+        .gen_wave = args[ARG_gen_wave].u_int,
     };
     if (!ra_tx_core_validate(&config)) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid TX rate, offset, amplitude or ramp"));
@@ -251,6 +264,33 @@ static mp_obj_t machine_tx_audio_configure(size_t n_args, const mp_obj_t *pos_ar
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_tx_audio_configure_obj, 1, machine_tx_audio_configure);
 
+static mp_obj_t machine_tx_gen_configure(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_tx_obj_t *self = machine_tx_require_active(pos_args[0]);
+    enum { ARG_frequency_dhz, ARG_level, ARG_wave };
+    static const mp_arg_t allowed[] = {
+        { MP_QSTR_frequency_dhz, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+        { MP_QSTR_level, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+        { MP_QSTR_wave, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed), allowed, args);
+    if (args[ARG_frequency_dhz].u_int < -1 || args[ARG_frequency_dhz].u_int == 0 ||
+        args[ARG_frequency_dhz].u_int > 30000 || args[ARG_level].u_int < -1 ||
+        args[ARG_level].u_int > 100 || args[ARG_wave].u_int < -1 || args[ARG_wave].u_int > 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid GEN control"));
+    }
+    ra_tx_config_t config = self->config;
+    if (args[ARG_frequency_dhz].u_int != -1) { config.gen_frequency_dhz = args[ARG_frequency_dhz].u_int; }
+    if (args[ARG_level].u_int != -1) { config.gen_level = args[ARG_level].u_int; }
+    if (args[ARG_wave].u_int != -1) { config.gen_wave = args[ARG_wave].u_int; }
+    if (!ra_tx_hw_gen_configure(&config)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("GEN controls require GEN source"));
+    }
+    self->config = config;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_tx_gen_configure_obj, 1, machine_tx_gen_configure);
+
 static mp_obj_t machine_tx_key(mp_obj_t self_in, mp_obj_t down_in) {
     machine_tx_obj_t *self = machine_tx_require_active(self_in);
     if (self->config.mode != RA_TX_MODE_CW) {
@@ -341,6 +381,10 @@ static mp_obj_t machine_tx_status(mp_obj_t self_in) {
     STORE_INT(af_error, s.af_error);
     STORE_BOOL(af_enabled, s.af_enabled);
     STORE_BOOL(file_source, s.file_source);
+    STORE_BOOL(gen_source, self->config.gen_source);
+    STORE_INT(gen_frequency_dhz, self->config.gen_frequency_dhz);
+    STORE_INT(gen_level, self->config.gen_level);
+    STORE_INT(gen_wave, self->config.gen_wave);
     STORE_INT(file_underruns, s.file_underruns);
     STORE_INT(deviation_hz, self->config.deviation_hz);
     STORE_INT(mic_gain, self->config.mic_gain);
@@ -354,7 +398,9 @@ static mp_obj_t machine_tx_status(mp_obj_t self_in) {
     mp_float_t rate = s.timer_period ? (mp_float_t)s.timer_clock_hz / s.timer_period : 0;
     mp_obj_dict_store(result, MP_OBJ_NEW_QSTR(MP_QSTR_actual_rate), mp_obj_new_float(rate));
     mp_obj_dict_store(result, MP_OBJ_NEW_QSTR(MP_QSTR_cw_pin), mp_const_none);
-    mp_obj_dict_store(result, MP_OBJ_NEW_QSTR(MP_QSTR_mic_pin), MP_OBJ_NEW_QSTR(MP_QSTR_P001));
+    mp_obj_dict_store(result, MP_OBJ_NEW_QSTR(MP_QSTR_mic_pin),
+        ra_tx_software_source(&self->config) || self->config.mode == RA_TX_MODE_CW ?
+        mp_const_none : MP_OBJ_NEW_QSTR(MP_QSTR_P001));
     mp_obj_dict_store(result, MP_OBJ_NEW_QSTR(MP_QSTR_i_pin), MP_OBJ_NEW_QSTR(MP_QSTR_P014));
     mp_obj_dict_store(result, MP_OBJ_NEW_QSTR(MP_QSTR_q_pin), MP_OBJ_NEW_QSTR(MP_QSTR_P015));
     #undef STORE_INT
@@ -367,7 +413,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(machine_tx_status_obj, machine_tx_status);
  * 20-ms FILE timer. No file I/O or Python callback runs in the sample IRQ. */
 static void machine_tx_require_file(mp_obj_t self_in) {
     if (!machine_tx_require_active(self_in)->config.file_source) {
-        mp_raise_ValueError(MP_ERROR_TEXT("TX source is MIC"));
+        mp_raise_ValueError(MP_ERROR_TEXT("TX source is not FILE"));
     }
 }
 
@@ -470,6 +516,11 @@ static const mp_rom_map_elem_t machine_tx_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&machine_tx_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_fm_configure), MP_ROM_PTR(&machine_tx_fm_configure_obj) },
     { MP_ROM_QSTR(MP_QSTR_audio_configure), MP_ROM_PTR(&machine_tx_audio_configure_obj) },
+    { MP_ROM_QSTR(MP_QSTR_gen_configure), MP_ROM_PTR(&machine_tx_gen_configure_obj) },
+    { MP_ROM_QSTR(MP_QSTR_GEN_API_VERSION), MP_ROM_INT(1) },
+    { MP_ROM_QSTR(MP_QSTR_SINE), MP_ROM_INT(0) },
+    { MP_ROM_QSTR(MP_QSTR_SQUARE), MP_ROM_INT(1) },
+    { MP_ROM_QSTR(MP_QSTR_TRIANGLE), MP_ROM_INT(2) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&machine_tx_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR_release), MP_ROM_PTR(&machine_tx_release_static_obj) },
     { MP_ROM_QSTR(MP_QSTR_FILE_API_VERSION), MP_ROM_INT(1) },

@@ -4,6 +4,91 @@
 този файл и `ra6_sdr_next_steps.md`, без напомняне. Записите разграничават
 анализ, реализация, хост тест, build, качване и физическо измерване.
 
+## 2026-09-08: native TX GEN качен; тонов детектор като отделен компонент
+
+Промени по файлове:
+
+- `ra/ra_tone.h/c`: общ DDS със синусова таблица 130 B във flash; SINE,
+  SQUARE, TRIANGLE, 0.1-Hz параметър, непрекъсната фаза при настройка.
+  Една GEN инстанция 12 B. Избран-тон корелатор с DC отстраняване и
+  two-window acquire/release; 80 B host състояние, още НЕ свързан към RX.
+- `ra/ra_tx_hw.h/c`: GEN source използва AGT C callback без ADC/FILE
+  декодер. Същият суров AF се подава към модулатора и съществуващия scope.
+  Stop/quiesce/cutoff покриват софтуерния източник; live setter пази фазата.
+  DSP body измерването при GEN включва DDS и scope push, не ISR entry/exit.
+- `ra/ra_tx_core.c`: валидация на GEN, отхвърляне на GEN+FILE/CW/raw-FM,
+  запазени MIC/FILE и AM/SSB/FM формули. AM/SSB GEN нямат нов LUT.
+- `machine_tx.c`: GEN kwargs, API_VERSION, live gen_configure и status;
+  mic_pin=None за GEN/FILE/CW. Честотата е в десети Hz; нулев LEVEL
+  подава точно AF=0, но не означава спиране на носещата при AM/FM.
+- `Makefile`: общото tone ядро се компилира с TX. Не е добавян LAB/OpenCV.
+- `sdr_single.py` (каноничен + tracked): MIC/GEN/R:xx SOURCE;
+  TX BACKEND → GEN SET → FREQUENCY/LEVEL/WAVE; текущите стойности са видими.
+  Параметрите се запазват по съществуващия отложен dataflash път, не при TX.
+  По-компактни picker редове при 6 избора. Без втори scope или микрофонен поток.
+- `test_tone.c`: независим libm референтен сигнал, DDS грешка <2 ADC кода,
+  фаза/mute/форми/реална рационална Fs, валидиране на GEN; tone/DC/шум/
+  съседен тон/прихващане/освобождаване; FM mute residual регресия.
+- `test_sdr_tx_generator.py`: реалните app методи с host doubles за
+  AM/USB/LSB/FM, x1 синтезатор преди старт, без FILE fallback, меню и rollback.
+- `test_sdr_fm_controls.py`: mock включва source state; стари записи и
+  разширен dataflash payload под 512 B са проверени.
+- `tx_tone_signalling.md`: инструкции и граници между тестов GEN и бъдеща
+  репитърна сигнализация. Генераторът не е обявен за CTCSS/DCS система.
+
+Host: всички 7 Python TX набора PASS; native core 18 групи / 8403968 проверки
+PASS; tone vectors PASS. RadioOnly build -j16, explicit MinGW Python, OpenCV
+OFF/USER_C_MODULES празно. ELF heap281600 B непроменен; постоянната TX
+структура 1548→1564 B (+16 B). Детекторът още не е retained в ELF.
+
+Firmware1592656 B SHA256
+`d927758cf7ec02af5275f990fb6273bd15a69855251b8e30d476fb8e72fa8f34`;
+source321537 B SHA256
+`e67ff2f3a4244d2b9e628d89993fe8e156fb76560815ec3e90ba0ced8bc0c20f`;
+MPY90672 B SHA256
+`65f570a33550c5897040ff43da3f9b4715bd3c6e610c02d6309bcd1b3c16afc0`.
+Архив `backups/tx-generator-1120000058-20260908-204558`: външен QSPI16MiB
+преди/след, internal2MiB преди, settings и source/build candidate.
+Internal readback PASS; 70 предишни файла запазени, IQ записите, dataflash
+валидният запис и последните 4MiB QSPI code непроменени; tests_written=False.
+
+Първият RAM HIL премина активния GEN за четирите режима, но FAIL при FM
+mute: погрешно изискваше I/Q да се различават с ≤1 код след 70 ms.
+Диагностика с реалния C FM код възпроизведе DC-servo rounding residual до
+0.018775 Hz след 1 s затихване (deviation2500, gain100; 24 фази на спиране).
+Коригиран е тестът, НЕ FM модулаторът: AF трябва да е точно 2048, а
+FM residual <0.1 Hz за този режим. Това не доказва идеално нулев offset.
+
+Повторен RAM HIL PASS през реални GUI CLICKED callbacks:
+SOURCE GEN, 1750→1000Hz, TRIANGLE→SINE, LEVEL50→0→50, BACK и смяна на mode
+без загуба на source. При установени GEN1kHz/LEVEL50/TXLEVEL50:
+
+| Mode | DAC I кодове | DAC Q кодове | AF кадри | max/budget CPU cycles |
+| --- | --- | --- | --- | --- |
+| USB | 1540..2556 | 1541..2555 | 26→46 | 4378/10000 |
+| LSB | 1536..2560 | 1536..2560 | 27→45 | 4378/10000 |
+| AM | 2432..2688 | 2048 | 29→48 | 494/5000 |
+| FM | 2370..3071 | 1076..3013 | 28→48 | 1006/5000 |
+
+Това са некохерентни DADR snapshots, НЕ физически напрежения/фазово измерване.
+В теста: CLIP=0, deadline misses=0, FILE UND=0; scope AF GEN напредва в HOME.
+В BACKEND scope е умишлено paused; това не спира генератора.
+Si5351 CLK1 x1 при579400Hz е проверен чрез регистрите, НЕ с честотомер.
+FM mute: raw AF2048; phase883→971 за1728/24000s, residual0.018649624Hz.
+След двата RAM теста е изпълнен J-Link NORMAL reset; тестове не са във flash.
+Физически touch, аналогови DAC и RF качество не са измерени.
+
+
+## 2026-09-08: изискване за GEN и двупосочна тонова сигнализация
+
+Прието е постоянен генератор в трансивера, а не временен файл, който
+симулира тон през IQ декодера. Допълнено: генераторът трябва да послужи
+и за репитърни тонове; необходим е и приемен детектор/декодер.
+Разделени са AF тестов източник (замяна на MIC) и сигнализация (добавяне
+към гласа). Прегледани са TX owner, AGT/ADC/FILE callback, AF scope,
+SOURCE picker и модулаторите. Това е анализ; нов код/build/HIL още няма.
+Съществуващото приложение и платката не са променени в тази стъпка.
+
 ## 2026-09-08: TX SOURCE/LOOP, TRANSCEIVER и остарелите червени флагове
 
 Промени в каноничния и tracked `sdr_single.py`:

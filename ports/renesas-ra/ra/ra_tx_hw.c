@@ -17,6 +17,7 @@
 #include "ra_utils.h"
 #include "ra_tx_hw.h"
 #include "ra_tx_core.h"
+#include "ra_tone.h"
 #include "vector_data.h"
 #if MICROPY_HW_ENABLE_IQ_ADC
 #include "ra_iq_adc.h"
@@ -70,6 +71,7 @@ typedef struct {
         ra_tx_fm_state_t fm;
     } dsp; /* CW and SSB are exclusive: reuse the existing static RAM. */
     uint32_t hold_settings, hold_source, hold_counts;
+    ra_tone_gen_t generator;
 } tx_state_t;
 
 static tx_state_t tx;
@@ -91,7 +93,7 @@ static struct {
 
 static bool tx_scope_close(void) {
     #if MICROPY_HW_ENABLE_IQ_ADC
-    if (tx.config.file_source) {
+    if (ra_tx_software_source(&tx.config)) {
         ra_iq_adc_scope_enable(0);
     }
     #endif
@@ -127,7 +129,7 @@ static bool tx_scope_close(void) {
 
 bool ra_tx_hw_scope_enable(bool on) {
     #if MICROPY_HW_ENABLE_IQ_ADC
-    if (tx.config.file_source) {
+    if (ra_tx_software_source(&tx.config)) {
         bool enable = on && tx.status.running && !tx.status.error;
         ra_iq_adc_scope_enable(enable);
         tx.status.af_enabled = enable;
@@ -185,9 +187,9 @@ bool ra_tx_hw_scope_enable(bool on) {
 
 bool ra_tx_hw_scope_frame(const int16_t **samples, size_t *n, uint32_t *rate_hz) {
     #if MICROPY_HW_ENABLE_IQ_ADC
-    if (samples && n && rate_hz && tx.config.file_source && tx.status.running &&
+    if (samples && n && rate_hz && ra_tx_software_source(&tx.config) && tx.status.running &&
         !tx.status.error && tx.status.af_enabled) {
-        *rate_hz = tx.config.sample_rate_hz;
+        *rate_hz = (tx.status.timer_clock_hz + tx.status.timer_period / 2U) / tx.status.timer_period;
         bool ready = ra_iq_adc_scope_frame(samples, n);
         if (ready) {
             tx.status.af_frames++;
@@ -232,7 +234,7 @@ static void tx_cutoff(void) {
     if (tx.timer_reserved) {
         ra_agt_timer_stop((uint32_t)tx.status.timer_channel);
     }
-    if (tx.adc_open || tx.dtc_open || tx.config.file_source) {
+    if (tx.adc_open || tx.dtc_open || ra_tx_software_source(&tx.config)) {
         R_BSP_IrqDisable(tx.irq);
     }
     if (tx.dtc_open) {
@@ -270,8 +272,7 @@ static void tx_unexpected_irq(void *unused) {
     tx_cutoff();
 }
 
-static void tx_cpu_sample(uint16_t raw) {
-    uint32_t began = DWT->CYCCNT;
+static void tx_cpu_sample(uint16_t raw, uint32_t began) {
     uint16_t i_code, q_code;
     tx.raw = raw;
     if (tx.config.mode == RA_TX_MODE_AM) {
@@ -307,12 +308,12 @@ static void tx_cpu_sample(uint16_t raw) {
 }
 
 static void tx_adc_callback(adc_callback_args_t *args) {
-    if (!ra_tx_uses_cpu(&tx.config) || tx.config.file_source || args == NULL ||
+    if (!ra_tx_uses_cpu(&tx.config) || ra_tx_software_source(&tx.config) || args == NULL ||
         args->event != ADC_EVENT_SCAN_COMPLETE || !tx.ready || !tx.status.running || tx.status.error) {
         tx_unexpected_irq(NULL);
         return;
     }
-    tx_cpu_sample(R_ADC0->ADDR[1]);
+    tx_cpu_sample(R_ADC0->ADDR[1], DWT->CYCCNT);
 }
 
 static void tx_file_callback(void *unused) {
@@ -330,7 +331,21 @@ static void tx_file_callback(void *unused) {
      * Both the oscilloscope and the modulator see this value, including silence. */
     ra_iq_adc_scope_push(&raw, 1);
     #endif
-    tx_cpu_sample(raw);
+    tx_cpu_sample(raw, DWT->CYCCNT);
+}
+
+static void tx_gen_callback(void *unused) {
+    (void)unused;
+    uint32_t began = DWT->CYCCNT;
+    if (!tx.config.gen_source || !tx.ready || !tx.status.running || tx.status.error) {
+        tx_unexpected_irq(NULL);
+        return;
+    }
+    uint16_t raw = 2048 + ra_tone_next(&tx.generator);
+    #if MICROPY_HW_ENABLE_IQ_ADC
+    ra_iq_adc_scope_push(&raw, 1); /* same premodulation AF, not a second oscillator */
+    #endif
+    tx_cpu_sample(raw, began); /* budget includes generator and scope work */
 }
 
 static void tx_transfer(unsigned index, void const *src, void *dest, transfer_size_t size, bool last) {
@@ -407,7 +422,7 @@ static bool tx_quiesce(void) {
     if (tx.timer_reserved && !ra_agt_timer_stop_wait((uint32_t)tx.status.timer_channel)) {
         return tx_error(RA_TX_ERROR_STOP_TIMEOUT, FSP_ERR_TIMEOUT);
     }
-    if (tx.config.file_source && tx.timer_reserved) {
+    if (ra_tx_software_source(&tx.config) && tx.timer_reserved) {
         R_BSP_IrqDisable(tx.irq);
         R_BSP_IrqStatusClear(tx.irq);
         NVIC_ClearPendingIRQ(tx.irq);
@@ -564,20 +579,26 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
         return tx_error(RA_TX_ERROR_TIMER, FSP_ERR_IN_USE);
     }
     unsigned ch = (unsigned)tx.status.timer_channel;
-    tx.irq = (config->mode == RA_TX_MODE_CW || config->file_source) ?
+    tx.irq = (config->mode == RA_TX_MODE_CW || ra_tx_software_source(config)) ?
         (IRQn_Type)(VECTOR_NUMBER_AGT0_INT + ch) : VECTOR_NUMBER_ADC0_SCAN_END;
     ra_agt_timer_init(ch, (float)config->sample_rate_hz);
     R_BSP_IrqDisable((IRQn_Type)(VECTOR_NUMBER_AGT0_INT + ch));
     if (!ra_agt_timer_stop_wait(ch)) {
         return tx_error(RA_TX_ERROR_STOP_TIMEOUT, FSP_ERR_TIMEOUT);
     }
-    ra_agt_timer_set_callback(ch, config->file_source ? tx_file_callback : tx_unexpected_irq, NULL);
+    ra_agt_timer_set_callback(ch, config->gen_source ? tx_gen_callback :
+        config->file_source ? tx_file_callback : tx_unexpected_irq, NULL);
     tx.status.timer_clock_hz = R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_PCLKB) / 2U;
     uint32_t period = (tx.status.timer_clock_hz + config->sample_rate_hz / 2U) / config->sample_rate_hz;
     if (!ra_agt_timer_set_period(ch, period)) {
         return tx_error(RA_TX_ERROR_TIMER, FSP_ERR_INVALID_ARGUMENT);
     }
     tx.status.timer_period = ra_agt_timer_get_period(ch);
+    if (config->gen_source && !ra_tone_configure(&tx.generator, tx.status.timer_clock_hz,
+        tx.status.timer_period, config->gen_frequency_dhz,
+        (2047U * config->gen_level + 50U) / 100U, config->gen_wave)) {
+        return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
+    }
     tx.status.quiesced = true;
     if (ra_tx_uses_cpu(config)) {
         CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -606,7 +627,7 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
     if (config->mode == RA_TX_MODE_CW) {
         ra_tx_core_ramp(tx.dsp.cw.shape, config->ramp_samples, 0, UINT16_MAX);
     }
-    if (config->mode != RA_TX_MODE_CW && !config->file_source) {
+    if (config->mode != RA_TX_MODE_CW && !ra_tx_software_source(config)) {
         /* Pre-existing standalone ADC objects must be reconstructed afterward;
          * their resolution/PGA/pin settings are not a saved hardware context. */
         ra_adc_enable(P001);
@@ -685,6 +706,7 @@ bool ra_tx_hw_start(void) {
         return false;
     }
     if (ra_tx_uses_cpu(&tx.config)) {
+        if (tx.config.gen_source) { ra_tone_reset(&tx.generator); }
         if (ra_tx_is_voice_fm(&tx.config)) {
             if (!ra_tx_core_fm_reset(&tx.dsp.fm, &tx.config,
                 tx.status.timer_clock_hz, tx.status.timer_period)) {
@@ -758,6 +780,7 @@ bool ra_tx_hw_audio_configure(const ra_tx_config_t *config) {
     if (!tx.ready || tx.status.error != RA_TX_ERROR_NONE || !config->audio_controls ||
         !tx.config.audio_controls || !ra_tx_core_validate(config) ||
         config->mode != tx.config.mode || config->file_source != tx.config.file_source ||
+        config->gen_source != tx.config.gen_source ||
         config->sample_rate_hz != tx.config.sample_rate_hz || config->adc_mid != tx.config.adc_mid ||
         config->i_zero != tx.config.i_zero || config->q_zero != tx.config.q_zero) {
         return false;
@@ -771,6 +794,29 @@ bool ra_tx_hw_audio_configure(const ra_tx_config_t *config) {
     tx.config.am_depth = config->am_depth;
     tx.config.amplitude = config->amplitude;
     FSP_CRITICAL_SECTION_EXIT;
+    return true;
+}
+
+bool ra_tx_hw_gen_configure(const ra_tx_config_t *config) {
+    if (!tx.ready || tx.status.error || !tx.config.gen_source || !config->gen_source ||
+        !ra_tx_core_validate(config) || config->mode != tx.config.mode ||
+        config->sample_rate_hz != tx.config.sample_rate_hz) {
+        return false;
+    }
+    ra_tone_gen_t prepared = {0};
+    if (!ra_tone_configure(&prepared, tx.status.timer_clock_hz, tx.status.timer_period,
+        config->gen_frequency_dhz, (2047U * config->gen_level + 50U) / 100U, config->gen_wave)) {
+        return false;
+    }
+    FSP_CRITICAL_SECTION_DEFINE;
+    FSP_CRITICAL_SECTION_ENTER;
+    tx.generator.step = prepared.step;
+    tx.generator.peak = prepared.peak;
+    tx.generator.wave = prepared.wave;
+    tx.config.gen_frequency_dhz = config->gen_frequency_dhz;
+    tx.config.gen_level = config->gen_level;
+    tx.config.gen_wave = config->gen_wave;
+    FSP_CRITICAL_SECTION_EXIT; /* keep current phase, filter state and scope */
     return true;
 }
 

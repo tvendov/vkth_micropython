@@ -1108,6 +1108,9 @@ def _fresh_params():
     out["txmic"] = 100           # microphone gain percent (not RX AF)
     out["txlevel"] = 40          # I/Q DAC peak percent of 2047 codes
     out["txdepth"] = 50          # AM depth at full-scale AF, independent of LEVEL
+    out["genfreq"] = 10000       # 0.1 Hz units: default 1 kHz, not an RF frequency
+    out["genlevel"] = 50         # premodulation AF peak percent
+    out["genwave"] = 0           # SINE / SQUARE / TRIANGLE
     return out
 
 
@@ -1184,7 +1187,8 @@ def load_params():
         except Exception:
             out["iqp"] = 0.0
         for name, low, high in (("txdev", 100, 5000), ("txmic", 0, 1600), ("txlevel", 0, 100),
-                                ("txdepth", 0, 100)):
+                                ("txdepth", 0, 100), ("genfreq", 1, 30000),
+                                ("genlevel", 0, 100), ("genwave", 0, 2)):
             try:
                 out[name] = min(max(int(p.get(name, out[name])), low), high)
             except (TypeError, ValueError):
@@ -1216,7 +1220,10 @@ def save_params(p):
                "txdev": int(p.get("txdev", 2500)),
                "txmic": int(p.get("txmic", 100)),
                "txlevel": int(p.get("txlevel", 40)),
-               "txdepth": int(p.get("txdepth", 50))}
+               "txdepth": int(p.get("txdepth", 50)),
+               "genfreq": int(p.get("genfreq", 10000)),
+               "genlevel": int(p.get("genlevel", 50)),
+               "genwave": int(p.get("genwave", 0))}
     payload = json.dumps(rec_obj).encode()
     if len(payload) > DF_PAYLOAD_LIMIT:
         raise ValueError("payload %d B > %d B" %
@@ -2498,7 +2505,14 @@ class SdrApp:
             self._tx_class = IQTX
             mode = getattr(IQTX, mode_name)
             kwargs = {"mode": mode}
-            if file_settings is not None:
+            generated = file_settings == "GEN"
+            if generated:
+                if getattr(IQTX, "GEN_API_VERSION", 0) < 1:
+                    raise RuntimeError("GEN requires matching firmware")
+                kwargs["gen_frequency_dhz"] = self.p.get("genfreq", 10000)
+                kwargs["gen_level"] = self.p.get("genlevel", 50)
+                kwargs["gen_wave"] = self.p.get("genwave", 0)
+            elif file_settings is not None:
                 kwargs["file_mode"] = getattr(IQTX, file_settings[1])
                 kwargs["file_tune"] = file_settings[5]
                 # Headroom for SSB decoding, independent of the selected TX mode.
@@ -2516,7 +2530,9 @@ class SdrApp:
             self._tx = tx
             self._tx_mode = mode_name
             self._tx_last_samples = None
-            if file_settings is not None:
+            if generated:
+                self._tx_file_label = "GEN"
+            elif file_settings is not None:
                 self._tx_file_on = True
                 self._tx_file_label = file_settings[0]
                 self._iq_file.start(tx, file_settings[4], file_settings[3],
@@ -3184,6 +3200,8 @@ class SdrApp:
         if self._trx_state != TRX_TX or self._trx_pending is not None:
             return
         items = [(None, "MIC")]
+        if getattr(getattr(self, "_tx_class", None), "GEN_API_VERSION", 0) >= 1:
+            items.append(("GEN", "GEN"))
         for profile in self._iq_file_profiles:
             if profile[0] in ("R:AM", "R:USB", "R:LSB", "R:FM"):
                 # Real-bank IN recordings: FM carrier is at -6 kHz. Decode to AF
@@ -3204,6 +3222,38 @@ class SdrApp:
         self._iq_file_loop = enabled
         self._refresh_tx_settings()
         return True
+
+    def open_tx_gen_menu(self, field=None):
+        """GEN replaces MIC; this is not the future repeater tone mixer."""
+        if (self._trx_state != TRX_TX or self._trx_pending is not None or
+                self._tx_source_settings != "GEN"):
+            return
+        if field is None:
+            self.open_pick_menu("AF GENERATOR", (("genfreq", "FREQUENCY"),
+                                ("genlevel", "LEVEL"), ("genwave", "WAVE")),
+                                None, self.open_tx_gen_menu)
+            return
+        if field == "genfreq":
+            items = tuple((v, "%s Hz" % (v // 10 if v % 10 == 0 else v / 10))
+                          for v in (1000, 5000, 10000, 17500, 20000))
+        elif field == "genlevel":
+            items = tuple((v, "%d%%" % v) for v in (0, 25, 50, 75, 100))
+        else:
+            items = ((0, "SINE"), (1, "SQUARE"), (2, "TRIANGLE"))
+        def selected(value):
+            key = {"genfreq": "frequency_dhz", "genlevel": "level", "genwave": "wave"}[field]
+            if self._trx_state != TRX_TX or self._trx_pending is not None:
+                return
+            try:
+                self._tx.gen_configure(**{key: value})
+            except Exception as e:
+                self._trx_error = "GEN control: %r" % (e,)
+                self.update_rx()
+                return
+            self.p[field] = value   # publish only after native setter success
+            self.touch_params()
+            self._refresh_tx_settings()
+        self.open_pick_menu("GEN " + field[3:].upper(), items, self.p.get(field), selected)
 
     def _fm_controls(self):
         return self._trx_state == TRX_TX and self._tx_mode == "FM"
@@ -4910,7 +4960,10 @@ class SdrApp:
         self._set_widgets["tx-loop"] = _lbl(loop_button, "", 14, CYAN_RX)
         self._set_widgets["tx-loop-button"] = loop_button
         def loop_cb(e):
-            self.toggle_tx_file_loop()
+            if self._tx_source_settings == "GEN":
+                self.open_tx_gen_menu()
+            else:
+                self.toggle_tx_file_loop()
         loop_button.add_event_cb(loop_cb, lv.EVENT.CLICKED, None)
         self._settings_cbs.append(loop_cb)
         keys = self._tx_gain_keys()
@@ -4951,8 +5004,14 @@ class SdrApp:
         if ("settings" not in _KEEP or not self._settings_tx or
                 self._trx_state != TRX_TX):
             return
-        for key, text in (("tx-source", "SOURCE: " + (self._tx_file_label or "MIC") + "  >"),
-                          ("tx-loop", "LOOP" if self._iq_file_loop else "ONCE")):
+        source_label = self._tx_file_label or "MIC"
+        if self._tx_source_settings == "GEN":
+            source_label = "GEN %s %.1fHz %d%%" % (
+                ("SIN", "SQR", "TRI")[self.p.get("genwave", 0)],
+                self.p.get("genfreq", 10000) / 10, self.p.get("genlevel", 50))
+        for key, text in (("tx-source", "SOURCE: " + source_label + "  >"),
+                          ("tx-loop", "GEN SET" if self._tx_source_settings == "GEN" else
+                           "LOOP" if self._iq_file_loop else "ONCE")):
             label = self._set_widgets[key]
             if label.get_text() != text:
                 label.set_text(text)
@@ -6264,7 +6323,7 @@ class SdrApp:
         cbs = []
         for val, name in items:
             b = lv.button(panel)
-            b.set_size(196, 30)
+            b.set_size(196, 26 if len(items) > 5 else 30)
             on = val == current
             b.set_style_bg_color(lv.color_hex(CYAN_IN if on else BTN_RX), 0)
             b.set_style_radius(6, 0)

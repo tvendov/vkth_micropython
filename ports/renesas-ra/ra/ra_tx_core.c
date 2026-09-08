@@ -4,6 +4,7 @@
 
 #include "ra_tx_core.h"
 #include "ra_tx_ssb_coeffs.h"
+#include "ra_tone.h"
 
 #define RA_TX_DAC_MAX (4095U)
 #define RA_TX_PI_F (3.14159265358979323846f)
@@ -35,6 +36,14 @@ bool ra_tx_core_validate(const ra_tx_config_t *config) {
     }
 
     uint32_t amplitude = config->amplitude;
+    if (config->gen_source && (config->file_source || config->adc_mid != 2048U ||
+        config->mode == RA_TX_MODE_CW || !config->gen_frequency_dhz ||
+        config->gen_frequency_dhz > 30000U || config->gen_level > 100U ||
+        config->gen_wave > RA_TONE_TRIANGLE ||
+        (config->mode == RA_TX_MODE_AM && !config->audio_controls) ||
+        (config->mode == RA_TX_MODE_FM && !ra_tx_is_voice_fm(config)))) {
+        return false;
+    }
     if (config->file_source && (config->adc_mid != 2048U || config->mode == RA_TX_MODE_CW ||
         (ra_tx_mode_is_ssb(config->mode) ? config->sample_rate_hz != RA_TX_SSB_RATE :
          config->sample_rate_hz != 24000U) ||

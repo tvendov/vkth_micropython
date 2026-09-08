@@ -150,6 +150,7 @@ def new_app(env):
     calls = []
     app.be = types.SimpleNamespace(set_volume=lambda value: calls.append(('RX', value)))
     app._tx = types.SimpleNamespace(fm_configure=lambda **kw: calls.append(kw))
+    app._tx_source_settings = None
     return app, calls
 
 

@@ -44,6 +44,10 @@ typedef struct {
     uint8_t am_depth;      /* normalized AM depth percent at full-scale AF */
     bool audio_controls;  /* false preserves legacy AM and SSB API behavior */
     bool file_source;     /* selected AF comes only from the SDRIQ decoder */
+    bool gen_source;      /* direct AF DDS: no ADC and no FILE decoder */
+    uint16_t gen_frequency_dhz; /* 0.1 Hz units */
+    uint16_t gen_level;    /* percent of signed AF full scale */
+    uint8_t gen_wave;      /* ra_tone_wave_t */
 } ra_tx_config_t;
 
 typedef struct {
@@ -100,8 +104,12 @@ static inline bool ra_tx_is_voice_fm(const ra_tx_config_t *config) {
 }
 
 static inline bool ra_tx_uses_cpu(const ra_tx_config_t *config) {
-    return config->file_source || ra_tx_mode_is_ssb(config->mode) || ra_tx_is_voice_fm(config) ||
+    return config->file_source || config->gen_source || ra_tx_mode_is_ssb(config->mode) || ra_tx_is_voice_fm(config) ||
            (config->mode == RA_TX_MODE_AM && config->audio_controls);
+}
+
+static inline bool ra_tx_software_source(const ra_tx_config_t *config) {
+    return config->file_source || config->gen_source;
 }
 
 #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
@@ -111,6 +119,7 @@ bool ra_tx_hw_stop(void);
 bool ra_tx_hw_key(bool down);
 bool ra_tx_hw_fm_configure(const ra_tx_config_t *config);
 bool ra_tx_hw_audio_configure(const ra_tx_config_t *config);
+bool ra_tx_hw_gen_configure(const ra_tx_config_t *config);
 bool ra_tx_hw_deinit_checked(void);
 bool ra_tx_hw_owns_adc(void);
 bool ra_tx_hw_owns_dac(void);

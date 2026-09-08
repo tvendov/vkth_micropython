@@ -1,0 +1,4 @@
+FM existing DC-servo residual at GEN mute: worst 0.018775 Hz (2500-Hz deviation, unity gain)
+PASS tone DDS: sine error<2 codes; rational rate; phase/mute; waveforms; GEN mode validation
+PASS selected-tone detector: independent tones/DC/noise/neighbor/acquire/release; not protocol certification
+State bytes: generator=12 detector=80; no board/DAC/RF tested

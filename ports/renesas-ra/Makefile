@@ -639,7 +639,7 @@ ifeq ($(CMSIS_MCU),RA6M3)
 ifeq ($(MICROPY_HW_ENABLE_TX),1)
 CFLAGS += -DMICROPY_HW_ENABLE_TX=1
 SRC_C += machine_tx.c
-HAL_SRC_C += ra/ra_tx_hw.c ra/ra_tx_core.c
+HAL_SRC_C += ra/ra_tx_hw.c ra/ra_tx_core.c ra/ra_tone.c
 endif
 endif
 
