@@ -1,0 +1,176 @@
+RUN C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\gen-levels-20260908-233725
+8676bdfdf7b6008f2a1b369aa7c1ba4f33a04cf81ce1ad524e5cd5d0a251f387
+
+CURRENT ({'bw': {'CW': 500, 'AM': 9000, 'USB': 3000, 'LSB': 1800, 'FM': 4000}, 'iqe': 0, 'm': 'AM', 'cal': 161.7, 'genwave': 0, 'again': 2.2, 'atgt': 0.5, 'iqa': 1.0, 'txlevel': 40, 'genfreq': 10000, 'txdepth': 50, 'v': 58, 'beon': 1, 'iqp': 0.0, 's': 100, 'txmic': 100, 'rxauto': 1, 'vfos': [[3500290, 'AM'], [579900, 'AM'], [7597178, 'USB']], 'genlevel': 50, 'act': 1, 'rt': [7, 1, 3], 'f': 579900, 'txdev': 2500, 'a': 'OFF'}, 'TX', 'GEN')
+
+Device "R7FA6M3AH" selected.
+InitTarget() start
+Identifying target device...
+SWD selected. Executing JTAG -> SWD switching sequence...
+Initializing DAP...
+DAP initialized successfully.
+Low power mode detected. Waking device from low power mode.
+InitTarget() end - Took 8.24ms
+Found SW-DP with ID 0x5BA02477
+DPIDR: 0x5BA02477
+CoreSight SoC-400 or earlier
+Scanning AP map to find all available APs
+AP[2]: Stopped AP scan as end of AP map has been reached
+AP[0]: AHB-AP (IDR: 0x24770011, ADDR: 0x00000000)
+AP[1]: APB-AP (IDR: 0x44770002, ADDR: 0x01000000)
+Iterating through AP map to find AHB-AP to use
+AP[0]: Core found
+AP[0]: AHB-AP ROM base: 0xE00FF000
+CPUID register: 0x410FC241. Implementer code: 0x41 (ARM)
+Found Cortex-M4 r0p1, Little endian.
+FPUnit: 6 code (BP) slots and 2 literal slots
+CoreSight components:
+ROMTbl[0] @ E00FF000
+[0][0]: E000E000 CID B105E00D PID 000BB00C SCS-M7
+[0][1]: E0001000 CID B105E00D PID 003BB002 DWT
+[0][2]: E0002000 CID B105E00D PID 002BB003 FPB
+[0][3]: E0000000 CID B105E00D PID 003BB001 ITM
+[0][4]: E0040000 CID B105900D PID 000BB9A1 TPIU
+[0][5]: E0041000 CID B105900D PID 000BB925 ETM
+[0][6]: E0042000 CID B105900D PID 002BB908 CSTF
+[0][7]: E0043000 CID B105900D PID 001BB961 TMC
+[0][8]: E0044000 CID B105F00D PID 001BB101 TSG
+Reset type: NORMAL (https://wiki.segger.com/J-Link_Reset_Strategies)
+
+Reset: Halt core after reset via DEMCR.VC_CORERESET.
+Reset: Reset device via AIRCR.SYSRESETREQ.
+Memory map 'after startup completion point' is active
+OnDisconnectTarget() start
+Restoring low power mode settings.
+OnDisconnectTarget() end - Took 1.66ms
+8dcb932b7d0a989e48a2e3562afb2bc6ff22886d68598ed6505c44dd1b2fd66a
+
+LEVEL AM 0 AF 2048 2048 I 2457 2457 Q 2048 2048 CLIP 0 ADC_RAILS 0 AF_FRAMES 39 DSP_MAX 492 BUDGET 5000
+
+LEVEL AM 25 AF 1536 2560 I 2406 2508 Q 2048 2048 CLIP 0 ADC_RAILS 0 AF_FRAMES 79 DSP_MAX 522 BUDGET 5000
+
+LEVEL AM 50 AF 1024 3072 I 2355 2559 Q 2048 2048 CLIP 0 ADC_RAILS 0 AF_FRAMES 119 DSP_MAX 536 BUDGET 5000
+
+LEVEL AM 75 AF 513 3583 I 2304 2610 Q 2048 2048 CLIP 0 ADC_RAILS 0 AF_FRAMES 159 DSP_MAX 536 BUDGET 5000
+
+LEVEL AM 100 AF 1 4095 I 2253 2661 Q 2048 2048 CLIP 0 ADC_RAILS 0 AF_FRAMES 200 DSP_MAX 536 BUDGET 5000
+
+LEVEL USB 0 AF 2048 2048 I 2048 2048 Q 2048 2048 CLIP 18 ADC_RAILS 0 AF_FRAMES 43 DSP_MAX 4378 BUDGET 10000
+
+LEVEL USB 25 AF 1537 2559 I 1844 2252 Q 1844 2252 CLIP 18 ADC_RAILS 0 AF_FRAMES 85 DSP_MAX 4378 BUDGET 10000
+
+LEVEL USB 50 AF 1025 3071 I 1639 2457 Q 1639 2457 CLIP 18 ADC_RAILS 0 AF_FRAMES 127 DSP_MAX 4378 BUDGET 10000
+
+LEVEL USB 75 AF 514 3582 I 1434 2662 Q 1435 2661 CLIP 18 ADC_RAILS 0 AF_FRAMES 170 DSP_MAX 4378 BUDGET 10000
+
+LEVEL USB 100 AF 2 4094 I 1230 2866 Q 1230 2866 CLIP 22 ADC_RAILS 0 AF_FRAMES 211 DSP_MAX 4378 BUDGET 10000
+
+LEVEL LSB 0 AF 2048 2048 I 2048 2048 Q 2048 2048 CLIP 20 ADC_RAILS 0 AF_FRAMES 44 DSP_MAX 4378 BUDGET 10000
+
+LEVEL LSB 25 AF 1537 2559 I 1844 2252 Q 1844 2252 CLIP 20 ADC_RAILS 0 AF_FRAMES 86 DSP_MAX 4378 BUDGET 10000
+
+LEVEL LSB 50 AF 1025 3071 I 1639 2457 Q 1639 2457 CLIP 20 ADC_RAILS 0 AF_FRAMES 129 DSP_MAX 4378 BUDGET 10000
+
+LEVEL LSB 75 AF 514 3582 I 1434 2662 Q 1435 2661 CLIP 20 ADC_RAILS 0 AF_FRAMES 172 DSP_MAX 4378 BUDGET 10000
+
+LEVEL LSB 100 AF 2 4094 I 1230 2866 Q 1230 2866 CLIP 27 ADC_RAILS 0 AF_FRAMES 213 DSP_MAX 4378 BUDGET 10000
+
+LEVEL FM 0 AF 2048 2048 I 2850 2861 Q 1881 1948 CLIP 5 ADC_RAILS 641 AF_FRAMES 44 DSP_MAX 1002 BUDGET 5000
+
+LEVEL FM 25 AF 1536 2560 I 2495 2866 Q 1362 2266 CLIP 5 ADC_RAILS 641 AF_FRAMES 86 DSP_MAX 1030 BUDGET 5000
+
+LEVEL FM 50 AF 1024 3072 I 1998 2867 Q 1229 2666 CLIP 5 ADC_RAILS 641 AF_FRAMES 129 DSP_MAX 1042 BUDGET 5000
+
+LEVEL FM 75 AF 513 3583 I 1547 2866 Q 1230 2865 CLIP 5 ADC_RAILS 641 AF_FRAMES 170 DSP_MAX 1050 BUDGET 5000
+
+LEVEL FM 100 AF 1 4095 I 1267 2853 Q 1231 2863 CLIP 5 ADC_RAILS 2536 AF_FRAMES 212 DSP_MAX 1050 BUDGET 5000
+
+GEN_LEVELS_PASS; FM changes deviation, not proportional I/Q envelope; no physical voltage/phase measurement
+
+Device "R7FA6M3AH" selected.
+InitTarget() start
+Identifying target device...
+SWD selected. Executing JTAG -> SWD switching sequence...
+Initializing DAP...
+DAP initialized successfully.
+Low power mode detected. Waking device from low power mode.
+InitTarget() end - Took 28.1ms
+Found SW-DP with ID 0x5BA02477
+DPIDR: 0x5BA02477
+CoreSight SoC-400 or earlier
+Scanning AP map to find all available APs
+AP[2]: Stopped AP scan as end of AP map has been reached
+AP[0]: AHB-AP (IDR: 0x24770011, ADDR: 0x00000000)
+AP[1]: APB-AP (IDR: 0x44770002, ADDR: 0x01000000)
+Iterating through AP map to find AHB-AP to use
+AP[0]: Core found
+AP[0]: AHB-AP ROM base: 0xE00FF000
+CPUID register: 0x410FC241. Implementer code: 0x41 (ARM)
+Found Cortex-M4 r0p1, Little endian.
+FPUnit: 6 code (BP) slots and 2 literal slots
+CoreSight components:
+ROMTbl[0] @ E00FF000
+[0][0]: E000E000 CID B105E00D PID 000BB00C SCS-M7
+[0][1]: E0001000 CID B105E00D PID 003BB002 DWT
+[0][2]: E0002000 CID B105E00D PID 002BB003 FPB
+[0][3]: E0000000 CID B105E00D PID 003BB001 ITM
+[0][4]: E0040000 CID B105900D PID 000BB9A1 TPIU
+[0][5]: E0041000 CID B105900D PID 000BB925 ETM
+[0][6]: E0042000 CID B105900D PID 002BB908 CSTF
+[0][7]: E0043000 CID B105900D PID 001BB961 TMC
+[0][8]: E0044000 CID B105F00D PID 001BB101 TSG
+OnDisconnectTarget() start
+Restoring low power mode settings.
+OnDisconnectTarget() end - Took 1.57ms
+Device "R7FA6M3AH" selected.
+InitTarget() start
+Identifying target device...
+SWD selected. Executing JTAG -> SWD switching sequence...
+Initializing DAP...
+DAP initialized successfully.
+Low power mode detected. Waking device from low power mode.
+InitTarget() end - Took 19.0ms
+Found SW-DP with ID 0x5BA02477
+DPIDR: 0x5BA02477
+CoreSight SoC-400 or earlier
+Scanning AP map to find all available APs
+AP[2]: Stopped AP scan as end of AP map has been reached
+AP[0]: AHB-AP (IDR: 0x24770011, ADDR: 0x00000000)
+AP[1]: APB-AP (IDR: 0x44770002, ADDR: 0x01000000)
+Iterating through AP map to find AHB-AP to use
+AP[0]: Core found
+AP[0]: AHB-AP ROM base: 0xE00FF000
+CPUID register: 0x410FC241. Implementer code: 0x41 (ARM)
+Found Cortex-M4 r0p1, Little endian.
+FPUnit: 6 code (BP) slots and 2 literal slots
+CoreSight components:
+ROMTbl[0] @ E00FF000
+[0][0]: E000E000 CID B105E00D PID 000BB00C SCS-M7
+[0][1]: E0001000 CID B105E00D PID 003BB002 DWT
+[0][2]: E0002000 CID B105E00D PID 002BB003 FPB
+[0][3]: E0000000 CID B105E00D PID 003BB001 ITM
+[0][4]: E0040000 CID B105900D PID 000BB9A1 TPIU
+[0][5]: E0041000 CID B105900D PID 000BB925 ETM
+[0][6]: E0042000 CID B105900D PID 002BB908 CSTF
+[0][7]: E0043000 CID B105900D PID 001BB961 TMC
+[0][8]: E0044000 CID B105F00D PID 001BB101 TSG
+Reset type: NORMAL (https://wiki.segger.com/J-Link_Reset_Strategies)
+
+Reset: Halt core after reset via DEMCR.VC_CORERESET.
+Reset: Reset device via AIRCR.SYSRESETREQ.
+Memory map 'after startup completion point' is active
+JLINK_RESET_AFTER_RAM_TEST
+�MicroPython 2fa6d06ebd-dirty on 2026-09-08; VK-RA6M3 with RA6M3
+
+Type "help()" for more information.
+
+>>>
+OnDisconnectTarget() start
+Restoring low power mode settings.
+OnDisconnectTarget() end - Took 1.59ms
+Traceback (most recent call last):
+  File "C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\tx_gen_level_soak_20260908.py", line 164, in <module>
+    if __name__=='__main__':main()
+  File "C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\tx_gen_level_soak_20260908.py", line 157, in main
+    assert bytes(j.memory_read8(0x40100000,512))==record,'Settings changed'
+AssertionError: Settings changed

@@ -1,0 +1,3 @@
+PASS artifact audit: four RAM-script SHAs/syntax; two preserved 368-byte records;
+20 level points; 16 cycles / 204653 ms; production state; initial failure retained.
+OFFLINE CONSISTENCY ONLY: no new board, analog, touch or RF test.
