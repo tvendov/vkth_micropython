@@ -39,7 +39,8 @@ static machine_tx_obj_t *machine_tx_require_active(mp_obj_t self_in) {
 
 static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_mode, ARG_rate, ARG_amplitude, ARG_adc_mid, ARG_i_zero, ARG_q_zero,
-        ARG_fm_gain, ARG_ramp_samples, ARG_deviation_hz, ARG_mic_gain, ARG_file_mode, ARG_file_tune };
+        ARG_fm_gain, ARG_ramp_samples, ARG_deviation_hz, ARG_mic_gain, ARG_file_mode, ARG_file_tune,
+        ARG_audio_gain, ARG_am_depth, ARG_file_gain };
     static const mp_arg_t allowed[] = {
         { MP_QSTR_mode, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = RA_TX_MODE_CW} },
         { MP_QSTR_rate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
@@ -53,6 +54,9 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
         { MP_QSTR_mic_gain, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 100} },
         { MP_QSTR_file_mode, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
         { MP_QSTR_file_tune, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_audio_gain, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+        { MP_QSTR_am_depth, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 50} },
+        { MP_QSTR_file_gain, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 100} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed), allowed, args);
@@ -80,6 +84,11 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
             mp_raise_ValueError(MP_ERROR_TEXT("TX parameter out of range"));
         }
     }
+    if (args[ARG_audio_gain].u_int < -1 || args[ARG_audio_gain].u_int > 1600 ||
+        args[ARG_am_depth].u_int < 0 || args[ARG_am_depth].u_int > 100 ||
+        args[ARG_file_gain].u_int < 0 || args[ARG_file_gain].u_int > 100) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid AF gain or AM depth"));
+    }
     if (args[ARG_mode].u_int > RA_TX_MODE_LSB) {
         mp_raise_ValueError(MP_ERROR_TEXT("TX mode must be CW, AM, FM, USB or LSB"));
     }
@@ -100,6 +109,9 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
         .ramp_samples = args[ARG_ramp_samples].u_int,
         .deviation_hz = args[ARG_deviation_hz].u_int,
         .mic_gain = args[ARG_mic_gain].u_int,
+        .audio_controls = args[ARG_audio_gain].u_int >= 0,
+        .audio_gain = args[ARG_audio_gain].u_int >= 0 ? args[ARG_audio_gain].u_int : 100,
+        .am_depth = args[ARG_am_depth].u_int,
         .file_source = args[ARG_file_mode].u_int >= 0,
     };
     if (!ra_tx_core_validate(&config)) {
@@ -147,6 +159,9 @@ static mp_obj_t machine_tx_make_new(const mp_obj_type_t *type, size_t n_args, si
         if (ra_tx_mode_is_ssb(config.mode)) {
             ra_iq_adc_set_audio_filter(RA_IQ_AF_VOICE); /* anti-alias before 24->12 kS/s */
         }
+        /* Decoder headroom comes before its output limiter, not an attenuation
+         * of already clipped DAC samples. Applies only to the borrowed FILE DSP. */
+        ra_iq_adc_set_volume((32768U * args[ARG_file_gain].u_int + 50U) / 100U);
     }
     return MP_OBJ_FROM_PTR(self);
 }
@@ -205,6 +220,36 @@ static mp_obj_t machine_tx_fm_configure(size_t n_args, const mp_obj_t *pos_args,
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(machine_tx_fm_configure_obj, 1, machine_tx_fm_configure);
+
+static mp_obj_t machine_tx_audio_configure(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    machine_tx_obj_t *self = machine_tx_require_active(pos_args[0]);
+    enum { ARG_audio_gain, ARG_am_depth, ARG_amplitude };
+    static const mp_arg_t allowed[] = {
+        { MP_QSTR_audio_gain, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+        { MP_QSTR_am_depth, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+        { MP_QSTR_amplitude, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed), allowed, args);
+    ra_tx_config_t config = self->config;
+    for (unsigned i = 0; i < MP_ARRAY_SIZE(allowed); ++i) {
+        if (args[i].u_int < -1 || args[i].u_int > UINT16_MAX) {
+            mp_raise_ValueError(MP_ERROR_TEXT("audio control out of range"));
+        }
+    }
+    if (args[ARG_am_depth].u_int > 100) {
+        mp_raise_ValueError(MP_ERROR_TEXT("AM depth must be 0..100"));
+    }
+    if (args[ARG_audio_gain].u_int != -1) { config.audio_gain = args[ARG_audio_gain].u_int; }
+    if (args[ARG_am_depth].u_int != -1) { config.am_depth = args[ARG_am_depth].u_int; }
+    if (args[ARG_amplitude].u_int != -1) { config.amplitude = args[ARG_amplitude].u_int; }
+    if (!ra_tx_hw_audio_configure(&config)) {
+        mp_raise_OSError(MP_EIO); /* caller follows checked cleanup after a stop/start failure */
+    }
+    self->config = config;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_tx_audio_configure_obj, 1, machine_tx_audio_configure);
 
 static mp_obj_t machine_tx_key(mp_obj_t self_in, mp_obj_t down_in) {
     machine_tx_obj_t *self = machine_tx_require_active(self_in);
@@ -299,6 +344,8 @@ static mp_obj_t machine_tx_status(mp_obj_t self_in) {
     STORE_INT(file_underruns, s.file_underruns);
     STORE_INT(deviation_hz, self->config.deviation_hz);
     STORE_INT(mic_gain, self->config.mic_gain);
+    STORE_INT(audio_gain, self->config.audio_gain);
+    STORE_INT(am_depth, self->config.am_depth);
     STORE_INT(amplitude, self->config.amplitude);
     STORE_INT(lut_bytes, self->lut_bytes);
     STORE_INT(lut_allocation_bytes, self->allocation == NULL ? 0 : self->allocation_bytes);
@@ -422,6 +469,7 @@ static const mp_rom_map_elem_t machine_tx_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_key), MP_ROM_PTR(&machine_tx_key_obj) },
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&machine_tx_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_fm_configure), MP_ROM_PTR(&machine_tx_fm_configure_obj) },
+    { MP_ROM_QSTR(MP_QSTR_audio_configure), MP_ROM_PTR(&machine_tx_audio_configure_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&machine_tx_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR_release), MP_ROM_PTR(&machine_tx_release_static_obj) },
     { MP_ROM_QSTR(MP_QSTR_FILE_API_VERSION), MP_ROM_INT(1) },

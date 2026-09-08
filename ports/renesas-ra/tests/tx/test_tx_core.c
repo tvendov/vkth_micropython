@@ -583,6 +583,7 @@ static void test_ssb_stopband_and_delay(void) {
 }
 
 #include "test_tx_fm.inc"
+#include "test_tx_audio.inc"
 
 static void test_file_source_validation(void) {
     const ra_tx_mode_t modes[] = {RA_TX_MODE_AM, RA_TX_MODE_USB, RA_TX_MODE_LSB, RA_TX_MODE_FM};
@@ -628,6 +629,7 @@ int main(void) {
     test_voice_fm_stream_limiter();
     test_voice_fm_filter();
     test_file_source_validation();
-    printf("PASS actual C TX core: 16 groups, %lu checks\n", checks);
+    test_audio_controls();
+    printf("PASS actual C TX core: 18 groups, %lu checks\n", checks);
     return 0;
 }

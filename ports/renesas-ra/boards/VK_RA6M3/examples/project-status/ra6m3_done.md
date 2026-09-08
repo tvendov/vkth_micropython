@@ -4,6 +4,107 @@
 този файл и `ra6_sdr_next_steps.md`, без напомняне. Записите разграничават
 анализ, реализация, хост тест, build, качване и физическо измерване.
 
+## 2026-09-08: AM/SSB TX аудиоконтроли — втори HOME етап
+
+Реализация и 11 host команди PASS. Общ RadioOnly build PASS, OpenCV OFF,
+USER_C_MODULES празен (без LAB), -j16, /mingw64/bin/python3.exe. Новите native
+символи са в ELF. Text 1591109 B, BSS 649784 B; linker heap 281600 B.
+BIN SHA-256: `5f5fd456459de045b2b19f7f443607b4d5844b6dc20fd291290443979c0270ba`.
+Първият build спря за volatile указателя към AM clip брояча; корекцията
+използва локален counter и публикува резултата в status. Повторният build PASS.
+Има предупреждение за RWX LOAD segment; не е премахнато в този етап.
+
+Промени по файлове:
+
+- `sdr_single.py`: AM AF gain / depth / LEVEL, USB/LSB AF gain / LEVEL в
+  HOME и BACKEND; FM запазен. Заявките към native setter са worker-side и
+  се обединяват; FILE позицията не се нулира от плъзгач. RX VOL не се използва.
+  AM-only контрола не остава активна в SSB; старият BACKEND се затваря при
+  промяна на модулацията. txdepth се запазва с останалите TX настройки,
+  отложено след връщане RX. R:USB/R:LSB задават FILE decoder gain 75%.
+- `machine_tx.c`: opt-in audio_gain/am_depth, file_gain преди decoder limiter,
+  audio_configure(), status audio_gain/am_depth. Старият native AM/SSB API
+  без audio_gain запазва поведението си. UI изисква съответстващ firmware.
+- `ra_tx_hw.h`: отделни AF gain/depth и opt-in флаг, декларация на setter.
+- `ra_tx_core.h`: общ AM sample kernel за FILE и DTC LUT.
+- `ra_tx_core.c`: нормализирана AM формула; LEVEL не променя depth; SSB gain
+  преди общия I/Q limiter без reset на Hilbert историята. AM FILE няма LUT:
+  заявката 8192+8191=16383 B е премахната. MIC AM запазва таблицата.
+- `ra_tx_hw.c`: FILE AM използва C формулата; MIC AM спира проверено преди
+  обновяване на таблицата и после стартира; FILE AM/SSB публикуват три скалара
+  атомарно без рестарт. Отказ при MIC stop/start води към checked cleanup.
+- `test_tx_audio.inc` / `test_tx_core.c`: нови AM/SSB проверки; общо 18 групи,
+  8809464 C проверки PASS. Legacy AM/FM/CW/SSB тестовете остават PASS.
+- `test_audio_native_control.py`: действителният C setter със заместени
+  периферии — ред на операциите, откази, no-restart FILE и валидация PASS.
+- `test_sdr_audio_controls.py`: действителни UI методи/callback-и — контекст,
+  0/100%, обединяване, FILE owner, отложен save и rollback PASS.
+- `test_sdr_fm_controls.py`: новите helper-и и persistence txdepth; старият
+  firmware без audio_configure остава read-only. 512-B record граница PASS.
+- `test_sdr_tx_home.py` / `test_sdr_tx_switch.py`: нови constructor параметри,
+  отделен decoder gain/RF mode; ownership/failure/clock тестовете PASS.
+- `README_IQTX_BG.md`: значения на AF gain/depth/LEVEL, диапазони, съвместимост,
+  FILE запас, цифрово ниво срещу физическа мощност и кратък MIC AM преход.
+
+Останалите host проверки: 8 UI договора, navigation/tester договори,
+TX FILE AF 1465 проверки и RX DAC 127532407 assertions / 99200 моделирани
+DMA периода — PASS. Това не доказва аналогови форми или ISR timing.
+
+По последното „тествай моментално“ е извършено качване на запомнената цел
+J-Link 1120000058 / COM25. Пълният текущ QSPI архив е в
+`backups/tx-audio-1120000058-20260908-165554/`; boot/main и записите се пазят.
+Firmware и приложение са записани и прочетени обратно успешно; 58 оригинални
+файла са запазени, както и последните 4 MiB QSPI и валидният dataflash запис.
+Първи HIL: AM FILE стартира, LUT allocation=0, двата DAC enabled, 0 deadline
+misses; LEVEL0 дава I=Q=2048, LEVEL40 връща amplitude409. Първият тест спря на
+растящия FILE underrun брояч след UI преход/контрола (4776 общо). Това не е
+PASS за целия тракт. Следващият тест отчита отделно преходните и устойчивите
+underruns; вече измереният отказ не се изтрива от историята. След теста е
+изпълнен normal J-Link reset.
+
+Последващо искане: старите честотни/спектрални бинове да не проблясват.
+В `SdrUi._build_receiver` вече не се създават 27-те legacy LVGL bar widgets и
+ключовете spectral-bin-*. Премахнат е и demo publish при startup/stop;
+`paint_spectrum()` не генерира измислен спектър. Живите данни остават през
+native `_paint_bars`. Host UI договорите, специалният startup тест и
+mpy-cross PASS. Качено е само новото приложение, не втори firmware.
+Два първи UART опита спряха при read-only команди с повреден текст
+(ImportError `o`, SyntaxError). Преди тези откази няма rename/подмяна на файл.
+Бавният paced upload е прекъснат преди rename; неговите `.new` staging файлове
+са презаписани при успешния опит със safe boot и raw-paste. Старото приложение
+е запазено като `sdr_single.pre-nobins.*`. SHA-256 readback преди rename PASS:
+
+- `/flash/sdr_single.py.source`: 314869 B,
+  `a16d0a639aa646134fca59b1931ec1da9eb24a528c73d77741a28a32022fbb61`.
+- `/flash/sdr_single.mpy`: 88531 B,
+  `6106a193fdb36db7d9546f95f757f61254094009071f97ded693a37cd73454d9`.
+
+Повторен цифров HIL на каченото приложение: `NO_LEGACY_BINS_RUNTIME_PASS`
+(bins=(), няма spectral-bin-*), AM → USB → LSB → FM, `TX_AUDIO_HOME_BOARD_PASS`.
+За всеки режим: HOME gains/BACKEND контекст, Si5351 регистров план ×1 при
+3.500 MHz, LEVEL 0 → 40 без смяна на FILE owner, напредващи AF кадри/семпли.
+При LEVEL0 I=Q=2048; AM40 amplitude409, останалите amplitude819.
+AM FILE status потвърди lut_allocation_bytes=0. Дълбочината и AF gain имат
+host проверки; този HIL изменя LEVEL, не измерва аналогова AM дълбочина.
+
+| Режим | Реален sample rate | AF кадри в контролния интервал | DSP clips / deadline misses | FILE underruns при прехода | Нови underruns в следващи 2 s | Най-дълъг DSP / бюджет, цикли |
+| --- | --- | --- | --- | --- | --- | --- |
+| AM | 24000 S/s | 90 | 0 / 0 | 208 | 0 | 288 / 5000 |
+| USB | 12000 S/s | 86 | 0 / 0 | 270 | 0 | 4170 / 10000 |
+| LSB | 12000 S/s | 83 | 0 / 0 | 381 | 0 | 4170 / 10000 |
+| FM | 24000 S/s | 90 | 0 / 0 | 643 | 0 | 798 / 5000 |
+
+Преходните броячи не са скрити от PASS: устойчивият интервал започва след
+1200 ms изчакване след LEVEL40. Това е кратка цифрова проверка, не дълъг soak
+и не доказателство за аналогов DAC/CLK/RF. Аудио отклоненията при меню остават.
+Архив: `backups/tx-audio-1120000058-20260908-165554/audio-hil.log`,
+`no-legacy-bins/deployment.json`, `production-home.log`; Git протоколът е
+`ports/renesas-ra/tests/tx/results/tx-audio-board-20260908.log`.
+Тестове не са инсталирани във flash. След HIL е изпълнен normal J-Link reset.
+Първото последващо стартово UART предаване загуби текст и спря преди start;
+след еднократен safe boot стартирането завърши: `PRODUCTION_HOME RX
+legacy_bars 0 rx True`. Приложението е оставено в RX HOME; портът е освободен.
+
 ## 2026-09-08: LAB общ ADC/DAC адаптер, без синхронен такт
 
 В `sdr_lab` е добавен `ra_lab_session_hw` към действителните ADC/DAC

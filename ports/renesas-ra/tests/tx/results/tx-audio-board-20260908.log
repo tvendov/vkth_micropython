@@ -1,0 +1,27 @@
+2026-09-08 deployed RadioOnly firmware + AM/SSB UI + no legacy bins
+Target: J-Link 1120000058 / COM25.
+Firmware SHA256: 5f5fd456459de045b2b19f7f443607b4d5844b6dc20fd291290443979c0270ba
+App source SHA256: a16d0a639aa646134fca59b1931ec1da9eb24a528c73d77741a28a32022fbb61
+App MPY SHA256: 6106a193fdb36db7d9546f95f757f61254094009071f97ded693a37cd73454d9
+Host runner: test_tx_audio_board_20260908.py in Codex 2026-08-22/new-chat-2.
+RAM only; normal J-Link reset after HIL. Production HOME then started.
+Local full archive: SDR_TRANCEIVER_RA6M3/backups/tx-audio-1120000058-20260908-165554.
+First HIL failed on total FILE underruns after a UI transition: AM total 4776.
+Revised HIL reports transition counts separately, waits 1200 ms after LEVEL40,
+then asserts no new FILE underruns for 2000 ms per mode. Not a long soak.
+Physical analogue DAC/CLK/RF not measured. No test files written to board flash.
+Readback verification and preserved original files are detailed in canonical done.
+
+NO_LEGACY_BINS_RUNTIME_PASS
+START AM {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 238, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 24000.0, 'i_code': 2423, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 106, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 5000, 'am_depth': 50, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 19032, 'period_counts': 1250, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 24000, 'audio_gain': 100, 'af_frames': 19, 'mic_gain': 100, 'last_adc': 1708, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS AM muted 2048 2048 amplitude 409 samples 87694 AF 90 clips 0 transition_underruns 208 steady_underruns 0 native_max 288
+START USB {'q_code': 2365, 'phase': 0, 'dsp_max_cycles': 4170, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 12000.0, 'i_code': 1933, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 3156, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 10000, 'am_depth': 50, 'mode': 3, 'outputs_enabled': True, 'dsp_samples': 8228, 'period_counts': 2500, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 12000, 'audio_gain': 100, 'af_frames': 15, 'mic_gain': 100, 'last_adc': 2061, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS USB muted 2048 2048 amplitude 819 samples 44438 AF 86 clips 0 transition_underruns 270 steady_underruns 0 native_max 4170
+START LSB {'q_code': 2147, 'phase': 0, 'dsp_max_cycles': 4170, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 12000.0, 'i_code': 1942, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 3156, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 10000, 'am_depth': 50, 'mode': 4, 'outputs_enabled': True, 'dsp_samples': 7603, 'period_counts': 2500, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 12000, 'audio_gain': 100, 'af_frames': 13, 'mic_gain': 100, 'last_adc': 2278, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS LSB muted 2048 2048 amplitude 819 samples 44080 AF 83 clips 0 transition_underruns 381 steady_underruns 0 native_max 4170
+START FM {'q_code': 1573, 'phase': 59080, 'dsp_max_cycles': 756, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 2039, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 2047, 'actual_rate': 24000.0, 'i_code': 2715, 'file_source': True, 'deviation_hz': 2500, 'dsp_last_cycles': 580, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 1054, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 5000, 'am_depth': 50, 'mode': 2, 'outputs_enabled': True, 'dsp_samples': 22720, 'period_counts': 1250, 'af_enabled': True, 'lut_bytes': 1024, 'requested_rate': 24000, 'audio_gain': 100, 'af_frames': 21, 'mic_gain': 100, 'last_adc': 2330, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS FM muted 2048 2048 amplitude 819 samples 89291 AF 90 clips 0 transition_underruns 643 steady_underruns 0 native_max 798
+TX_AUDIO_HOME_BOARD_PASS
+ANALOGUE_DAC_RF_NOT_MEASURED
+
+PRODUCTION_HOME RX legacy_bars 0 rx True

@@ -406,6 +406,8 @@ def check_all_modes_roundtrip():
                 expected = {'mode': getattr(self, mode)}
                 if mode == 'FM':
                     expected.update(deviation_hz=2500, mic_gain=100, amplitude=819)
+                elif mode in ('AM', 'USB', 'LSB'):
+                    expected.update(audio_gain=100, am_depth=50, amplitude=409 if mode == 'AM' else 819)
                 assert kwargs == expected
                 self.running = False
                 self.samples = 0

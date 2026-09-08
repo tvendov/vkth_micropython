@@ -744,13 +744,9 @@ class SdrUi:
         _flex(wf, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.END,
               lv.FLEX_ALIGN.END, 4)
         self.w["spectrum-waterfall"] = wf
-        self.bins = []
-        for i, hh in enumerate(SPEC_HEIGHTS):
-            b = _box(wf, 10, hh, bg=(CYAN_RX if i == len(SPEC_HEIGHTS) // 2 else BIN), bw=0)
-            b.set_flex_grow(1)
-            b.remove_flag(lv.obj.FLAG.CLICKABLE)   # taps fall through to spectrum-area
-            self.bins.append(b)
-            self.w["spectral-bin-%d" % i] = b
+        # Native renderer is the sole spectrum owner. Do not create legacy
+        # demo bars that can flash before spectrum_attach removes them.
+        self.bins = ()
         wf.remove_flag(lv.obj.FLAG.CLICKABLE)
         for name, txt, al, ox in (("spec-lo", "14.200", lv.ALIGN.TOP_LEFT, 6),
                                   ("spec-hi", "14.210", lv.ALIGN.TOP_LEFT, 210)):
@@ -1105,6 +1101,7 @@ def _fresh_params():
     out["txdev"] = 2500          # voice FM peak deviation, Hz
     out["txmic"] = 100           # microphone gain percent (not RX AF)
     out["txlevel"] = 40          # I/Q DAC peak percent of 2047 codes
+    out["txdepth"] = 50          # AM depth at full-scale AF, independent of LEVEL
     return out
 
 
@@ -1180,7 +1177,8 @@ def load_params():
             out["iqp"] = min(max(float(p.get("qp", 0.0)), -0.50), 0.50)
         except Exception:
             out["iqp"] = 0.0
-        for name, low, high in (("txdev", 100, 5000), ("txmic", 0, 1600), ("txlevel", 0, 100)):
+        for name, low, high in (("txdev", 100, 5000), ("txmic", 0, 1600), ("txlevel", 0, 100),
+                                ("txdepth", 0, 100)):
             try:
                 out[name] = min(max(int(p.get(name, out[name])), low), high)
             except (TypeError, ValueError):
@@ -1211,7 +1209,8 @@ def save_params(p):
                "qp": round(float(p.get("iqp", 0.0)), 4),
                "txdev": int(p.get("txdev", 2500)),
                "txmic": int(p.get("txmic", 100)),
-               "txlevel": int(p.get("txlevel", 40))}
+               "txlevel": int(p.get("txlevel", 40)),
+               "txdepth": int(p.get("txdepth", 50))}
     payload = json.dumps(rec_obj).encode()
     if len(payload) > DF_PAYLOAD_LIMIT:
         raise ValueError("payload %d B > %d B" %
@@ -1655,7 +1654,6 @@ class SdrApp:
         # blocks, 0 underruns across 18 ms collections) -- a GC is only a UI hitch. Keeping
         # the loop alloc-free is about UI smoothness (rarer GC), not audio integrity.
         self._last_bars = array.array("h", bytes(2 * len(SPEC_HEIGHTS)))  # prev heights
-        self._demo_bars = array.array("h", SPEC_HEIGHTS)  # fixed native-render targets
         self._pc = array.array("i", b"\xff\xff\xff\xff" * 6)              # prev counters (=-1)
         self._demo_shift_acc = 0      # residual delta_hz * bar_count; preserves sub-bar steps
         self._C_RED = lv.color_hex(0xE53935)
@@ -1731,6 +1729,7 @@ class SdrApp:
         self._tx_source_settings = None  # decoder settings, independent of TX mode
         self._tx_rx_snapshot = None      # RX mode/frequency/step restored on TX exit
         self._tx_reconfigure = None      # deferred HOME request, not an ISR command
+        self._tx_audio_request = None    # coalesced gain/depth/level; no FILE rewind
         self._trx_error = None
         self._trx_cleanup_failures = 0
         self._tx = None              # GC root for the exclusive machine.IQTX owner
@@ -2406,6 +2405,7 @@ class SdrApp:
             self.update_freq()
         self._tx_source_settings = None
         self._tx_reconfigure = None
+        self._tx_audio_request = None
         self.update_rx()
         # Restore the SAME receiver route and its x4 multiplier before IQADC can
         # sample or the RX DAC can play. start_rx() still queues the usual tagged
@@ -2491,20 +2491,22 @@ class SdrApp:
             from machine import IQTX
             self._tx_class = IQTX
             mode = getattr(IQTX, mode_name)
+            kwargs = {"mode": mode}
             if file_settings is not None:
-                kwargs = {"mode": mode, "file_mode": getattr(IQTX, file_settings[1]),
-                          "file_tune": file_settings[5]}
-                if mode_name == "FM":
-                    kwargs["deviation_hz"] = self.p.get("txdev", 2500)
-                    kwargs["mic_gain"] = self.p.get("txmic", 100)
-                    kwargs["amplitude"] = (2047 * self.p.get("txlevel", 40) + 50) // 100
-                tx = IQTX(**kwargs)
-            elif mode_name == "FM":
-                tx = IQTX(mode=mode, deviation_hz=self.p.get("txdev", 2500),
-                          mic_gain=self.p.get("txmic", 100),
-                          amplitude=(2047 * self.p.get("txlevel", 40) + 50) // 100)
-            else:
-                tx = IQTX(mode=mode)
+                kwargs["file_mode"] = getattr(IQTX, file_settings[1])
+                kwargs["file_tune"] = file_settings[5]
+                # Headroom for SSB decoding, independent of the selected TX mode.
+                kwargs["file_gain"] = 75 if file_settings[1] in ("USB", "LSB") else 100
+            if mode_name == "FM":
+                kwargs["deviation_hz"] = self.p.get("txdev", 2500)
+                kwargs["mic_gain"] = self.p.get("txmic", 100)
+                kwargs["amplitude"] = (2047 * self.p.get("txlevel", 40) + 50) // 100
+            elif mode_name in ("AM", "USB", "LSB"):
+                kwargs["audio_gain"] = self.p.get("txmic", 100)
+                kwargs["am_depth"] = self.p.get("txdepth", 50)
+                peak = 1023 if mode_name == "AM" else 2047
+                kwargs["amplitude"] = (peak * self.p.get("txlevel", 40) + 50) // 100
+            tx = IQTX(**kwargs)
             self._tx = tx
             self._tx_mode = mode_name
             self._tx_last_samples = None
@@ -2643,6 +2645,8 @@ class SdrApp:
             self._service_to_tx()
         elif target == "TX_CONFIG":
             self._service_tx_reconfigure()
+        elif target == "TX_AUDIO":
+            self._service_tx_audio()
         elif target == TRX_RX:
             self._service_to_rx()
         return True
@@ -3187,13 +3191,68 @@ class SdrApp:
     def _fm_controls(self):
         return self._trx_state == TRX_TX and self._tx_mode == "FM"
 
+    def _audio_controls(self):
+        return (self._trx_state == TRX_TX and self._tx_mode in ("AM", "USB", "LSB")
+                and callable(getattr(self._tx, "audio_configure", None)))
+
+    def _tx_gain_keys(self):
+        if self._fm_controls():
+            return ("MIC", "DEV", "TX")
+        if self._audio_controls():
+            return ("MIC", "DEPTH", "TX") if self._tx_mode == "AM" else ("MIC", "TX")
+        return ("TX",)
+
+    def _apply_audio_gain(self, key, value):
+        if not self._audio_controls() or self._trx_pending not in (None, "TX_AUDIO"):
+            return False
+        request = self._tx_audio_request
+        gain, depth, level = (request if request is not None else
+            (self.p.get("txmic", 100), self.p.get("txdepth", 50), self.p.get("txlevel", 40)))
+        if key == "MIC":
+            gain = min(max(int(value), 0), 160) * 10
+        elif key == "DEPTH" and self._tx_mode == "AM":
+            depth = min(max(int(value), 0), 100)
+        elif key == "TX":
+            level = min(max(int(value), 0), 100)
+        else:
+            return False
+        self._tx_audio_request = (gain, depth, level)
+        self._trx_pending = "TX_AUDIO"
+        return True
+
+    def _service_tx_audio(self):
+        request = self._tx_audio_request
+        self._tx_audio_request = None
+        if request is None or not self._audio_controls():
+            return False
+        gain, depth, level = request
+        peak = 1023 if self._tx_mode == "AM" else 2047
+        try:
+            self._tx.audio_configure(audio_gain=gain, am_depth=depth,
+                                     amplitude=(peak * level + 50) // 100)
+        except Exception as e:
+            # A failed checked MIC stop/restart is not a cosmetic slider error.
+            # Retain the old saved settings and hand control to checked cleanup.
+            self._queue_rx_cleanup("TX audio: %r" % (e,))
+            return False
+        self.p["txmic"], self.p["txdepth"], self.p["txlevel"] = request
+        self.touch_params()
+        self._refresh_tx_settings()
+        self._refresh_gains()
+        self._bind_active_slider()
+        return True
+
     def _sync_tx_controls(self):
         """HOME gains and the existing BACKEND route follow the active owner."""
         transmitting = self._trx_state == TRX_TX
         fm = self._fm_controls()
         if "settings" in _KEEP and self._settings_tx != transmitting:
             self.close_settings()
-        if transmitting != self._gain_context_tx or fm != self._gain_context_fm:
+        if ("settings" in _KEEP and transmitting and
+                getattr(self, "_settings_mode", self._tx_mode) != self._tx_mode):
+            self.close_settings()
+        if (transmitting != self._gain_context_tx or fm != self._gain_context_fm or
+                (transmitting and getattr(self, "_gain_context_mode", None) != self._tx_mode)):
             if "gains_panel" in _KEEP:
                 self.close_gains_panel()
             if transmitting and not self._gain_context_tx:
@@ -3204,10 +3263,13 @@ class SdrApp:
             self._gain_candidate = self._active_gain
             self._gain_context_tx = transmitting
             self._gain_context_fm = fm
+            self._gain_context_mode = self._tx_mode
             self._tx_diag = None
             for name, label in (("sdr-ovr", "ADC" if fm else "OVR"),
                                 ("sdr-und", "TIME" if fm else "UND")):
                 self.ui.get(name).set_text(label)
+        if transmitting and self._active_gain not in self._tx_gain_keys():
+            self._active_gain = self._gain_candidate = "TX"
         pill = self.ui.get("agc-pill")
         if transmitting and self._trx_pending is None:
             pill.remove_state(lv.STATE.DISABLED)
@@ -3274,8 +3336,10 @@ class SdrApp:
             return 0, 160, self.p.get("txmic", 100) // 10, lambda v: "x%.1f" % (v / 10.0)
         if key == "DEV":
             return 1, 50, self.p.get("txdev", 2500) // 100, lambda v: "+/-%.1fk" % (v / 10.0)
+        if key == "DEPTH":
+            return 0, 100, self.p.get("txdepth", 50), lambda v: "%d%%" % v
         if key == "TX":
-            if self._fm_controls():
+            if self._fm_controls() or self._audio_controls():
                 level = self.p.get("txlevel", 40)
             else:
                 # Other native modes do not have a live level setter. Show the
@@ -3296,7 +3360,9 @@ class SdrApp:
         """Whether a named slider has a truthful writable backend right now."""
         if self._fm_controls():
             return key in ("MIC", "DEV", "TX")
-        if self._trx_state not in (TRX_RX, TRX_RX_OFF) or key in ("MIC", "DEV", "TX"):
+        if self._audio_controls():
+            return key in self._tx_gain_keys()
+        if self._trx_state not in (TRX_RX, TRX_RX_OFF) or key in ("MIC", "DEV", "DEPTH", "TX"):
             return False
         if key in ("AF", "SQL"):
             return True
@@ -3318,8 +3384,9 @@ class SdrApp:
     def _apply_gain(self, key, v_int):
         """Push a slider value to the backend + persist. AF routes through the
         existing set_volume so the vol-value label + save timer still fire."""
-        if key in ("MIC", "DEV", "TX"):
-            return self._apply_fm_gain(key, v_int)
+        if key in ("MIC", "DEV", "DEPTH", "TX"):
+            return (self._apply_fm_gain(key, v_int) if self._fm_controls() else
+                    self._apply_audio_gain(key, v_int))
         if not self._gain_available(key):
             return False
         if key == "AF":
@@ -3360,7 +3427,8 @@ class SdrApp:
         try:
             if (self.ui.w.get("gains-inline") is not None and
                     (self._gain_panel_fm != self._fm_controls() or
-                     self._gain_panel_tx != (self._trx_state == TRX_TX))):
+                     self._gain_panel_tx != (self._trx_state == TRX_TX) or
+                     getattr(self, "_gain_panel_mode", None) != self._tx_mode)):
                 self.ui.w.pop("gains-inline").delete()
                 self._gain_widgets = {}
                 self._gain_vlbls_all = {}
@@ -3433,8 +3501,8 @@ class SdrApp:
 
         self._gain_panel_fm = self._fm_controls()
         self._gain_panel_tx = self._trx_state == TRX_TX
-        keys = (("MIC", "DEV", "TX") if self._gain_panel_fm else
-                (("TX",) if self._gain_panel_tx else ("AF", "AGC", "SQL", "ATT")))
+        self._gain_panel_mode = self._tx_mode
+        keys = self._tx_gain_keys() if self._gain_panel_tx else ("AF", "AGC", "SQL", "ATT")
         for key in keys:
             supported = key != "ATT"
             live = self._gain_available(key)
@@ -3442,7 +3510,8 @@ class SdrApp:
                         lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER,
                         lv.FLEX_ALIGN.CENTER, 6)
             col.set_size(72, 218)
-            _lbl(col, "TX LVL" if key == "TX" else key, 14, CYAN_RX if supported else GRAY2)
+            _lbl(col, "TX LVL" if key == "TX" else ("AF GAIN" if key == "MIC" else key),
+                 14, CYAN_RX if supported else GRAY2)
             sl = lv.slider(col)
             # Same physical height as the permanent far-right slider.  The remaining
             # column space is reserved for value + one-of checkbox.
@@ -3578,35 +3647,9 @@ class SdrApp:
             self.save_timer.set_repeat_count(1)
 
     def paint_spectrum(self):
-        if self._spec_native:
-            out = self._demo_bars
-            for i in range(len(out)):
-                out[i] = self.spec[i]
-            self._spec_lcd.spectrum_update(out)
-            return
-        # Batch-update 27 bins as a SINGLE invalidated area: 27 height changes
-        # add ~54 invalid areas, overflow LVGL's inv buffer (32) and trigger a
-        # FULL-SCREEN refresh -> visible blink. Suppress per-widget invalidation
-        # and invalidate just the waterfall container once instead.
-        n = len(self.spec)
-        c = n // 2
-        dd = lv.display_get_default()
-        gated = hasattr(dd, "enable_invalidation")
-        if gated:
-            dd.enable_invalidation(False)
-        try:
-            for i, b in enumerate(self.ui.bins):
-                if i == c:
-                    # center marker: always lit, never shorter than 24px
-                    b.set_height(max(self.spec[i], 24))
-                    b.set_style_bg_color(lv.color_hex(CYAN_RX), 0)
-                else:
-                    b.set_height(self.spec[i])
-                    b.set_style_bg_color(lv.color_hex(BORDER), 0)
-        finally:
-            if gated:
-                dd.enable_invalidation(True)
-        self.ui.get("spectrum-waterfall").invalidate()
+        # Kept for callers during startup/stop: never publish a fabricated
+        # frequency pattern. Live data reaches the native surface via _paint_bars.
+        return
 
     def _paint_bars(self, b):
         """ZERO-ALLOC live waterfall repaint from the int16 height array b (0..50 from
@@ -3620,6 +3663,9 @@ class SdrApp:
         if self._spec_native:
             self._spec_lcd.spectrum_update(b)
             return
+
+        if not self.ui.bins:
+            return  # no legacy-widget fallback on this native-only interface
 
         THRESH = 3
         bins = self.ui.bins
@@ -4790,6 +4836,7 @@ class SdrApp:
 
     def _build_tx_settings(self):
         """The existing BACKEND slot, built for TX; no RX VERIFY tree alongside it."""
+        self._settings_mode = self._tx_mode
         scr = _base(lv.obj(None))
         self._set_scr_partial = scr
         scr.set_style_bg_color(lv.color_hex(BG_RX), 0)
@@ -4815,12 +4862,13 @@ class SdrApp:
         source = self._tx_file_label or "MIC"
         _lbl(scr, source + (" > DC > LP 3k > FM > I/Q DAC" if fm else
              " > %s > I/Q DAC" % self._tx_mode), 12, CYAN_RX)
-        keys = ("MIC", "DEV", "TX") if fm else ("TX",)
+        keys = self._tx_gain_keys()
         for key in keys:
             row = _base(lv.obj(scr))
             row.set_size(464, 38)
             _flex(row, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN)
-            title = _lbl(row, {"MIC": "AF gain", "DEV": "DEV peak", "TX": "TX LEVEL"}[key], 14, GRAY)
+            title = _lbl(row, {"MIC": "AF gain", "DEV": "DEV peak", "DEPTH": "AM depth",
+                               "TX": "TX LEVEL"}[key], 14, GRAY)
             title.set_width(128)
             minus = _btn(row, 42, 30, PANEL2, radius=6, border=BORDER)
             _lbl(minus, "-", 16, WHITE)
@@ -4832,16 +4880,15 @@ class SdrApp:
             for button, delta in ((minus, -1), (plus, 1)):
                 def adjust(e, kk=key, dd=delta):
                     _lo, _hi, current, _fmt = self._gain_spec(kk)
-                    self._apply_fm_gain(kk, current + dd)
+                    self._apply_gain(kk, current + dd)
                     self._refresh_tx_settings()
                 button.add_event_cb(adjust, lv.EVENT.SHORT_CLICKED, None)
                 button.add_event_cb(adjust, lv.EVENT.LONG_PRESSED_REPEAT, None)
                 self._settings_cbs.append(adjust)
-                if not fm:
+                if not self._gain_available(key):
                     button.add_state(lv.STATE.DISABLED)
-        if not fm:
-            _lbl(scr, "Live gain controls are available in FM only.", 12, GRAY)
-            _lbl(scr, "This mode shows the native configuration (read-only).", 12, GRAY)
+        if not fm and not self._audio_controls():
+            _lbl(scr, "Audio controls require matching firmware.", 12, GRAY)
         live = _lbl(scr, "Waiting for TX status", 12, CYAN_RX)
         live.set_size(464, 48)
         self._set_lbls["tx-live"] = live
@@ -4856,7 +4903,7 @@ class SdrApp:
             return
         # Read-only snapshot from the existing 2-Hz owner poll, not another timer
         # or an RX backend call. FM control values are published after setter success.
-        for key in ("MIC", "DEV", "TX"):
+        for key in ("MIC", "DEV", "DEPTH", "TX"):
             label = self._set_widgets.get("tx-" + key)
             if label is not None:
                 _lo, _hi, current, fmt = self._gain_spec(key)

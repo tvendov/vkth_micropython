@@ -20,6 +20,7 @@ CONSTANTS = {
     'TRX_RX', 'TRX_RX_OFF', 'TRX_TX', 'TRX_TO_TX', 'TRX_TO_RX', 'TRX_FAULT',
 }
 METHODS = {
+    '_audio_controls', '_tx_gain_keys', '_apply_audio_gain', '_service_tx_audio',
     '_fm_controls', '_sync_tx_controls', '_paint_fm_status', '_apply_fm_gain',
     '_gain_spec', '_gain_available', '_paint_gain_pin', '_apply_gain',
     '_refresh_gains', '_bind_active_slider', 'touch_params', 'set_volume', 'update_vol',
@@ -120,6 +121,7 @@ def new_app(env):
     app._tx_status = {'amplitude': 800}
     app._tx_settings_cache = None
     app._trx_pending = None
+    app._tx_audio_request = None
     app._active_gain = 'AF'
     app._rx_active_gain = 'AF'
     app._gain_candidate = 'AF'
@@ -222,10 +224,11 @@ def test_persistence(env):
     sys.modules['dataflash'] = df
     try:
         p = env['_fresh_params']()
-        p.update(txdev=5000, txmic=1600, txlevel=100)
+        p.update(txdev=5000, txmic=1600, txlevel=100, txdepth=100)
         env['save_params'](p)
         loaded = env['load_params']()
         assert [loaded[k] for k in ('txdev', 'txmic', 'txlevel')] == [5000, 1600, 100]
+        assert loaded['txdepth'] == 100
         length = memory[4] | memory[5] << 8
         assert length <= 506 and max(erased) < 8
         # Worst-length legal field values still fit the existing record reserve.
@@ -235,11 +238,12 @@ def test_persistence(env):
         assert (memory[4] | memory[5] << 8) <= 506
         # Backward compatibility: old records without any TX fields.
         old = json.loads(memory[6:6 + (memory[4] | memory[5] << 8)])
-        for k in ('txdev', 'txmic', 'txlevel'): old.pop(k)
+        for k in ('txdev', 'txmic', 'txlevel', 'txdepth'): old.pop(k)
         payload = json.dumps(old).encode()
         write(0, b'SDR1' + bytes((len(payload) & 255, len(payload) >> 8)) + payload)
         loaded = env['load_params']()
         assert [loaded[k] for k in ('txdev', 'txmic', 'txlevel')] == [2500, 100, 40]
+        assert loaded['txdepth'] == 50
     finally:
         if previous is None: sys.modules.pop('dataflash', None)
         else: sys.modules['dataflash'] = previous
@@ -338,7 +342,7 @@ def main():
     test_flash_deferred(env)
     test_persistence(env)
     test_backend_context(env)
-    assert '("MIC", "DEV", "TX") if self._gain_panel_fm' in SOURCE
+    assert 'keys = self._tx_gain_keys() if self._gain_panel_tx' in SOURCE
     print('Host-only actual Python methods; LVGL layout/touch, device and RF NOT VERIFIED.')
 
 

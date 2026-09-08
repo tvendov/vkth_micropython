@@ -15,11 +15,16 @@ static void ra_tx_core_put_u16(uint8_t *where, uint16_t value) {
 
 bool ra_tx_core_validate(const ra_tx_config_t *config) {
     if (config == NULL || config->sample_rate_hz < 8000U || config->sample_rate_hz > 48000U
-        || (config->amplitude == 0U && !ra_tx_is_voice_fm(config))
+        || (config->amplitude == 0U && !ra_tx_is_voice_fm(config) && !config->audio_controls)
         || config->adc_mid == 0U || config->adc_mid >= RA_TX_DAC_MAX
         || config->i_zero > RA_TX_DAC_MAX || config->q_zero > RA_TX_DAC_MAX
         || config->ramp_samples == 0U || config->ramp_samples > RA_TX_MAX_RAMP_SAMPLES
         || (config->fm_gain != 1U && config->fm_gain != 2U)) {
+        return false;
+    }
+    if (config->audio_controls &&
+        ((config->mode != RA_TX_MODE_AM && !ra_tx_mode_is_ssb(config->mode)) ||
+        config->audio_gain > 1600U || config->am_depth > 100U)) {
         return false;
     }
     if (config->deviation_hz != 0 &&
@@ -58,7 +63,7 @@ size_t ra_tx_core_lut_bytes(const ra_tx_config_t *config) {
     if (config == NULL) {
         return 0;
     }
-    if (config->mode == RA_TX_MODE_AM) {
+    if (config->mode == RA_TX_MODE_AM && !config->file_source) {
         return RA_TX_AM_LUT_BYTES;
     }
     if (config->mode == RA_TX_MODE_FM) {
@@ -71,7 +76,7 @@ size_t ra_tx_core_lut_alignment(const ra_tx_config_t *config) {
     if (config == NULL) {
         return 1;
     }
-    if (config->mode == RA_TX_MODE_AM) {
+    if (config->mode == RA_TX_MODE_AM && !config->file_source) {
         return RA_TX_AM_LUT_ALIGNMENT;
     }
     if (config->mode == RA_TX_MODE_FM) {
@@ -100,11 +105,34 @@ bool ra_tx_core_build_iq_lut(uint8_t *bank, size_t bytes) {
     return tx_build_iq_lut(bank, bytes, 32767, 0, 0);
 }
 
+uint16_t ra_tx_core_am_sample(const ra_tx_config_t *config, uint16_t adc, uint32_t *clips) {
+    int32_t audio = (int32_t)(adc > RA_TX_DAC_MAX ? RA_TX_DAC_MAX : adc) - config->adc_mid;
+    int32_t envelope;
+    if (config->audio_controls) {
+        /* Keep intermediates bounded in int32: <=4094*1600, then <=65504*100.
+         * Limit modulation BEFORE output scaling, so LEVEL never changes depth. */
+        audio = (audio * config->audio_gain / 100) * config->am_depth / 100;
+        if (audio < -2048 || audio > 2048) {
+            if (clips != NULL) { ++*clips; }
+            audio = audio < 0 ? -2048 : 2048;
+        }
+        envelope = ((2048 + audio) * config->amplitude + 1024) / 2048;
+    } else {
+        envelope = (int32_t)config->amplitude + audio;
+        int32_t maximum = 2 * (int32_t)config->amplitude;
+        if (envelope < 0 || envelope > maximum) {
+            if (clips != NULL) { ++*clips; }
+            envelope = envelope < 0 ? 0 : maximum;
+        }
+    }
+    return (uint16_t)(config->i_zero + envelope);
+}
+
 bool ra_tx_core_build_lut(const ra_tx_config_t *config, uint8_t *bank, size_t bytes) {
     if (!ra_tx_core_validate(config)) {
         return false;
     }
-    if (config->mode == RA_TX_MODE_CW || ra_tx_mode_is_ssb(config->mode)) {
+    if (ra_tx_core_lut_bytes(config) == 0) {
         return true;
     }
     size_t required = ra_tx_core_lut_bytes(config);
@@ -114,14 +142,7 @@ bool ra_tx_core_build_lut(const ra_tx_config_t *config, uint8_t *bank, size_t by
 
     if (config->mode == RA_TX_MODE_AM) {
         for (uint32_t adc = 0; adc <= RA_TX_DAC_MAX; ++adc) {
-            int32_t envelope = (int32_t)config->amplitude + (int32_t)adc - config->adc_mid;
-            int32_t maximum = 2 * (int32_t)config->amplitude;
-            if (envelope < 0) {
-                envelope = 0;
-            } else if (envelope > maximum) {
-                envelope = maximum;
-            }
-            ra_tx_core_put_u16(bank + 2U * adc, (uint16_t)(config->i_zero + envelope));
+            ra_tx_core_put_u16(bank + 2U * adc, ra_tx_core_am_sample(config, (uint16_t)adc, NULL));
         }
     } else {
         return ra_tx_is_voice_fm(config) ? ra_tx_core_build_iq_lut(bank, bytes) :
@@ -316,6 +337,12 @@ void ra_tx_core_ssb_sample(ra_tx_ssb_state_t *state, const ra_tx_config_t *confi
              * state->history[(pos - RA_TX_SSB_TAPS / 2U) & (RA_TX_SSB_RING - 1U)];
     int32_t i = tx_ssb_round_shift(acc_i, 15);
     int32_t q = tx_ssb_round_shift(acc_q, 15);
+    if (config->audio_controls) {
+        /* Gain before the shared I/Q limiter; output LEVEL remains independent.
+         * Do not reset the Hilbert history when a control changes. */
+        i = i * config->audio_gain / 100;
+        q = q * config->audio_gain / 100;
+    }
     int32_t peak_i = i < 0 ? -i : i;
     int32_t peak_q = q < 0 ? -q : q;
     int32_t peak = peak_i > peak_q ? peak_i : peak_q;

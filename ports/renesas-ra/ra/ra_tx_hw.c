@@ -275,7 +275,9 @@ static void tx_cpu_sample(uint16_t raw) {
     uint16_t i_code, q_code;
     tx.raw = raw;
     if (tx.config.mode == RA_TX_MODE_AM) {
-        i_code = (uint16_t)(tx.lut[2U * raw] | ((uint16_t)tx.lut[2U * raw + 1U] << 8));
+        uint32_t clips = tx.status.dsp_clips;
+        i_code = ra_tx_core_am_sample(&tx.config, raw, &clips);
+        tx.status.dsp_clips = clips;
         q_code = tx.config.q_zero;
     } else if (ra_tx_is_voice_fm(&tx.config)) {
         ra_tx_core_fm_sample(&tx.dsp.fm, &tx.config, tx.lut, tx.raw, &i_code, &q_code);
@@ -748,6 +750,36 @@ bool ra_tx_hw_fm_configure(const ra_tx_config_t *config) {
     tx.config.mic_gain = config->mic_gain;
     tx.config.amplitude = config->amplitude;
     tx.dsp.fm.max_step = step;
+    FSP_CRITICAL_SECTION_EXIT;
+    return true;
+}
+
+bool ra_tx_hw_audio_configure(const ra_tx_config_t *config) {
+    if (!tx.ready || tx.status.error != RA_TX_ERROR_NONE || !config->audio_controls ||
+        !tx.config.audio_controls || !ra_tx_core_validate(config) ||
+        config->mode != tx.config.mode || config->file_source != tx.config.file_source ||
+        config->sample_rate_hz != tx.config.sample_rate_hz || config->adc_mid != tx.config.adc_mid ||
+        config->i_zero != tx.config.i_zero || config->q_zero != tx.config.q_zero) {
+        return false;
+    }
+    if (config->mode == RA_TX_MODE_AM && !config->file_source) {
+        /* DTC must not see a half-written LUT. Reuse the existing allocation,
+         * with a checked stop, then rebuild while quiescent. No ADC/DAC handoff. */
+        bool resume = tx.status.running;
+        if (!ra_tx_hw_stop()) { return false; }
+        tx.config = *config;
+        if (!ra_tx_core_build_lut(config, tx.lut, RA_TX_AM_LUT_BYTES)) {
+            return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
+        }
+        return !resume || ra_tx_hw_start();
+    }
+    /* FILE AM and SSB: retain decoder position, scope and filter history. Only
+     * three bounded scalars are published atomically to the sample callback. */
+    FSP_CRITICAL_SECTION_DEFINE;
+    FSP_CRITICAL_SECTION_ENTER;
+    tx.config.audio_gain = config->audio_gain;
+    tx.config.am_depth = config->am_depth;
+    tx.config.amplitude = config->amplitude;
     FSP_CRITICAL_SECTION_EXIT;
     return true;
 }

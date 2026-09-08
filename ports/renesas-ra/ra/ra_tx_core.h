@@ -43,6 +43,9 @@ void ra_tx_core_ssb_sample(ra_tx_ssb_state_t *state, const ra_tx_config_t *confi
     uint16_t adc, uint16_t *i_code, uint16_t *q_code);
 
 bool ra_tx_core_validate(const ra_tx_config_t *config);
+/* Same envelope equation for MIC/DTC LUT construction and FILE/CPU samples.
+ * Requires a validated config. Optional clip counter counts AF overmodulation. */
+uint16_t ra_tx_core_am_sample(const ra_tx_config_t *config, uint16_t adc, uint32_t *clips);
 
 /* Compact setup-time LUT requirements.  The alignment keeps each complete
  * table inside one 64-KiB address window, so the DTC only has to patch the

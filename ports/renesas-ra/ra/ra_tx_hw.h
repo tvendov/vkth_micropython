@@ -40,6 +40,9 @@ typedef struct {
     uint8_t fm_gain;
     uint16_t deviation_hz; /* FM: 0 = legacy DOC path; positive = C voice path */
     uint16_t mic_gain;     /* voice FM only: percent, 100 = unity */
+    uint16_t audio_gain;   /* opt-in AM/SSB AF gain percent, 100 = unity */
+    uint8_t am_depth;      /* normalized AM depth percent at full-scale AF */
+    bool audio_controls;  /* false preserves legacy AM and SSB API behavior */
     bool file_source;     /* selected AF comes only from the SDRIQ decoder */
 } ra_tx_config_t;
 
@@ -106,6 +109,7 @@ bool ra_tx_hw_start(void);
 bool ra_tx_hw_stop(void);
 bool ra_tx_hw_key(bool down);
 bool ra_tx_hw_fm_configure(const ra_tx_config_t *config);
+bool ra_tx_hw_audio_configure(const ra_tx_config_t *config);
 bool ra_tx_hw_deinit_checked(void);
 bool ra_tx_hw_owns_adc(void);
 bool ra_tx_hw_owns_dac(void);

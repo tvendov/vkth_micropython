@@ -14,6 +14,7 @@ METHODS = {
     'open_tx_source_menu', 'open_step_menu', 'open_filter_menu',
     'open_step_controls', '_open_bottom_choices', 'tune', 'fine',
     'open_entry', 'close_entry', '_entry_hz', 'toggle_spectrum_view',
+    'paint_spectrum',
 }
 
 
@@ -169,7 +170,8 @@ def test_home_mode_frequency_and_restore():
     app._service_trx_pending()
     assert app._tx_mode == app.p['m'] == 'USB'
     assert log[len(before):] == ['tx_stop', 'tx_deinit', 'release',
-        ('clock', 1, 3500000), ('construct', {'mode': 'USB'}), 'tx_start']
+        ('clock', 1, 3500000), ('construct', {'mode': 'USB', 'audio_gain': 100,
+        'am_depth': 50, 'amplitude': 819}), 'tx_start']
     for method, delta in ((app.tune, 1000), (app.fine, -100)):
         old = app.p['f']
         assert method(delta)
@@ -208,7 +210,8 @@ def test_source_and_mode_are_independent():
     assert [name for _, name in items] == ['MIC', 'R:AM', 'R:USB', 'R:LSB', 'R:FM']
     pick(items[1][0])
     app._service_trx_pending()
-    assert app._tx.kwargs == {'mode': 'USB', 'file_mode': 'AM', 'file_tune': 0}
+    assert app._tx.kwargs == {'mode': 'USB', 'file_mode': 'AM', 'file_tune': 0,
+                             'file_gain': 100, 'audio_gain': 100, 'am_depth': 50, 'amplitude': 819}
     assert app.ui.get('scope-view').text == 'AF R:AM'
     source = app._tx_source_settings
     for mode in ('LSB', 'FM', 'AM'):
@@ -230,7 +233,15 @@ def test_source_and_mode_are_independent():
     assert app._tx.kwargs['mode'] == 'AM'
     assert app._request_tx_config(source=None)
     app._service_trx_pending()
-    assert not app._tx_file_on and app._tx.kwargs == {'mode': 'AM'}
+    assert not app._tx_file_on and app._tx.kwargs == {
+        'mode': 'AM', 'audio_gain': 100, 'am_depth': 50, 'amplitude': 409}
+    app.open_tx_source_menu()
+    app.picker[3](items[2][0])  # R:USB decoder feeding the AM modulator
+    app._service_trx_pending()
+    assert app._tx.kwargs['file_mode'] == 'USB' and app._tx.kwargs['mode'] == 'AM'
+    assert app._tx.kwargs['file_gain'] == 75  # before decoder limiter, not TX LEVEL
+    assert app._request_tx_config(source=None)
+    app._service_trx_pending()
     assert app.ui.get('scope-view').text == 'AF MIC'
     print('PASS MIC/real FILE selector, independent decoder/RF modes, FM offset, LOOP, prefill and AF label')
 
@@ -267,6 +278,14 @@ def test_failures_are_closed():
 
 
 def main():
+    assert 'self.w["spectral-bin-%d" % i]' not in switch.SOURCE
+    assert 'self.bins.append' not in switch.SOURCE
+    app, _, _, _ = fixture('AM')
+    app._spec_native = True
+    app._spec_lcd = types.SimpleNamespace(spectrum_update=lambda *args: (_ for _ in ()).throw(
+        AssertionError('startup must not publish fabricated bins')))
+    app.paint_spectrum()
+    print('PASS no legacy spectrum children or startup demo publication')
     previous = sys.modules.get('machine')
     try:
         test_home_mode_frequency_and_restore()
