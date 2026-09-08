@@ -1,0 +1,3 @@
+HF_EVIDENCE_PASS: 6 controls; initial clock failure retained; 72 diagnostic reads;
+12-cycle repeat / 193585 ms; transition UND retained; 368-byte settings preserved;
+5 payload SHA checks; production state restored. OFFLINE AUDIT, NOT NEW HIL/RF.

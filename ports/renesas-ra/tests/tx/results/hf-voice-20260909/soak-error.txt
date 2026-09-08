@@ -1,0 +1,1 @@
+RuntimeError('Traceback (most recent call last):\r\n  File "<stdin>", line 1, in <module>\r\n  File "<string>", line 114, in <module>\r\n  File "<string>", line 86, in clock_check\r\nAssertionError: (\'clock\', 3500000, b\'\\xff\\xff\\x00pM\\xfd\\xff\\xcd\', b\'\\x00\\xff\\x00\\xf0\\x00\\x00\\x00\\x00\')\r\n')

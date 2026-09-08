@@ -1,0 +1,107 @@
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_STAGE 0 AM MIC
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_READ 0 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 1 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 2 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_STAGE 1 USB R:USB
+CLOCK_READ 0 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 0 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_READ 0 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 1 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 2 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_STAGE 2 LSB MIC
+CLOCK_READ 0 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 0 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_READ 0 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 1 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 2 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_STAGE 3 AM R:AM
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_READ 0 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 1 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 2 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_STAGE 4 USB MIC
+CLOCK_READ 0 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 0 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX USB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_READ 0 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 1 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 2 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_STAGE 5 LSB R:LSB
+CLOCK_READ 0 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 0 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX LSB 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_WRITE 1 14012000 True b'\xff\xff\x00\x1a\x8d\xf3?\x8d'
+CLOCK_READ 0 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 1 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_READ 2 RX AM 3500000 14012000 1 b'\xff\xff\x00\x1a\x8d\xf3?\x8d' OK True
+CLOCK_WRITE 1 3500000 True b'\xff\xff\x00pM\xfd\xff\xcd'
+CLOCK_READ 0 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 1 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_READ 2 TX AM 3500000 3500000 1 b'\xff\xff\x00pM\xfd\xff\xcd' OK True
+CLOCK_PROBE_BAD_READS 0
+
