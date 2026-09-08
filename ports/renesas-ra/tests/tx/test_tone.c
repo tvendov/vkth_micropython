@@ -89,6 +89,22 @@ static void detector(void) {
         ra_tone_detect(&d, (int16_t)((noise >> 20) - 2048));
         CHECK(!d.present);
     }
+    CHECK(!ra_tone_detector_init(&d, 24000, 1, 250, 8));
+    CHECK(ra_tone_detector_init(&d, 24000, 10000, 250, 8));
+    for (unsigned n = 0; n < 12000; ++n) {
+        ra_tone_detect(&d, (int16_t)(500 * sin(2 * PI * 1000 * n / 24000)));
+        if (n < 11999) { CHECK(!d.present); }
+    }
+    CHECK(d.present && d.windows == 2);
+    uint32_t step = d.reference.step;
+    ra_tone_detector_reset(&d);
+    CHECK(!d.present && !d.count && !d.windows && !d.reference.phase);
+    CHECK(d.reference.step == step && d.window == 6000 && d.min_rms == 8);
+    for (unsigned n = 0; n < 18000; ++n) {
+        ra_tone_detect(&d, (int16_t)(5 * sin(2 * PI * 1000 * n / 24000)));
+    }
+    CHECK(!d.present); /* selected but below minimum RMS, never opens audio */
+    printf("PASS monitor: two 250-ms windows, explicit history reset, retained config, low-level rejection\n");
 }
 
 static void modulation(void) {

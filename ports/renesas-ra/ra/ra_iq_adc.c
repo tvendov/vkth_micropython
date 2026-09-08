@@ -17,6 +17,7 @@
 #include "ra_adc.h"
 #include "ra_iq_adc.h"
 #include "ra_tx_hw.h"
+#include "ra_tone.h"
 #include "ra_sdr_caps.h"
 #if defined(MICROPY_HW_ENABLE_AUDIOADC) && MICROPY_HW_ENABLE_AUDIOADC
 #include "ra_storm_adc.h"
@@ -624,6 +625,14 @@ static uint32_t ra_iq_isqrt32(uint32_t x) {
 static volatile uint16_t s_block_bypass;
 #define RA_IQ_BYPASSED(id) ((s_block_bypass & (1U << (id))) != 0U)
 
+/* One passive selected-frequency monitor, no audio sample buffer. Control-plane
+ * configuration is prepared on the stack and copied with IRQs masked briefly.
+ * The detector itself is owned by the RX block producer, never Python callbacks. */
+static ra_tone_detector_t s_tone_detector;
+static volatile uint16_t s_tone_frequency;
+static volatile uint8_t s_tone_reset_pending;
+static uint8_t s_tone_run_block;
+
 /* Highest block id that is still in the complex-I/Q (pre-demod) domain; ids above
  * it are mono audio (post-demod).  Used by the scope routing to decide whether the
  * selected block feeds I->DAC0 / Q->DAC1 (pre-demod) or mono->DAC0 (post-demod). */
@@ -698,6 +707,12 @@ static inline int32_t ra_iq_audio_filter(int32_t x) {
  * Takes the signed audio the demod case produced and returns the clamped DAC code in
  * 0..4095.  One implementation for all demod modes (Step 0 refactor). */
 static inline uint16_t ra_iq_audio_stage(int32_t audio) {
+    if (s_tone_run_block) {
+        /* Preserve a real overload as invalid detector input, rather than clipping
+         * it into a false pure tone or wrapping int32 audio to int16. */
+        (void)ra_tone_detect(&s_tone_detector,
+            (audio < -2048 || audio > 2047) ? 3000 : (int16_t)audio);
+    }
     /* Scope routing, post-demod stages.  When s_scope_stage selects a mono block (6..11)
      * this returns the DAC code AT that stage instead of the fully-processed tail, so
      * DAC0 shows exactly the chosen post-demod point (the caller pushes the return value
@@ -1974,6 +1989,7 @@ static void ra_iq_filt_compute_alpha(uint32_t hz) {
  * at the ADC block boundary, never per sample.  Configuration (mode, filter, manual
  * gain, volume and bypass choices) is retained; only signal history is discarded. */
 static void ra_iq_source_transition_reset(uint16_t raw_n, uint16_t complex_n) {
+    ra_tone_detector_reset(&s_tone_detector);
     uint32_t epoch = s_source_epoch + 1U;
     if (epoch == 0U) {
         epoch = 1U;
@@ -2067,6 +2083,10 @@ static inline int32_t ra_iq_dec_raw(const uint16_t *blk, const int16_t *hist,
  * Integer only: no FPU state in the ISR.  init enforces an even block size, so
  * m=n/2 is exact for both the hand and CMSIS decimators. */
 static void ra_iq_dsp_process(uint8_t half) {
+    if (s_tone_reset_pending) {
+        ra_tone_detector_reset(&s_tone_detector);
+        s_tone_reset_pending = 0U;
+    }
     const uint16_t *ip = s_i_buf[half];
     const uint16_t *qp = s_q_buf[half];
     uint16_t n = s_status.block_samples;
@@ -2492,6 +2512,8 @@ static void ra_iq_demod_produce(uint8_t half) {
     uint32_t head = s_ring_head;
     uint8_t mode = RA_IQ_BYPASSED(RA_IQ_BLK_DEMOD) ?
         (uint8_t)RA_IQ_DEMOD_PASS : s_demod_mode;
+    s_tone_run_block = s_tone_frequency && s_status.running &&
+        mode != RA_IQ_DEMOD_OFF && mode != RA_IQ_DEMOD_PASS;
 
     (void)half;
 
@@ -2996,6 +3018,8 @@ static bool ra_iq_adc_init_owned(const void *owner, uint32_t i_pin, uint32_t q_p
     s_dec_bypassed_last = 0U;
     /* Start from a truthful fixed-input view, never from a prior VERIFY mask. */
     s_block_bypass = 0U;
+    s_tone_frequency = s_tone_reset_pending = s_tone_run_block = 0U;
+    memset(&s_tone_detector, 0, sizeof(s_tone_detector));
     s_inject_enable = 0U;
     s_inject_requested_enable = 0U;
     s_inject_kind = (uint8_t)RA_IQ_INJECT_IQ;
@@ -3216,6 +3240,8 @@ bool ra_iq_adc_deinit_checked(void) {
     memset(&s_iq, 0, sizeof(s_iq));
     memset(&s_status, 0, sizeof(s_status));
     ra_iq_adc_file_detach();
+    s_tone_frequency = s_tone_reset_pending = s_tone_run_block = 0U;
+    memset(&s_tone_detector, 0, sizeof(s_tone_detector));
     #if MICROPY_HW_ENABLE_MEASUREMENT
     s_raw_consumer = NULL;
     s_raw_context = NULL;
@@ -3232,6 +3258,8 @@ bool ra_iq_adc_start(void) {
         return false;
     }
 
+    ra_tone_detector_reset(&s_tone_detector);
+    s_tone_reset_pending = s_tone_run_block = 0U;
     s_status.ready = 0U;
     s_status.active_half = 0U;
     s_status.blocks = 0U;
@@ -3344,6 +3372,7 @@ bool ra_iq_adc_start(void) {
 }
 
 bool ra_iq_adc_stop_checked(void) {
+    s_tone_reset_pending = 1U;
     if (!s_status.running && !s_iq.scanning0 && !s_iq.scanning1) {
         /* DTC can already be enabled when the first ADC ScanStart fails. */
         if (s_iq.dtc_open && R_DTC_Disable((transfer_ctrl_t *)&s_iq.dtc_ctrl) != FSP_SUCCESS) {
@@ -3702,6 +3731,7 @@ void ra_iq_adc_set_tune(int32_t hz) {
      * post-tune vector with an FM vector from the old phase system. */
     s_fm_have_prev = 0U;
     s_tune_hz = hz;
+    s_tone_reset_pending = 1U;
 }
 
 int32_t ra_iq_adc_get_tune(void) {
@@ -4099,6 +4129,8 @@ bool ra_iq_adc_file_decode_begin(uint8_t demod, int32_t tune_hz) {
     }
     /* Do NOT set initialised/running: no receiver peripheral is owned. The TX
      * owner excludes every hardware RX constructor while these states are lent. */
+    s_tone_frequency = s_tone_run_block = 0U;
+    ra_tone_detector_reset(&s_tone_detector);
     s_status.sample_rate_hz = 48000U;
     s_status.block_samples = 128U;
     ra_iq_adc_file_detach();
@@ -4189,6 +4221,7 @@ void ra_iq_adc_set_block(uint8_t block, uint8_t enable) {
         s_block_bypass |= (uint16_t)(1U << block);
     }
     if (s_block_bypass != before) {
+        if (block == RA_IQ_BLK_DEMOD) { s_tone_reset_pending = 1U; }
         ra_iq_timing_request_window_reset();
     }
 }
@@ -4201,6 +4234,40 @@ uint8_t ra_iq_adc_get_block(uint8_t block) {
         return 1U;
     }
     return RA_IQ_BYPASSED(block) ? 0U : 1U;
+}
+
+bool ra_iq_adc_set_tone_monitor(uint32_t frequency_dhz) {
+    ra_tone_detector_t next = {0};
+    if (!s_status.initialised || (frequency_dhz &&
+        (frequency_dhz < 500U || frequency_dhz > 30000U ||
+         !ra_tone_detector_init(&next, s_status.sample_rate_hz >> 1,
+             frequency_dhz, 250U, 8U)))) {
+        return false;
+    }
+    /* No divisions/design work with IRQs masked; only the small state publication. */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    s_tone_detector = next;
+    s_tone_frequency = (uint16_t)frequency_dhz;
+    s_tone_reset_pending = s_tone_run_block = 0U;
+    __DMB();
+    __set_PRIMASK(primask);
+    ra_iq_timing_request_window_reset();
+    return true;
+}
+
+void ra_iq_adc_get_tone_monitor(ra_iq_tone_status_t *status) {
+    if (!status) { return; }
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    status->frequency_dhz = s_tone_frequency;
+    status->active = s_tone_frequency && s_status.running && !s_tone_reset_pending &&
+        s_demod_mode != RA_IQ_DEMOD_OFF && s_demod_mode != RA_IQ_DEMOD_PASS &&
+        !RA_IQ_BYPASSED(RA_IQ_BLK_DEMOD);
+    status->present = status->active && s_tone_detector.present;
+    status->purity_permille = status->active ? s_tone_detector.purity_permille : 0U;
+    status->windows = status->active ? s_tone_detector.windows : 0U;
+    __set_PRIMASK(primask);
 }
 
 void ra_iq_adc_get_squelch(int32_t *thresh, uint8_t *open, int32_t *env) {
@@ -4298,6 +4365,7 @@ void ra_iq_adc_set_demod(uint8_t mode) {
 
     __DMB();
     s_demod_mode = mode;
+    s_tone_reset_pending = 1U;
     if (mode != previous_mode) {
         ra_iq_timing_request_window_reset();
     }

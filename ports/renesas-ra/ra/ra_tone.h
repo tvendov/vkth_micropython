@@ -35,5 +35,7 @@ typedef struct {
 } ra_tone_detector_t;
 bool ra_tone_detector_init(ra_tone_detector_t *d, uint32_t fs,
     uint32_t frequency_dhz, uint16_t window_ms, uint16_t min_rms);
+/* Discard lock/history, retaining frequency, window and minimum RMS. */
+void ra_tone_detector_reset(ra_tone_detector_t *d);
 bool ra_tone_detect(ra_tone_detector_t *d, int16_t sample);
 #endif

@@ -4,6 +4,91 @@
 този файл и `ra6_sdr_next_steps.md`, без напомняне. Записите разграничават
 анализ, реализация, хост тест, build, качване и физическо измерване.
 
+## 2026-09-08: пасивен RX тонов монитор; проверка и освобождаване на скритата клавиатура
+
+Промени по файлове:
+
+- `ra/ra_tone.h/c`: явен reset на историята със запазена настройка;
+  прозорци под три периода се отхвърлят. DDS/модулаторът не са променяни.
+- `ra/ra_iq_adc.h/c`: един пасивен детектор след демодулацията, преди
+  AF/SQL/AGC/VOL; OFF при нов owner; изчистване при tune/mode/source/stop;
+  BYP/OFF не връща старо разпознаване. TX FILE декодерът не го включва.
+  Извъндиапазонен AF се отхвърля, не се превърта до валиден int16 тон.
+- `machine_iq_adc.c`: `tone_monitor([frequency_dhz])`; 0=OFF,
+  500..30000=50..3000 Hz. Tuple само при управляващо четене, не на семпъл.
+- `Makefile`: общото tone ядро се линква и при RX-only SDR конфигурация;
+  текущият реален build е RadioOnly с RX+TX, без OpenCV/LAB.
+- `sdr_single.py`: VERIFY → TONE MON, OFF/100/700/1000/1750 Hz;
+  OFF/WAIT/TONE/PATH/STOP/N/A/ERR индикация, обновявана само при промяна.
+  Настройката не се записва във flash. Честотната клавиатура вече се
+  строи при отваряне и се освобождава заедно с widget wrapper-и,
+  callbacks и cursor timer при затваряне. Частичен build се почиства.
+  HOME бутоните и самият изглед на клавиатурата не са пренареждани.
+- `test_tone.c`: reset, два 250-ms прозореца, слаб сигнал и конфигурация.
+- `tests/tx/run_host_tests.py`: включва и `test_tone.c`, компилиран срещу
+  реалните `ra_tone.c`/`ra_tx_core.c`, наред със съществуващите TX core тестове.
+- `test_sdr_tone_monitor.py`: реални Python методи с host doubles;
+  API readback, индикация, TX guard, rollback и change-only paint.
+- `test_sdr_tx_home.py`: lazy keypad повторения, cancel, освобождаване на
+  timer/widgets/callbacks и грешка при частично построяване.
+- `tx_tone_signalling.md`: достъп, единици и граници на пасивния монитор;
+  не е обявен за CTCSS с реч, DTMF/DCS или Морзов декодер.
+
+Проверки дотук: 8 Python набора и native tone host тест PASS; shared
+RadioOnly build `-j16` PASS. Native RX HIL: AM/USB/LSB/FM1000 Hz,
+CW700 Hz, FM100 Hz, VOL=0, неподходящ AF филтър, SQL, DECIM/DEMOD BYP,
+грешен тон, тишина, source transition, OFF и stop/start PASS.
+В отделните установени mode интервали: 0 audio underruns / ring overruns.
+AM DSP прозорецът е 102705→122585 цикъла, тоест32%→38% от320000цикъла;
+детекторът има реална CPU цена. ELF text+1632 B, BSS649800→649896 B (+96 B),
+heap281600 B непроменен; detector80 B + явни control flags/frequency4 B.
+
+Неуспешните проверки са запазени: голям GUI тест VERIFY alloc116B,
+после малък изолиран тест alloc136B. Това е реален MemoryError, различен
+от отделно измерените загубени UART символи. Host подава тестовете на
+8-байтови пакети, echo/retry и SHA проверка преди изпълнение. Не е променян
+UART драйверът. Изолираният boot изрично пропуска приложението в RAM;
+сам REPL prompt не се приема за доказателство, че SDR е спрян.
+
+Firmware1594288 B SHA256
+`ef22e94ba86b22463fe6d0d3ed0c7545e88e476a7e6e8a8ca7745752a313958d`.
+Първи архив: `backups/rx-tone-monitor-1120000058-20260908-211735`.
+Lazy keypad app-only архив: `backups/rx-tone-lazy-keypad-1120000058-20260908-214059`.
+Второто качване НЕ пише firmware; 74 предишни файла са запазени,
+вътрешният flash, валидният dataflash запис и последните4MiB QSPI code
+са byte-identical. Пълен16MiB external backup преди/след. Новите source/MPY
+са с readback SHA; тестови файлове не са записвани на платката.
+Source326295 B SHA256
+`f6bee007fede2dcd3d7e5673005791a8f7103eb6a228fc19645fac5343142467`;
+MPY92388 B SHA256
+`d6cc332a76cf4377f38e123e590563a2efa5ea56c87a115aac67bacd25e45b98`.
+
+Финален HIL след lazy поправката:
+
+- VERIFY се отваря без MemoryError; 1750-Hz AM test tone →TONE,
+  monitor1000 Hz →WAIT, OFF →native OFF и BACK →HOME. При едновременно
+  зареден RAM GUI тест: HOME free75872 B, VERIFY7920 B; след BACK74624 B.
+- Четири отделни keypad open/close, BS, cancel и OK без промяна на RF:
+  след всеки цикъл free75536 B; timer=None, няма entry callbacks/widgets;
+  последващо VERIFY работи. Това е кратък lifecycle тест, не дълъг soak.
+- Повторен TX GEN AM/USB/LSB/FM HIL: менюта честота/форма/ниво, живи AF
+  кадри, 0 CLIP/deadline misses/FILE UND; Si5351 CLK1 register readback
+  съответства на TX x1 за579900 Hz. Това не измерва RF изхода физически.
+- Поправеният FM mute тест мина: raw AF=2048, residual0.01891231 Hz
+  при deviation2500/gain100; граница0.1Hz само за тези настройки.
+- След активен RX UART повреди `digest` до `diest` при подготовката на
+  keypad теста; самият keypad тест тогава НЕ се е изпълнил. Повторението
+  зарежда/хешира целия скрипт преди RX start и минава. Не е обявена
+  поправка на UART драйвера; проблемът остава отделна задача.
+- След всеки изолиран набор има J-Link NORMAL reset. Накрая приложението
+  е оставено TX AM579900 Hz, GEN SINE1000 Hz/50%, TX LEVEL40, depth50;
+  AF frames50 и samples48773 при последното четене, error/CLIP/deadline0.
+  Нормалният save callback е възстановен; след този старт няма reset.
+
+Протоколите са в `tests/tx/results/rx-tone-monitor-20260908/` в firmware Git;
+първичните archives остават в каноничния проект. Физически DAC/RF,
+тоново заглушаване, CTCSS с реч, DTMF/DCS и реален репитър НЕ са валидирани.
+
 ## 2026-09-08: native TX GEN качен; тонов детектор като отделен компонент
 
 Промени по файлове:

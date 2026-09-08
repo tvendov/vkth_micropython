@@ -1,0 +1,132 @@
+Device "R7FA6M3AH" selected.
+InitTarget() start
+Identifying target device...
+SWD selected. Executing JTAG -> SWD switching sequence...
+Initializing DAP...
+DAP initialized successfully.
+Low power mode detected. Waking device from low power mode.
+InitTarget() end - Took 6.73ms
+Found SW-DP with ID 0x5BA02477
+DPIDR: 0x5BA02477
+CoreSight SoC-400 or earlier
+Scanning AP map to find all available APs
+AP[2]: Stopped AP scan as end of AP map has been reached
+AP[0]: AHB-AP (IDR: 0x24770011, ADDR: 0x00000000)
+AP[1]: APB-AP (IDR: 0x44770002, ADDR: 0x01000000)
+Iterating through AP map to find AHB-AP to use
+AP[0]: Core found
+AP[0]: AHB-AP ROM base: 0xE00FF000
+CPUID register: 0x410FC241. Implementer code: 0x41 (ARM)
+Found Cortex-M4 r0p1, Little endian.
+FPUnit: 6 code (BP) slots and 2 literal slots
+CoreSight components:
+ROMTbl[0] @ E00FF000
+[0][0]: E000E000 CID B105E00D PID 000BB00C SCS-M7
+[0][1]: E0001000 CID B105E00D PID 003BB002 DWT
+[0][2]: E0002000 CID B105E00D PID 002BB003 FPB
+[0][3]: E0000000 CID B105E00D PID 003BB001 ITM
+[0][4]: E0040000 CID B105900D PID 000BB9A1 TPIU
+[0][5]: E0041000 CID B105900D PID 000BB925 ETM
+[0][6]: E0042000 CID B105900D PID 002BB908 CSTF
+[0][7]: E0043000 CID B105900D PID 001BB961 TMC
+[0][8]: E0044000 CID B105F00D PID 001BB101 TSG
+Reset type: NORMAL (https://wiki.segger.com/J-Link_Reset_Strategies)
+
+Reset: Halt core after reset via DEMCR.VC_CORERESET.
+Reset: Reset device via AIRCR.SYSRESETREQ.
+Memory map 'after startup completion point' is active
+OnDisconnectTarget() start
+Restoring low power mode settings.
+OnDisconnectTarget() end - Took 1.73ms
+c1ca68820f137468396f6d00b5cb96996c94208452f30dc75d1d191e29be20bb
+
+MON_DEFAULT_OFF (0, False, 0, 0, False) FREE 37344
+
+MON_LOAD_OFF_ON {'window_valid': True, 'window_seq': 4, 'window_generation': 3, 'avg_cyc': 81032, 'window_avg_cyc': 102705, 'avg_pct': 32, 'peak_pct': 32, 'max_cyc': 107730, 'window_ms': 501, 'last_cyc': 102698, 'block_cyc': 320000, 'max_pct': 33.66562, 'window_blocks': 188, 'observed_block_cyc': 319787, 'cpu_hz': 120000000, 'window_peak_cyc': 102738} {'window_valid': True, 'window_seq': 6, 'window_generation': 4, 'avg_cyc': 95978, 'window_avg_cyc': 122585, 'avg_pct': 38, 'peak_pct': 39, 'max_cyc': 123665, 'window_ms': 502, 'last_cyc': 122578, 'block_cyc': 320000, 'max_pct': 38.64532, 'window_blocks': 188, 'observed_block_cyc': 320426, 'cpu_hz': 120000000, 'window_peak_cyc': 123665}
+
+MON_MODE am (10000, True, 1000, 4, True) {'window_valid': True, 'window_seq': 8, 'window_generation': 5, 'avg_cyc': 103743, 'window_avg_cyc': 122586, 'avg_pct': 38, 'peak_pct': 39, 'max_cyc': 125771, 'window_ms': 502, 'last_cyc': 122571, 'block_cyc': 320000, 'max_pct': 39.30344, 'window_blocks': 188, 'observed_block_cyc': 320426, 'cpu_hz': 120000000, 'window_peak_cyc': 123665} {'audio_underruns': 0, 'demod': 1, 'ring_overruns': 0}
+
+MON_MODE usb (10000, True, 1000, 4, True) {'window_valid': True, 'window_seq': 14, 'window_generation': 12, 'avg_cyc': 110375, 'window_avg_cyc': 122156, 'avg_pct': 38, 'peak_pct': 39, 'max_cyc': 139242, 'window_ms': 501, 'last_cyc': 122241, 'block_cyc': 320000, 'max_pct': 43.51313, 'window_blocks': 188, 'observed_block_cyc': 319787, 'cpu_hz': 120000000, 'window_peak_cyc': 123191} {'audio_underruns': 0, 'demod': 2, 'ring_overruns': 0}
+
+MON_MODE lsb (10000, True, 1000, 4, True) {'window_valid': True, 'window_seq': 20, 'window_generation': 19, 'avg_cyc': 113127, 'window_avg_cyc': 122169, 'avg_pct': 38, 'peak_pct': 39, 'max_cyc': 139242, 'window_ms': 501, 'last_cyc': 122033, 'block_cyc': 320000, 'max_pct': 43.51313, 'window_blocks': 188, 'observed_block_cyc': 319787, 'cpu_hz': 120000000, 'window_peak_cyc': 123193} {'audio_underruns': 0, 'demod': 3, 'ring_overruns': 0}
+
+MON_MODE fm (10000, True, 998, 4, True) {'window_valid': True, 'window_seq': 26, 'window_generation': 25, 'avg_cyc': 116499, 'window_avg_cyc': 148521, 'avg_pct': 46, 'peak_pct': 47, 'max_cyc': 149605, 'window_ms': 501, 'last_cyc': 148507, 'block_cyc': 320000, 'max_pct': 46.75156, 'window_blocks': 188, 'observed_block_cyc': 319787, 'cpu_hz': 120000000, 'window_peak_cyc': 149605} {'audio_underruns': 0, 'demod': 6, 'ring_overruns': 0}
+
+MON_MODE cw (7000, True, 1000, 4, True) {'window_valid': True, 'window_seq': 32, 'window_generation': 32, 'avg_cyc': 119493, 'window_avg_cyc': 106518, 'avg_pct': 33, 'peak_pct': 34, 'max_cyc': 150565, 'window_ms': 502, 'last_cyc': 106502, 'block_cyc': 320000, 'max_pct': 47.05156, 'window_blocks': 188, 'observed_block_cyc': 320426, 'cpu_hz': 120000000, 'window_peak_cyc': 107598} {'audio_underruns': 0, 'demod': 4, 'ring_overruns': 0}
+
+MON_WRONG_TONE (10000, False, 0, 8, True)
+
+MON_FM_100HZ (1000, True, 1000, 4, True)
+
+RX_TONE_MONITOR_BOARD_PASS; native injection only; no analog/RF/CTCSS-speech certification
+
+RAM_UPLOAD_RETRY 600 1 b'"_child(k)\\n        if b.get_child(0).get_text()==text:\\n           click(b)\\n            return\\n    raise RuntimeError(\'Mi"\r\n' b''
+RAM_UPLOAD_RETRY 840 1 b'"action(a._paint_tone_monitor\\nassert a._set_widgets[\'tone_monitor\'][1].get_text()==\'TONE\',iq.tone_monitor()\\nclick(scr.ge"\r\n' b''
+dcbbf08282e80b53c872dbeef5bdbd74c2f5e1a86c37cfc596ca58b9e40d1c3f
+
+VERIFY_FREE_BEFORE 46160
+
+VERIFY_STATE verify build: MemoryError('memory allocation failed, allocating 116 bytes',) None 44624 None
+
+Device "R7FA6M3AH" selected.
+InitTarget() start
+Identifying target device...
+SWD selected. Executing JTAG -> SWD switching sequence...
+Initializing DAP...
+DAP initialized successfully.
+Low power mode detected. Waking device from low power mode.
+InitTarget() end - Took 7.87ms
+Found SW-DP with ID 0x5BA02477
+DPIDR: 0x5BA02477
+CoreSight SoC-400 or earlier
+Scanning AP map to find all available APs
+AP[2]: Stopped AP scan as end of AP map has been reached
+AP[0]: AHB-AP (IDR: 0x24770011, ADDR: 0x00000000)
+AP[1]: APB-AP (IDR: 0x44770002, ADDR: 0x01000000)
+Iterating through AP map to find AHB-AP to use
+AP[0]: Core found
+AP[0]: AHB-AP ROM base: 0xE00FF000
+CPUID register: 0x410FC241. Implementer code: 0x41 (ARM)
+Found Cortex-M4 r0p1, Little endian.
+FPUnit: 6 code (BP) slots and 2 literal slots
+CoreSight components:
+ROMTbl[0] @ E00FF000
+[0][0]: E000E000 CID B105E00D PID 000BB00C SCS-M7
+[0][1]: E0001000 CID B105E00D PID 003BB002 DWT
+[0][2]: E0002000 CID B105E00D PID 002BB003 FPB
+[0][3]: E0000000 CID B105E00D PID 003BB001 ITM
+[0][4]: E0040000 CID B105900D PID 000BB9A1 TPIU
+[0][5]: E0041000 CID B105900D PID 000BB925 ETM
+[0][6]: E0042000 CID B105900D PID 002BB908 CSTF
+[0][7]: E0043000 CID B105900D PID 001BB961 TMC
+[0][8]: E0044000 CID B105F00D PID 001BB101 TSG
+Reset type: NORMAL (https://wiki.segger.com/J-Link_Reset_Strategies)
+
+Reset: Halt core after reset via DEMCR.VC_CORERESET.
+Reset: Reset device via AIRCR.SYSRESETREQ.
+Memory map 'after startup completion point' is active
+JLINK_RESET_AFTER_RAM_TEST
+�MicroPython 2fa6d06ebd-dirty on 2026-09-08; VK-RA6M3 with RA6M3
+
+Type "help()" for more information.
+
+>>>
+OnDisconnectTarget() start
+Restoring low power mode settings.
+OnDisconnectTarget() end - Took 3.70ms
+Traceback (most recent call last):
+  File "C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\test_rx_tone_monitor_board_20260908.py", line 171, in <module>
+    if __name__=='__main__':main()
+  File "C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\test_rx_tone_monitor_board_20260908.py", line 164, in main
+    out+=checked_execute(t,gui,timeout=30)
+  File "C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\rx_dac512_ram_hil_20260907.py", line 34, in checked_execute
+    return d.execute(t, 'exec(_r5code)', timeout)
+  File "C:\Users\teodor\Documents\Codex\2026-08-22\new-chat-2\deploy_fm_tx_20260907.py", line 41, in execute
+    raise RuntimeError(err.decode('utf-8', errors='replace'))
+RuntimeError: Traceback (most recent call last):
+
+  File "<stdin>", line 1, in <module>
+
+  File "<string>", line 11, in <module>
+
+AssertionError: ("verify build: MemoryError('memory allocation failed, allocating 116 bytes',)", None)

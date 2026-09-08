@@ -647,7 +647,7 @@ class SdrUi:
     def __init__(self):
         self.w = {}          # name -> widget
         self._build_receiver()
-        self._build_freq_input()
+        self.w["scr-freq-input"] = None  # build only while entering a frequency
 
     def get(self, name):
         return self.w[name]
@@ -866,7 +866,9 @@ class SdrUi:
 
     # ---------------- screen 2: freq-input ----------------
     def _build_freq_input(self):
-        scr = _base(lv.obj(None))
+        scr = lv.obj(None)
+        self.w["scr-freq-input"] = scr  # root before styling can allocate/fail
+        _base(scr)
         scr.set_style_bg_color(lv.color_hex(BG_IN), 0)
         scr.set_style_bg_opa(lv.OPA.COVER, 0)
         scr.set_style_pad_all(8, 0)
@@ -2965,7 +2967,9 @@ class SdrApp:
             else:
                 indicator.remove_flag(lv.obj.FLAG.HIDDEN)
         for tag in ("a", "b", "c"):
-            button = self.ui.get("vfo-" + tag)
+            button = self.ui.w.get("vfo-" + tag)
+            if button is None:
+                continue  # keypad is not allocated while HOME/VERIFY is visible
             if tx:
                 button.add_state(lv.STATE.DISABLED)
             else:
@@ -3146,11 +3150,12 @@ class SdrApp:
                 # The collapsed bottom action shows the selected step itself;
                 # tapping it opens the step choices directly.
                 ui.get("btn-mode-step").get_child(0).set_text(name)
-            chip = ui.get("step-" + name)
-            on = sv == s
-            chip.set_style_bg_color(lv.color_hex(CYAN_IN if on else BTN_IN), 0)
-            chip.get_child(0).set_style_text_color(
-                lv.color_hex(DARK_TXT if on else WHITE), 0)
+            if ui.w.get("scr-freq-input") is not None:
+                chip = ui.get("step-" + name)
+                on = sv == s
+                chip.set_style_bg_color(lv.color_hex(CYAN_IN if on else BTN_IN), 0)
+                chip.get_child(0).set_style_text_color(
+                    lv.color_hex(DARK_TXT if on else WHITE), 0)
         self._update_home_summary()
 
     def update_vol(self):
@@ -3676,12 +3681,16 @@ class SdrApp:
             s.remove_state(lv.STATE.DISABLED)
 
     def update_entry_digits(self):
+        if self.ui.w.get("scr-freq-input") is None:
+            return
         # show the buffer verbatim -- empty means empty (cursor only), no
         # confusing fallback to the current frequency
         self.ui.get("input-digits").set_text(self._group(self.entry))
 
     def update_entry_bands(self):
         ui = self.ui
+        if ui.w.get("scr-freq-input") is None:
+            return
         band, _ = self.band_of(self._entry_hz() if self.entry else self.p["f"])
         for name, _l, _lo, _hi, _b in BANDS:
             b = ui.get("band-" + name)
@@ -3848,6 +3857,7 @@ class SdrApp:
                         (rows is not None and rows.is_scrolling())):
                     return
                 live = self._set_live_cache
+                self._paint_tone_monitor()
                 lb = self._set_lbls.get("agc")
                 if lb is not None:
                     try:
@@ -4457,6 +4467,8 @@ class SdrApp:
             i = self._alt[k]
             ui.get("vfo-alt-%d" % k).set_text(
                 "%s %s" % ("ABC"[i], self.fmt_freq(self.p["vfos"][i][0])))
+        if ui.w.get("scr-freq-input") is None:
+            return
         for i, tag in enumerate(("a", "b", "c")):
             b = ui.get("vfo-" + tag)
             on = i == self.p["act"]
@@ -5533,6 +5545,17 @@ class SdrApp:
             g = _grp(r, 270)
             return r, g
 
+        # Passive monitor, before the AF/squelch/AGC/VOL tail. No automatic mute.
+        _r, tg = _krow("TONE MON")
+        tb, _ = _sbtn(tg, "OFF", 120, 14, CYAN_RX)
+        ts, _ = _sbtn(tg, "OFF", 100, 12, GRAY2)
+        ts.remove_flag(lv.obj.FLAG.CLICKABLE)
+        self._set_widgets["tone_monitor"] = (tb, ts)
+        def tone_cb(e):
+            self.open_tone_monitor_menu()
+        tb.add_event_cb(tone_cb, lv.EVENT.CLICKED, None)
+        cbs.append(tone_cb)
+
         # SQUELCH -/+ threshold (verify-only).  Firmware envelope units span roughly
         # 0..2048; the former 0..100 range could never tune a practical gate.
         _r, sg = _krow("SQUELCH")
@@ -6180,11 +6203,57 @@ class SdrApp:
         if self._iq_file.eof and not st[1]:
             self._finish_iq_file()
 
+    def _paint_tone_monitor(self):
+        widgets = self._set_widgets.get("tone_monitor")
+        if widgets is None:
+            return
+        fn = getattr(self.be.iq, "tone_monitor", None)
+        frequency, state = "N/A", "N/A"
+        if fn is not None:
+            try:
+                f, present, _purity, _windows, active = fn()
+                frequency = "%d.%d Hz" % (f // 10, f % 10) if f else "OFF"
+                state = ("TONE" if present else "WAIT") if active else (
+                    "PATH/STOP" if f else "OFF")
+            except Exception as e:
+                self.be.err = "TONE MON: %r" % (e,)
+                state = "ERR"
+        # No window/purity repaint storm in the scrolling list; state changes only.
+        fb, sb = widgets
+        if fb.get_text() != frequency:
+            fb.set_text(frequency)
+        if sb.get_text() != state:
+            sb.set_text(state)
+            sb.set_style_text_color(lv.color_hex(GREEN if state == "TONE" else GRAY2), 0)
+
+    def open_tone_monitor_menu(self):
+        if self._settings_tx:
+            return
+        fn = getattr(self.be.iq, "tone_monitor", None)
+        if fn is None:
+            self._paint_tone_monitor()
+            return
+        try:
+            current = fn()[0]
+        except Exception as e:
+            self.be.err = "TONE MON: %r" % (e,)
+            return
+        def picked(value):
+            try:
+                fn(value)
+            except Exception as e:
+                self.be.err = "TONE MON: %r" % (e,)
+            self._paint_tone_monitor()  # native readback, no optimistic local state
+        self.open_pick_menu("RX TONE MONITOR", ((0, "OFF"), (1000, "100 Hz"),
+            (7000, "700 Hz"), (10000, "1000 Hz"), (17500, "1750 Hz")), current, picked)
+
     def _refresh_settings(self):
         """Re-read the current state into every settings-screen control on each open,
         so a re-shown screen never displays the values captured at build time. Live
         read-outs (AGC gain, S-meter) keep updating via _consume_status while open."""
         w = self._set_widgets
+
+        self._paint_tone_monitor()
 
         # Read back the real DSP block mask while IQADC is live. Getter-only
         # block(id) is control-context safe.
@@ -6629,10 +6698,49 @@ class SdrApp:
             self.be.err = "scope view: %r" % (e,)
 
     # ---- navigation ----
+    def _drop_entry_screen(self):
+        timer = getattr(self, "blink_timer", None)
+        if timer is not None:
+            timer.delete()
+            self.blink_timer = None
+        scr = self.ui.w.get("scr-freq-input")
+        if scr is not None:
+            if lv.screen_active() == scr:
+                lv.screen_load(self.ui.get("scr-receiver"))
+            scr.delete()
+        # Remove every borrowed widget wrapper as well as the C screen tree.
+        for key in ("close-btn", "cancel-button", "ok-button", "input-container",
+                    "input-digits", "blinking-cursor", "vfo-a", "vfo-b", "vfo-c"):
+            self.ui.w.pop(key, None)
+        for key in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", ".", "BS"):
+            self.ui.w.pop("key-" + key, None)
+        for name, _l, _lo, _hi, _base_hz in BANDS:
+            self.ui.w.pop("band-" + name, None)
+        for _step, name in STEPS:
+            self.ui.w.pop("step-" + name, None)
+        self.ui.w["scr-freq-input"] = None
+        self._entry_cbs = []
+        gc.collect()
+
     def open_entry(self):
         if (self._trx_state not in (TRX_RX, TRX_RX_OFF, TRX_TX) or
                 self._trx_pending is not None):
             return
+        if self.ui.w.get("scr-freq-input") is None:
+            gc.collect()
+            try:
+                self.ui._build_freq_input()
+                self._wire_entry()
+                self.update_vfo_ui()
+                self.update_step()
+                self._refresh_home_context()
+            except Exception as e:
+                self._drop_entry_screen()
+                if self._trx_state == TRX_TX:
+                    self._trx_error = "keypad build: %r" % (e,)
+                else:
+                    self.be.err = "keypad build: %r" % (e,)
+                return
         # pre-fill with the current frequency so the user can backspace just a
         # few digits and retype them (partial edit) instead of starting over
         self.entry = "%02d%03d%03d" % (self.p["f"] // 1_000_000,
@@ -6673,7 +6781,48 @@ class SdrApp:
         self.entry = ""
         self.update_freq()
         lv.screen_load(self.ui.get("scr-receiver"))
+        self._drop_entry_screen()
         self._set_modal(False)
+
+    def _wire_entry(self):
+        # This callback list has the same short lifetime as the keypad widgets.
+        cbs = []
+        self._entry_cbs = cbs
+        def add(name, fn):
+            cbs.append(fn)
+            self.ui.get(name).add_event_cb(fn, lv.EVENT.CLICKED, None)
+        for i, tag in enumerate(("a", "b", "c")):
+            def vfo_cb(e, ii=i):
+                self.switch_vfo(ii)
+            add("vfo-" + tag, vfo_cb)
+        add("close-btn", lambda e: self.close_entry(False))
+        add("cancel-button", lambda e: self.close_entry(False))
+        add("ok-button", lambda e: self.close_entry(True))
+        for kname in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", ".", "BS"):
+            def key_cb(e, kk=kname):
+                self.key(kk)
+            add("key-" + kname, key_cb)
+        for name, _l, _lo, _hi, base in BANDS:
+            def band_cb(e, hz=base):
+                self.entry = "%02d%03d%03d" % (hz // 1_000_000,
+                                               (hz // 1000) % 1000, hz % 1000)
+                self.update_entry_digits()
+                self.update_entry_bands()
+            add("band-" + name, band_cb)
+        for step, name in STEPS:
+            def step_cb(e, ss=step):
+                self.p["s"] = ss
+                self.update_step()
+                self.touch_params()
+            add("step-" + name, step_cb)
+        cur = self.ui.get("blinking-cursor")
+        def blink_cb(t):
+            if cur.has_flag(lv.obj.FLAG.HIDDEN):
+                cur.remove_flag(lv.obj.FLAG.HIDDEN)
+            else:
+                cur.add_flag(lv.obj.FLAG.HIDDEN)
+        cbs.append(blink_cb)
+        self.blink_timer = lv.timer_create(blink_cb, 500, None)
 
     # ---- wiring ----
     def _wire(self):
@@ -6855,32 +7004,6 @@ class SdrApp:
 
         add("agc-pill", mk(lambda e: self.open_agc_menu()))
 
-        # entry screen
-        for i, tag in enumerate(("a", "b", "c")):
-            def vfo_cb(e, ii=i):
-                self.switch_vfo(ii)
-            add("vfo-" + tag, mk(vfo_cb))
-        add("close-btn",     mk(lambda e: self.close_entry(False)))
-        add("cancel-button", mk(lambda e: self.close_entry(False)))
-        add("ok-button",     mk(lambda e: self.close_entry(True)))
-        for kname in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", ".", "BS"):
-            def key_cb(e, kk=kname):
-                self.key(kk)
-            add("key-" + kname, mk(key_cb))
-        for name, _l, _lo, _hi, base in BANDS:
-            def band_cb(e, hz=base):
-                self.entry = "%02d%03d%03d" % (hz // 1_000_000,
-                                               (hz // 1000) % 1000, hz % 1000)
-                self.update_entry_digits()
-                self.update_entry_bands()
-            add("band-" + name, mk(band_cb))
-        for s, name in STEPS:
-            def step_cb(e, ss=s):
-                self.p["s"] = ss
-                self.update_step()
-                self.touch_params()
-            add("step-" + name, mk(step_cb))
-
         # One 100 ms GUI tick. Control writes are coalesced and run outside touch event
         # callbacks, but they never gate the spectrum: spectrum runs every tick (10 Hz),
         # while counters run every fifth tick (2 Hz). There is deliberately NO periodic
@@ -6952,16 +7075,7 @@ class SdrApp:
         self._tx_file_timer = lv.timer_create(self._tx_file_cb, 20, None)
         _KEEP["tx_file_timer"] = self._tx_file_timer
 
-        # blinking cursor
-        cur = ui.get("blinking-cursor")
-        def blink_cb(t):
-            if cur.has_flag(lv.obj.FLAG.HIDDEN):
-                cur.remove_flag(lv.obj.FLAG.HIDDEN)
-            else:
-                cur.add_flag(lv.obj.FLAG.HIDDEN)
-        self.blink_timer = lv.timer_create(blink_cb, 500, None)
         _KEEP["cbs"] = cbs
-        _KEEP["blink"] = blink_cb
 
 
 # ---------------- single DIRECT-display workflow ----------------
@@ -6994,6 +7108,7 @@ def start():
             _KEEP.pop(key, None)
         old_app._drop_settings_screen()
         old_app._drop_route_screen()
+        old_app._drop_entry_screen()
         if old_app._mode_expanded:
             old_app._set_mode_bar(False)
         old_app._set_modal(False)

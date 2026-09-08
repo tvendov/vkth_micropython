@@ -859,6 +859,30 @@ static mp_obj_t machine_iqadc_audio_filter(size_t n_args, const mp_obj_t *args) 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_audio_filter_obj, 1, 2,
     machine_iqadc_audio_filter);
 
+/* tone_monitor([frequency_dhz]) -> (frequency_dhz, present, purity, windows, active).
+ * Passive pre-AF monitor, never a squelch. Config 0=OFF, 500..30000=50..3000 Hz.
+ * Core state copied before any Python allocation; tuple allocation is poll-only. */
+static mp_obj_t machine_iqadc_tone_monitor(size_t n_args, const mp_obj_t *args) {
+    machine_iqadc_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (!self->active) { mp_raise_OSError(MP_ENODEV); }
+    if (n_args == 2) {
+        mp_int_t f = mp_obj_get_int(args[1]);
+        if (f < 0 || f > 30000 || !ra_iq_adc_set_tone_monitor((uint32_t)f)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("tone monitor: 0 or 500..30000 dHz; Fs 8..48k"));
+        }
+    }
+    ra_iq_tone_status_t st;
+    ra_iq_adc_get_tone_monitor(&st);
+    mp_obj_t values[] = {
+        MP_OBJ_NEW_SMALL_INT(st.frequency_dhz), mp_obj_new_bool(st.present),
+        MP_OBJ_NEW_SMALL_INT(st.purity_permille), mp_obj_new_int_from_uint(st.windows),
+        mp_obj_new_bool(st.active),
+    };
+    return mp_obj_new_tuple(MP_ARRAY_SIZE(values), values);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_iqadc_tone_monitor_obj, 1, 2,
+    machine_iqadc_tone_monitor);
+
 /* squelch([thresh]) -> dict {thresh, open, env}.  With an arg, sets the squelch
  * threshold (0 disables); always returns the current threshold, gate state and the
  * live pre-AGC envelope so a UI can tune it. */
@@ -1334,6 +1358,7 @@ static const mp_rom_map_elem_t machine_iqadc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_chf_kernel),   MP_ROM_PTR(&machine_iqadc_chf_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_mag_kernel),   MP_ROM_PTR(&machine_iqadc_mag_kernel_obj) },
     { MP_ROM_QSTR(MP_QSTR_audio_filter), MP_ROM_PTR(&machine_iqadc_audio_filter_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tone_monitor), MP_ROM_PTR(&machine_iqadc_tone_monitor_obj) },
     { MP_ROM_QSTR(MP_QSTR_squelch),      MP_ROM_PTR(&machine_iqadc_squelch_obj) },
     { MP_ROM_QSTR(MP_QSTR_smeter),       MP_ROM_PTR(&machine_iqadc_smeter_obj) },
     { MP_ROM_QSTR(MP_QSTR_tune),         MP_ROM_PTR(&machine_iqadc_tune_obj) },

@@ -639,8 +639,13 @@ ifeq ($(CMSIS_MCU),RA6M3)
 ifeq ($(MICROPY_HW_ENABLE_TX),1)
 CFLAGS += -DMICROPY_HW_ENABLE_TX=1
 SRC_C += machine_tx.c
-HAL_SRC_C += ra/ra_tx_hw.c ra/ra_tx_core.c ra/ra_tone.c
+HAL_SRC_C += ra/ra_tx_hw.c ra/ra_tx_core.c
 endif
+endif
+
+# Shared tone core also links in RX-only SDR builds.
+ifneq ($(filter 1,$(MICROPY_HW_ENABLE_RA_SDR) $(MICROPY_HW_ENABLE_TX)),)
+HAL_SRC_C += ra/ra_tone.c
 endif
 
 # CTSU (Capacitive Touch Sensing Unit) support

@@ -168,6 +168,19 @@ uint8_t ra_iq_adc_get_mag_kernel(void);
 void ra_iq_adc_set_audio_filter(uint8_t mode);
 uint8_t ra_iq_adc_get_audio_filter(void);
 
+/* Passive selected-tone monitor BEFORE AF/AGC/squelch/VOL. No audio gating.
+ * 0=OFF (default), otherwise 50..3000 Hz in 0.1-Hz units. Two 250-ms windows
+ * acquire/release; minimum pre-AF RMS=8 ADC-code units. Not a CTCSS decoder.
+ * A new RX owner is OFF; stop/mode/source transitions discard detection history.
+ * DEMOD bypass/OFF and borrowed TX FILE decoding cannot report a detected tone. */
+typedef struct {
+    uint32_t windows;
+    uint16_t frequency_dhz, purity_permille;
+    bool present, active;
+} ra_iq_tone_status_t;
+bool ra_iq_adc_set_tone_monitor(uint32_t frequency_dhz);
+void ra_iq_adc_get_tone_monitor(ra_iq_tone_status_t *status);
+
 /* Squelch: mute the audio while the pre-AGC envelope stays below thresh, which also
  * freezes the AGC so it does not amplify noise on silence.  thresh in audio-envelope
  * units; 0 disables (default).  The gate has open/close hysteresis.  Control-plane. */

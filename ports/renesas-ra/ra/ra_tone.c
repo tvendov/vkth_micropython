@@ -60,6 +60,7 @@ bool ra_tone_detector_init(ra_tone_detector_t *d, uint32_t fs,
     uint32_t frequency_dhz, uint16_t window_ms, uint16_t min_rms) {
     ra_tone_gen_t reference = {0};
     if (!d || window_ms < 50U || window_ms > 1000U || !min_rms || min_rms > 2047U ||
+        (uint64_t)frequency_dhz * window_ms < 30000U || /* at least three cycles */
         !ra_tone_configure(&reference, fs, 1, frequency_dhz, 2047, RA_TONE_SINE)) {
         return false;
     }
@@ -68,6 +69,17 @@ bool ra_tone_detector_init(ra_tone_detector_t *d, uint32_t fs,
     d->window = (fs * window_ms) / 1000U;
     d->min_rms = min_rms;
     return true;
+}
+void ra_tone_detector_reset(ra_tone_detector_t *d) {
+    if (!d) { return; }
+    ra_tone_gen_t reference = d->reference;
+    uint32_t window = d->window;
+    uint16_t min_rms = d->min_rms;
+    memset(d, 0, sizeof(*d));
+    reference.phase = 0;
+    d->reference = reference;
+    d->window = window;
+    d->min_rms = min_rms;
 }
 bool ra_tone_detect(ra_tone_detector_t *d, int16_t sample) {
     if (!d || !d->window) { return false; }

@@ -1,0 +1,470 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3/genhdr/mpversion.h
+GEN build-VK_RA6M3/genhdr/qstr.i.last
+GEN build-VK_RA6M3/genhdr/qstr.split
+GEN build-VK_RA6M3/genhdr/moduledefs.split
+GEN build-VK_RA6M3/genhdr/root_pointers.split
+GEN build-VK_RA6M3/genhdr/compressed.split
+GEN build-VK_RA6M3/genhdr/qstrdefs.collected.h
+GEN build-VK_RA6M3/genhdr/moduledefs.collected
+GEN build-VK_RA6M3/genhdr/compressed.collected
+QSTR updated
+GEN build-VK_RA6M3/genhdr/root_pointers.collected
+Module registrations not updated
+Compressed data updated
+Root pointer registrations not updated
+GEN build-VK_RA6M3/genhdr/qstrdefs.generated.h
+GEN build-VK_RA6M3/genhdr/compressed.data.h
+CC ../../py/mpstate.c
+CC ../../py/nlr.c
+CC ../../py/nlrx86.c
+CC ../../py/nlrx64.c
+CC ../../py/nlrthumb.c
+CC ../../py/nlraarch64.c
+CC ../../py/nlrmips.c
+CC ../../py/nlrpowerpc.c
+CC ../../py/nlrxtensa.c
+CC ../../py/nlrrv32.c
+CC ../../py/nlrrv64.c
+CC ../../py/nlrsetjmp.c
+CC ../../py/malloc.c
+CC ../../py/gc.c
+CC ../../py/pystack.c
+CC ../../py/qstr.c
+CC ../../py/vstr.c
+CC ../../py/mpprint.c
+CC ../../py/unicode.c
+CC ../../py/mpz.c
+CC ../../py/reader.c
+CC ../../py/lexer.c
+CC ../../py/parse.c
+CC ../../py/scope.c
+CC ../../py/compile.c
+CC ../../py/emitcommon.c
+CC ../../py/emitbc.c
+CC ../../py/asmbase.c
+CC ../../py/emitnx86.c
+CC ../../py/asmthumb.c
+CC ../../py/emitnthumb.c
+CC ../../py/emitinlinethumb.c
+CC ../../py/asmxtensa.c
+CC ../../py/emitinlinextensa.c
+CC ../../py/asmrv32.c
+CC ../../py/emitinlinerv32.c
+CC ../../py/formatfloat.c
+CC ../../py/parsenumbase.c
+CC ../../py/parsenum.c
+CC ../../py/emitglue.c
+CC ../../py/persistentcode.c
+CC ../../py/runtime.c
+CC ../../py/runtime_utils.c
+CC ../../py/scheduler.c
+CC ../../py/nativeglue.c
+CC ../../py/pairheap.c
+CC ../../py/cstack.c
+CC ../../py/stackctrl.c
+CC ../../py/argcheck.c
+CC ../../py/warning.c
+CC ../../py/profile.c
+CC ../../py/map.c
+CC ../../py/obj.c
+CC ../../py/objarray.c
+CC ../../py/objattrtuple.c
+CC ../../py/objbool.c
+CC ../../py/objboundmeth.c
+CC ../../py/objcell.c
+CC ../../py/objclosure.c
+CC ../../py/objcode.c
+CC ../../py/objcomplex.c
+CC ../../py/objdeque.c
+CC ../../py/objdict.c
+CC ../../py/objenumerate.c
+CC ../../py/objexcept.c
+CC ../../py/objfilter.c
+CC ../../py/objfloat.c
+CC ../../py/objfun.c
+CC ../../py/objgenerator.c
+CC ../../py/objgetitemiter.c
+CC ../../py/objint.c
+CC ../../py/objint_longlong.c
+CC ../../py/objint_mpz.c
+CC ../../py/objlist.c
+CC ../../py/objmap.c
+CC ../../py/objmodule.c
+CC ../../py/objobject.c
+CC ../../py/objpolyiter.c
+CC ../../py/objproperty.c
+CC ../../py/objnone.c
+CC ../../py/objnamedtuple.c
+CC ../../py/objrange.c
+CC ../../py/objreversed.c
+CC ../../py/objringio.c
+CC ../../py/objset.c
+CC ../../py/objsingleton.c
+CC ../../py/objslice.c
+CC ../../py/objstr.c
+CC ../../py/objstrunicode.c
+CC ../../py/objstringio.c
+CC ../../py/objtuple.c
+CC ../../py/objtype.c
+CC ../../py/objzip.c
+CC ../../py/opmethods.c
+CC ../../py/sequence.c
+CC ../../py/stream.c
+CC ../../py/binary.c
+CC ../../py/builtinimport.c
+CC ../../py/builtinevex.c
+CC ../../py/builtinhelp.c
+CC ../../py/modarray.c
+CC ../../py/modbuiltins.c
+CC ../../py/modcollections.c
+CC ../../py/modgc.c
+CC ../../py/modio.c
+CC ../../py/modmath.c
+CC ../../py/modcmath.c
+CC ../../py/modmicropython.c
+CC ../../py/modstruct.c
+CC ../../py/modsys.c
+CC ../../py/moderrno.c
+CC ../../py/modthread.c
+CC ../../py/vm.c
+CC ../../py/bc.c
+CC ../../py/showbc.c
+CC ../../py/repl.c
+CC ../../py/smallint.c
+CC ../../py/frozenmod.c
+CC ../../extmod/machine_adc.c
+CC ../../extmod/machine_adc_block.c
+CC ../../extmod/machine_bitstream.c
+CC ../../extmod/machine_i2c.c
+CC ../../extmod/machine_i2c_target.c
+CC ../../extmod/machine_i2s.c
+CC ../../extmod/machine_mem.c
+CC ../../extmod/machine_pinbase.c
+CC ../../extmod/machine_pulse.c
+CC ../../extmod/machine_pwm.c
+CC ../../extmod/machine_signal.c
+CC ../../extmod/machine_spi.c
+CC ../../extmod/machine_uart.c
+CC ../../extmod/machine_wdt.c
+CC ../../extmod/modasyncio.c
+CC ../../extmod/modbinascii.c
+CC ../../extmod/modbluetooth.c
+CC ../../extmod/modbtree.c
+CC ../../extmod/moddeflate.c
+CC ../../extmod/modframebuf.c
+CC ../../extmod/modhashlib.c
+CC ../../extmod/modheapq.c
+CC ../../extmod/modjson.c
+CC ../../extmod/modlwip.c
+CC ../../extmod/modmachine.c
+CC ../../extmod/modmarshal.c
+CC ../../extmod/modnetwork.c
+CC ../../extmod/modonewire.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../extmod/modrandom.c
+CC ../../extmod/modre.c
+CC ../../extmod/modselect.c
+CC ../../extmod/modsocket.c
+CC ../../extmod/modtls_axtls.c
+CC ../../extmod/modtime.c
+CC ../../extmod/moductypes.c
+CC ../../extmod/modvfs.c
+CC ../../extmod/modwebrepl.c
+CC ../../extmod/modwebsocket.c
+CC ../../extmod/network_cyw43.c
+CC ../../extmod/network_esp_hosted.c
+CC ../../extmod/network_lwip.c
+CC ../../extmod/network_ninaw10.c
+CC ../../extmod/network_ppp_lwip.c
+CC ../../extmod/network_wiznet5k.c
+CC ../../extmod/os_dupterm.c
+CC ../../extmod/vfs.c
+CC ../../extmod/vfs_blockdev.c
+CC ../../extmod/vfs_fat.c
+CC ../../extmod/vfs_fat_diskio.c
+CC ../../extmod/vfs_fat_file.c
+CC ../../extmod/vfs_lfs.c
+CC ../../extmod/vfs_rom.c
+CC ../../extmod/vfs_rom_file.c
+CC ../../extmod/vfs_posix.c
+CC ../../extmod/vfs_posix_file.c
+CC ../../extmod/vfs_reader.c
+CC ../../extmod/virtpin.c
+CC ../../shared/libc/abort_.c
+CC ../../shared/libc/printf.c
+CC ../../lib/lv_bindings/ext_mod/lvgl/mem_core.c
+CC build-VK_RA6M3/lvgl/lv_mpy.c
+CC ../../shared/netutils/dhcpserver.c
+CC ../../shared/netutils/netutils.c
+CC ../../shared/netutils/trace.c
+CC ../../shared/readline/readline.c
+CC ../../shared/runtime/gchelper_native.c
+CC ../../shared/runtime/interrupt_char.c
+build-VK_RA6M3/lvgl/lv_mpy.c:38780:17: warning: 'mp_lv_funcptr_lv_iter_next_cb' defined but not used [-Wunused-function]
+38780 | static mp_obj_t mp_lv_funcptr_lv_iter_next_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_iter_next_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:38729:17: warning: 'mp_lv_funcptr_cmp' defined but not used [-Wunused-function]
+38729 | static mp_obj_t mp_lv_funcptr_cmp(void *func){ return mp_lv_funcptr(&mp_funcptr_cmp_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:38104:17: warning: 'mp_read_ptr_lv_sqrt_res_t' defined but not used [-Wunused-function]
+38104 | static mp_obj_t mp_read_ptr_lv_sqrt_res_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:34753:17: warning: 'mp_lv_funcptr_lv_iter_inspect_cb' defined but not used [-Wunused-function]
+34753 | static mp_obj_t mp_lv_funcptr_lv_iter_inspect_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_iter_inspect_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:34429:17: warning: 'mp_lv_funcptr_lv_rb_compare_t' defined but not used [-Wunused-function]
+34429 | static mp_obj_t mp_lv_funcptr_lv_rb_compare_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_rb_compare_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:31581:14: warning: 'mp_write_ptr_lv_hit_test_info_t' defined but not used [-Wunused-function]
+31581 | static void* mp_write_ptr_lv_hit_test_info_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:30983:17: warning: 'mp_lv_funcptr_lv_draw_glyph_cb_t' defined but not used [-Wunused-function]
+30983 | static mp_obj_t mp_lv_funcptr_lv_draw_glyph_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_glyph_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:29248:17: warning: 'mp_read_ptr_lv_fpoint_t' defined but not used [-Wunused-function]
+29248 | static mp_obj_t mp_read_ptr_lv_fpoint_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:27260:17: warning: 'mp_lv_funcptr_lv_draw_buf_width_to_stride_cb_t' defined but not used [-Wunused-function]
+27260 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_width_to_stride_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_width_to_stride_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:27224:17: warning: 'mp_lv_funcptr_lv_draw_buf_cache_operation_cb_t' defined but not used [-Wunused-function]
+27224 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_cache_operation_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_cache_operation_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:27209:17: warning: 'mp_lv_funcptr_lv_draw_buf_align_cb_t' defined but not used [-Wunused-function]
+27209 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_align_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_align_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:27180:17: warning: 'mp_lv_funcptr_lv_draw_buf_copy_cb_t' defined but not used [-Wunused-function]
+27180 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_copy_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_copy_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:27165:17: warning: 'mp_lv_funcptr_lv_draw_buf_free_cb_t' defined but not used [-Wunused-function]
+27165 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_free_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_free_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:27150:17: warning: 'mp_lv_funcptr_lv_draw_buf_malloc_cb_t' defined but not used [-Wunused-function]
+27150 | static mp_obj_t mp_lv_funcptr_lv_draw_buf_malloc_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_draw_buf_malloc_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:26093:14: warning: 'mp_write_ptr_lv_color_hsv_t' defined but not used [-Wunused-function]
+26093 | static void* mp_write_ptr_lv_color_hsv_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:25606:17: warning: 'mp_read_ptr_lv_draw_glyph_dsc_t' defined but not used [-Wunused-function]
+25606 | static mp_obj_t mp_read_ptr_lv_draw_glyph_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../shared/runtime/mpirq.c
+build-VK_RA6M3/lvgl/lv_mpy.c:25511:17: warning: 'mp_read_ptr_lv_draw_letter_dsc_t' defined but not used [-Wunused-function]
+25511 | static mp_obj_t mp_read_ptr_lv_draw_letter_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:25215:17: warning: 'mp_read_ptr_lv_fs_dir_t' defined but not used [-Wunused-function]
+25215 | static mp_obj_t mp_read_ptr_lv_fs_dir_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:25150:17: warning: 'mp_read_ptr_lv_fs_path_ex_t' defined but not used [-Wunused-function]
+25150 | static mp_obj_t mp_read_ptr_lv_fs_path_ex_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:25042:17: warning: 'mp_read_ptr_lv_fs_file_t' defined but not used [-Wunused-function]
+25042 | static mp_obj_t mp_read_ptr_lv_fs_file_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24870:17: warning: 'mp_lv_funcptr_dir_close_cb' defined but not used [-Wunused-function]
+24870 | static mp_obj_t mp_lv_funcptr_dir_close_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_close_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24861:17: warning: 'mp_lv_funcptr_dir_read_cb' defined but not used [-Wunused-function]
+24861 | static mp_obj_t mp_lv_funcptr_dir_read_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_read_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24836:17: warning: 'mp_lv_funcptr_dir_open_cb' defined but not used [-Wunused-function]
+24836 | static mp_obj_t mp_lv_funcptr_dir_open_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dir_open_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24813:17: warning: 'mp_lv_funcptr_tell_cb' defined but not used [-Wunused-function]
+24813 | static mp_obj_t mp_lv_funcptr_tell_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_tell_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24789:17: warning: 'mp_lv_funcptr_seek_cb' defined but not used [-Wunused-function]
+24789 | static mp_obj_t mp_lv_funcptr_seek_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_seek_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24764:17: warning: 'mp_lv_funcptr_write_cb' defined but not used [-Wunused-function]
+24764 | static mp_obj_t mp_lv_funcptr_write_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_write_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24738:17: warning: 'mp_lv_funcptr_read_cb' defined but not used [-Wunused-function]
+24738 | static mp_obj_t mp_lv_funcptr_read_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_read_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24712:17: warning: 'mp_lv_funcptr_close_cb' defined but not used [-Wunused-function]
+24712 | static mp_obj_t mp_lv_funcptr_close_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_close_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24689:17: warning: 'mp_lv_funcptr_open_cb' defined but not used [-Wunused-function]
+24689 | static mp_obj_t mp_lv_funcptr_open_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_open_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24665:17: warning: 'mp_lv_funcptr_ready_cb' defined but not used [-Wunused-function]
+24665 | static mp_obj_t mp_lv_funcptr_ready_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_ready_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24592:17: warning: 'mp_read_ptr_lv_event_list_t' defined but not used [-Wunused-function]
+24592 | static mp_obj_t mp_read_ptr_lv_event_list_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24575:17: warning: 'mp_lv_funcptr_lv_layout_update_cb_t' defined but not used [-Wunused-function]
+24575 | static mp_obj_t mp_lv_funcptr_lv_layout_update_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_layout_update_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24324:17: warning: 'mp_read_ptr_lv_rb_t' defined but not used [-Wunused-function]
+24324 | static mp_obj_t mp_read_ptr_lv_rb_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~
+CC ../../shared/runtime/pyexec.c
+build-VK_RA6M3/lvgl/lv_mpy.c:24307:17: warning: 'mp_lv_funcptr_lv_async_cb_t' defined but not used [-Wunused-function]
+24307 | static mp_obj_t mp_lv_funcptr_lv_async_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_async_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24299:17: warning: 'mp_lv_funcptr_lv_timer_cb_t' defined but not used [-Wunused-function]
+24299 | static mp_obj_t mp_lv_funcptr_lv_timer_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_timer_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24213:17: warning: 'mp_lv_funcptr_lv_timer_handler_resume_cb_t' defined but not used [-Wunused-function]
+24213 | static mp_obj_t mp_lv_funcptr_lv_timer_handler_resume_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_timer_handler_resume_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24184:17: warning: 'mp_lv_funcptr_lv_delay_cb_t' defined but not used [-Wunused-function]
+24184 | static mp_obj_t mp_lv_funcptr_lv_delay_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_delay_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:24101:17: warning: 'mp_read_ptr_lv_mem_monitor_t' defined but not used [-Wunused-function]
+24101 | static mp_obj_t mp_read_ptr_lv_mem_monitor_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23967:17: warning: 'mp_read_ptr_lv_color16_t' defined but not used [-Wunused-function]
+23967 | static mp_obj_t mp_read_ptr_lv_color16_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23233:17: warning: 'mp_read_ptr_lv_font_class_t' defined but not used [-Wunused-function]
+23233 | static mp_obj_t mp_read_ptr_lv_font_class_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23225:14: warning: 'mp_write_ptr_lv_font_class_t' defined but not used [-Wunused-function]
+23225 | static void* mp_write_ptr_lv_font_class_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23209:17: warning: 'mp_lv_funcptr_free_src_cb' defined but not used [-Wunused-function]
+23209 | static mp_obj_t mp_lv_funcptr_free_src_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_free_src_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23181:17: warning: 'mp_lv_funcptr_dup_src_cb' defined but not used [-Wunused-function]
+23181 | static mp_obj_t mp_lv_funcptr_dup_src_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_dup_src_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23153:17: warning: 'mp_lv_funcptr_delete_cb' defined but not used [-Wunused-function]
+23153 | static mp_obj_t mp_lv_funcptr_delete_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_delete_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23125:17: warning: 'mp_lv_funcptr_create_cb' defined but not used [-Wunused-function]
+23125 | static mp_obj_t mp_lv_funcptr_create_cb(void *func){ return mp_lv_funcptr(&mp_funcptr_create_cb_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:23047:17: warning: 'mp_read_ptr_lv_font_info_t' defined but not used [-Wunused-function]
+23047 | static mp_obj_t mp_read_ptr_lv_font_info_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:22960:17: warning: 'mp_read_ptr__lv_mp_int_wrapper' defined but not used [-Wunused-function]
+22960 | static mp_obj_t mp_read_ptr__lv_mp_int_wrapper(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:22952:14: warning: 'mp_write_ptr__lv_mp_int_wrapper' defined but not used [-Wunused-function]
+22952 | static void* mp_write_ptr__lv_mp_int_wrapper(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:22713:17: warning: 'mp_read_ptr_lv_tree_class_t' defined but not used [-Wunused-function]
+22713 | static mp_obj_t mp_read_ptr_lv_tree_class_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:22682:17: warning: 'mp_lv_funcptr_lv_tree_constructor_cb_t' defined but not used [-Wunused-function]
+22682 | static mp_obj_t mp_lv_funcptr_lv_tree_constructor_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_tree_constructor_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:20754:14: warning: 'mp_write_ptr_lv_span_coords_t' defined but not used [-Wunused-function]
+20754 | static void* mp_write_ptr_lv_span_coords_t(mp_obj_t self_in)
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:14676:17: warning: 'mp_read_ptr_lv_image_cache_data_t' defined but not used [-Wunused-function]
+14676 | static mp_obj_t mp_read_ptr_lv_image_cache_data_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../shared/runtime/softtimer.c
+build-VK_RA6M3/lvgl/lv_mpy.c:14301:17: warning: 'mp_read_ptr_lv_image_decoder_args_t' defined but not used [-Wunused-function]
+14301 | static mp_obj_t mp_read_ptr_lv_image_decoder_args_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:12782:17: warning: 'mp_lv_funcptr_lv_screen_create_cb_t' defined but not used [-Wunused-function]
+12782 | static mp_obj_t mp_lv_funcptr_lv_screen_create_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_screen_create_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:11167:17: warning: 'mp_read_ptr_lv_draw_rect_dsc_t' defined but not used [-Wunused-function]
+11167 | static mp_obj_t mp_read_ptr_lv_draw_rect_dsc_t(void *field)
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:7337:17: warning: 'mp_lv_funcptr_lv_anim_get_value_cb_t' defined but not used [-Wunused-function]
+ 7337 | static mp_obj_t mp_lv_funcptr_lv_anim_get_value_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_get_value_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:7313:17: warning: 'mp_lv_funcptr_lv_anim_start_cb_t' defined but not used [-Wunused-function]
+ 7313 | static mp_obj_t mp_lv_funcptr_lv_anim_start_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_start_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:7291:17: warning: 'mp_lv_funcptr_lv_anim_custom_exec_cb_t' defined but not used [-Wunused-function]
+ 7291 | static mp_obj_t mp_lv_funcptr_lv_anim_custom_exec_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_custom_exec_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:7262:17: warning: 'mp_lv_funcptr_lv_anim_exec_xcb_t' defined but not used [-Wunused-function]
+ 7262 | static mp_obj_t mp_lv_funcptr_lv_anim_exec_xcb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_anim_exec_xcb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:7142:17: warning: 'mp_lv_funcptr_lv_color_filter_cb_t' defined but not used [-Wunused-function]
+ 7142 | static mp_obj_t mp_lv_funcptr_lv_color_filter_cb_t(void *func){ return mp_lv_funcptr(&mp_funcptr_lv_color_filter_cb_t_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:6931:17: warning: 'mp_lv_funcptr_release_glyph' defined but not used [-Wunused-function]
+ 6931 | static mp_obj_t mp_lv_funcptr_release_glyph(void *func){ return mp_lv_funcptr(&mp_funcptr_release_glyph_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:6902:17: warning: 'mp_lv_funcptr_get_glyph_bitmap' defined but not used [-Wunused-function]
+ 6902 | static mp_obj_t mp_lv_funcptr_get_glyph_bitmap(void *func){ return mp_lv_funcptr(&mp_funcptr_get_glyph_bitmap_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+build-VK_RA6M3/lvgl/lv_mpy.c:6664:17: warning: 'mp_lv_funcptr_get_glyph_dsc' defined but not used [-Wunused-function]
+ 6664 | static mp_obj_t mp_lv_funcptr_get_glyph_dsc(void *func){ return mp_lv_funcptr(&mp_funcptr_get_glyph_dsc_mpobj, func, NULL, MP_QSTR_, NULL); }
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+CC ../../shared/runtime/stdout_helpers.c
+CC ../../shared/runtime/sys_stdio_mphal.c
+CC ../../shared/timeutils/timeutils.c
+CC ../../shared/tinyusb/mp_usbd.c
+CC ../../shared/tinyusb/mp_usbd_cdc.c
+CC ../../shared/tinyusb/mp_usbd_descriptor.c
+CC ../../drivers/bus/softspi.c
+CC ../../drivers/bus/softqspi.c
+CC ../../drivers/memory/spiflash.c
+CC ../../drivers/dht/dht.c
+CC ra/ra_sci_spi.c
+CC ra/ra_sci_ws2812.c
+CC ra/ra_storm_adc.c
+CC ra/ra_iq_adc.c
+CC ra/ra_sdr_caps.c
+CC ra/ra_tx_hw.c
+CC ra/ra_tx_core.c
+CC ra/ra_tone.c
+CC boardctrl.c
+CC main.c
+CC ra_it.c
+CC rng.c
+CC mphalport.c
+CC mpnetworkport.c
+CC mpthreadport.c
+CC irq.c
+CC pendsv.c
+CC systick.c
+CC powerctrl.c
+CC powerctrlboot.c
+CC pybthread.c
+CC factoryreset.c
+CC timer.c
+CC led.c
+CC uart.c
+CC gccollect.c
+CC help.c
+CC machine_timer.c
+CC machine_bitstream.c
+CC machine_dac.c
+CC machine_i2c.c
+CC machine_opamp.c
+CC machine_comparator.c
+CC machine_spi.c
+CC machine_ws2812.c
+CC machine_encoder.c
+CC machine_pin.c
+CC machine_rtc.c
+CC machine_sdcard.c
+CC modaudiomixer.c
+CC modrenesas.c
+CC moddataflash.c
+CC extint.c
+CC usrsw.c
+CC flash.c
+CC flashbdev.c
+CC storage.c
+CC fatfs_port.c
+CC usbd.c
+CC boards/VK_RA6M3/dave2d_port.c
+CC boards/VK_RA6M3/machine_lcd.c
+CC machine_audioadc.c
+CC machine_iq_adc.c
+CC machine_tx.c
+CC machine_touchpad.c
+CXX boards/VK_RA6M3/lvgl_thorvg_port.cpp
+CC build-VK_RA6M3/pins_VK_RA6M3.c
+CC build-VK_RA6M3/frozen_content.c
+LINK build-VK_RA6M3/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: warning: build-VK_RA6M3/firmware.elf has a LOAD segment with RWX permissions
+   text	   data	    bss	    dec	    hex	filename
+1594301	      0	 649896	2244197	 223e65	build-VK_RA6M3/firmware.elf
+GEN build-VK_RA6M3/firmware.hex
+GEN build-VK_RA6M3/firmware.bin

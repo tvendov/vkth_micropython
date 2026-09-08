@@ -1,0 +1,17 @@
+{
+  "firmware_sha256": "ef22e94ba86b22463fe6d0d3ed0c7545e88e476a7e6e8a8ca7745752a313958d",
+  "firmware_written": false,
+  "tests_written": false,
+  "sdr_single.py": {
+    "bytes": 326295,
+    "sha256": "f6bee007fede2dcd3d7e5673005791a8f7103eb6a228fc19645fac5343142467"
+  },
+  "sdr_single.mpy": {
+    "bytes": 92388,
+    "sha256": "d6cc332a76cf4377f38e123e590563a2efa5ea56c87a115aac67bacd25e45b98"
+  },
+  "original_files_preserved": 74,
+  "dataflash_unchanged": true,
+  "qspi_code_unchanged": true,
+  "internal_unchanged": true
+}

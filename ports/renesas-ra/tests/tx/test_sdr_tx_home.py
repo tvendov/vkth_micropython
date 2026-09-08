@@ -14,7 +14,7 @@ METHODS = {
     'open_tx_source_menu', 'open_step_menu', 'open_filter_menu',
     'open_step_controls', '_open_bottom_choices', 'tune', 'fine',
     'open_entry', 'close_entry', '_entry_hz', 'toggle_spectrum_view',
-    'paint_spectrum',
+    'paint_spectrum', '_wire_entry', '_drop_entry_screen',
 }
 
 
@@ -37,6 +37,9 @@ class Widget(controls.Widget):
 
 def install_ui(app):
     env = controls.namespace()
+    for node in switch.TREE.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'BANDS' for t in node.targets):
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<bands>', 'exec'), env)
     env.update(BTN_RX=0, GREEN=1, DARK_TXT=0, GRAY2=0, fmt_bw=lambda v: '%gk' % (v / 1000))
     env['lv'].obj = Widget
     cls = next(n for n in switch.TREE.body if isinstance(n, ast.ClassDef) and n.name == 'SdrApp')
@@ -47,12 +50,25 @@ def install_ui(app):
     for name in METHODS:
         setattr(app, name, types.MethodType(getattr(env['UI'], name), app))
     items = app.ui.items
+    app.ui.w = items
     app.ui.get = lambda name: items.setdefault(name, Widget())
+    items['scr-freq-input'] = None
+    screen = [app.ui.get('scr-receiver')]
+    env['lv'].screen_load = lambda scr: screen.__setitem__(0, scr)
+    env['lv'].screen_active = lambda: screen[0]
+    def timer(cb, period, arg):
+        t = types.SimpleNamespace(callback=cb, deleted=False)
+        t.delete = lambda: setattr(t, 'deleted', True)
+        return t
+    env['lv'].timer_create = timer
+    def build_entry():
+        items['scr-freq-input'] = Widget()
+    app.ui._build_freq_input = build_entry
     app.p['vfos'] = [[app.p['f'], app.p['m']], [7100000, 'LSB'], [30000000, 'FM']]
     app.p['bw'] = dict(env['MODE_BW'])
     app._mode_expanded = 0
     app.cur_bw = lambda: app.p['bw'][app.p['m']]
-    app.update_entry_digits = app.update_entry_bands = lambda: None
+    app.update_entry_digits = app.update_entry_bands = app.update_vfo_ui = lambda: None
     app.touch_params = lambda: None
     app._set_modal = lambda value: setattr(app, '_modal', value)
     app.open_pick_menu = lambda title, items, current, pick: setattr(app, 'picker', (title, items, current, pick))
@@ -154,7 +170,7 @@ def test_home_mode_frequency_and_restore():
     assert app.ui.get('home-summary').text == 'AM | FIX | 1 kHz'
     assert app.ui.get('brand-title').text == 'SDR TRANSCEIVER'
     assert app.ui.get('vfo-alt-0').has_flag('hidden')
-    assert 'disabled' in app.ui.get('vfo-a').states
+    assert 'vfo-a' not in app.ui.w  # no hidden keypad at HOME
     callback = env['callback_factory'](app, 'AM', 0)
     callback(None)  # selected HOME mode chip opens modulation choices
     assert app._mode_expanded == 1
@@ -179,6 +195,7 @@ def test_home_mode_frequency_and_restore():
         app._service_trx_pending()
         assert app.p['f'] == old + delta and ('clock', 1, old + delta) in log
     app.open_entry()
+    assert 'disabled' in app.ui.get('vfo-a').states
     app.entry = '04000000'
     app.close_entry(True)
     app._service_trx_pending()
@@ -196,7 +213,7 @@ def test_home_mode_frequency_and_restore():
     assert app._trx_state == 'RX' and app.p == original
     assert app.ui.get('brand-title').text == 'SDR TRANSCEIVER'
     assert not app.ui.get('vfo-alt-0').has_flag('hidden')
-    assert 'disabled' not in app.ui.get('vfo-a').states
+    assert 'vfo-a' not in app.ui.w
     assert 'FIX' not in app.ui.get('home-summary').text
     assert log[-2:] == [('clock', 1, original_lo * 4), 'start_rx']
     print('PASS HOME callbacks: mode/step/filter/keypad/arrows, deferred x1 clock, independent RX restore')
@@ -277,6 +294,30 @@ def test_failures_are_closed():
     print('PASS clock/FILE/release/allocation/start failures, invalid choices: no fallback MIC or overlapping owner')
 
 
+def test_lazy_keypad_lifetime():
+    app, log, env, unused = fixture()
+    assert app.ui.w['scr-freq-input'] is None
+    for _ in range(3):
+        app.open_entry()
+        scr = app.ui.w['scr-freq-input']
+        timer = app.blink_timer
+        assert env['lv'].screen_active() is scr and app._entry_cbs
+        app.ui.get('cancel-button').events['click'](None)
+        assert scr.deleted and timer.deleted and app.blink_timer is None
+        assert app.ui.w['scr-freq-input'] is None and not app._entry_cbs
+        assert 'key-1' not in app.ui.w and 'blinking-cursor' not in app.ui.w
+    def fail_build():
+        app.ui.w['scr-freq-input'] = Widget()
+        app.ui.w['key-1'] = Widget()
+        raise MemoryError('partial keypad')
+    app.ui._build_freq_input = fail_build
+    app.open_entry()
+    assert app.ui.w['scr-freq-input'] is None and 'key-1' not in app.ui.w
+    assert 'partial keypad' in app._trx_error
+    assert env['lv'].screen_active() is app.ui.get('scr-receiver')
+    print('PASS lazy keypad: reopen, cancel, timer/widget release and partial-build rollback')
+
+
 def main():
     assert 'self.w["spectral-bin-%d" % i]' not in switch.SOURCE
     assert 'self.bins.append' not in switch.SOURCE
@@ -291,6 +332,7 @@ def main():
         test_home_mode_frequency_and_restore()
         test_source_and_mode_are_independent()
         test_failures_are_closed()
+        test_lazy_keypad_lifetime()
     finally:
         if previous is None: sys.modules.pop('machine', None)
         else: sys.modules['machine'] = previous
