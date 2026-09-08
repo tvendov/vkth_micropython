@@ -18,6 +18,7 @@ PRE = r'''
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "ra_tone.h"
 static unsigned checks;
 #define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); exit(1); } } while(0)
 #define __DMB() ((void)0)
@@ -50,6 +51,8 @@ typedef struct { reg_t *p_reg; } dmac_instance_ctrl_t;
 static reg_t dma;
 static struct { uint16_t ADDR[2]; } adc;
 #define R_ADC0 (&adc)
+static struct { uint32_t CYCCNT; } cycles;
+#define DWT (&cycles)
 static bool reserved[8];
 static unsigned wait_calls, close_calls;
 static bool ra_dmac_reserve(unsigned ch) { if(reserved[ch]) return false; reserved[ch]=true; return true; }
@@ -77,8 +80,12 @@ static bool ra_iq_adc_owns_adc(void) { return rx_owned; }
 static uint16_t s_audio_ring[2048];
 static uint32_t s_ring_head, s_ring_tail;
 static struct { unsigned audio_underruns; } s_audio;
+typedef struct {
+    bool file_source, gen_source; int mode; uint32_t sample_rate_hz; uint16_t adc_mid;
+} ra_tx_config_t;
 static struct {
-    struct { bool file_source; int mode; uint32_t sample_rate_hz; uint16_t adc_mid; } config;
+    ra_tx_config_t config;
+    ra_tone_smooth_t generator;
     bool ready, adc_open;
     struct { bool running; int error; unsigned file_underruns; int af_error;
              bool af_enabled; unsigned af_frames,timer_clock_hz,timer_period; } status;
@@ -87,7 +94,9 @@ static bool ra_tx_mode_is_ssb(int mode) { return mode == 3 || mode == 4; }
 static void tx_unexpected_irq(void *p) { (void)p; CHECK(false); }
 static uint16_t observed[1024];
 static unsigned observed_n;
-static void tx_cpu_sample(uint16_t raw) { observed[observed_n++] = raw; }
+static void tx_cpu_sample(uint16_t raw, uint32_t began) {
+    CHECK(began == cycles.CYCCNT); observed[observed_n++] = raw;
+}
 #define LCD_SCOPE_PIXELS 128U
 #define LCD_SCOPE_FULL_SCALE 2048
 #define LCD_WATERFALL_TOP_PAD 18
@@ -162,6 +171,20 @@ int main(void) {
         CHECK(!ra_iq_adc_scope_frame(&frame, &n));
         CHECK(observed_n == 514); /* OFF stops display, NOT source/modulation */
     }
+    /* GEN scope must see the same smoothed samples as the modulator, without
+       an ADC or a FILE owner; disabling scope must not stop generation. */
+    tx.config.file_source = false; tx.config.gen_source = true;
+    tx.adc_open = false; observed_n = 0;
+    CHECK(ra_tone_smooth_init(&tx.generator, 24000, 1, 10000, 2047, RA_TONE_SINE));
+    CHECK(ra_tx_hw_scope_enable(true) && !tx_scope.open);
+    for (unsigned k = 0; k < 512; ++k) { tx_gen_callback(NULL); }
+    const int16_t *gen_frame;
+    CHECK(ra_iq_adc_scope_frame(&gen_frame, &n) && n == 512);
+    CHECK(observed_n == 512 && observed[0] == 2048);
+    for (unsigned k = 0; k < n; ++k) { CHECK(gen_frame[k] == (int)observed[k] - 2048); }
+    CHECK(ra_tx_hw_scope_enable(false));
+    tx_gen_callback(NULL);
+    CHECK(observed_n == 513 && !ra_iq_adc_scope_frame(&gen_frame, &n));
     uint16_t value = 99;
     CHECK(!ra_iq_adc_file_audio_next(&value, 3) && value == 99);
     CHECK(!ra_iq_adc_file_audio_next(NULL, 1));
@@ -186,7 +209,7 @@ int main(void) {
     CHECK(y[0] == 43);
     CHECK(!lcd_scope_prepare_rate(input, 512, &area, y, 0));
     CHECK(!lcd_scope_prepare_rate(input, 255, &area, y, 24000));
-    printf("PASS TX FILE AF actual C: %u checks; wrap, exact modulator/trace samples, underrun, OFF, scales\n", checks);
+    printf("PASS TX FILE/GEN AF actual C: %u checks; smoothed GEN, wrap, exact modulator/trace samples, underrun, OFF, scales\n", checks);
     return 0;
 }
 '''
@@ -198,13 +221,16 @@ def main():
     args = parser.parse_args()
     rx = (PORT / 'ra/ra_iq_adc.c').read_text(encoding='utf-8')
     hw = (PORT / 'ra/ra_tx_hw.c').read_text(encoding='utf-8')
+    header = (PORT / 'ra/ra_tx_hw.h').read_text(encoding='utf-8')
     lcd = (PORT / 'boards/VK_RA6M3/machine_lcd.c').read_text(encoding='utf-8')
     globals_ = '\n'.join(re.search(r'^static [^\n;]*\b' + name + r'\b[^;]*;', rx, re.M)[0]
                         for name in ('s_scope_audio', 's_scope_wr', 's_scope_half', 's_scope_ready', 's_scope_enable'))
-    funcs = '\n'.join(extract(rx, name) for name in ('ra_iq_adc_scope_enable',
+    funcs = extract(header, 'ra_tx_software_source') + '\n'
+    funcs += '\n'.join(extract(rx, name) for name in ('ra_iq_adc_scope_enable',
         'ra_iq_adc_scope_workspace', 'ra_iq_adc_scope_push', 'ra_iq_adc_scope_frame',
         'ra_iq_adc_file_audio_next'))
     funcs += '\n' + extract(hw, 'tx_file_callback')
+    funcs += '\n' + extract(hw, 'tx_gen_callback')
     globals_ += '\n' + re.search(r'static struct \{[^}]*\} tx_scope;', hw)[0]
     funcs += '\n' + '\n'.join(extract(hw, name) for name in
                               ('tx_scope_close', 'ra_tx_hw_scope_enable', 'ra_tx_hw_scope_frame'))
@@ -214,7 +240,9 @@ def main():
         c.write_text(PRE + globals_ + funcs + TEST, encoding='utf-8')
         env = dict(os.environ)
         env['PATH'] = str(Path(args.cc).parent) + os.pathsep + env.get('PATH', '')
-        subprocess.run([args.cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', str(c), '-lm', '-o', str(exe)], check=True, env=env)
+        subprocess.run([args.cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                        '-I', str(PORT / 'ra'), str(c), str(PORT / 'ra/ra_tone.c'),
+                        '-lm', '-o', str(exe)], check=True, env=env)
         subprocess.run([str(exe)], check=True, env=env)
 
 

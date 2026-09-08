@@ -1,0 +1,14 @@
+{
+  "firmware_sha256": "692fa2c29ed92d5a16d005c6f3669ba6a4ea18603f3731a572236b4be41181a3",
+  "firmware_bytes": 1594536,
+  "heap_bytes": 281600,
+  "previous_sha256": "ef22e94ba86b22463fe6d0d3ed0c7545e88e476a7e6e8a8ca7745752a313958d",
+  "firmware_readback": true,
+  "original_files": 76,
+  "qspi_16mib_identical": true,
+  "dataflash_written_record_identical": true,
+  "app_written": false,
+  "tests_written": false,
+  "opencv": false,
+  "lab": false
+}

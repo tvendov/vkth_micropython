@@ -29,7 +29,9 @@ def main():
     environment["PATH"] = compiler_directory + os.pathsep + environment.get("PATH", "")
 
     with tempfile.TemporaryDirectory(prefix="ra-tx-core-") as temporary:
-        for suite, extra in (("test_tx_core", []), ("test_tone", [str(port / "ra" / "ra_tone.c")])):
+        for suite, extra in (("test_tx_core", []),
+                             ("test_tone", [str(port / "ra" / "ra_tone.c")]),
+                             ("test_gen_transitions", [str(port / "ra" / "ra_tone.c")])):
             binary = Path(temporary) / (suite + (".exe" if os.name == "nt" else ""))
             command = [
                 compiler,

@@ -1,0 +1,67 @@
+ARCHIVE C:\Users\teodor\Desktop\stem\sdr\SDR_TRANCEIVER_RA6M3\backups\gen-smooth-1120000058-20260909-004135
+848520754d6906275868f0413de721b89401a26ac03095504bbb518b81928d9f
+
+SAVED_UI ({'bw': {'CW': 500, 'AM': 9000, 'USB': 3000, 'LSB': 1800, 'FM': 4000}, 'iqe': 0, 'm': 'AM', 'cal': 161.7, 'genwave': 0, 'again': 2.2, 'atgt': 0.5, 'iqa': 1.0, 'txlevel': 40, 'genfreq': 10000, 'txdepth': 50, 'v': 58, 'beon': 1, 'iqp': 0.0, 's': 100, 'txmic': 100, 'rxauto': 1, 'vfos': [[3500290, 'AM'], [579900, 'AM'], [7597178, 'USB']], 'genlevel': 50, 'act': 1, 'rt': [7, 1, 3], 'f': 579900, 'txdev': 2500, 'a': 'OFF'}, 'TX', 'AM', 'GEN', True)
+
+Device "R7FA6M3AH" selected.
+InitTarget() start
+Identifying target device...
+SWD selected. Executing JTAG -> SWD switching sequence...
+Initializing DAP...
+DAP initialized successfully.
+Low power mode detected. Waking device from low power mode.
+InitTarget() end - Took 7.10ms
+Found SW-DP with ID 0x5BA02477
+DPIDR: 0x5BA02477
+CoreSight SoC-400 or earlier
+Scanning AP map to find all available APs
+AP[2]: Stopped AP scan as end of AP map has been reached
+AP[0]: AHB-AP (IDR: 0x24770011, ADDR: 0x00000000)
+AP[1]: APB-AP (IDR: 0x44770002, ADDR: 0x01000000)
+Iterating through AP map to find AHB-AP to use
+AP[0]: Core found
+AP[0]: AHB-AP ROM base: 0xE00FF000
+CPUID register: 0x410FC241. Implementer code: 0x41 (ARM)
+Found Cortex-M4 r0p1, Little endian.
+FPUnit: 6 code (BP) slots and 2 literal slots
+CoreSight components:
+ROMTbl[0] @ E00FF000
+[0][0]: E000E000 CID B105E00D PID 000BB00C SCS-M7
+[0][1]: E0001000 CID B105E00D PID 003BB002 DWT
+[0][2]: E0002000 CID B105E00D PID 002BB003 FPB
+[0][3]: E0000000 CID B105E00D PID 003BB001 ITM
+[0][4]: E0040000 CID B105900D PID 000BB9A1 TPIU
+[0][5]: E0041000 CID B105900D PID 000BB925 ETM
+[0][6]: E0042000 CID B105900D PID 002BB908 CSTF
+[0][7]: E0043000 CID B105900D PID 001BB961 TMC
+[0][8]: E0044000 CID B105F00D PID 001BB101 TSG
+Reset type: NORMAL (https://wiki.segger.com/J-Link_Reset_Strategies)
+
+Reset: Halt core after reset via DEMCR.VC_CORERESET.
+Reset: Reset device via AIRCR.SYSRESETREQ.
+Memory map 'after startup completion point' is active
+QSPI_BACKUP 0x0
+QSPI_BACKUP 0x400000
+QSPI_BACKUP 0x800000
+QSPI_BACKUP 0xc00000
+HandleBeforeFlashProg() start
+HandleBeforeFlashProg() end - Took 1.28ms
+J-Link: Flash download: Bank 1 @ 0x00000000: 2 ranges affected (1605632 bytes)
+J-Link: Flash download: Total: 14.576s (Prepare: 0.127s, Compare: 0.217s, Erase: 6.734s, Program & Verify: 7.450s, Restore: 0.046s)
+J-Link: Flash download: Program & Verify speed: 210 KB/s
+HandleAfterFlashProg() start
+HandleAfterFlashProg() end - Took 1.61ms
+Memory map 'before startup completion point' is active
+Reset type: NORMAL (https://wiki.segger.com/J-Link_Reset_Strategies)
+
+Reset: Halt core after reset via DEMCR.VC_CORERESET.
+Reset: Reset device via AIRCR.SYSRESETREQ.
+Memory map 'after startup completion point' is active
+QSPI_BACKUP 0x0
+QSPI_BACKUP 0x400000
+QSPI_BACKUP 0x800000
+QSPI_BACKUP 0xc00000
+OnDisconnectTarget() start
+Restoring low power mode settings.
+OnDisconnectTarget() end - Took 1.69ms
+GEN_SMOOTH_FIRMWARE_DEPLOY_PASS {'firmware_sha256': '692fa2c29ed92d5a16d005c6f3669ba6a4ea18603f3731a572236b4be41181a3', 'firmware_bytes': 1594536, 'heap_bytes': 281600, 'previous_sha256': 'ef22e94ba86b22463fe6d0d3ed0c7545e88e476a7e6e8a8ca7745752a313958d', 'firmware_readback': True, 'original_files': 76, 'qspi_16mib_identical': True, 'dataflash_written_record_identical': True, 'app_written': False, 'tests_written': False, 'opencv': False, 'lab': False}

@@ -1,0 +1,9 @@
+GEN transitions mode=1 smooth=0 clips=0 (24 phase offsets, 14 stages)
+GEN full-scale square mode=1 clips=0 (real overload retained)
+FAIL 181: total == 0
+GEN transitions mode=2 smooth=0 clips=168 (24 phase offsets, 14 stages)
+GEN full-scale square mode=2 clips=2054 (real overload retained)
+GEN transitions mode=3 smooth=0 clips=1312 (24 phase offsets, 14 stages)
+GEN full-scale square mode=3 clips=1915 (real overload retained)
+GEN transitions mode=4 smooth=0 clips=1312 (24 phase offsets, 14 stages)
+GEN full-scale square mode=4 clips=1915 (real overload retained)

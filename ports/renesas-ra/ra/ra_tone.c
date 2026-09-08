@@ -56,6 +56,58 @@ int16_t ra_tone_next(ra_tone_gen_t *g) {
     g->phase += g->step; /* modulo 2^32, including muted samples */
     return (int16_t)(unit * g->peak / 32767);
 }
+bool ra_tone_smooth_init(ra_tone_smooth_t *g, uint32_t clock_hz, uint32_t period,
+    uint32_t frequency_dhz, uint16_t peak, unsigned wave) {
+    ra_tone_gen_t prepared = {0};
+    if (!g || !ra_tone_configure(&prepared, clock_hz, period, frequency_dhz, peak, wave)) {
+        return false;
+    }
+    /* Setup-only division. The sample path needs bounded adds/comparisons. */
+    uint64_t numerator = (2047ULL << 16) * period * 1000U;
+    uint64_t denominator = (uint64_t)clock_hz * 20U;
+    memset(g, 0, sizeof(*g));
+    g->current = prepared;
+    g->current.peak = 0;
+    g->slew_q16 = (uint32_t)((numerator + denominator - 1U) / denominator);
+    ra_tone_smooth_request(g, &prepared);
+    return true;
+}
+void ra_tone_smooth_request(ra_tone_smooth_t *g, const ra_tone_gen_t *prepared) {
+    if (!g || !prepared) { return; }
+    g->wanted_step = prepared->step;
+    g->wanted_peak = prepared->peak;
+    g->wanted_wave = prepared->wave;
+}
+void ra_tone_smooth_reset(ra_tone_smooth_t *g) {
+    if (!g) { return; }
+    g->current.phase = 0;
+    g->current.peak = 0;
+    g->peak_q16 = 0;
+    g->current.step = g->wanted_step;
+    g->current.wave = g->wanted_wave;
+}
+int16_t ra_tone_smooth_next(ra_tone_smooth_t *g) {
+    bool changing = g->current.step != g->wanted_step || g->current.wave != g->wanted_wave;
+    if (changing && g->peak_q16 == 0) {
+        g->current.step = g->wanted_step;
+        g->current.wave = g->wanted_wave;
+        changing = false;
+    }
+    uint32_t target = changing ? 0 : (uint32_t)g->wanted_peak << 16;
+    /* Emit zero first at startup and at the waveform switch. The modulator's
+     * DC/FIR history receives the actual envelope, not a hidden parallel path. */
+    g->current.peak = (uint16_t)(g->peak_q16 >> 16);
+    int16_t sample = ra_tone_next(&g->current);
+    if (g->peak_q16 < target) {
+        uint32_t remaining = target - g->peak_q16;
+        g->peak_q16 += remaining < g->slew_q16 ? remaining : g->slew_q16;
+    } else if (g->peak_q16 > target) {
+        uint32_t remaining = g->peak_q16 - target;
+        g->peak_q16 -= remaining < g->slew_q16 ? remaining : g->slew_q16;
+    }
+    return sample;
+}
+
 bool ra_tone_detector_init(ra_tone_detector_t *d, uint32_t fs,
     uint32_t frequency_dhz, uint16_t window_ms, uint16_t min_rms) {
     ra_tone_gen_t reference = {0};

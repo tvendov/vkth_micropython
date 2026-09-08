@@ -1,0 +1,2 @@
+usage: test_am_mic_dispatch.py [-h] --cc CC
+test_am_mic_dispatch.py: error: the following arguments are required: --cc

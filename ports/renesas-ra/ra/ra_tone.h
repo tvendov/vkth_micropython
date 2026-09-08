@@ -19,6 +19,24 @@ bool ra_tone_configure(ra_tone_gen_t *g, uint32_t clock_hz, uint32_t period,
 void ra_tone_reset(ra_tone_gen_t *g);
 int16_t ra_tone_next(ra_tone_gen_t *g);
 
+/* Optional TX control envelope; raw DDS and RX reference stay unchanged.
+ * Full-scale amplitude slew is 20 ms, rounded up to the next sample at Fs.
+ * Frequency/wave changes fade to zero, switch without resetting phase, then
+ * fade to the requested level (40 ms plus <=2 sample periods). No allocation.
+ * Caller serializes request/reset against next. request takes an already
+ * validated ra_tone_configure result; its phase field is deliberately ignored. */
+typedef struct {
+    ra_tone_gen_t current;
+    uint32_t peak_q16, slew_q16, wanted_step;
+    uint16_t wanted_peak;
+    uint8_t wanted_wave;
+} ra_tone_smooth_t;
+bool ra_tone_smooth_init(ra_tone_smooth_t *g, uint32_t clock_hz, uint32_t period,
+    uint32_t frequency_dhz, uint16_t peak, unsigned wave);
+void ra_tone_smooth_request(ra_tone_smooth_t *g, const ra_tone_gen_t *prepared);
+void ra_tone_smooth_reset(ra_tone_smooth_t *g);
+int16_t ra_tone_smooth_next(ra_tone_smooth_t *g);
+
 /* Experimental selected-frequency correlator, not a complete CTCSS/DTMF/DCS decoder.
  * Caller supplies signed 12-bit AF (-2048..2047), at configured Fs, continuously.
  * No decimation, gating or voice filtering may silently change that Fs.

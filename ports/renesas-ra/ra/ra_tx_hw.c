@@ -71,7 +71,7 @@ typedef struct {
         ra_tx_fm_state_t fm;
     } dsp; /* CW and SSB are exclusive: reuse the existing static RAM. */
     uint32_t hold_settings, hold_source, hold_counts;
-    ra_tone_gen_t generator;
+    ra_tone_smooth_t generator;
 } tx_state_t;
 
 static tx_state_t tx;
@@ -341,7 +341,7 @@ static void tx_gen_callback(void *unused) {
         tx_unexpected_irq(NULL);
         return;
     }
-    uint16_t raw = 2048 + ra_tone_next(&tx.generator);
+    uint16_t raw = 2048 + ra_tone_smooth_next(&tx.generator);
     #if MICROPY_HW_ENABLE_IQ_ADC
     ra_iq_adc_scope_push(&raw, 1); /* same premodulation AF, not a second oscillator */
     #endif
@@ -594,7 +594,7 @@ bool ra_tx_hw_init(const ra_tx_config_t *config, uint8_t *lut, size_t lut_bytes)
         return tx_error(RA_TX_ERROR_TIMER, FSP_ERR_INVALID_ARGUMENT);
     }
     tx.status.timer_period = ra_agt_timer_get_period(ch);
-    if (config->gen_source && !ra_tone_configure(&tx.generator, tx.status.timer_clock_hz,
+    if (config->gen_source && !ra_tone_smooth_init(&tx.generator, tx.status.timer_clock_hz,
         tx.status.timer_period, config->gen_frequency_dhz,
         (2047U * config->gen_level + 50U) / 100U, config->gen_wave)) {
         return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
@@ -706,7 +706,7 @@ bool ra_tx_hw_start(void) {
         return false;
     }
     if (ra_tx_uses_cpu(&tx.config)) {
-        if (tx.config.gen_source) { ra_tone_reset(&tx.generator); }
+        if (tx.config.gen_source) { ra_tone_smooth_reset(&tx.generator); }
         if (ra_tx_is_voice_fm(&tx.config)) {
             if (!ra_tx_core_fm_reset(&tx.dsp.fm, &tx.config,
                 tx.status.timer_clock_hz, tx.status.timer_period)) {
@@ -810,9 +810,7 @@ bool ra_tx_hw_gen_configure(const ra_tx_config_t *config) {
     }
     FSP_CRITICAL_SECTION_DEFINE;
     FSP_CRITICAL_SECTION_ENTER;
-    tx.generator.step = prepared.step;
-    tx.generator.peak = prepared.peak;
-    tx.generator.wave = prepared.wave;
+    ra_tone_smooth_request(&tx.generator, &prepared);
     tx.config.gen_frequency_dhz = config->gen_frequency_dhz;
     tx.config.gen_level = config->gen_level;
     tx.config.gen_wave = config->gen_wave;

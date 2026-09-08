@@ -1,0 +1,20 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3/genhdr/mpversion.h
+GEN build-VK_RA6M3/genhdr/moduledefs.collected
+GEN build-VK_RA6M3/genhdr/root_pointers.collected
+Root pointer registrations not updated
+Module registrations not updated
+CC ../../py/modsys.c
+CC ../../extmod/modos.c
+CC ../../extmod/modplatform.c
+CC ../../shared/runtime/pyexec.c
+CC ra/ra_iq_adc.c
+CC ra/ra_tx_hw.c
+CC ra/ra_tx_core.c
+CC ra/ra_tone.c
+LINK build-VK_RA6M3/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: warning: build-VK_RA6M3/firmware.elf has a LOAD segment with RWX permissions
+   text	   data	    bss	    dec	    hex	filename
+1594549	      0	 649912	2244461	 223f6d	build-VK_RA6M3/firmware.elf
+GEN build-VK_RA6M3/firmware.hex
+GEN build-VK_RA6M3/firmware.bin

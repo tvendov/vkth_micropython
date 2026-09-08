@@ -1,0 +1,62 @@
+PASS actual MIC ADC callback/C sample body: 4096 AM codes, no LUT, mute, FILE/legacy/stopped guards
+Host only: actual ISR delivery, elapsed time and physical ADC/DAC NOT VERIFIED.
+PASS actual native audio controller: MIC/FILE AM/SSB atomic scalars without LUT or restart; invalid/unready/faulted owner rejected
+Host only: timer/DTC/DAC, IRQ timing and analog output NOT VERIFIED.
+PASS actual LCD capture gates/visibility prologue: HOME resume, fresh RX, 18 view/pending combinations, steady ticks, TX ownership and invalid object
+Host only: full timer, FFT, framebuffer, IRQ timing and hardware recovery NOT VERIFIED.
+PASS AM/USB/LSB HOME and BACKEND: actual callbacks, queued/coalesced native controls, 0/100% level, preserved FILE owner, deferred save, failure rollback and context change
+Host only. Analog amplitude, board timing and LVGL touch/layout NOT VERIFIED.
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.007s
+
+OK
+PASS FM UI: separate controls, 0/100% TX level, rollback, RX restore and non-FM guards
+PASS FM persistence scheduling: no flash save in TX; deferred save after RX
+SDR saved: b'{"V": [[14205000, "USB"], [7100000, "LSB"], [30000000, "FM"]], "A": 0, "R": [1, 1, 1], "C": 17.76, "s": 1000, "v": 72, "a": "FAST", "f": 14205000, "m": "USB", "B": [6000, 6000, 2400, 2400, 500], "X": 0, "E": 1, "G": 1.0, "T": 0.5, "qe": 0, "qa": 1.0, "qp": 0.0, "txdev": 5000, "txmic": 1600, "txlevel": 100, "txdepth": 100, "genfreq": 10000, "genlevel": 50, "genwave": 0}'
+SDR saved: b'{"V": [[40000000, "USB"], [40000000, "USB"], [40000000, "USB"]], "A": 0, "R": [1, 1, 1], "C": -200.0, "s": 1000, "v": 72, "a": "SLOW", "f": 40000000, "m": "USB", "B": [6000, 6000, 2400, 2400, 500], "X": 0, "E": 1, "G": 64.0, "T": 0.5, "qe": 0, "qa": 1.5, "qp": -0.5, "txdev": 5000, "txmic": 1600, "txlevel": 100, "txdepth": 100, "genfreq": 10000, "genlevel": 50, "genwave": 0}'
+PASS FM dataflash record: roundtrip, old-record defaults and 512-byte bound
+PASS BACKEND: contextual route, FM callbacks, read-only other TX, BACK keeps TX, RX restore, failure cleanup
+Host-only actual Python methods; LVGL layout/touch, device and RF NOT VERIFIED.
+PASS actual monitor UI: OFF/select/readback/TONE/WAIT/PATH/missing API/TX guard; change-only paint
+PASS source contracts: pre-AF passive hook; RX-only; new-owner OFF; not hardware proof
+PASS GEN owner: AM/USB/LSB/FM; x1 synth before start; no FILE fallback; AF GEN
+PASS GEN UI: source, frequency/level/wave, bounded picker, native failure rollback, pending guard
+PASS no legacy spectrum children or startup demo publication
+PASS HOME callbacks: mode/step/filter/keypad/arrows, deferred x1 clock, independent RX restore
+PASS MIC/real FILE selector, independent decoder/RF modes, FM offset, LOOP, prefill and AF label
+PASS clock/FILE/release/allocation/start failures, invalid choices: no fallback MIC or overlapping owner
+PASS lazy keypad: reopen, cancel, timer/widget release and partial-build rollback
+HOST ONLY: actual Python methods; touch/render, native device behavior and RF NOT VERIFIED.
+PASS TX source UI: visible parent, actual callbacks, independent mode, labels,
+pending guard, live loop/no restart, RX/EOF/short-file guards, parent cleanup, RX title.
+Host doubles only; physical touch, rendering, DAC and RF not measured.
+PASS R:AM/R:USB/R:LSB -> FILE TX, AF label, hidden/OFF feed, EOF drain, teardown
+PASS SDR TX switch: source contract, guards, ownership, rollback, labels, Si5351 RX/TX clocks
+Host-only mocks/AST; no LVGL runtime, target registers, analog output or RF verified.
+PASS TX warnings: AM/USB/LSB/FM/CW poll, RX stale colours,
+independent event deltas, identical-snapshot clear, cumulative history retained.
+Host source methods only; no target rendering, analogue or RF proof.
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c: In function 'tx_file_callback':
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c:199:24: error: 'DWT' undeclared (first use in this function)
+  199 |     tx_cpu_sample(raw, DWT->CYCCNT);
+      |                        ^~~
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c:199:24: note: each undeclared identifier is reported only once for each function it appears in
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c:199:5: error: too many arguments to function 'tx_cpu_sample'
+  199 |     tx_cpu_sample(raw, DWT->CYCCNT);
+      |     ^~~~~~~~~~~~~
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c:78:13: note: declared here
+   78 | static void tx_cpu_sample(uint16_t raw) { observed[observed_n++] = raw; }
+      |             ^~~~~~~~~~~~~
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c: In function 'tx_scope_close':
+C:\Users\teodor\AppData\Local\Temp\tx-af-bew484t4\test.c:203:9: error: implicit declaration of function 'ra_tx_software_source' [-Wimplicit-function-declaration]
+  203 |     if (ra_tx_software_source(&tx.config)) {
+      |         ^~~~~~~~~~~~~~~~~~~~~
+Traceback (most recent call last):
+  File "C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\tests\tx\test_tx_af.py", line 222, in <module>
+    main()
+  File "C:\msys_64\home\teodor\renesas_micropython\ports\renesas-ra\tests\tx\test_tx_af.py", line 217, in main
+    subprocess.run([args.cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', str(c), '-lm', '-o', str(exe)], check=True, env=env)
+  File "C:\Users\teodor\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 526, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['C:/msys_64/mingw64/bin/gcc.exe', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', 'C:\\Users\\teodor\\AppData\\Local\\Temp\\tx-af-bew484t4\\test.c', '-lm', '-o', 'C:\\Users\\teodor\\AppData\\Local\\Temp\\tx-af-bew484t4\\test.exe']' returned non-zero exit status 1.
