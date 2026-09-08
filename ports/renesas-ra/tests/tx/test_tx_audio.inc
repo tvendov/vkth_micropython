@@ -1,21 +1,30 @@
-/* Actual C math: normalized AM, separate SSB gain, no FILE AM bank. */
+/* Actual C math: normalized AM, separate SSB gain, no opt-in MIC/FILE AM bank. */
 static void test_audio_controls(void) {
     ra_tx_config_t c = defaults(RA_TX_MODE_AM);
+    CHECK(!ra_tx_uses_cpu(&c));
+    CHECK(ra_tx_core_lut_bytes(&c) == RA_TX_AM_LUT_BYTES);
+    CHECK(ra_tx_core_lut_alignment(&c) == RA_TX_AM_LUT_ALIGNMENT);
     c.audio_controls = true;
     c.audio_gain = 100;
     c.am_depth = 50;
     uint8_t bank[RA_TX_AM_LUT_BYTES];
+    memset(bank, 0xa5, sizeof(bank));
+    CHECK(ra_tx_uses_cpu(&c));
+    CHECK(ra_tx_core_lut_bytes(&c) == 0);
+    CHECK(ra_tx_core_lut_alignment(&c) == 1);
+    CHECK(ra_tx_core_build_lut(&c, NULL, 0));
+    CHECK(ra_tx_core_build_lut(&c, bank, sizeof(bank)));
+    for (unsigned k = 0; k < sizeof(bank); ++k) { CHECK(bank[k] == 0xa5); }
     uint32_t clips = 0;
     for (unsigned level = 0; level <= 100; ++level) {
         c.amplitude = (uint16_t)((1023U * level + 50U) / 100U);
         CHECK(ra_tx_core_validate(&c));
-        CHECK(ra_tx_core_build_lut(&c, bank, sizeof(bank)));
+        CHECK(ra_tx_core_build_lut(&c, NULL, 0));
         for (unsigned raw = 0; raw <= 4095; ++raw) {
             int audio = ((int)raw - 2048) / 2;
             unsigned expected = 2048U + ((2048 + audio) * c.amplitude + 1024) / 2048;
             uint16_t sample = ra_tx_core_am_sample(&c, (uint16_t)raw, &clips);
             CHECK(sample == expected);
-            CHECK(read_u16(bank + 2 * raw) == sample);
         }
     }
     CHECK(clips == 0);
@@ -45,7 +54,7 @@ static void test_audio_controls(void) {
     c.am_depth = 50;
     c.mode = RA_TX_MODE_FM;
     CHECK(!ra_tx_core_validate(&c));
-    puts("PASS normalized AM: all ADC codes and 101 levels, LUT/CPU identical, depth/gain bounds, mute and FILE no bank");
+    puts("PASS normalized AM: all ADC codes and 101 levels, depth/gain bounds, mute, MIC/FILE no bank and legacy LUT preserved");
 
     for (unsigned mode = RA_TX_MODE_USB; mode <= RA_TX_MODE_LSB; ++mode) {
         ra_tx_config_t full = defaults((ra_tx_mode_t)mode);

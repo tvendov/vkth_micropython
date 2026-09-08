@@ -1,0 +1,99 @@
+2026-09-08 AM MIC LUT allocation fix
+Target J-Link1120000058 / COM25. Firmware-only upload; app/QSPI untouched.
+Firmware SHA256 634e60a50e83a88952a88ca6584f8d8e24b4d717590d1e5eaa05a1b340d9b162.
+Host tests below use hardware stubs; physical analogue/RF not measured.
+MIC extended lifecycle NOT PASS: guard failures and EOF timeouts retained.
+FILE regression is separate from MIC acceptance. RAM tests, reset after each.
+
+HOST
+Compiling actual ra_tx_core.c with: C:/msys_64/mingw64/bin/gcc.exe
+PASS validation: full 16-bit ADC midpoint/amplitude/offset domains and mode/rate/gain/ramp boundaries
+PASS bank contract: mode sizes, alignment/allocation bounds, CW no LUT, invalid calls preserve memory
+PASS AM: compact 4096-entry LUT, all ADC codes, calibration/headroom extremes and guards
+PASS FM planar LUT and SAR model: every 16-bit phase, I/Q planes, axis points and guards
+PASS FM bias and DOC model: all midpoint biases, 196608 ADC/phase cases, wrap and low-bit retention
+PASS CW ramps: every length 1..256, rising/falling/constant, exact endpoints, reversal and no-op
+PASS integer CW scaling: all lengths/shapes, symmetric rounding, DAC/full-word extremes and reversal
+PASS SSB validation/DC: fixed rate, both DAC headrooms, no LUT, biased-input priming and state guards
+SSB quantisation mean mode=3 Hz=2400 I=0.200000 Q=0.000000 DAC codes
+SSB quantisation mean mode=4 Hz=2400 I=0.200000 Q=0.000000 DAC codes
+PASS SSB actual C output: 56 USB/LSB tones 300..3000 Hz, worst image rejection 67.85 dB
+PASS SSB stream: arbitrary chunk boundaries identical, USB/LSB conjugate, restart, overdrive and DAC limits
+PASS SSB stopband and matched I/Q delay: 3.5..5.5 kHz rejection, 127-sample group delay
+PASS voice FM validation/DC: actual-rate guards, arbitrary bias, DC-step settling, carrier at silence
+PASS voice FM tones: 1 kHz, deviations 100/2500/4000/5000 Hz at three actual rates; independent DAC level
+PASS voice FM stream: arbitrary chunks, bias invariance, live phase continuity, limiter, ADC rails and restart
+PASS voice FM conditioning: 3-kHz Butterworth knee and 10-kHz rejection; no pre-emphasis claimed
+PASS FILE configuration: AF rates/midpoint, CPU path, CW/raw-FM rejection
+PASS normalized AM: all ADC codes and 101 levels, depth/gain bounds, mute, MIC/FILE no bank and legacy LUT preserved
+PASS USB/LSB separate AF gain and LEVEL: proportional I/Q, zero output, unchanged stream history
+PASS actual C TX core: 18 groups, 8403968 checks
+Host C math/address-model tests only; target registers, ISR counts and RF are NOT VERIFIED.
+PASS actual native audio controller: MIC/FILE AM/SSB atomic scalars without LUT or restart; invalid/unready/faulted owner rejected
+Host only: timer/DTC/DAC, IRQ timing and analog output NOT VERIFIED.
+PASS actual MIC ADC callback/C sample body: 4096 AM codes, no LUT, mute, FILE/legacy/stopped guards
+Host only: actual ISR delivery, elapsed time and physical ADC/DAC NOT VERIFIED.
+
+BEFORE
+print(_app.p['m'])
+AM
+
+print(_app._inj_source)
+0
+
+print(_app._inj_on)
+False
+
+print(_app._trx_error)
+TX start: MemoryError('memory allocation failed, allocating 16383 bytes',)
+
+import gc
+
+
+MIC_PARTIAL
+
+ATTEMPT
+MIC_APP_START
+MIC_APP_READY
+WAIT_RX 0 None
+MIC_BEFORE 0 freq 577500 free 46240
+MIC_TX_QUEUED TO_TX
+MIC_TX_STARTED {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 239, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 43988.27, 'i_code': 2373, 'file_source': False, 'deviation_hz': 0, 'dsp_last_cycles': 107, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 2728, 'am_depth': 50, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 36560, 'period_counts': 682, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 44000, 'audio_gain': 100, 'af_frames': 16, 'mic_gain': 100, 'last_adc': 1201, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+MIC_AM_PASS 0 {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 283, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 43988.27, 'i_code': 2318, 'file_source': False, 'deviation_hz': 0, 'dsp_last_cycles': 107, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 2728, 'am_depth': 75, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 239501, 'period_counts': 682, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 44000, 'audio_gain': 120, 'af_frames': 109, 'mic_gain': 100, 'last_adc': 1273, 'dsp_clips': 0, 'error': 0, 'i_enabled': True} free 32800
+WAIT_RX 0 None
+MIC_BEFORE 1 freq 577500 free 37904
+MIC_TX_QUEUED TX
+MIC_TX_STARTED {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 275, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 43988.27, 'i_code': 2331, 'file_source': False, 'deviation_hz': 0, 'dsp_last_cycles': 107, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 2728, 'am_depth': 75, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 42385, 'period_counts': 682, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 44000, 'audio_gain': 120, 'af_frames': 21, 'mic_gain': 100, 'last_adc': 1346, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+
+ATTEMPT
+MIC_APP_START
+MIC_APP_READY
+WAIT_RX 0 wait for receiver tuning before TX
+WAIT_RX 20 wait for receiver tuning before TX
+WAIT_RX 40 wait for receiver tuning before TX
+WAIT_RX 60 wait for receiver tuning before TX
+WAIT_RX 80 wait for receiver tuning before TX
+
+
+MIC_FAILURES
+RuntimeError('Traceback (most recent call last):\r\n  File "<stdin>", line 1, in <module>\r\n  File "<string>", line 35, in <module>\r\nAssertionError: wait for receiver tuning before TX\r\n')
+TransportError('timeout waiting for first EOF reception')
+TransportError('timeout waiting for first EOF reception')
+RuntimeError('Traceback (most recent call last):\r\n  File "<stdin>", line 1, in <module>\r\n  File "<string>", line 38, in <module>\r\nAssertionError: wait for receiver tuning before TX\r\n')
+
+FILE_REGRESSION
+NO_LEGACY_BINS_RUNTIME_PASS
+START AM {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 107, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 24000.0, 'i_code': 2459, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 105, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 5000, 'am_depth': 50, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 18758, 'period_counts': 1250, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 24000, 'audio_gain': 100, 'af_frames': 18, 'mic_gain': 100, 'last_adc': 2070, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS AM muted 2048 2048 amplitude 409 samples 87312 AF 91 clips 0 transition_underruns 35 steady_underruns 0 native_max 279
+START USB {'q_code': 1818, 'phase': 0, 'dsp_max_cycles': 4164, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 12000.0, 'i_code': 2078, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 3149, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 10000, 'am_depth': 50, 'mode': 3, 'outputs_enabled': True, 'dsp_samples': 8191, 'period_counts': 2500, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 12000, 'audio_gain': 100, 'af_frames': 14, 'mic_gain': 100, 'last_adc': 1281, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS USB muted 2048 2048 amplitude 819 samples 43855 AF 84 clips 0 transition_underruns 186 steady_underruns 0 native_max 4164
+START LSB {'q_code': 2210, 'phase': 0, 'dsp_max_cycles': 4164, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 12000.0, 'i_code': 1856, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 3149, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 10000, 'am_depth': 50, 'mode': 4, 'outputs_enabled': True, 'dsp_samples': 7837, 'period_counts': 2500, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 12000, 'audio_gain': 100, 'af_frames': 13, 'mic_gain': 100, 'last_adc': 2121, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS LSB muted 2048 2048 amplitude 819 samples 44315 AF 85 clips 0 transition_underruns 187 steady_underruns 0 native_max 4164
+START FM {'q_code': 1902, 'phase': 63669, 'dsp_max_cycles': 759, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 2045, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 2047, 'actual_rate': 24000.0, 'i_code': 2854, 'file_source': True, 'deviation_hz': 2500, 'dsp_last_cycles': 615, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 1054, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 5000, 'am_depth': 50, 'mode': 2, 'outputs_enabled': True, 'dsp_samples': 22846, 'period_counts': 1250, 'af_enabled': True, 'lut_bytes': 1024, 'requested_rate': 24000, 'audio_gain': 100, 'af_frames': 21, 'mic_gain': 100, 'last_adc': 2254, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS FM muted 2048 2048 amplitude 819 samples 87616 AF 90 clips 0 transition_underruns 303 steady_underruns 0 native_max 803
+TX_AUDIO_HOME_BOARD_PASS
+ANALOGUE_DAC_RF_NOT_MEASURED
+
+
+PRODUCTION_HOME
+PRODUCTION_HOME RX rx True error None

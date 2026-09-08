@@ -63,7 +63,7 @@ size_t ra_tx_core_lut_bytes(const ra_tx_config_t *config) {
     if (config == NULL) {
         return 0;
     }
-    if (config->mode == RA_TX_MODE_AM && !config->file_source) {
+    if (config->mode == RA_TX_MODE_AM && !ra_tx_uses_cpu(config)) {
         return RA_TX_AM_LUT_BYTES;
     }
     if (config->mode == RA_TX_MODE_FM) {
@@ -76,7 +76,7 @@ size_t ra_tx_core_lut_alignment(const ra_tx_config_t *config) {
     if (config == NULL) {
         return 1;
     }
-    if (config->mode == RA_TX_MODE_AM && !config->file_source) {
+    if (config->mode == RA_TX_MODE_AM && !ra_tx_uses_cpu(config)) {
         return RA_TX_AM_LUT_ALIGNMENT;
     }
     if (config->mode == RA_TX_MODE_FM) {

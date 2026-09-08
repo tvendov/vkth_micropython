@@ -1,7 +1,7 @@
 /*
  * RA6M3 baseband TX: AGT -> ADC0 -> DTC -> DOC -> LUT -> DAC0/1.
- * CW/AM/raw-FM: no sample callback, buffer refill or CPU NCO.
- * Voice FM and USB/LSB: bounded ADC0 C ISR, persistent fixed-point state.
+ * Legacy CW/AM/raw-FM: no sample callback, buffer refill or CPU NCO.
+ * Audio-controlled AM, voice FM and USB/LSB: bounded ADC0 C ISR.
  * Manual R01UH0886EJ0120: sections 18 (DTC), 47 (ADC), 48 (DAC), 52 (DOC).
  */
 #include <stddef.h>
@@ -762,19 +762,9 @@ bool ra_tx_hw_audio_configure(const ra_tx_config_t *config) {
         config->i_zero != tx.config.i_zero || config->q_zero != tx.config.q_zero) {
         return false;
     }
-    if (config->mode == RA_TX_MODE_AM && !config->file_source) {
-        /* DTC must not see a half-written LUT. Reuse the existing allocation,
-         * with a checked stop, then rebuild while quiescent. No ADC/DAC handoff. */
-        bool resume = tx.status.running;
-        if (!ra_tx_hw_stop()) { return false; }
-        tx.config = *config;
-        if (!ra_tx_core_build_lut(config, tx.lut, RA_TX_AM_LUT_BYTES)) {
-            return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
-        }
-        return !resume || ra_tx_hw_start();
-    }
-    /* FILE AM and SSB: retain decoder position, scope and filter history. Only
-     * three bounded scalars are published atomically to the sample callback. */
+    /* Opt-in MIC/FILE AM and SSB all use the C sample callback, not a LUT.
+     * Preserve ADC ownership, decoder position, scope and filter history.
+     * Three bounded scalars are published atomically between samples. */
     FSP_CRITICAL_SECTION_DEFINE;
     FSP_CRITICAL_SECTION_ENTER;
     tx.config.audio_gain = config->audio_gain;

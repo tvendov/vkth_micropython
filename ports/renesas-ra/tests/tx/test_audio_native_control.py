@@ -13,56 +13,40 @@ FIXTURE = r'''
 #include "ra_tx_core.h"
 static struct { bool ready; ra_tx_config_t config; ra_tx_status_t status; uint8_t *lut; } tx;
 static unsigned stops, starts, enters, leaves;
-static bool stop_ok, start_ok;
 #define FSP_CRITICAL_SECTION_DEFINE
 #define FSP_CRITICAL_SECTION_ENTER (++enters)
 #define FSP_CRITICAL_SECTION_EXIT (++leaves)
-#define FSP_ERR_INVALID_ARGUMENT 1
-static bool tx_error(ra_tx_error_t err, int fsp) { (void)fsp; tx.status.error = err; return false; }
-bool ra_tx_hw_stop(void) { ++stops; if (!stop_ok) return false; tx.status.running = false; return true; }
-bool ra_tx_hw_start(void) {
-    ++starts;
-    /* Re-arming is forbidden until ALL table entries match the new config. */
-    for (unsigned raw = 0; raw < 4096; ++raw) {
-        unsigned actual = tx.lut[2*raw] | ((unsigned)tx.lut[2*raw+1] << 8);
-        assert(actual == ra_tx_core_am_sample(&tx.config, raw, NULL));
-    }
-    tx.status.running = start_ok;
-    return start_ok;
-}
+bool ra_tx_hw_stop(void) { ++stops; return true; }
+bool ra_tx_hw_start(void) { ++starts; return true; }
 '''
 
 TEST = r'''
 int main(void) {
-    uint8_t bank[RA_TX_AM_LUT_BYTES];
-    tx.lut = bank;
+    tx.lut = NULL;
     tx.ready = tx.status.owned = tx.status.running = true;
     tx.config = (ra_tx_config_t){.mode=RA_TX_MODE_AM, .sample_rate_hz=44000,
         .amplitude=400, .adc_mid=2048, .i_zero=2048, .q_zero=2048,
         .ramp_samples=220, .fm_gain=2, .audio_controls=true, .audio_gain=100, .am_depth=50};
-    assert(ra_tx_core_build_lut(&tx.config, bank, sizeof(bank)));
+    assert(ra_tx_core_build_lut(&tx.config, NULL, 0));
     ra_tx_config_t next = tx.config;
     next.amplitude = 800;
     next.am_depth = 80;
-    stop_ok = start_ok = true;
     assert(ra_tx_hw_audio_configure(&next));
-    assert(stops == 1 && starts == 1 && !enters && tx.status.running);
+    assert(stops == 0 && starts == 0 && enters == 1 && enters == leaves && tx.status.running);
+    assert(tx.config.amplitude == 800 && tx.config.am_depth == 80);
     ra_tx_config_t saved = tx.config;
-    next.amplitude = 200;
-    stop_ok = false;
+    next.audio_controls = false;
     assert(!ra_tx_hw_audio_configure(&next));
-    assert(stops == 2 && starts == 1 && memcmp(&saved, &tx.config, sizeof(saved)) == 0);
-    stop_ok = true;
-    start_ok = false;
-    assert(!ra_tx_hw_audio_configure(&next));
-    assert(stops == 3 && starts == 2 && !tx.status.running);
+    assert(enters == 1 && memcmp(&saved, &tx.config, sizeof(saved)) == 0);
     /* Already-stopped owner stays stopped. */
+    tx.status.running = false;
     assert(ra_tx_hw_audio_configure(&saved));
-    assert(stops == 4 && starts == 2 && !tx.status.running);
+    assert(stops == 0 && starts == 0 && !tx.status.running);
+    for (unsigned file = 0; file <= 1; ++file) {
     for (unsigned mode = RA_TX_MODE_AM; mode <= RA_TX_MODE_LSB; ++mode) {
         if (mode == RA_TX_MODE_FM) continue;
         tx.config.mode = mode;
-        tx.config.file_source = true;
+        tx.config.file_source = file;
         tx.config.sample_rate_hz = mode == RA_TX_MODE_AM ? 24000 : 12000;
         tx.status.running = true;
         next = tx.config;
@@ -70,7 +54,7 @@ int main(void) {
         next.audio_gain = 500;
         unsigned old_enters = enters;
         assert(ra_tx_hw_audio_configure(&next));
-        assert(stops == 4 && starts == 2 && tx.status.running);
+        assert(stops == 0 && starts == 0 && tx.status.running);
         assert(enters == old_enters + 1 && enters == leaves);
         assert(tx.config.amplitude == 0 && tx.config.audio_gain == 500);
         next.audio_gain = 1601;
@@ -79,10 +63,17 @@ int main(void) {
         next.mode = RA_TX_MODE_FM;
         assert(!ra_tx_hw_audio_configure(&next));
         next = tx.config;
-        next.file_source = false;
+        next.file_source = !file;
         assert(!ra_tx_hw_audio_configure(&next));
     }
-    puts("PASS actual native audio controller: checked MIC stop/rebuild/start and failures; FILE AM/SSB atomic scalars, no restart; invalid config rejected");
+    }
+    tx.status.error = RA_TX_ERROR_STOP_TIMEOUT;
+    next = tx.config;
+    assert(!ra_tx_hw_audio_configure(&next));
+    tx.status.error = RA_TX_ERROR_NONE;
+    tx.ready = false;
+    assert(!ra_tx_hw_audio_configure(&next));
+    puts("PASS actual native audio controller: MIC/FILE AM/SSB atomic scalars without LUT or restart; invalid/unready/faulted owner rejected");
     return 0;
 }
 '''

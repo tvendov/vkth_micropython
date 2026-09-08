@@ -1,4 +1,4 @@
-/* RA6M3 TX: autonomous CW/AM/raw-FM; bounded C voice-FM and USB/LSB. */
+/* RA6M3 TX: autonomous legacy CW/AM/raw-FM; bounded C audio AM/FM/SSB. */
 #ifndef MICROPY_INCLUDED_RENESAS_RA_TX_HW_H
 #define MICROPY_INCLUDED_RENESAS_RA_TX_HW_H
 
@@ -100,7 +100,8 @@ static inline bool ra_tx_is_voice_fm(const ra_tx_config_t *config) {
 }
 
 static inline bool ra_tx_uses_cpu(const ra_tx_config_t *config) {
-    return config->file_source || ra_tx_mode_is_ssb(config->mode) || ra_tx_is_voice_fm(config);
+    return config->file_source || ra_tx_mode_is_ssb(config->mode) || ra_tx_is_voice_fm(config) ||
+           (config->mode == RA_TX_MODE_AM && config->audio_controls);
 }
 
 #if defined(RA6M3) && MICROPY_HW_ENABLE_TX

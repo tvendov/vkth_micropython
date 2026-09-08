@@ -4,6 +4,65 @@
 този файл и `ra6_sdr_next_steps.md`, без напомняне. Записите разграничават
 анализ, реализация, хост тест, build, качване и физическо измерване.
 
+## 2026-09-08: реалният MIC AM TX отказ — 16383-B LUT алокация
+
+Без reset е прочетено от работещото приложение: AM, `_inj_source=0`,
+`_inj_on=False`, `TX start: MemoryError('memory allocation failed, allocating
+16383 bytes',)`. След checked rollback състоянието е RX. Това е MIC AM, не
+FILE AM от предишната проверка. Предишният FILE PASS не покрива този вход.
+Опитът за общата свободна памет не даде валидна стойност поради изгубени
+символи в UART командата; не се прави заключение за размер на фрагментация.
+
+Причината за заявката е `machine_tx.c`: 8192 B таблица + 8191 B запас за
+подравняване. Поправката премахва нуждата от таблицата за opt-in AM с
+`audio_gain` (точно API-то на приложението), без нов постоянен RAM буфер:
+
+- `ra_tx_hw.h`: MIC AM с audio_controls използва съществуващия C ADC callback.
+- `ra_tx_core.c`: AM LUT се заявява само за legacy DTC варианта; MIC/FILE
+  с новия интерфейс дават bytes=0, alignment=1. AM формулата не е променяна.
+- `ra_tx_hw.c`: AM gain/depth/level се публикуват атомарно между семплите,
+  както FILE/SSB; няма stop/rebuild/start за плъзгач. Коментарът различава legacy AM.
+- `test_tx_audio.inc`: MIC без таблица, legacy DTC запазен, всички ADC кодове
+  и 101 нива. Общият C набор: 18 групи / 8403968 проверки PASS.
+- `test_audio_native_control.py`: реалният setter, MIC/FILE AM/SSB без restart,
+  валидация и stopped/faulted състояния PASS.
+- `test_am_mic_dispatch.py`: реалните C ADC callback и sample body с регистрови
+  заместители; 4096 ADC кода, mute, FILE/legacy/stopped guards PASS.
+- `README_IQTX_BG.md`: MIC и FILE използват C формула; старият API запазва
+  LUT. Отчетена е цената: C работа на всеки MIC семпъл, а не нулев CPU път.
+
+Общ RadioOnly build PASS, OpenCV OFF, без LAB, -j16, native MinGW Python.
+Text1591101 B / BSS649784 B; heap281600 B (без промяна). BIN1591088 B,
+SHA-256 `634e60a50e83a88952a88ca6584f8d8e24b4d717590d1e5eaa05a1b340d9b162`.
+Предупрежденията за generated LVGL unused functions и RWX segment остават.
+Качен е само вътрешният firmware; readback PASS. Приложението и QSPI не са
+презаписвани, валидният dataflash запис и резервният internal tail са проверени.
+Архив: `backups/am-mic-no-lut-1120000058-20260908-173300/`.
+
+Цифров MIC HIL: два успешни AM старта при запазените 577500 Hz;
+`file_source=False`, `cpu_dsp=True`, `lut_bytes=lut_allocation_bytes=0`,
+`actual_rate=43988.27`, двата DAC enabled. Първият пълен контролен цикъл
+мина LEVEL0/40, depth75%, AF gain120%, връщане RX. 239501 C семпъла,
+109 AF кадъра; max283 / budget2728 цикъла; DSP clips/deadline/errors=0.
+Това време е само C sample body, не целият ISR. Аналогова форма не е измерена.
+
+Трите последователни цикъла НЕ са обявени за PASS: първи опит спря на
+`wait for receiver tuning before TX`; други опити завършиха с UART EOF timeout,
+включително след втория успешен MIC старт. И без menu stress се наблюдава
+RX tuning guard >5 s. Причината за тези отделни откази остава непотвърдена;
+няма доказателство, че всеки timeout означава замръзнал MCU. След всеки RAM
+тест е изпълнен normal J-Link reset. Тестовете не се записват във flash.
+
+Отделният FILE регресионен тест на новия firmware завърши PASS за
+AM→USB→LSB→FM: LEVEL0/40, Si5351 ×1 регистри, неизменен FILE owner,
+AF кадри, 0 DSP clips/deadline misses и 0 нови underruns в 2-s установени
+интервали. Преходните FILE underruns са съответно 35/186/187/303 и остават
+видими в отчета. Това не превръща незавършения MIC lifecycle тест в PASS.
+След reset производственото приложение е стартирано: `PRODUCTION_HOME RX
+rx True error None`; портът е освободен. Протоколът с действителните частични
+MIC резултати, отказите и FILE резултатите е
+`ports/renesas-ra/tests/tx/results/am-mic-no-lut-20260908.log`.
+
 ## 2026-09-08: AM/SSB TX аудиоконтроли — втори HOME етап
 
 Реализация и 11 host команди PASS. Общ RadioOnly build PASS, OpenCV OFF,

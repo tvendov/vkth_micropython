@@ -4,7 +4,27 @@
 този файл и `ra6m3_done.md`, без напомняне. Тук се поддържат оставащите задачи,
 приоритетите и пречките; в done — действително направеното и проверките.
 
-## Текущ статус — 2026-09-08: AM/SSB контроли качени; legacy bins премахнати
+## Текущ приоритет — 2026-09-08: MIC AM MemoryError и повторни преходи
+
+- [x] Прочетен действителният MIC AM отказ: allocation16383 B; FILE тестът
+  не го покриваше. Opt-in MIC AM вече използва C ADC callback без LUT.
+- [x] Host core/setter/ADC-dispatch PASS; RadioOnly build и firmware readback
+  PASS. Приложението и QSPI не са презаписвани. Общият heap остава 281600 B.
+- [x] Два MIC AM старта на платката без LUT/MemoryError; един пълен цикъл
+  с LEVEL0/40, depth75%, gain120%, AF кадри и RX restore. DSP deadline=0.
+- [ ] Завършен многократен RX→MIC TX→RX тест: засега НЕ е PASS. Разграничаване
+  на RX tuning guard >5 s, UART EOF timeout и евентуален UI отказ, без да се
+  премахват guard-ове или да се представя timeout като доказан MCU freeze.
+- [ ] Аналогова AM форма и дълбочина; C body max283/budget2728 цикъла не е
+  измерване на целия ISR или на физическия DAC сигнал.
+
+Нов FILE AM→USB→LSB→FM HIL PASS и с MIC поправката: LEVEL/owner/AF,
+0 DSP clips/deadlines, 0 нови underruns в кратките установени интервали;
+преходни underruns 35/186/187/303. MIC lifecycle остава отворен независимо от
+FILE PASS. HOME е пуснат в RX без отчетена грешка. Тестовете остават в RAM,
+с reset след всеки; следващото действие е диагностика на повторните MIC преходи.
+
+## Предходен статус — 2026-09-08: AM/SSB контроли качени; legacy bins премахнати
 
 | Задача | Статус | Критерий |
 | --- | --- | --- |
