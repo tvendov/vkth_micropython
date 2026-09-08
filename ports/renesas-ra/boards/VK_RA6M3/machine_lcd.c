@@ -2098,6 +2098,13 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
         return;
     }
 
+    /* The inactive-screen branch above disables capture without changing the
+     * selected views or the RX/TX source identity. Reconcile gates on every
+     * visible tick, not just on a source change: HOME can return without a
+     * Python pause setter, and fresh IQADC construction clears these gates too.
+     * Enabled producers are idempotent; their partial frames are not reset. */
+    lcd_native_capture_apply(true);
+
     #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
     ra_tx_status_t tx_status;
     ra_tx_hw_get_status(&tx_status);
@@ -2112,13 +2119,11 @@ static void lcd_lv_spectrum_timer_cb(lv_timer_t *timer) {
         s_lcd_left_clear_pending = 1U;
         s_lcd_spectrum_valid = 0U;
         s_lcd_scope_last_ms = 0U;
-        lcd_native_capture_apply(true);
     }
     #endif
     lcd_native_clear_pending();
     #if defined(RA6M3) && MICROPY_HW_ENABLE_TX
     if (source) {
-        lcd_native_capture_apply(true);
         uint32_t tx_now = (uint32_t)mp_hal_ticks_ms();
         if (source == 1U && s_lcd_scope_view != LCD_SCOPE_VIEW_OFF &&
             (uint32_t)(tx_now - s_lcd_scope_last_ms) >= LCD_SCOPE_FRAME_MS) {

@@ -1,0 +1,111 @@
+SDR axis/capture resume -- 2026-09-08
+Target: J-Link1120000058 / COM25 (existing target; no rediscovery).
+Source at build: HEAD9485aca5e plus the two source fixes in this commit.
+RadioOnly build-VK_RA6M3, -j16, OpenCV/LAB OFF.
+Text1591093; BSS649784; heap281600. Existing RWX LOAD warning remains.
+
+Host regressions:
+- Before patch: test_sdr_axis_retry.py 2 failures / 7 tests; C visibility
+  prologue assertion fails when returning to HOME.
+- After patch: all 7 axis tests PASS; actual C capture gates/prologue PASS,
+  including 18 selector/pending combinations. Full renderer is not executed.
+- test_sdr_tx_switch.py, test_sdr_tx_home.py, test_sdr_audio_controls.py,
+  test_sdr_fm_controls.py and test_am_mic_dispatch.py PASS.
+- run_host_tests.py: 18 groups / 8403968 checks PASS.
+Host results are not physical hardware or RF proof.
+
+Deployment checkpoint:
+Internal firmware readback and reserved internal tail passed first.
+Initial full-512-byte dataflash comparison failed. Inspection:
+  old/new header = 5344523137017b226d22
+  aligned valid record length = 320, valid record identical
+  differing offsets: 327,342,347,353,356,366,370,380,388,389,403,410,
+  418,423,437,447,451,453,454,466,470,475,511
+  dataflash.is_blank(320,192) -> True
+Resumed at app upload, without reflashing firmware or changing parameters.
+62 prior files preserved (old app renamed pre-axis); final QSPI4MiB identical.
+RAM test code was checksummed before execution; no tests stored in flash.
+Normal J-Link reset was executed after each test suite.
+Historical UART EOF timeouts were not reproduced or retrospectively diagnosed.
+
+
+--- DEPLOYMENT ---
+{
+  "firmware_sha256": "c2c4258d88196f9096c3209e64932896386bbfe83d8100e668a7637938d4fd6c",
+  "firmware_bytes": 1591080,
+  "source_sha256": "4f0fc38510ecba90e467817791c4bb8adc7ef2ee887e29c69994a471d276fa21",
+  "mpy_sha256": "f7326eb45480a4e3c7bffac2bb8ab7a90dec1b3f7c364c02d80e12e65940232c",
+  "files_preserved": 62,
+  "tests_written": false,
+  "opencv": false,
+  "lab": false,
+  "firmware_readback": true,
+  "heap_bytes": 281600,
+  "dataflash_record_bytes": 320,
+  "dataflash_tail_blank": true
+}
+
+--- BEFORE ---
+LIVE_GUARD TX RX is not running None
+PENDING False False None None 0
+SURFACE False False True True
+CENTER 15
+COMMIT 15
+ACTIVE True
+WAIT_SNAPSHOT_END
+
+
+--- MIC ---
+MIC_APP_START
+MIC_APP_READY
+HIDDEN_PENDING RX wait for receiver tuning before TX None
+PENDING False False None None 2 False False True
+GEN -2 1
+WAIT_RX RX wait for receiver tuning before TX None
+PENDING False False None None 2 False False True
+GEN -2 1
+NATIVE_HIDDEN_HOME_RESUME_PASS
+MIC_BEGIN 0 43008
+MIC_STARTED 0 37016 18
+MIC_MUTE 0
+MIC_CONTROLS_PASS 0 158249 86 275 2728 0
+RX_RESTORED 0
+MIC_BEGIN 1 43072
+MIC_STARTED 1 47361 24
+MIC_MUTE 1
+MIC_CONTROLS_PASS 1 165116 91 243 2728 0
+RX_RESTORED 1
+MIC_BEGIN 2 42272
+MIC_STARTED 2 47781 23
+MIC_MUTE 2
+MIC_CONTROLS_PASS 2 166855 90 279 2728 0
+RX_RESTORED 2
+AXIS_RESUME_MIC_THREE_CYCLES_PASS
+NO_TEST_FILES_WRITTEN; ANALOGUE_RF_NOT_MEASURED
+[raw-REPL EOF]
+
+--- FILE ---
+NO_LEGACY_BINS_RUNTIME_PASS
+START AM {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 241, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 24000.0, 'i_code': 2473, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 105, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 5000, 'am_depth': 50, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 18032, 'period_counts': 1250, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 24000, 'audio_gain': 100, 'af_frames': 18, 'mic_gain': 100, 'last_adc': 2207, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS AM muted 2048 2048 amplitude 409 samples 87298 AF 91 clips 0 transition_underruns 0 steady_underruns 0 native_max 279
+START USB {'q_code': 1757, 'phase': 0, 'dsp_max_cycles': 4164, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 12000.0, 'i_code': 2176, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 3149, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 10000, 'am_depth': 50, 'mode': 3, 'outputs_enabled': True, 'dsp_samples': 8031, 'period_counts': 2500, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 12000, 'audio_gain': 100, 'af_frames': 14, 'mic_gain': 100, 'last_adc': 1566, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS USB muted 2048 2048 amplitude 819 samples 43222 AF 81 clips 0 transition_underruns 308 steady_underruns 0 native_max 4164
+START LSB {'q_code': 1840, 'phase': 0, 'dsp_max_cycles': 4164, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 12000.0, 'i_code': 1740, 'file_source': True, 'deviation_hz': 0, 'dsp_last_cycles': 3149, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 10000, 'am_depth': 50, 'mode': 4, 'outputs_enabled': True, 'dsp_samples': 7810, 'period_counts': 2500, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 12000, 'audio_gain': 100, 'af_frames': 13, 'mic_gain': 100, 'last_adc': 2039, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS LSB muted 2048 2048 amplitude 819 samples 43442 AF 82 clips 0 transition_underruns 183 steady_underruns 0 native_max 4164
+START FM {'q_code': 2413, 'phase': 4817, 'dsp_max_cycles': 721, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 2053, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 2047, 'actual_rate': 24000.0, 'i_code': 2781, 'file_source': True, 'deviation_hz': 2500, 'dsp_last_cycles': 615, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 819, 'timer_clock': 30000000, 'audio_peak': 1054, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 5000, 'am_depth': 50, 'mode': 2, 'outputs_enabled': True, 'dsp_samples': 15043, 'period_counts': 1250, 'af_enabled': True, 'lut_bytes': 1024, 'requested_rate': 24000, 'audio_gain': 100, 'af_frames': 12, 'mic_gain': 100, 'last_adc': 1473, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+CONTROL_PASS FM muted 2048 2048 amplitude 819 samples 87918 AF 89 clips 0 transition_underruns 303 steady_underruns 0 native_max 791
+TX_AUDIO_HOME_BOARD_PASS
+ANALOGUE_DAC_RF_NOT_MEASURED
+[raw-REPL EOF]
+
+--- PRODUCTION_START ---
+PRODUCTION_HOME TX AM 579900 None
+PRODUCTION_AF TIME True True 0
+PRODUCTION_CONTROLS 409 50 100
+
+
+--- PRODUCTION_FINAL ---
+PRODUCTION_FINAL TX AM 579900 None
+PRODUCTION_AF_LABEL AF MIC
+PRODUCTION_AF_ADVANCE 2124 2150
+PRODUCTION_OUTPUTS True 0 0

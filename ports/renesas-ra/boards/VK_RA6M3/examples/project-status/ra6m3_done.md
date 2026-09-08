@@ -4,6 +4,76 @@
 този файл и `ra6_sdr_next_steps.md`, без напомняне. Записите разграничават
 анализ, реализация, хост тест, build, качване и физическо измерване.
 
+## 2026-09-08: RX generation recovery и три MIC AM прехода — качено и проверено
+
+Поправките са ограничени до възстановяване на съществуващия спектрален
+поток и неговото потвърждение. Не са добавени framebuffer, FFT буфери,
+демо барове или обход на TX tuning guard. Работата започна без платка;
+хардуерните действия започнаха след изричното „ползвай платката“.
+
+Промени по файлове:
+
+- `sdr_single.py` (каноничен и tracked): временна грешка при четене на
+  `spectrum_center()` вече не изключва наличния API завинаги. Pending token
+  остава същият; следващият worker tick опитва отново. TX остава блокиран,
+  докато точният кадър и честотната ос не бъдат потвърдени.
+- `machine_lcd.c`: native таймерът възстановява избраните capture gates на
+  всеки валиден видим HOME tick. Преди това невидимият екран ги изключваше,
+  но връщане без промяна на RX/TX owner не ги включваше непременно.
+  Проверки за скрит/неактивен екран и за TX ownership са запазени.
+  Двете дублирани извиквания в TX клона са премахнати.
+- `test_sdr_axis_retry.py`: 7 теста върху извлечените Python методи —
+  временна/повтаряща се грешка, чужд token, re-arm, отказан publish,
+  render rollback и exception след успешен commit.
+- `test_lcd_capture_resume.py`: извлечените C capture gates и началната
+  visibility част на таймера; HOME resume, нов RX, 18 комбинации на
+  SPEC/WF/OFF, TIME/IQ/OFF и pending, TX ownership и невалиден widget.
+  Не изпълнява целия renderer или FFT.
+- `tests/tx/results/axis-resume-20260908.log`: протоколът с hash-ове,
+  MIC/FILE HIL и крайното състояние; старите откази не са обявени за обяснени.
+
+Преди поправката Python наборът възпроизведе два отказа от 7 теста;
+C тестът спря на липсващо capture възстановяване. След поправката и двата
+са PASS. RX/TX switch, HOME, AM/SSB audio controls, FM controls/persistence,
+MIC ADC dispatch и TX core също PASS; core: 18 групи / 8403968 проверки.
+
+RadioOnly build PASS в общия build-VK_RA6M3, OpenCV OFF, без LAB, -j16.
+Text1591093 B / BSS649784 B; heap281600 B, без увеличение.
+BIN1591080 B, SHA-256
+`c2c4258d88196f9096c3209e64932896386bbfe83d8100e668a7637938d4fd6c`.
+App source315048 B / MPY88526 B, hash-овете са в протокола.
+Архив: `backups/axis-resume-1120000058-20260908-181622/`.
+
+Качени са firmware и app, с readback. Запазени са 62 предишни файла,
+включително старото приложение като `sdr_single.pre-axis.*`, и последните
+4 MiB QSPI. Първият upload опит спря след успешен firmware readback,
+защото сравняваше всичките 512 B dataflash. Валидните 320 B съвпадаха;
+различаваха се байтове след записа. Проверката през dataflash.is_blank()
+потвърди празната опашка. Продължено е без втори firmware flash.
+Настройките не са презаписвани. Тестови файлове не са качвани.
+
+На J-Link1120000058 / COM25:
+- Начална моментна снимка: TX, pending0, center=commit15, HOME активен.
+  Старото блокиране не беше налице при този прочит.
+- Скрит native widget с pending2: center=-2, commit1. След показване
+  потвърждението завърши: NATIVE_HIDDEN_HOME_RESUME_PASS.
+- Три пълни RX→MIC AM TX→RX цикъла PASS. Във всеки: LUT allocation0,
+  AF кадри напредват, LEVEL0 дава I=Q=2048, LEVEL40/depth75/gain120
+  се прилагат без смяна на owner. DSP errors/deadlines/clips=0.
+  C body max275/243/279 при budget2728 цикъла; това не е време на целия ISR.
+- FILE AM→USB→LSB→FM PASS; mute/LEVEL, AF, HOME/BACKEND и Si5351 ×1.
+  Нови underruns в 2-s установени интервали: 0. Преходните са
+  AM0 / USB308 / LSB183 / FM303 и остават ограничение.
+- След всеки RAM тест — normal J-Link reset. Производственият старт
+  през REPL първоначално остави caption TIME; GUI-context refresh го
+  възстанови до AF MIC. Крайно: TX AM579900 Hz, error=None,
+  AF2124→2150 за измерения 1-s интервал, outputs_enabled=True, LUT0.
+  LEVEL40%, depth50%, AF gain100% са запазените настройки.
+
+Аналогова форма, RF качество и продължителен soak НЕ са измерени.
+Двата source дефекта са възпроизведени локално, а текущият HIL е успешен;
+това не доказва със задна дата причината за всеки стар UART EOF timeout.
+
 ## 2026-09-08: реалният MIC AM TX отказ — 16383-B LUT алокация
 
 Без reset е прочетено от работещото приложение: AM, `_inj_source=0`,

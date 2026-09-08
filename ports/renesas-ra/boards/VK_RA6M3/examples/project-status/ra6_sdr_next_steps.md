@@ -4,7 +4,34 @@
 този файл и `ra6m3_done.md`, без напомняне. Тук се поддържат оставащите задачи,
 приоритетите и пречките; в done — действително направеното и проверките.
 
-## Текущ приоритет — 2026-09-08: MIC AM MemoryError и повторни преходи
+## Текущ приоритет — 2026-09-08: generation recovery проверено на платката
+
+- [x] MIC AM MemoryError: no-LUT firmware от предишната итерация остава
+  включен; три последователни RX→MIC AM TX→RX цикъла вече са PASS.
+- [x] Поправени capture resume и retry след временна generation-read грешка.
+  Локални regression тестове FAIL преди / PASS след; TX guard не е премахван.
+- [x] RadioOnly build, firmware/app readback, 62 предишни файла, QSPI code
+  tail и валиден dataflash запис проверени. Heap281600 B, без нов буфер.
+- [x] Native hidden→HOME generation HIL PASS; MIC mute/LEVEL/depth/gain,
+  AF и RX restore PASS; FILE AM/USB/LSB/FM повторно PASS.
+- [x] Производствен HOME оставен TX AM579900 Hz, AF MIC, AF кадри напредват;
+  тестовете са RAM-only, с reset след всеки.
+- [ ] По-дълъг MIC/FILE RX↔TX/menu soak. Критерий: без MemoryError,
+  блокирала настройка или спрял GUI; при отказ запазване на guard полетата,
+  native token/commit и PC/stack преди reset. Старите EOF timeout-и не са
+  обявени ретроспективно за обяснени.
+- [ ] Намаляване на FILE underruns при преходи, когато се възобнови тази
+  задача: текущо AM0 / USB308 / LSB183 / FM303; в установените 2-s
+  интервали новите са 0. Това не е гаранция за непрекъснат дълъг стрийм.
+- [ ] Аналогова AM форма/depth, USB/LSB image rejection и FM deviation
+  на DAC/външния модулатор. Цифровите counters не са аналогово/RF измерване.
+- [ ] Допълнителни fault-injection проверки на generation request/re-arm
+  и publish фазите; тази поправка адресира read retry и capture resume.
+
+Дневник и протокол: ra6m3_done.md и
+`ports/renesas-ra/tests/tx/results/axis-resume-20260908.log`.
+
+## Предходен статус — 2026-09-08: MIC AM MemoryError и повторни преходи
 
 - [x] Прочетен действителният MIC AM отказ: allocation16383 B; FILE тестът
   не го покриваше. Opt-in MIC AM вече използва C ADC callback без LUT.

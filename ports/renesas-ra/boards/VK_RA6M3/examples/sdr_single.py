@@ -4035,7 +4035,9 @@ class SdrApp:
         try:
             state = int(fn())
         except Exception as e:
-            self._spectrum_generation_api = False
+            # A transient read/boxing failure is not loss of API capability.
+            # Retain this exact pending token and retry on the next worker tick;
+            # disabling the API here strands the TX guard permanently.
             self.be.err = "spectrum generation read: %r" % (e,)
             return False
 
