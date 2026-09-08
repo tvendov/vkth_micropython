@@ -1,0 +1,9 @@
+WARN_STATE TX USB None None
+WARN_SOURCE R:USB True RX_RUNNING False
+WARN_CACHED None None True True True
+WARN_LABELS ('BLK        343', 'OVR', 'UND', 'CLIP')
+WARN_SAMPLE 0 143912 (('running', True), ('outputs_enabled', True), ('error', 0), ('adc_rails', 0), ('file_underruns', 331), ('dsp_deadline_misses', 0), ('dsp_clips', 0), ('af_frames', 3202), ('dsp_samples', 1659207))
+WARN_SAMPLE 1 145928 (('running', True), ('outputs_enabled', True), ('error', 0), ('adc_rails', 0), ('file_underruns', 331), ('dsp_deadline_misses', 0), ('dsp_clips', 0), ('af_frames', 3249), ('dsp_samples', 1683409))
+WARN_SAMPLE 2 147948 (('running', True), ('outputs_enabled', True), ('error', 0), ('adc_rails', 0), ('file_underruns', 331), ('dsp_deadline_misses', 0), ('dsp_clips', 0), ('af_frames', 3295), ('dsp_samples', 1707649))
+WARN_SAMPLE 3 149993 (('running', True), ('outputs_enabled', True), ('error', 0), ('adc_rails', 0), ('file_underruns', 331), ('dsp_deadline_misses', 0), ('dsp_clips', 0), ('af_frames', 3342), ('dsp_samples', 1732189))
+WARN_END TX None

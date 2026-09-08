@@ -21,7 +21,7 @@ CONSTANTS = {
 }
 METHODS = {
     '_audio_controls', '_tx_gain_keys', '_apply_audio_gain', '_service_tx_audio',
-    '_fm_controls', '_sync_tx_controls', '_paint_fm_status', '_apply_fm_gain',
+    '_fm_controls', '_sync_tx_controls', '_paint_tx_status', '_apply_fm_gain',
     '_gain_spec', '_gain_available', '_paint_gain_pin', '_apply_gain',
     '_refresh_gains', '_bind_active_slider', 'touch_params', 'set_volume', 'update_vol',
     '_refresh_tx_settings', '_build_tx_settings', 'open_settings', 'close_settings',
@@ -115,6 +115,7 @@ def new_app(env):
     app._trx_state = 'RX'
     app._tx_mode = None
     app._tx_file_label = None
+    app._iq_file_loop = True
     app._gain_context_fm = False
     app._gain_context_tx = False
     app._settings_tx = False
@@ -264,6 +265,7 @@ def test_backend_context(env):
     app._trx_state, app._tx_mode = 'TX', 'FM'
     app._sync_tx_controls()
     assert app._rx_active_gain == 'SQL' and app._active_gain == 'TX'
+    assert app.ui.get('agc-title').text == 'SOURCE'
     app.open_route_menu()  # actual SDR -> route path, now permitted during TX
     route = app.ui.w['scr-route']
     assert app._route_widgets['backend'].text == 'BACKEND TX  >'
@@ -273,7 +275,8 @@ def test_backend_context(env):
     panel = app.ui.w['scr-settings']
     assert route.deleted and app.ui.w['scr-route'] is None
     assert app._settings_tx and not rx_builds and 'settings' in env['_KEEP']
-    assert set(app._set_widgets) == {'tx-MIC', 'tx-DEV', 'tx-TX'}
+    assert set(app._set_widgets) == {'tx-MIC', 'tx-DEV', 'tx-TX', 'tx-source',
+                                    'tx-source-button', 'tx-loop', 'tx-loop-button'}
     assert app._set_widgets['tx-DEV'].text == '+/-2.5k'
     # Actual row callback -> actual Python FM setter -> mocked native boundary.
     dev_row = panel.children[3]
@@ -302,7 +305,8 @@ def test_backend_context(env):
     assert 'disabled' in app.ui.get('vol-slider').states
     app.open_settings()
     assert app._settings_tx and not rx_builds
-    assert set(app._set_widgets) == {'tx-TX'}
+    assert set(app._set_widgets) == {'tx-TX', 'tx-source', 'tx-source-button',
+                                    'tx-loop', 'tx-loop-button'}
     tx_row = app.ui.w['scr-settings'].children[2]
     assert 'disabled' in tx_row.children[-1].states
     app._trx_state = 'TO_RX'

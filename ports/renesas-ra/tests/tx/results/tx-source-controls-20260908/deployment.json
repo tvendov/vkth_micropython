@@ -1,0 +1,17 @@
+{
+  "sdr_single.py": {
+    "bytes": 318396,
+    "sha256": "de1704209a02d2e044aae4358664bf795ccf286a76c6d74c317c51c666510a90"
+  },
+  "sdr_single.mpy": {
+    "bytes": 89313,
+    "sha256": "09b8a37036035547ebddfd9bb33694c9509b2364ac5a9e28050160a60f527d9d"
+  },
+  "firmware_unchanged": true,
+  "dataflash_unchanged": true,
+  "qspi_code_unchanged": true,
+  "original_files_preserved": 64,
+  "tests_written": false,
+  "title": "SDR TRANSCEIVER in startup/RX/TX",
+  "warnings": "all TX modes, delta indicators; cumulative counters retained"
+}

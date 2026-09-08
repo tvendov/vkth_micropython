@@ -120,8 +120,14 @@ class _IqFileSource:
         self._attached = False
         self._close_file()
 
-    def set_loop(self, enabled):
+    def set_loop(self, enabled, live=False):
         if self._feeding:
+            # TX may change future EOF policy; never seek/restart an active file.
+            # Keep the RX default guard and the same minimum payload as start().
+            if not live or (enabled and self._payload_bytes < len(self._bufs[0])):
+                return False
+        elif live:
+            # An EOF marker already committed to C cannot be withdrawn here.
             return False
         self._loop = bool(enabled)
         return True
@@ -677,7 +683,7 @@ class SdrUi:
         bl.set_size(156, 24)
         bl.remove_flag(lv.obj.FLAG.CLICKABLE)
         self.w["brand-dot"] = _box(bl, 8, 8, bg=TEAL, radius=4, bw=0)
-        self.w["brand-title"] = _lbl(bl, "SDR RECEIVER", 12, GRAY2)
+        self.w["brand-title"] = _lbl(bl, "SDR TRANSCEIVER", 12, GRAY2)
         # VFO indicator is its own tap target: a clickable child consumes the tap
         # (opening the VFO->hardware routing + CAL popup) before it bubbles to the
         # brand row, so tapping the label routes, tapping the row still opens SETTINGS.
@@ -853,7 +859,7 @@ class SdrUi:
         self.w["vol-slider"] = sl
         ag = _flex(_base(lv.obj(rp)), lv.FLEX_FLOW.COLUMN, gap=2)
         ag.set_size(48, 46)
-        _lbl(ag, "AGC", 14, GRAY2)
+        self.w["agc-title"] = _lbl(ag, "AGC", 14, GRAY2)
         pill = _btn(ag, 48, 24, GREEN, radius=6)
         self.w["agc-value"] = _lbl(pill, "FAST", 12, WHITE)
         self.w["agc-pill"] = pill
@@ -2666,6 +2672,7 @@ class SdrApp:
                     self._tx_keyed = bool(st.get("keyed"))
                     self._tx_status = st
                     self._refresh_tx_settings(st)
+                    self._paint_tx_status(st)
                     if self._tx_mode in ("USB", "LSB", "FM"):
                         samples = st.get("dsp_samples")
                         if (samples is None or samples == self._tx_last_samples or
@@ -2673,8 +2680,6 @@ class SdrApp:
                             error = "TX ADC/DSP samples stopped"
                         else:
                             self._tx_last_samples = samples
-                            if self._tx_mode == "FM":
-                                self._paint_fm_status(st)
                             return True
                     else:
                         return True
@@ -2935,7 +2940,7 @@ class SdrApp:
 
     def _refresh_home_context(self):
         tx = self._tx_rx_snapshot is not None
-        self.ui.get("brand-title").set_text("SDR TRANSMITTER" if tx else "SDR RECEIVER")
+        self.ui.get("brand-title").set_text("SDR TRANSCEIVER")
         # Reuse the same 156-px header; the route remains accessible on the title.
         for name in ("vfo-indicator", "vfo-alt-0", "vfo-alt-1"):
             indicator = self.ui.get(name)
@@ -2972,9 +2977,10 @@ class SdrApp:
         500 ms poll costs nothing when the radio is quiet."""
         ui = self.ui
         if st is None:
-            if self._st is None:
-                return
+            # RX's direct counter consumer does not populate _st. Clear its
+            # colours even when the slower dictionary painter has no cache.
             self._st = None
+            self._ovr_red = self._und_red = self._clip_red = False
             ui.get("sdr-blk").set_text("BLK ----")
             ui.get("sdr-blk").set_style_text_color(lv.color_hex(GRAY2), 0)
             for n in ("sdr-ovr", "sdr-und", "sdr-clip"):
@@ -3188,6 +3194,17 @@ class SdrApp:
         self.open_pick_menu("TX AUDIO SOURCE", tuple(items), self._tx_source_settings,
                             lambda source: self._request_tx_config(source=source))
 
+    def toggle_tx_file_loop(self):
+        """Change EOF policy without rewinding or replacing the active TX owner."""
+        if self._trx_state != TRX_TX or self._trx_pending is not None:
+            return False
+        enabled = not self._iq_file_loop
+        if not self._iq_file.set_loop(enabled, live=self._tx_file_on):
+            return False
+        self._iq_file_loop = enabled
+        self._refresh_tx_settings()
+        return True
+
     def _fm_controls(self):
         return self._trx_state == TRX_TX and self._tx_mode == "FM"
 
@@ -3265,12 +3282,17 @@ class SdrApp:
             self._gain_context_fm = fm
             self._gain_context_mode = self._tx_mode
             self._tx_diag = None
-            for name, label in (("sdr-ovr", "ADC" if fm else "OVR"),
-                                ("sdr-und", "TIME" if fm else "UND")):
+            for name, label in (("sdr-ovr", "ADC" if transmitting else "OVR"),
+                                ("sdr-und", "UND")):
                 self.ui.get(name).set_text(label)
         if transmitting and self._active_gain not in self._tx_gain_keys():
             self._active_gain = self._gain_candidate = "TX"
         pill = self.ui.get("agc-pill")
+        title = self.ui.get("agc-title")
+        text = "SOURCE" if transmitting else "AGC"
+        if title.get_text() != text:
+            title.set_text(text)
+            title.set_style_text_font(font(10 if text == "SOURCE" else 14), 0)
         if transmitting and self._trx_pending is None:
             pill.remove_state(lv.STATE.DISABLED)
             self.ui.get("agc-value").set_text(self._tx_file_label or "MIC")
@@ -3288,16 +3310,25 @@ class SdrApp:
         if "route_menu" in _KEEP:
             self._refresh_route()
 
-    def _paint_fm_status(self, status):
-        # Peak/overload counters are since start, not an instantaneous VU meter.
-        diag = (status.get("audio_peak", 0), status.get("adc_rails", 0),
+    def _paint_tx_status(self, status):
+        # All TX modes own this row. Red means new events since the last poll;
+        # absolute counters remain visible in BACKEND and native status().
+        diag = (status.get("af_frames", 0), status.get("adc_rails", 0),
+                status.get("file_underruns", 0),
                 status.get("dsp_deadline_misses", 0), status.get("dsp_clips", 0))
-        if diag == self._tx_diag:
-            return
+        prev = self._tx_diag
         self._tx_diag = diag
-        self.ui.get("sdr-blk").set_text("PK %d" % diag[0])
-        for name, value in (("sdr-ovr", diag[1]), ("sdr-und", diag[2]), ("sdr-clip", diag[3])):
-            self.ui.get(name).set_style_text_color(lv.color_hex(0xE53935 if value else BORDER), 0)
+        if prev is None or diag[0] != prev[0]:
+            self.ui.get("sdr-blk").set_text("AF " + fmt_count(diag[0]))
+        baseline = prev if prev is not None else (0, 0, 0, 0, 0)
+        for name, attr, growing in (
+                ("sdr-ovr", "_ovr_red", diag[1] > baseline[1]),
+                ("sdr-und", "_und_red", diag[2] > baseline[2] or diag[3] > baseline[3]),
+                ("sdr-clip", "_clip_red", diag[4] > baseline[4])):
+            if prev is None or growing != getattr(self, attr):
+                setattr(self, attr, growing)
+                self.ui.get(name).set_style_text_color(
+                    lv.color_hex(0xE53935 if growing else BORDER), 0)
 
     def _apply_fm_gain(self, key, value):
         if not self._fm_controls():
@@ -3482,7 +3513,7 @@ class SdrApp:
         self._bind_active_slider()
 
     def _build_gains(self):
-        # Replace only the 400x226 HOME body below SDR RECEIVER.  Four columns are
+        # Replace only the 400x226 HOME body below SDR TRANSCEIVER. Four columns are
         # packed against its RIGHT edge, immediately beside the existing 56-px
         # right-side slot, which stays in place. AF and SQL are writable; AGC gain
         # is writable only in MAN mode. ATT remains N/A because there is no
@@ -4468,7 +4499,7 @@ class SdrApp:
         else:
             self._select_live_nco_only(wanted)
 
-    # ---- SETTINGS view (tap "SDR RECEIVER") ----
+    # ---- SETTINGS view (tap "SDR TRANSCEIVER") ----
     # A dedicated full-screen (480x272) view of firmware DSP verification controls
     # (demod / inject / tap / gain / agc / squelch / bandwidth / audio-filter /
     # kernels + live S-meter), with the VFO routing, CAL and BACKEND rows folded in
@@ -4567,6 +4598,10 @@ class SdrApp:
     def close_settings(self):
         # Return HOME and release the 50+ KB VERIFY widget tree.  Re-opening rebuilds
         # it after collecting ROUTE, which keeps the two secondary screens exclusive.
+        # A source picker may belong to this screen. Delete it before its parent
+        # and clear its rooted callbacks, including on RX/TX context changes.
+        if "settings" in _KEEP and "pick_menu" in _KEEP:
+            self.close_pick_menu()
         _KEEP.pop("settings", None)
         self._drop_settings_screen()
         self._set_modal(("pick_menu" in _KEEP) or ("gains_panel" in _KEEP))
@@ -4861,13 +4896,27 @@ class SdrApp:
         self._settings_cbs.append(back_cb)
 
         fm = self._fm_controls()
-        source = self._tx_file_label or "MIC"
-        _lbl(scr, source + (" > DC > LP 3k > FM > I/Q DAC" if fm else
-             " > %s > I/Q DAC" % self._tx_mode), 12, CYAN_RX)
+        source_row = _base(lv.obj(scr))
+        source_row.set_size(464, 28)
+        _flex(source_row, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN)
+        source_button = _btn(source_row, 352, 28, PANEL2, radius=6, border=BORDER)
+        self._set_widgets["tx-source"] = _lbl(source_button, "", 14, CYAN_RX)
+        self._set_widgets["tx-source-button"] = source_button
+        def source_cb(e):
+            self.open_tx_source_menu()
+        source_button.add_event_cb(source_cb, lv.EVENT.CLICKED, None)
+        self._settings_cbs.append(source_cb)
+        loop_button = _btn(source_row, 96, 28, PANEL2, radius=6, border=BORDER)
+        self._set_widgets["tx-loop"] = _lbl(loop_button, "", 14, CYAN_RX)
+        self._set_widgets["tx-loop-button"] = loop_button
+        def loop_cb(e):
+            self.toggle_tx_file_loop()
+        loop_button.add_event_cb(loop_cb, lv.EVENT.CLICKED, None)
+        self._settings_cbs.append(loop_cb)
         keys = self._tx_gain_keys()
         for key in keys:
             row = _base(lv.obj(scr))
-            row.set_size(464, 38)
+            row.set_size(464, 36)
             _flex(row, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN)
             title = _lbl(row, {"MIC": "AF gain", "DEV": "DEV peak", "DEPTH": "AM depth",
                                "TX": "TX LEVEL"}[key], 14, GRAY)
@@ -4892,10 +4941,9 @@ class SdrApp:
         if not fm and not self._audio_controls():
             _lbl(scr, "Audio controls require matching firmware.", 12, GRAY)
         live = _lbl(scr, "Waiting for TX status", 12, CYAN_RX)
-        live.set_size(464, 48)
+        live.set_size(464, 42)
         self._set_lbls["tx-live"] = live
-        _lbl(scr, ("FILE replaces MIC. " if self._tx_file_label else "P001 MIC. ") +
-             "P014 I / P015 Q. BACK keeps TX on.", 12, GRAY)
+        _lbl(scr, "SOURCE selects audio, not TX mode. BACK keeps TX on.", 12, GRAY)
         self._set_scr_partial = None
         return scr
 
@@ -4903,6 +4951,16 @@ class SdrApp:
         if ("settings" not in _KEEP or not self._settings_tx or
                 self._trx_state != TRX_TX):
             return
+        for key, text in (("tx-source", "SOURCE: " + (self._tx_file_label or "MIC") + "  >"),
+                          ("tx-loop", "LOOP" if self._iq_file_loop else "ONCE")):
+            label = self._set_widgets[key]
+            if label.get_text() != text:
+                label.set_text(text)
+            button = self._set_widgets[key + "-button"]
+            if self._trx_pending is None:
+                button.remove_state(lv.STATE.DISABLED)
+            else:
+                button.add_state(lv.STATE.DISABLED)
         # Read-only snapshot from the existing 2-Hz owner poll, not another timer
         # or an RX backend call. FM control values are published after setter success.
         for key in ("MIC", "DEV", "DEPTH", "TX"):
@@ -4919,10 +4977,11 @@ class SdrApp:
         maximum = status.get("dsp_max_cycles", 0)
         timing = ("%d%% max %d%%" % (100 * last // budget, 100 * maximum // budget)
                   if budget else "N/A")
-        text = ("DSP %s | PK %d | DC %d\nADC rail %d | CLIP %d | missed %d\nDAC I %s / Q %s" %
+        text = ("DSP %s | PK %d | DC %d\nADC rail %d | CLIP %d | missed %d\nFILE UND %d | DAC I %s / Q %s" %
                 (timing, status.get("audio_peak", 0), status.get("dc_estimate", 0),
                  status.get("adc_rails", 0), status.get("dsp_clips", 0),
                  status.get("dsp_deadline_misses", 0),
+                 status.get("file_underruns", 0),
                  "ON" if status.get("i_enabled") else "OFF",
                  "ON" if status.get("q_enabled") else "OFF"))
         if text != self._tx_settings_cache:
@@ -6168,7 +6227,9 @@ class SdrApp:
         if "pick_menu" in _KEEP:
             return
         self._set_modal(True)
-        scr = self.ui.get("scr-receiver")
+        # HOME and TX BACKEND share this picker. Parent it to the visible screen,
+        # otherwise opening from BACKEND creates an invisible HOME overlay.
+        scr = lv.screen_active()
         scrim = lv.obj(scr)
         scrim.add_flag(lv.obj.FLAG.FLOATING)     # ignore the screen's flex layout
         scrim.remove_flag(lv.obj.FLAG.SCROLLABLE)
@@ -6620,9 +6681,9 @@ class SdrApp:
             add("vfo-alt-%d" % k, mk(alt_cb))
         def brand_cb(e):
             if "gains_panel" in _KEEP:
-                self.close_gains_panel()         # SDR RECEIVER exits inline gains
+                self.close_gains_panel()         # title exits inline gains
             elif self._mode_expanded:
-                self._set_mode_bar(False)       # SDR RECEIVER exits any bottom control
+                self._set_mode_bar(False)       # title exits any bottom control
             else:
                 self.open_route_menu()          # level 2: VFO routing + CAL + BACKEND button
         _brand_cb = mk(brand_cb)

@@ -152,7 +152,7 @@ def test_home_mode_frequency_and_restore():
     app.open_home_choices()
     assert app._mode_expanded == 5
     assert app.ui.get('home-summary').text == 'AM | FIX | 1 kHz'
-    assert app.ui.get('brand-title').text == 'SDR TRANSMITTER'
+    assert app.ui.get('brand-title').text == 'SDR TRANSCEIVER'
     assert app.ui.get('vfo-alt-0').has_flag('hidden')
     assert 'disabled' in app.ui.get('vfo-a').states
     callback = env['callback_factory'](app, 'AM', 0)
@@ -194,7 +194,7 @@ def test_home_mode_frequency_and_restore():
     app.toggle_rx()
     app._service_trx_pending()
     assert app._trx_state == 'RX' and app.p == original
-    assert app.ui.get('brand-title').text == 'SDR RECEIVER'
+    assert app.ui.get('brand-title').text == 'SDR TRANSCEIVER'
     assert not app.ui.get('vfo-alt-0').has_flag('hidden')
     assert 'disabled' not in app.ui.get('vfo-a').states
     assert 'FIX' not in app.ui.get('home-summary').text

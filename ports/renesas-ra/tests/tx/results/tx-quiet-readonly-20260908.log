@@ -1,0 +1,12 @@
+TX quiet complaint -- read-only status sampling, no reset/source/mode changes.
+Native status fields are DADR reads, not a physical pin measurement.
+24 snapshots spaced by sleep_ms(50); GUI can extend the elapsed interval.
+No injected tone, no file source enabled. Analog cause remains unverified.
+
+QUIET_STATE TX AM 579900 None
+QUIET_SOURCE None 0 False 0
+QUIET_FIRST {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 375, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 43988.27, 'i_code': 2385, 'file_source': False, 'deviation_hz': 0, 'dsp_last_cycles': 107, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 2728, 'am_depth': 50, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 29200571, 'period_counts': 682, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 44000, 'audio_gain': 100, 'af_frames': 16434, 'mic_gain': 100, 'last_adc': 1329, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+QUIET_SAMPLED_CODES I 2366 2404 Q 2048 2048 ADC 1140 1517
+QUIET_PROGRESS 63509 34
+QUIET_LAST {'q_code': 2048, 'phase': 0, 'dsp_max_cycles': 375, 'adc_rails': 0, 'fm_gain': 2, 'unexpected_callbacks': 0, 'transfer_count': 0, 'adc_mid': 2048, 'cw_pin': None, 'keyed': False, 'i_pin': 'P014', 'mic_pin': 'P001', 'dc_estimate': 0, 'af_error': 0, 'cpu_dsp': True, 'lut_allocation_bytes': 0, 'actual_rate': 43988.27, 'i_code': 2386, 'file_source': False, 'deviation_hz': 0, 'dsp_last_cycles': 107, 'quiesced': False, 'file_underruns': 0, 'q_pin': 'P015', 'fsp_error': 0, 'amplitude': 409, 'timer_clock': 30000000, 'audio_peak': 0, 'running': True, 'owned': True, 'dsp_deadline_misses': 0, 'q_enabled': True, 'timer': 0, 'dsp_budget_cycles': 2728, 'am_depth': 50, 'mode': 1, 'outputs_enabled': True, 'dsp_samples': 29264080, 'period_counts': 682, 'af_enabled': True, 'lut_bytes': 0, 'requested_rate': 44000, 'audio_gain': 100, 'af_frames': 16468, 'mic_gain': 100, 'last_adc': 1333, 'dsp_clips': 0, 'error': 0, 'i_enabled': True}
+READ_ONLY_DIAGNOSTIC_END

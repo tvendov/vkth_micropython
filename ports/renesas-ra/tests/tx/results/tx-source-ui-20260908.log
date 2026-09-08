@@ -1,0 +1,19 @@
+2026-09-08 production UI inspection and source-menu opening, COM25.
+No reset, firmware/file upload or source/modulation/frequency change.
+SOURCE_UI_STATE TX None LSB 579400 None
+SOURCE_UI_PROFILE_LABELS ('AM', 'FM', 'USB', 'LSB', 'CW', 'R:AM', 'R:FM', 'R:USB', 'R:LSB', 'R:CW')
+SOURCE_UI_SELECTED None None True
+SOURCE_UI_FLAGS ()
+SOURCE_UI_PILL MIC False False True 0 18 48 24
+SOURCE_UI_HOME True
+SOURCE_UI_READ_ONLY_END
+GUI one-shot timer: existing agc-pill.send_event(CLICKED, None).
+SOURCE_CLICK_RESULT [True, None]
+SOURCE_MENU_TITLE TX AUDIO SOURCE
+SOURCE_MENU_ITEM MIC 22 30 False
+SOURCE_MENU_ITEM R:AM 58 30 False
+SOURCE_MENU_ITEM R:FM 94 30 False
+SOURCE_MENU_ITEM R:USB 130 30 False
+SOURCE_MENU_ITEM R:LSB 166 30 False
+SOURCE_MENU_OPEN TX LSB 579400 None None
+Physical touch and analogue DAC output not measured.

@@ -182,7 +182,7 @@ def new_app(mode="AM", log=None):
     app.update_mode = lambda: None
     app.update_step = lambda: None
     app.update_freq = lambda: None
-    app._paint_fm_status = lambda status: None
+    app._paint_tx_status = lambda status: None
     app._refresh_tx_settings = lambda status=None: None
     app._trx_state = TRX_RX
     app._trx_pending = None

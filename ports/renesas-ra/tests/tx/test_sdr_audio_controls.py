@@ -17,7 +17,8 @@ def run():
         assert 'disabled' not in app.ui.get('vol-slider').states
         assert app.ui.get('vol-value').text == '40%'
         app.open_settings()
-        assert set(app._set_widgets) == keys
+        assert set(app._set_widgets) == keys | {'tx-source', 'tx-source-button',
+                                               'tx-loop', 'tx-loop-button'}
         assert not app._gain_available('AF') and not app._apply_gain('AF', 100)
         before = dict(app.p)
         assert app._apply_gain('TX', 0) and app._apply_gain('MIC', 20)
