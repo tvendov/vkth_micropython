@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "probe": 1120000058,
+  "port": "COM25",
+  "firmware_sha256": "88f641d14e2c37dd40d4333ab8f3583009df552baca15d6f80100071cc57315c",
+  "firmware_bytes": 1596072,
+  "source_sha256": "b41b71b18a93574d0ace7251515c0613a4dc96b66d78f1e5e531c4c2b7dfae29",
+  "mpy_sha256": "cd12449adfe5b28ad90716eade51d322fa0d9af5cb9583654b2bec050f46e70c",
+  "heap_bytes": 281600,
+  "previous_sha256": "692fa2c29ed92d5a16d005c6f3669ba6a4ea18603f3731a572236b4be41181a3",
+  "firmware_readback": true,
+  "original_files_preserved": 76,
+  "reserved_qspi_4mib_identical": true,
+  "dataflash_record_identical": true,
+  "boot_main_unchanged": true,
+  "tests_written": false,
+  "opencv": false,
+  "production_started": false
+}
