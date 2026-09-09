@@ -19,11 +19,11 @@ PRE = r'''
 #include <string.h>
 #include <math.h>
 #include "ra_tone.h"
+#include "ra_tx_core.h"
 static unsigned checks;
 #define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); exit(1); } } while(0)
 #define __DMB() ((void)0)
 #define MICROPY_HW_ENABLE_IQ_ADC 1
-#define RA_TX_ERROR_NONE 0
 #define TX_WAIT_US 200
 #define __DSB() ((void)0)
 #define BSP_FEATURE_DMAC_MAX_CHANNEL 8
@@ -80,23 +80,24 @@ static bool ra_iq_adc_owns_adc(void) { return rx_owned; }
 static uint16_t s_audio_ring[2048];
 static uint32_t s_ring_head, s_ring_tail;
 static struct { unsigned audio_underruns; } s_audio;
-typedef struct {
-    bool file_source, gen_source; int mode; uint32_t sample_rate_hz; uint16_t adc_mid;
-} ra_tx_config_t;
 static struct {
     ra_tx_config_t config;
     ra_tone_smooth_t generator;
     bool ready, adc_open;
-    struct { bool running; int error; unsigned file_underruns; int af_error;
-             bool af_enabled; unsigned af_frames,timer_clock_hz,timer_period; } status;
+    ra_tx_status_t status;
+    uint16_t raw, phase;
+    uint8_t *lut;
+    struct { struct {
+        union { ra_tx_fm_state_t fm; ra_tx_ssb_state_t ssb; uint32_t am_clips; } mod;
+        ra_tx_af_state_t af;
+    } audio; } dsp;
 } tx;
-static bool ra_tx_mode_is_ssb(int mode) { return mode == 3 || mode == 4; }
+static struct { uint16_t DADR[2]; } dac;
+#define R_DAC (&dac)
+static bool tx_error(ra_tx_error_t e, int fsp) { (void)fsp; tx.status.error=e; return false; }
 static void tx_unexpected_irq(void *p) { (void)p; CHECK(false); }
 static uint16_t observed[1024];
 static unsigned observed_n;
-static void tx_cpu_sample(uint16_t raw, uint32_t began) {
-    CHECK(began == cycles.CYCCNT); observed[observed_n++] = raw;
-}
 #define LCD_SCOPE_PIXELS 128U
 #define LCD_SCOPE_FULL_SCALE 2048
 #define LCD_WATERFALL_TOP_PAD 18
@@ -149,6 +150,14 @@ int main(void) {
        at both the 24-kHz AM/FM rate and the 12-kHz SSB adapter rate. */
     for (unsigned dec = 1; dec <= 2; ++dec) {
         tx.config.file_source = true; tx.config.mode = dec == 1 ? 1 : 3;
+        tx.config.sample_rate_hz = dec == 1 ? 24000 : 12000;
+        tx.config.audio_controls = true; tx.config.audio_gain = 100;
+        tx.config.am_depth = 50; tx.config.amplitude = 400;
+        tx.config.i_zero = tx.config.q_zero = 2048;
+        tx.config.ramp_samples = 220; tx.config.fm_gain = 2;
+        CHECK(ra_tx_core_af_reset(&tx.dsp.audio.af, 0, tx.config.sample_rate_hz, 1));
+        if (dec == 2) { ra_tx_core_ssb_reset(&tx.dsp.audio.mod.ssb); }
+        tx.status.dsp_budget_cycles = 10000;
         tx.ready = tx.status.running = true;
         tx.status.error = 0; tx.status.file_underruns = 0;
         s_ring_tail = 1990; s_ring_head = (s_ring_tail + 512 * dec) & 2047;
@@ -157,7 +166,7 @@ int main(void) {
             s_audio_ring[(1990 + k) & 2047] = 2048 + (int)(600 * sin(k * 0.17));
         }
         ra_iq_adc_scope_enable(1);
-        for (unsigned k = 0; k < 512; ++k) { tx_file_callback(NULL); }
+        for (unsigned k = 0; k < 512; ++k) { tx_file_callback(NULL); observed[observed_n++] = tx.raw; }
         const int16_t *frame;
         CHECK(ra_iq_adc_scope_frame(&frame, &n) && n == 512);
         CHECK(observed_n == 512 && s_ring_tail == s_ring_head);
@@ -165,9 +174,11 @@ int main(void) {
         CHECK(!ra_iq_adc_scope_frame(&frame, &n));
         CHECK(!tx.status.file_underruns);
         tx_file_callback(NULL);
+        observed[observed_n++] = tx.raw;
         CHECK(observed[512] == 2048 && tx.status.file_underruns == 1);
         ra_iq_adc_scope_enable(0);
         tx_file_callback(NULL);
+        observed[observed_n++] = tx.raw;
         CHECK(!ra_iq_adc_scope_frame(&frame, &n));
         CHECK(observed_n == 514); /* OFF stops display, NOT source/modulation */
     }
@@ -177,14 +188,61 @@ int main(void) {
     tx.adc_open = false; observed_n = 0;
     CHECK(ra_tone_smooth_init(&tx.generator, 24000, 1, 10000, 2047, RA_TONE_SINE));
     CHECK(ra_tx_hw_scope_enable(true) && !tx_scope.open);
-    for (unsigned k = 0; k < 512; ++k) { tx_gen_callback(NULL); }
+    for (unsigned k = 0; k < 512; ++k) { tx_gen_callback(NULL); observed[observed_n++] = tx.raw; }
     const int16_t *gen_frame;
     CHECK(ra_iq_adc_scope_frame(&gen_frame, &n) && n == 512);
     CHECK(observed_n == 512 && observed[0] == 2048);
     for (unsigned k = 0; k < n; ++k) { CHECK(gen_frame[k] == (int)observed[k] - 2048); }
     CHECK(ra_tx_hw_scope_enable(false));
     tx_gen_callback(NULL);
+    observed[observed_n++] = tx.raw;
     CHECK(observed_n == 513 && !ra_iq_adc_scope_frame(&gen_frame, &n));
+    /* The actual common C sample body must send POST-filter AF to both scope
+       and modulator, independently of MIC/FILE/GEN and AM/USB/LSB. */
+    for (unsigned mode = 0; mode < 3; ++mode) {
+        for (unsigned source = 0; source < 3; ++source) {
+            tx.config.mode = (ra_tx_mode_t[]){RA_TX_MODE_AM,RA_TX_MODE_USB,RA_TX_MODE_LSB}[mode];
+            tx.config.sample_rate_hz = mode ? 12000 : 24000;
+            tx.config.audio_cutoff = 1800;
+            tx.config.adc_mid = source ? 2048 : 1024;
+            tx.config.file_source = source == 1; tx.config.gen_source = source == 2;
+            tx.adc_open = source == 0;
+            ra_tx_core_ssb_reset(&tx.dsp.audio.mod.ssb);
+            CHECK(ra_tx_core_af_reset(&tx.dsp.audio.af, 1800, tx.config.sample_rate_hz, 1));
+            CHECK(ra_tone_smooth_init(&tx.generator, tx.config.sample_rate_hz, 1, 30000, 500, RA_TONE_SINE));
+            tx.status.timer_clock_hz = tx.config.sample_rate_hz; tx.status.timer_period = 1;
+            ra_tx_af_state_t reference = tx.dsp.audio.af;
+            ra_tx_ssb_state_t ssb;
+            ra_tx_core_ssb_reset(&ssb);
+            uint32_t clips = 0;
+            int16_t expected[512];
+            s_ring_tail = 0; s_ring_head = mode ? 1024 : 512;
+            for (unsigned k = 0; k < 512; ++k) {
+                uint16_t raw = 2048 + (int)(500 * sin(2 * 3.141592653589793 * 3000 * k / tx.config.sample_rate_hz));
+                if (mode) { s_audio_ring[2*k] = s_audio_ring[2*k+1] = raw; }
+                else { s_audio_ring[k] = raw; }
+            }
+            CHECK(ra_tx_hw_scope_enable(true) && !tx_scope.open);
+            unsigned changed = 0;
+            for (unsigned k = 0; k < 512; ++k) {
+                if (source == 2) { tx_gen_callback(NULL); }
+                else if (source == 1) { tx_file_callback(NULL); }
+                else { tx_cpu_sample(1024 + (int)(500 * sin(k * .79)), cycles.CYCCNT); }
+                uint16_t audio = ra_tx_core_af_sample(&reference, tx.raw, tx.config.adc_mid);
+                expected[k] = (int)audio - tx.config.adc_mid;
+                changed += audio != tx.raw;
+                uint16_t i, q;
+                if (!mode) {
+                    i = ra_tx_core_am_sample(&tx.config, audio, &clips); q = tx.config.q_zero;
+                } else { ra_tx_core_ssb_sample(&ssb, &tx.config, audio, &i, &q); }
+                CHECK(dac.DADR[0] == i && dac.DADR[1] == q);
+            }
+            CHECK(changed > 200);
+            CHECK(ra_tx_hw_scope_frame(&gen_frame, &n, &rate) && n == 512 && rate == tx.config.sample_rate_hz);
+            for (unsigned k = 0; k < n; ++k) { CHECK(gen_frame[k] == expected[k]); }
+            CHECK(ra_tx_hw_scope_enable(false));
+        }
+    }
     uint16_t value = 99;
     CHECK(!ra_iq_adc_file_audio_next(&value, 3) && value == 99);
     CHECK(!ra_iq_adc_file_audio_next(NULL, 1));
@@ -209,7 +267,7 @@ int main(void) {
     CHECK(y[0] == 43);
     CHECK(!lcd_scope_prepare_rate(input, 512, &area, y, 0));
     CHECK(!lcd_scope_prepare_rate(input, 255, &area, y, 24000));
-    printf("PASS TX FILE/GEN AF actual C: %u checks; smoothed GEN, wrap, exact modulator/trace samples, underrun, OFF, scales\n", checks);
+    printf("PASS TX MIC/FILE/GEN AF actual C: %u checks; AM/USB/LSB post-filter scope=DAC input, wrap, underrun, OFF, scales\n", checks);
     return 0;
 }
 '''
@@ -225,10 +283,10 @@ def main():
     lcd = (PORT / 'boards/VK_RA6M3/machine_lcd.c').read_text(encoding='utf-8')
     globals_ = '\n'.join(re.search(r'^static [^\n;]*\b' + name + r'\b[^;]*;', rx, re.M)[0]
                         for name in ('s_scope_audio', 's_scope_wr', 's_scope_half', 's_scope_ready', 's_scope_enable'))
-    funcs = extract(header, 'ra_tx_software_source') + '\n'
-    funcs += '\n'.join(extract(rx, name) for name in ('ra_iq_adc_scope_enable',
+    funcs = '\n'.join(extract(rx, name) for name in ('ra_iq_adc_scope_enable',
         'ra_iq_adc_scope_workspace', 'ra_iq_adc_scope_push', 'ra_iq_adc_scope_frame',
         'ra_iq_adc_file_audio_next'))
+    funcs += '\n' + extract(hw, 'tx_cpu_sample')
     funcs += '\n' + extract(hw, 'tx_file_callback')
     funcs += '\n' + extract(hw, 'tx_gen_callback')
     globals_ += '\n' + re.search(r'static struct \{[^}]*\} tx_scope;', hw)[0]
@@ -241,7 +299,7 @@ def main():
         env = dict(os.environ)
         env['PATH'] = str(Path(args.cc).parent) + os.pathsep + env.get('PATH', '')
         subprocess.run([args.cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
-                        '-I', str(PORT / 'ra'), str(c), str(PORT / 'ra/ra_tone.c'),
+                        '-I', str(PORT / 'ra'), str(c), str(PORT / 'ra/ra_tone.c'), str(PORT / 'ra/ra_tx_core.c'),
                         '-lm', '-o', str(exe)], check=True, env=env)
         subprocess.run([str(exe)], check=True, env=env)
 

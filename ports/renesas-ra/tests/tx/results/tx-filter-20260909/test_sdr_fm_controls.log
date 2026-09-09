@@ -1,0 +1,7 @@
+PASS FM UI: separate controls, 0/100% TX level, rollback, RX restore and non-FM guards
+PASS FM persistence scheduling: no flash save in TX; deferred save after RX
+SDR saved: b'{"V": [[14205000, "USB"], [7100000, "LSB"], [30000000, "FM"]], "A": 0, "R": [1, 1, 1], "C": 17.76, "s": 1000, "v": 72, "a": "FAST", "f": 14205000, "m": "USB", "B": [6000, 6000, 2400, 2400, 500], "TB": [0, 0, 0], "X": 0, "E": 1, "G": 1.0, "T": 0.5, "qe": 0, "qa": 1.0, "qp": 0.0, "txdev": 5000, "txmic": 1600, "txlevel": 100, "txdepth": 100, "genfreq": 10000, "genlevel": 50, "genwave": 0}'
+SDR saved: b'{"V": [[40000000, "USB"], [40000000, "USB"], [40000000, "USB"]], "A": 0, "R": [1, 1, 1], "C": -200.0, "s": 1000, "v": 72, "a": "SLOW", "f": 40000000, "m": "USB", "B": [6000, 6000, 2400, 2400, 500], "TB": [0, 0, 0], "X": 0, "E": 1, "G": 64.0, "T": 0.5, "qe": 0, "qa": 1.5, "qp": -0.5, "txdev": 5000, "txmic": 1600, "txlevel": 100, "txdepth": 100, "genfreq": 10000, "genlevel": 50, "genwave": 0}'
+PASS FM dataflash record: roundtrip, old-record defaults and 512-byte bound
+PASS BACKEND: contextual route, FM callbacks, read-only other TX, BACK keeps TX, RX restore, failure cleanup
+Host-only actual Python methods; LVGL layout/touch, device and RF NOT VERIFIED.

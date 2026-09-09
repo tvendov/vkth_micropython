@@ -1,0 +1,42 @@
+Compiling test_tx_core with: C:/msys_64/mingw64/bin/gcc.exe
+PASS validation: full 16-bit ADC midpoint/amplitude/offset domains and mode/rate/gain/ramp boundaries
+PASS bank contract: mode sizes, alignment/allocation bounds, CW no LUT, invalid calls preserve memory
+PASS AM: compact 4096-entry LUT, all ADC codes, calibration/headroom extremes and guards
+PASS FM planar LUT and SAR model: every 16-bit phase, I/Q planes, axis points and guards
+PASS FM bias and DOC model: all midpoint biases, 196608 ADC/phase cases, wrap and low-bit retention
+PASS CW ramps: every length 1..256, rising/falling/constant, exact endpoints, reversal and no-op
+PASS integer CW scaling: all lengths/shapes, symmetric rounding, DAC/full-word extremes and reversal
+PASS SSB validation/DC: fixed rate, both DAC headrooms, no LUT, biased-input priming and state guards
+SSB quantisation mean mode=3 Hz=2400 I=0.200000 Q=0.000000 DAC codes
+SSB quantisation mean mode=4 Hz=2400 I=0.200000 Q=0.000000 DAC codes
+PASS SSB actual C output: 56 USB/LSB tones 300..3000 Hz, worst image rejection 67.85 dB
+PASS SSB stream: arbitrary chunk boundaries identical, USB/LSB conjugate, restart, overdrive and DAC limits
+PASS SSB stopband and matched I/Q delay: 3.5..5.5 kHz rejection, 127-sample group delay
+PASS voice FM validation/DC: actual-rate guards, arbitrary bias, DC-step settling, carrier at silence
+PASS voice FM tones: 1 kHz, deviations 100/2500/4000/5000 Hz at three actual rates; independent DAC level
+PASS voice FM stream: arbitrary chunks, bias invariance, live phase continuity, limiter, ADC rails and restart
+PASS voice FM conditioning: 3-kHz Butterworth knee and 10-kHz rejection; no pre-emphasis claimed
+PASS FILE configuration: AF rates/midpoint, CPU path, CW/raw-FM rejection
+PASS normalized AM: all ADC codes and 101 levels, depth/gain bounds, mute, MIC/FILE no bank and legacy LUT preserved
+PASS USB/LSB separate AF gain and LEVEL: proportional I/Q, zero output, unchanged stream history
+PASS actual C TX core: 18 groups, 8403968 checks
+Compiling test_tx_filter with: C:/msys_64/mingw64/bin/gcc.exe
+PASS TX AF core: 1531595 checks; response/DC/bypass/queued fades/stream history; state=308 B
+Compiling test_tone with: C:/msys_64/mingw64/bin/gcc.exe
+PASS monitor: two 250-ms windows, explicit history reset, retained config, low-level rejection
+FM existing DC-servo residual at GEN mute: worst 0.018775 Hz (2500-Hz deviation, unity gain)
+PASS tone DDS: sine error<2 codes; rational rate; phase/mute; waveforms; GEN mode validation
+PASS selected-tone detector: independent tones/DC/noise/neighbor/acquire/release; not protocol certification
+State bytes: generator=12 detector=80; no board/DAC/RF tested
+Compiling test_gen_transitions with: C:/msys_64/mingw64/bin/gcc.exe
+PASS envelope: rational Fs, 20-ms slew rounded to a sample, muted frequency/wave switch, phase, retarget, exact settled DDS; state=28
+GEN transitions mode=1 smooth=1 clips=0 (24 phase offsets, 14 stages)
+GEN full-scale square mode=1 clips=0 (real overload retained)
+GEN transitions mode=2 smooth=1 clips=0 (24 phase offsets, 14 stages)
+GEN full-scale square mode=2 clips=1851 (real overload retained)
+GEN transitions mode=3 smooth=1 clips=0 (24 phase offsets, 14 stages)
+GEN full-scale square mode=3 clips=1799 (real overload retained)
+GEN transitions mode=4 smooth=1 clips=0 (24 phase offsets, 14 stages)
+GEN full-scale square mode=4 clips=1799 (real overload retained)
+PASS GEN 1-kHz startup and level transitions; no board/analog/RF tested
+Host C math/address-model tests only; target registers, ISR counts and RF are NOT VERIFIED.

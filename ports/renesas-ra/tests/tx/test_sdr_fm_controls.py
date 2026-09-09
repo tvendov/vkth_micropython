@@ -15,12 +15,15 @@ from test_sdr_tx_switch import SOURCE, TREE, UI_SOURCE
 CONSTANTS = {
     'DEFAULTS', 'DEF_VFOS', 'TARGETS', 'F_MIN', 'F_MAX', 'MODES', 'STEPS',
     'MODE_BW', 'BW_CHOICES', 'AGC_MODES', 'AGC_TARGET_MIN', 'AGC_TARGET_MAX',
+    'TX_AF_MODES', 'TX_AF_CHOICES',
     'CAL_PPM_MIN', 'CAL_PPM_MAX', 'MAGIC', 'DF_BLOCK', 'DF_LIMIT',
     'DF_HEADER_BYTES', 'DF_PAYLOAD_LIMIT', 'SAVE_DELAY_MS',
     'TRX_RX', 'TRX_RX_OFF', 'TRX_TX', 'TRX_TO_TX', 'TRX_TO_RX', 'TRX_FAULT',
 }
 METHODS = {
     '_audio_controls', '_tx_gain_keys', '_apply_audio_gain', '_service_tx_audio',
+    '_tx_filter_controls', '_request_tx_filter', '_service_tx_filter', 'open_tx_filter_menu',
+    '_home_bandwidth_text',
     '_fm_controls', '_sync_tx_controls', '_paint_tx_status', '_apply_fm_gain',
     '_gain_spec', '_gain_available', '_paint_gain_pin', '_apply_gain',
     '_refresh_gains', '_bind_active_slider', 'touch_params', 'set_volume', 'update_vol',
@@ -95,6 +98,7 @@ def namespace():
     env = {'_KEEP': {}, 'WHITE': 0xffffff, 'BORDER': 0x444444,
            'GRAY': 0x888888, 'CYAN_RX': 0x00aaaa, 'PANEL2': 0xffffff, 'BG_RX': 0,
            'gc': gc, '_base': lambda w: w, '_flex': lambda w, *a: w,
+           'fmt_bw': lambda hz: '%gk' % (hz / 1000),
            '_lbl': label, '_btn': button, 'font': lambda n: n,
            'lv': types.SimpleNamespace(color_hex=lambda c: c,
                 obj=Widget, label=Widget, button=Widget, screen_load=lambda scr: None,
@@ -123,6 +127,8 @@ def new_app(env):
     app._tx_settings_cache = None
     app._trx_pending = None
     app._tx_audio_request = None
+    app._tx_filter_request = None
+    app._tx_rx_snapshot = None
     app._active_gain = 'AF'
     app._rx_active_gain = 'AF'
     app._gain_candidate = 'AF'
@@ -159,7 +165,7 @@ def test_controls(env):
     app._trx_state, app._tx_mode = 'TX', 'FM'
     app._sync_tx_controls()
     assert app._active_gain == 'TX'
-    assert app.ui.get('vol-label').text == 'TX'
+    assert app.ui.get('vol-label').text == 'PWR'
     assert app.ui.get('vol-value').text == '40%'
     assert 'disabled' not in app.ui.get('agc-pill').states
     assert app.ui.get('agc-value').text == 'MIC'
@@ -300,14 +306,15 @@ def test_backend_context(env):
     assert app._trx_state == 'TX' and app._tx is owner
     # Other modes also get TX, not RX VERIFY. Unsupported live control is disabled.
     app._tx_mode = 'USB'
+    app._tx_rx_snapshot = {}
     app._sync_tx_controls()
-    assert app.ui.get('vol-label').text == 'TX'
+    assert app.ui.get('vol-label').text == 'PWR'
     assert app.ui.get('vol-value').text == '39%'
     assert 'disabled' in app.ui.get('vol-slider').states
     app.open_settings()
     assert app._settings_tx and not rx_builds
     assert set(app._set_widgets) == {'tx-TX', 'tx-source', 'tx-source-button',
-                                    'tx-loop', 'tx-loop-button'}
+                                    'tx-loop', 'tx-loop-button', 'tx-filter', 'tx-filter-button'}
     tx_row = app.ui.w['scr-settings'].children[2]
     assert 'disabled' in tx_row.children[-1].states
     app._trx_state = 'TO_RX'

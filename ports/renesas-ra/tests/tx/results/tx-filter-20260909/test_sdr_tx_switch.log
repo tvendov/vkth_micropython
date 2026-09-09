@@ -1,0 +1,3 @@
+PASS R:AM/R:USB/R:LSB -> FILE TX, AF label, hidden/OFF feed, EOF drain, teardown
+PASS SDR TX switch: source contract, guards, ownership, rollback, labels, Si5351 RX/TX clocks
+Host-only mocks/AST; no LVGL runtime, target registers, analog output or RF verified.

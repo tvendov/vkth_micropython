@@ -1,0 +1,3 @@
+PASS TX warnings: AM/USB/LSB/FM/CW poll, RX stale colours,
+independent event deltas, identical-snapshot clear, cumulative history retained.
+Host source methods only; no target rendering, analogue or RF proof.

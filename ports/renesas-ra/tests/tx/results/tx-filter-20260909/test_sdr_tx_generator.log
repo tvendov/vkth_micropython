@@ -1,0 +1,2 @@
+PASS GEN owner: AM/USB/LSB/FM; x1 synth before start; no FILE fallback; AF GEN
+PASS GEN UI: source, frequency/level/wave, bounded picker, native failure rollback, pending guard

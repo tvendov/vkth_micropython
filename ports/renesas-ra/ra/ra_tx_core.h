@@ -6,6 +6,36 @@
 
 #define RA_TX_SSB_TAPS (255U)
 #define RA_TX_SSB_RING (256U)
+
+/* Optional common MIC/FILE/GEN AF conditioner. 100-Hz high-pass (2 poles),
+ * selected upper corner low-pass (4 poles), Butterworth sections. Coefficients
+ * Q28, histories Q12. All float work is control-time; no sample allocation.
+ * Two banks crossfade for 20 ms; a single coalescing pending target allows
+ * rapid UI changes without resetting the modulation phase/Hilbert history. */
+typedef struct {
+    int32_t coefficient[3][5]; /* b0,b1,b2,a1,a2 */
+    uint16_t cutoff;
+} ra_tx_af_config_t;
+typedef struct {
+    ra_tx_af_config_t config;
+    int32_t history[3][4]; /* x1,x2,y1,y2 */
+    bool primed;
+} ra_tx_af_bank_t;
+typedef struct {
+    ra_tx_af_bank_t bank[2];
+    ra_tx_af_config_t pending;
+    uint16_t fade_length, fade_position;
+    uint8_t active;
+    bool pending_valid;
+    uint32_t clips;
+} ra_tx_af_state_t;
+
+bool ra_tx_core_af_prepare(ra_tx_af_config_t *out, uint16_t cutoff,
+    uint32_t clock_hz, uint32_t period);
+bool ra_tx_core_af_reset(ra_tx_af_state_t *state, uint16_t cutoff,
+    uint32_t clock_hz, uint32_t period);
+void ra_tx_core_af_request(ra_tx_af_state_t *state, const ra_tx_af_config_t *prepared);
+uint16_t ra_tx_core_af_sample(ra_tx_af_state_t *state, uint16_t raw, uint16_t midpoint);
 typedef struct {
     int16_t history[RA_TX_SSB_RING];
     uint16_t next;

@@ -1,0 +1,2 @@
+PASS AM/USB/LSB HOME and BACKEND: actual callbacks, queued/coalesced native controls, 0/100% level, preserved FILE owner, deferred save, failure rollback and context change
+Host only. Analog amplitude, board timing and LVGL touch/layout NOT VERIFIED.

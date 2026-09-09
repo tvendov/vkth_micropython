@@ -4,6 +4,94 @@
 този файл и `ra6_sdr_next_steps.md`, без напомняне. Записите разграничават
 анализ, реализация, хост тест, build, качване и физическо измерване.
 
+## 2026-09-09: TX аудиолента AM/USB/LSB и PWR — source/host/build, без качване
+
+Изпълнена е одобрената разработка за MIC, R:xx и GEN. AM получава
+BASE/2k/3k/4.5k/6k, USB/LSB — BASE/1.8k/2.4k/2.7k/3k. Числото е горна
+AF граница, не RX IF ширина. Новият филтър е HP100 Hz + LP4-ти ред;
+BASE го заобикаля, но оставя native SSB и FILE anti-alias защитата.
+Изборът не рестартира owner/файла. Две състояния и една последна заявка
+осигуряват 20 ms смесване; коефициентите се изчисляват извън sample ISR.
+
+PWR означава наличното линейно I/Q изходно ниво 0–100%, НЕ измерени
+ватове. Не е променена амплитудната скала и не е добавена RF калибрация.
+Scope показва AF след избрания филтър, преди AF gain/ограничител/PWR.
+RX VOL/bw и TX txlevel/txbw са отделни; TX save се изпълнява след RX.
+Няма нов framebuffer, per-sample Python или промяна по синтезатора.
+
+Промените по файлове са спрямо firmware repository, префикс
+`ports/renesas-ra/`:
+
+| Файл | Направено |
+| --- | --- |
+| `ra/ra_tx_core.h` | AF coefficient/bank/state типове и prepare/reset/request/sample API |
+| `ra/ra_tx_core.c` | Q28 коефициенти, Q12 история, три biquad секции; live crossfade/коалесциране, bypass и clips; mode/rate guards |
+| `ra/ra_tx_hw.h` | audio_cutoff конфигурация; active/pending/clips статус; уточнен scope договор |
+| `ra/ra_tx_hw.c` | Общ post-filter CPU sample вход MIC/FILE/GEN, live setter без restart; AF state в CW union; отделни clip counters |
+| `machine_tx.c` | Конструктор и audio_configure(audio_cutoff), диапазони и AUDIO_FILTER_API_VERSION=1; четири status полета |
+| `boards/VK_RA6M3/examples/sdr_single.py` | HOME хоризонтални профили, BACKEND AF upper; worker TX_FILTER; TB миграция/запис; PWR обозначения; подготовка на верен FILE HOME надпис преди start |
+| `boards/VK_RA6M3/examples/README_IQTX_BG.md` | Инструкция за AF/PWR, BASE/FIX, AF срещу RF ширина, отделно/deferred запазване и граници на доказателството |
+| `tests/tx/run_host_tests.py` | Добавен преносимият C филтърен набор |
+| `tests/tx/test_tx_filter.c` | Нов: честотен отговор, DC, bypass, валидиране, преходи/последна заявка, state/chunk/rail stress |
+| `tests/tx/test_sdr_tx_filter.py` | Нов: действителни HOME/BACKEND callbacks, трите входа/режима, TX/RX independence, migration, owner continuity и откази |
+| `tests/tx/test_tx_af.py` | Изпълнява действителния tx_cpu_sample и modulators; scope sample съвпада с филтрирания вход за всичките 9 source/mode комбинации |
+| `tests/tx/test_am_mic_dispatch.py` | Актуализирана структура на C harness, запазен реалният ADC callback тест |
+| `tests/tx/test_audio_native_control.py` | Проверка на native filter request, MIC/FILE/GEN, липса на restart и запазване на filter state при PWR |
+| `tests/tx/test_sdr_audio_controls.py` | Новият backend filter ред и съществуващи AM/SSB scalar/power callbacks |
+| `tests/tx/test_sdr_fm_controls.py` | PWR надпис, нови constants/methods в harness, отделен RX/TX контекст и persistence регресия |
+| `tests/tx/test_sdr_tx_home.py` | Реалните TX filter методи; регресия на HOME state5 и новия filter state6 |
+| `tests/tx/results/tx-filter-20260909/` | Финални host/build протоколи, build команда, artifact SHA/ELF символи; изрично без deployment |
+| `boards/VK_RA6M3/examples/project-status/ra6m3_done.md` | Огледало на каноничния дневник с тази итерация |
+| `boards/VK_RA6M3/examples/project-status/ra6_sdr_next_steps.md` | Огледало на каноничния план с оставащите upload/HIL проверки |
+
+Каноничният `SDR_TRANCEIVER_RA6M3/sdr_single.py` е синхронизиран с Git
+копието след проверка, че предишното му съдържание не е променяно отвън.
+Текущ SHA256: `b41b71b18a93574d0ace7251515c0613a4dc96b66d78f1e5e531c4c2b7dfae29`.
+
+Проверки:
+
+- 14 Python-driven host набора PASS. Включени са действителни извлечени
+  Python/C функции, но LVGL/peripheral граничните обекти са doubles.
+- C основа: 18 групи, 8 403 968 проверки PASS; AF filter: 1 531 595 PASS;
+  tone/DDS и GEN transitions регресиите PASS. AF source/dispatch: 11 255 PASS.
+- Тестовият голям record е 404/506 B payload; native dataflash НЕ е писан.
+- RadioOnly `build-VK_RA6M3`, `MICROPY_PY_CV2_QSPI=0 USER_C_MODULES=`,
+  native `/mingw64/bin/python3.exe`, `-j16`: PASS. Остава linker RWX warning.
+- ELF text 1 596 085, data0, BSS649912 B. Предишен text1 594 549: +1536 B;
+  BSS е същият. `tx` е 1592 вместо1580 B (+12), AF state308 B е в стария
+  1024-B CW workspace. `g_heap` е на1fff7038, размер0x44c00=281600 B и
+  в двата ELF. Това е linker резерв, не измерен свободен GUI heap.
+- BIN1596072 B, SHA256 `88f641d14e2c37dd40d4333ab8f3583009df552baca15d6f80100071cc57315c`.
+- MPY compile `-march=armv7emsp -O2`: PASS,94066 B; SHA256
+  `cd12449adfe5b28ad90716eade51d322fa0d9af5cb9583654b2bec050f46e70c`.
+
+Git iteration tag: `vk-ra6m3-tx-audio-band-drive-v1`. Няма push, upload,
+COM/J-Link, reset, нов HIL или физически/RF резултат. Двойното филтриране
+при crossfade и CPU MIC scope изискват реално измерване на deadline
+преди production приемане. Отложените Si5351 и аналогови проверки
+остават отложени; старият production лог не се представя за ново измерване.
+
+## 2026-09-09: отлагане на Si5351/IQ проверките и предложение за TX филтър
+
+Потребителят отложи непосредствено предложените проверки на Si5351
+при RX↔TX и физическите AM/USB/LSB I/Q измервания. Незатворените
+резултати остават записани; не се маркират като поправени или измерени.
+
+- `ra6_sdr_next_steps.md`: отлагането е изведено пред стария ред на
+  тестовете. Следващо ПРЕДЛОЖЕНИЕ: настройваем native TX аудиофилтър
+  за AM/USB/LSB със съществуващите контекстни контроли и отделни TX
+  настройки; първо source/mode договор и допустими профили.
+- `sdr_single.py` е само прочетен: TX надписът е `FIX`, менюто
+  `open_filter_menu()` е read-only `TX FILTER: FIXED` с един `BACK`.
+- `machine_tx.c` е само прочетен: FILE SSB задава `RA_IQ_AF_VOICE`
+  като anti-alias преди24→12 kS/s. Бъдещият избор не бива да премахва
+  тази защита; не е направена промяна във филтри или rates.
+- `ra6m3_done.md` и Git работните копия на двата дневника са обновени.
+
+Няма implementation, build, flash, reset или нов HIL. Приложението
+не е командвано; предишният production-start лог е последното
+проверено състояние, не ново текущо измерване.
+
 ## 2026-09-09: HF AM/USB/LSB с MIC/R:xx — цифрови проверки и отворен Si5351 отказ
 
 Изпълнен е HF тестовият план, без работа по репитърна сигнализация.

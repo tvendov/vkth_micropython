@@ -1008,6 +1008,11 @@ TX_MODES = ("AM", "FM", "CW", "USB", "LSB")
 # RA6M3 backend demod names.
 MODE_DEMOD = {"AM": "am", "FM": "fm", "USB": "usb", "LSB": "lsb", "CW": "cw"}
 MODE_BW = {"AM": 6000, "FM": 6000, "USB": 2400, "LSB": 2400, "CW": 500}
+# Upper AUDIO corner, not RX IF bandwidth. BASE (0) keeps the native path.
+TX_AF_MODES = ("AM", "USB", "LSB")
+TX_AF_CHOICES = {"AM": (0, 2000, 3000, 4500, 6000),
+                 "USB": (0, 1800, 2400, 2700, 3000),
+                 "LSB": (0, 1800, 2400, 2700, 3000)}
 # selectable IF bandwidths per mode (the P1 filter menu picks from these; P0
 # only stores and displays the per-mode default)
 BW_CHOICES = {"AM":  (3000, 4000, 6000, 9000),
@@ -1099,6 +1104,7 @@ def _fresh_params():
     out["rt"] = [1, 1, 1]
     out["cal"] = 17.76
     out["bw"] = dict(MODE_BW)     # per-mode IF bandwidth (filter_bandwidth)
+    out["txbw"] = dict((m, 0) for m in TX_AF_MODES)  # separate TX AF profiles
     out["rxauto"] = 0             # rx_autostart: RX was on when last saved
     out["beon"] = 1               # backend_enabled: master IQADC/DAC switch
     out["again"] = 1.0            # agc_manual_gain
@@ -1169,6 +1175,11 @@ def load_params():
                 if v in BW_CHOICES[m]:
                     out["bw"][m] = v
         out["rxauto"] = 1 if p.get("X") else 0
+        txbws = p.get("TB")
+        if isinstance(txbws, list) and len(txbws) == len(TX_AF_MODES):
+            for m, value in zip(TX_AF_MODES, txbws):
+                if isinstance(value, int) and value in TX_AF_CHOICES[m]:
+                    out["txbw"][m] = value
         out["beon"] = 0 if p.get("E") == 0 else 1
         try:
             out["again"] = min(max(float(p.get("G", 1.0)), 0.0), 64.0)
@@ -1212,6 +1223,7 @@ def save_params(p):
                "s": p["s"], "v": p["v"], "a": p["a"],
                "f": p["f"], "m": p["m"],  # f/m kept for v1 readers
                "B": [bw.get(m, MODE_BW[m]) for m in MODES],
+               "TB": [p.get("txbw", {}).get(m, 0) for m in TX_AF_MODES],
                "X": 1 if p.get("rxauto") else 0,
                "E": 1 if p.get("beon", 1) else 0,
                "G": round(float(p.get("again", 1.0)), 3),
@@ -1745,6 +1757,7 @@ class SdrApp:
         self._tx_rx_snapshot = None      # RX mode/frequency/step restored on TX exit
         self._tx_reconfigure = None      # deferred HOME request, not an ISR command
         self._tx_audio_request = None    # coalesced gain/depth/level; no FILE rewind
+        self._tx_filter_request = None
         self._trx_error = None
         self._trx_cleanup_failures = 0
         self._tx = None              # GC root for the exclusive machine.IQTX owner
@@ -2421,6 +2434,7 @@ class SdrApp:
         self._tx_source_settings = None
         self._tx_reconfigure = None
         self._tx_audio_request = None
+        self._tx_filter_request = None
         self.update_rx()
         # Restore the SAME receiver route and its x4 multiplier before IQADC can
         # sample or the RX DAC can play. start_rx() still queues the usual tagged
@@ -2528,6 +2542,8 @@ class SdrApp:
                 kwargs["am_depth"] = self.p.get("txdepth", 50)
                 peak = 1023 if mode_name == "AM" else 2047
                 kwargs["amplitude"] = (peak * self.p.get("txlevel", 40) + 50) // 100
+                if getattr(IQTX, "AUDIO_FILTER_API_VERSION", 0) >= 1:
+                    kwargs["audio_cutoff"] = self.p.get("txbw", {}).get(mode_name, 0)
             tx = IQTX(**kwargs)
             self._tx = tx
             self._tx_mode = mode_name
@@ -2671,6 +2687,8 @@ class SdrApp:
             self._service_tx_reconfigure()
         elif target == "TX_AUDIO":
             self._service_tx_audio()
+        elif target == "TX_FILTER":
+            self._service_tx_filter()
         elif target == TRX_RX:
             self._service_to_rx()
         return True
@@ -2953,8 +2971,15 @@ class SdrApp:
         ui.get("scope-view").set_text(scope_text)
 
     def _home_bandwidth_text(self):
-        # No RX channel-filter setter is wired into the native TX owner.
-        return "FIX" if self._tx_rx_snapshot is not None else fmt_bw(self.cur_bw())
+        if self._tx_rx_snapshot is None:
+            return fmt_bw(self.cur_bw())
+        # Also describe the PREPARED owner while FILE HOME is painted before
+        # tx.start(). The writable-control guard intentionally requires TX.
+        if (self._tx_mode not in TX_AF_MODES or
+                getattr(self._tx, "AUDIO_FILTER_API_VERSION", 0) < 1):
+            return "FIX"
+        hz = self.p.get("txbw", {}).get(self._tx_mode, 0)
+        return fmt_bw(hz) if hz else "BASE"
 
     def _refresh_home_context(self):
         tx = self._tx_rx_snapshot is not None
@@ -3267,6 +3292,42 @@ class SdrApp:
         return (self._trx_state == TRX_TX and self._tx_mode in ("AM", "USB", "LSB")
                 and callable(getattr(self._tx, "audio_configure", None)))
 
+    def _tx_filter_controls(self):
+        return (self._audio_controls() and
+                getattr(self._tx, "AUDIO_FILTER_API_VERSION", 0) >= 1)
+
+    def _request_tx_filter(self, hz):
+        if (not self._tx_filter_controls() or self._trx_pending not in (None, "TX_FILTER")
+                or hz not in TX_AF_CHOICES[self._tx_mode]):
+            return False
+        self._tx_filter_request = hz
+        self._trx_pending = "TX_FILTER"
+        return True
+
+    def _service_tx_filter(self):
+        hz = self._tx_filter_request
+        self._tx_filter_request = None
+        if hz is None or not self._tx_filter_controls():
+            return False
+        try:
+            self._tx.audio_configure(audio_cutoff=hz)
+        except Exception as e:
+            self._queue_rx_cleanup("TX filter: %r" % (e,))
+            return False
+        self.p.setdefault("txbw", {})[self._tx_mode] = hz
+        self.touch_params()
+        self._refresh_home_context()
+        self._refresh_tx_settings()
+        return True
+
+    def open_tx_filter_menu(self):
+        if not self._tx_filter_controls() or self._trx_pending is not None:
+            return
+        choices = TX_AF_CHOICES[self._tx_mode]
+        self.open_pick_menu("TX AF upper Hz / BASE = native",
+            tuple((hz, fmt_bw(hz) if hz else "BASE") for hz in choices),
+            self.p.get("txbw", {}).get(self._tx_mode, 0), self._request_tx_filter)
+
     def _tx_gain_keys(self):
         if self._fm_controls():
             return ("MIC", "DEV", "TX")
@@ -3303,8 +3364,8 @@ class SdrApp:
             self._tx.audio_configure(audio_gain=gain, am_depth=depth,
                                      amplitude=(peak * level + 50) // 100)
         except Exception as e:
-            # A failed checked MIC stop/restart is not a cosmetic slider error.
-            # Retain the old saved settings and hand control to checked cleanup.
+            # Retain the saved values on native rejection/owner failure and
+            # hand control to checked cleanup; no optimistic UI-only change.
             self._queue_rx_cleanup("TX audio: %r" % (e,))
             return False
         self.p["txmic"], self.p["txdepth"], self.p["txlevel"] = request
@@ -3465,7 +3526,8 @@ class SdrApp:
         else:
             pin.remove_state(lv.STATE.CHECKED)
         self.ui.get("vol-label").set_text(
-            "VOL" if self._gain_candidate == "AF" else self._gain_candidate)
+            "VOL" if self._gain_candidate == "AF" else
+            "PWR" if self._gain_candidate == "TX" else self._gain_candidate)
 
     def _apply_gain(self, key, v_int):
         """Push a slider value to the backend + persist. AF routes through the
@@ -3596,7 +3658,7 @@ class SdrApp:
                         lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER,
                         lv.FLEX_ALIGN.CENTER, 6)
             col.set_size(72, 218)
-            _lbl(col, "TX LVL" if key == "TX" else ("AF GAIN" if key == "MIC" else key),
+            _lbl(col, "PWR" if key == "TX" else ("AF GAIN" if key == "MIC" else key),
                  14, CYAN_RX if supported else GRAY2)
             sl = lv.slider(col)
             # Same physical height as the permanent far-right slider.  The remaining
@@ -3673,7 +3735,8 @@ class SdrApp:
         s.set_range(lo, hi)
         s.set_value(cur, False)
         self.ui.get("vol-label").set_text(
-            "VOL" if self._active_gain == "AF" else self._active_gain)
+            "VOL" if self._active_gain == "AF" else
+            "PWR" if self._active_gain == "TX" else self._active_gain)
         self.ui.get("vol-value").set_text(fmt(cur))
         if not self._gain_available(self._active_gain) or "gains_panel" in _KEEP:
             s.add_state(lv.STATE.DISABLED)
@@ -4984,7 +5047,7 @@ class SdrApp:
             row.set_size(464, 36)
             _flex(row, lv.FLEX_FLOW.ROW, lv.FLEX_ALIGN.SPACE_BETWEEN)
             title = _lbl(row, {"MIC": "AF gain", "DEV": "DEV peak", "DEPTH": "AM depth",
-                               "TX": "TX LEVEL"}[key], 14, GRAY)
+                               "TX": "PWR drive %"}[key], 14, GRAY)
             title.set_width(128)
             minus = _btn(row, 42, 30, PANEL2, radius=6, border=BORDER)
             _lbl(minus, "-", 16, WHITE)
@@ -5008,7 +5071,16 @@ class SdrApp:
         live = _lbl(scr, "Waiting for TX status", 12, CYAN_RX)
         live.set_size(464, 42)
         self._set_lbls["tx-live"] = live
-        _lbl(scr, "SOURCE selects audio, not TX mode. BACK keeps TX on.", 12, GRAY)
+        if self._tx_mode in TX_AF_MODES:
+            button = _btn(scr, 464, 26, PANEL2, radius=6, border=BORDER)
+            self._set_widgets["tx-filter"] = _lbl(button, "", 12, CYAN_RX)
+            self._set_widgets["tx-filter-button"] = button
+            def filter_cb(e):
+                self.open_tx_filter_menu()
+            button.add_event_cb(filter_cb, lv.EVENT.CLICKED, None)
+            self._settings_cbs.append(filter_cb)
+        else:
+            _lbl(scr, "PWR = I/Q drive, not watts. BACK keeps TX on.", 12, GRAY)
         self._set_scr_partial = None
         return scr
 
@@ -5041,6 +5113,16 @@ class SdrApp:
                 text = fmt(current)
                 if label.get_text() != text:
                     label.set_text(text)
+        label = self._set_widgets.get("tx-filter")
+        if label is not None:
+            text = "AF upper: %s  > | PWR = drive, not watts" % self._home_bandwidth_text()
+            if label.get_text() != text:
+                label.set_text(text)
+            button = self._set_widgets["tx-filter-button"]
+            if self._trx_pending is None and self._tx_filter_controls():
+                button.remove_state(lv.STATE.DISABLED)
+            else:
+                button.add_state(lv.STATE.DISABLED)
         if status is None:
             return
         budget = status.get("dsp_budget_cycles", 0)
@@ -6630,7 +6712,7 @@ class SdrApp:
             b = self.ui.get("btn-" + name)
             if i < len(choices):
                 item = choices[i]
-                value, text = item if pairs else (item, fmt_bw(item))
+                value, text = item if pairs else (item, "BASE" if state == 6 and not item else fmt_bw(item))
                 on = value == current
                 b.get_child(0).set_text(text)
                 b.set_style_bg_color(lv.color_hex(GREEN if on else BTN_RX), 0)
@@ -6655,9 +6737,12 @@ class SdrApp:
 
     def open_filter_menu(self):
         if self._trx_state == TRX_TX and self._trx_pending is None:
-            # Read-only until the native TX filter has a configurable API.
-            self.open_pick_menu("TX FILTER: FIXED", ((0, "BACK"),), 0,
-                                lambda unused: self._set_mode_bar(False))
+            if self._tx_filter_controls():
+                self._open_bottom_choices(6, TX_AF_CHOICES[self._tx_mode],
+                    self.p.get("txbw", {}).get(self._tx_mode, 0))
+            else:
+                self.open_pick_menu("TX FILTER: FIXED", ((0, "BACK"),), 0,
+                                    lambda unused: self._set_mode_bar(False))
             return
         if (self._trx_state not in (TRX_RX, TRX_RX_OFF) or
                 self._trx_pending is not None):
@@ -6948,6 +7033,11 @@ class SdrApp:
                         self.be.set_bandwidth(hz)
                         self.touch_params()
                         self.update_mode()
+                elif self._mode_expanded == 6:
+                    if self._trx_state == TRX_TX:
+                        choices = TX_AF_CHOICES.get(self._tx_mode, ())
+                        if ii < len(choices) and self._request_tx_filter(choices[ii]):
+                            self._set_mode_bar(False)
                 elif self._mode_expanded == 4:
                     if ii < len(STEPS):
                         self.p["s"] = STEPS[ii][0]

@@ -30,6 +30,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="ra-tx-core-") as temporary:
         for suite, extra in (("test_tx_core", []),
+                             ("test_tx_filter", []),
                              ("test_tone", [str(port / "ra" / "ra_tone.c")]),
                              ("test_gen_transitions", [str(port / "ra" / "ra_tone.c")])):
             binary = Path(temporary) / (suite + (".exe" if os.name == "nt" else ""))

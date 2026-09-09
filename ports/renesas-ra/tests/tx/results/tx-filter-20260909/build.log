@@ -1,0 +1,23 @@
+Use make V=1 or set BUILD_VERBOSE in your environment to increase build verbosity.
+GEN build-VK_RA6M3/genhdr/moduledefs.collected
+GEN build-VK_RA6M3/genhdr/root_pointers.collected
+Module registrations not updated
+Root pointer registrations not updated
+CC ../../extmod/machine_adc.c
+CC ra/ra_dac.c
+CC ra/ra_storm_adc.c
+CC ra/ra_iq_adc.c
+CC ra/ra_tx_hw.c
+CC ra/ra_tx_core.c
+CC machine_dac.c
+CC modaudiomixer.c
+CC boards/VK_RA6M3/machine_lcd.c
+CC machine_audioadc.c
+CC machine_iq_adc.c
+CC machine_tx.c
+LINK build-VK_RA6M3/firmware.elf
+C:\msys_64\mingw64\bin\arm-none-eabi-ld.exe: warning: build-VK_RA6M3/firmware.elf has a LOAD segment with RWX permissions
+   text	   data	    bss	    dec	    hex	filename
+1596085	      0	 649912	2245997	 22456d	build-VK_RA6M3/firmware.elf
+GEN build-VK_RA6M3/firmware.hex
+GEN build-VK_RA6M3/firmware.bin

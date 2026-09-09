@@ -1,0 +1,2 @@
+PASS actual native audio controller: MIC/FILE/GEN AM/SSB scalars and queued filter; LEVEL preserves filter state, no restart; invalid/unready/faulted rejected
+Host only: timer/DTC/DAC, IRQ timing and analog output NOT VERIFIED.

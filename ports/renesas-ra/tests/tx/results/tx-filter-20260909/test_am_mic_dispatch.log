@@ -1,0 +1,2 @@
+PASS actual MIC ADC callback/C sample body: 4096 AM codes, no LUT, mute, FILE/legacy/stopped guards
+Host only: actual ISR delivery, elapsed time and physical ADC/DAC NOT VERIFIED.

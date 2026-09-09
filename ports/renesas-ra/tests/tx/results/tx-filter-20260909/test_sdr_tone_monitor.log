@@ -1,0 +1,2 @@
+PASS actual monitor UI: OFF/select/readback/TONE/WAIT/PATH/missing API/TX guard; change-only paint
+PASS source contracts: pre-AF passive hook; RX-only; new-owner OFF; not hardware proof

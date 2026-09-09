@@ -16,7 +16,10 @@ static struct {
     ra_tx_config_t config;
     ra_tx_status_t status;
     uint8_t *lut;
-    union { ra_tx_fm_state_t fm; ra_tx_ssb_state_t ssb; } dsp;
+    struct { struct {
+        union { ra_tx_fm_state_t fm; ra_tx_ssb_state_t ssb; uint32_t am_clips; } mod;
+        ra_tx_af_state_t af;
+    } audio; } dsp;
 } tx;
 static struct { uint32_t CYCCNT; } cycles;
 static struct { uint16_t DADR[2]; } dac;

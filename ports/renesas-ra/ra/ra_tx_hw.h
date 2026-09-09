@@ -48,6 +48,7 @@ typedef struct {
     uint16_t gen_frequency_dhz; /* 0.1 Hz units */
     uint16_t gen_level;    /* percent of signed AF full scale */
     uint8_t gen_wave;      /* ra_tone_wave_t */
+    uint16_t audio_cutoff; /* AM/SSB upper AF corner Hz; 0 bypasses this extra filter */
 } ra_tx_config_t;
 
 typedef struct {
@@ -86,6 +87,9 @@ typedef struct {
     bool af_enabled;
     bool file_source;
     uint32_t file_underruns;
+    uint16_t audio_cutoff_active;
+    bool audio_filter_pending;
+    uint32_t audio_filter_clips;
 } ra_tx_status_t;
 
 #define RA_TX_AM_LUT_BYTES (8192U)
@@ -127,8 +131,9 @@ bool ra_tx_hw_owns_resources(void);
 uint32_t ra_tx_hw_adc_epoch(void);
 void ra_tx_hw_get_status(ra_tx_status_t *status);
 bool ra_tx_hw_scope_enable(bool on);
-/* Borrowed signed AF: MIC codes around adc_mid or the decoded FILE audio
- * actually passed to the modulator. The next frame claim ends the loan. */
+/* Borrowed signed AF: CPU MIC/FILE/GEN after the optional AF filter, before
+ * the modulator's gain/limiter; legacy MIC uses passive raw capture.
+ * The next frame claim ends the loan. */
 bool ra_tx_hw_scope_frame(const int16_t **samples, size_t *n, uint32_t *rate_hz);
 #else
 static inline bool ra_tx_hw_owns_adc(void) { return false; }

@@ -10,6 +10,7 @@ import test_sdr_fm_controls as controls
 
 METHODS = {
     '_home_bandwidth_text', '_refresh_home_context', '_update_home_summary',
+    '_audio_controls', '_tx_filter_controls', '_request_tx_filter', '_service_tx_filter',
     '_set_mode_bar', 'open_home_choices', 'set_mode', 'open_agc_menu',
     'open_tx_source_menu', 'open_step_menu', 'open_filter_menu',
     'open_step_controls', '_open_bottom_choices', 'tune', 'fine',
@@ -67,6 +68,7 @@ def install_ui(app):
     app.p['vfos'] = [[app.p['f'], app.p['m']], [7100000, 'LSB'], [30000000, 'FM']]
     app.p['bw'] = dict(env['MODE_BW'])
     app._mode_expanded = 0
+    app._tx_filter_request = None
     app.cur_bw = lambda: app.p['bw'][app.p['m']]
     app.update_entry_digits = app.update_entry_bands = app.update_vfo_ui = lambda: None
     app.touch_params = lambda: None

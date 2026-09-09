@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-09T03:12:34.8544973+03:00",
+  "base_head": "0b165cf1bddfe5e2fa1125a92c076ac7a8393521",
+  "build": "BOARD=VK_RA6M3 BUILD=build-VK_RA6M3 MICROPY_PY_CV2_QSPI=0 USER_C_MODULES= PYTHON=/mingw64/bin/python3.exe -j16",
+  "deployed": false,
+  "hardware_tested": false,
+  "artifacts": [
+    {
+      "path": "C:\\msys_64\\home\\teodor\\renesas_micropython\\ports\\renesas-ra\\build-VK_RA6M3\\firmware.bin",
+      "bytes": 1596072,
+      "sha256": "88f641d14e2c37dd40d4333ab8f3583009df552baca15d6f80100071cc57315c"
+    },
+    {
+      "path": "C:\\msys_64\\home\\teodor\\renesas_micropython\\ports\\renesas-ra\\build-VK_RA6M3\\firmware.elf",
+      "bytes": 19748676,
+      "sha256": "416fbbba636a66c8ad150f401ace850e544961eafba16ee24698638ea62def23"
+    },
+    {
+      "path": "C:\\msys_64\\home\\teodor\\renesas_micropython\\ports\\renesas-ra\\boards\\VK_RA6M3\\examples\\sdr_single.py",
+      "bytes": 330565,
+      "sha256": "b41b71b18a93574d0ace7251515c0613a4dc96b66d78f1e5e531c4c2b7dfae29"
+    },
+    {
+      "path": "C:\\Users\\teodor\\Documents\\Codex\\2026-08-22\\new-chat-2\\sdr_single_tx_filter_candidate.mpy",
+      "bytes": 94066,
+      "sha256": "cd12449adfe5b28ad90716eade51d322fa0d9af5cb9583654b2bec050f46e70c"
+    }
+  ],
+  "selected_symbols": [
+    "1fff7038 00044c00 b g_heap",
+    "0009d024 0000014c T ra_tx_core_af_prepare",
+    "0009d1cc 00000026 T ra_tx_core_af_request",
+    "0009d170 0000005c T ra_tx_core_af_reset",
+    "0009d1f2 00000136 T ra_tx_core_af_sample",
+    "1ffec3b8 00000638 b tx"
+  ],
+  "previous_symbols": [
+    "1fff7038 00044c00 b g_heap",
+    "1ffec3b8 0000062c b tx"
+  ],
+  "opencv_symbols": []
+}

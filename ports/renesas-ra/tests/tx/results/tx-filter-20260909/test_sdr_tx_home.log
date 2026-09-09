@@ -1,0 +1,6 @@
+PASS no legacy spectrum children or startup demo publication
+PASS HOME callbacks: mode/step/filter/keypad/arrows, deferred x1 clock, independent RX restore
+PASS MIC/real FILE selector, independent decoder/RF modes, FM offset, LOOP, prefill and AF label
+PASS clock/FILE/release/allocation/start failures, invalid choices: no fallback MIC or overlapping owner
+PASS lazy keypad: reopen, cancel, timer/widget release and partial-build rollback
+HOST ONLY: actual Python methods; touch/render, native device behavior and RF NOT VERIFIED.

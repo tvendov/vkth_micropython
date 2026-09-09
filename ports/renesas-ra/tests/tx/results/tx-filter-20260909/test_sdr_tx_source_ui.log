@@ -1,0 +1,3 @@
+PASS TX source UI: visible parent, actual callbacks, independent mode, labels,
+pending guard, live loop/no restart, RX/EOF/short-file guards, parent cleanup, RX title.
+Host doubles only; physical touch, rendering, DAC and RF not measured.

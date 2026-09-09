@@ -44,6 +44,9 @@ _Static_assert(sizeof(ra_tx_ssb_state_t) <= 2U * RA_TX_MAX_RAMP_SAMPLES * sizeof
     "SSB history must reuse the existing CW workspace without growing it");
 _Static_assert(sizeof(ra_tx_fm_state_t) <= 2U * RA_TX_MAX_RAMP_SAMPLES * sizeof(uint16_t),
     "FM state must reuse the existing CW workspace without growing it");
+_Static_assert(sizeof(ra_tx_ssb_state_t) + sizeof(ra_tx_af_state_t) <=
+    2U * RA_TX_MAX_RAMP_SAMPLES * sizeof(uint16_t),
+    "Modulator plus AF filter must fit in the existing CW workspace");
 
 typedef struct {
     bool ready, timer_reserved, adc_open, dtc_open, dac_open, pin_enabled, elc_owned, doc_open;
@@ -67,8 +70,14 @@ typedef struct {
             uint16_t ramp[RA_TX_MAX_RAMP_SAMPLES];
             uint16_t shape[RA_TX_MAX_RAMP_SAMPLES];
         } cw;
-        ra_tx_ssb_state_t ssb;
-        ra_tx_fm_state_t fm;
+        struct {
+            union {
+                ra_tx_ssb_state_t ssb;
+                ra_tx_fm_state_t fm;
+                uint32_t am_clips;
+            } mod;
+            ra_tx_af_state_t af;
+        } audio;
     } dsp; /* CW and SSB are exclusive: reuse the existing static RAM. */
     uint32_t hold_settings, hold_source, hold_counts;
     ra_tone_smooth_t generator;
@@ -77,9 +86,9 @@ typedef struct {
 static tx_state_t tx;
 static uint32_t tx_adc_epoch;
 
-/* Optional passive MIC observer. NORMAL DMA stops after one contiguous frame;
- * no DMA interrupt, no per-sample CPU work, no change to AM's DOC/DTC chain.
- * RX/TX are exclusive and lend the existing 2x512 scope workspace. */
+/* Legacy autonomous MIC modes use this passive one-shot DMA observer.
+ * CPU MIC/FILE/GEN publish post-filter AF from their common C sample body.
+ * Both lend the existing RX/TX-exclusive 2x512 scope workspace. */
 static struct {
     dmac_instance_ctrl_t ctrl;
     dmac_extended_cfg_t ext;
@@ -93,7 +102,7 @@ static struct {
 
 static bool tx_scope_close(void) {
     #if MICROPY_HW_ENABLE_IQ_ADC
-    if (ra_tx_software_source(&tx.config)) {
+    if (ra_tx_uses_cpu(&tx.config)) {
         ra_iq_adc_scope_enable(0);
     }
     #endif
@@ -129,7 +138,7 @@ static bool tx_scope_close(void) {
 
 bool ra_tx_hw_scope_enable(bool on) {
     #if MICROPY_HW_ENABLE_IQ_ADC
-    if (ra_tx_software_source(&tx.config)) {
+    if (ra_tx_uses_cpu(&tx.config)) {
         bool enable = on && tx.status.running && !tx.status.error;
         ra_iq_adc_scope_enable(enable);
         tx.status.af_enabled = enable;
@@ -187,7 +196,7 @@ bool ra_tx_hw_scope_enable(bool on) {
 
 bool ra_tx_hw_scope_frame(const int16_t **samples, size_t *n, uint32_t *rate_hz) {
     #if MICROPY_HW_ENABLE_IQ_ADC
-    if (samples && n && rate_hz && ra_tx_software_source(&tx.config) && tx.status.running &&
+    if (samples && n && rate_hz && ra_tx_uses_cpu(&tx.config) && tx.status.running &&
         !tx.status.error && tx.status.af_enabled) {
         *rate_hz = (tx.status.timer_clock_hz + tx.status.timer_period / 2U) / tx.status.timer_period;
         bool ready = ra_iq_adc_scope_frame(samples, n);
@@ -275,22 +284,30 @@ static void tx_unexpected_irq(void *unused) {
 static void tx_cpu_sample(uint16_t raw, uint32_t began) {
     uint16_t i_code, q_code;
     tx.raw = raw;
+    uint16_t audio = ra_tx_core_af_sample(&tx.dsp.audio.af, raw, tx.config.adc_mid);
+    #if MICROPY_HW_ENABLE_IQ_ADC
+    /* One post-filter AF stream for MIC, FILE and GEN. The shared capture
+     * treats words as midpoint-2048 codes; modulo conversion preserves the
+     * signed difference for a custom microphone midpoint as well. */
+    uint16_t scope_raw = (uint16_t)((int32_t)audio + 2048 - tx.config.adc_mid);
+    ra_iq_adc_scope_push(&scope_raw, 1);
+    #endif
     if (tx.config.mode == RA_TX_MODE_AM) {
-        uint32_t clips = tx.status.dsp_clips;
-        i_code = ra_tx_core_am_sample(&tx.config, raw, &clips);
-        tx.status.dsp_clips = clips;
+        i_code = ra_tx_core_am_sample(&tx.config, audio, &tx.dsp.audio.mod.am_clips);
+        tx.status.dsp_clips = tx.dsp.audio.mod.am_clips;
         q_code = tx.config.q_zero;
     } else if (ra_tx_is_voice_fm(&tx.config)) {
-        ra_tx_core_fm_sample(&tx.dsp.fm, &tx.config, tx.lut, tx.raw, &i_code, &q_code);
-        tx.phase = (uint16_t)(tx.dsp.fm.phase >> 16);
-        tx.status.dsp_clips = tx.dsp.fm.clips;
-        tx.status.adc_rails = tx.dsp.fm.adc_rails;
-        tx.status.dc_estimate = (uint16_t)((tx.dsp.fm.dc + 2048) / 4096);
-        tx.status.audio_peak = tx.dsp.fm.audio_peak;
+        ra_tx_core_fm_sample(&tx.dsp.audio.mod.fm, &tx.config, tx.lut, audio, &i_code, &q_code);
+        tx.phase = (uint16_t)(tx.dsp.audio.mod.fm.phase >> 16);
+        tx.status.dsp_clips = tx.dsp.audio.mod.fm.clips;
+        tx.status.adc_rails = tx.dsp.audio.mod.fm.adc_rails;
+        tx.status.dc_estimate = (uint16_t)((tx.dsp.audio.mod.fm.dc + 2048) / 4096);
+        tx.status.audio_peak = tx.dsp.audio.mod.fm.audio_peak;
     } else {
-        ra_tx_core_ssb_sample(&tx.dsp.ssb, &tx.config, tx.raw, &i_code, &q_code);
-        tx.status.dsp_clips = tx.dsp.ssb.clips;
+        ra_tx_core_ssb_sample(&tx.dsp.audio.mod.ssb, &tx.config, audio, &i_code, &q_code);
+        tx.status.dsp_clips = tx.dsp.audio.mod.ssb.clips;
     }
+    tx.status.dsp_clips += tx.dsp.audio.af.clips;
     R_DAC->DADR[0] = i_code;
     R_DAC->DADR[1] = q_code;
     uint32_t elapsed = DWT->CYCCNT - began;
@@ -327,9 +344,6 @@ static void tx_file_callback(void *unused) {
     if (!ra_iq_adc_file_audio_next(&raw, ra_tx_mode_is_ssb(tx.config.mode) ? 2 : 1)) {
         tx.status.file_underruns++;
     }
-    /* Capture exactly the selected AF sample, before AM/FM/SSB modulation.
-     * Both the oscilloscope and the modulator see this value, including silence. */
-    ra_iq_adc_scope_push(&raw, 1);
     #endif
     tx_cpu_sample(raw, DWT->CYCCNT);
 }
@@ -342,9 +356,6 @@ static void tx_gen_callback(void *unused) {
         return;
     }
     uint16_t raw = 2048 + ra_tone_smooth_next(&tx.generator);
-    #if MICROPY_HW_ENABLE_IQ_ADC
-    ra_iq_adc_scope_push(&raw, 1); /* same premodulation AF, not a second oscillator */
-    #endif
     tx_cpu_sample(raw, began); /* budget includes generator and scope work */
 }
 
@@ -707,13 +718,19 @@ bool ra_tx_hw_start(void) {
     }
     if (ra_tx_uses_cpu(&tx.config)) {
         if (tx.config.gen_source) { ra_tone_smooth_reset(&tx.generator); }
+        if (!ra_tx_core_af_reset(&tx.dsp.audio.af, tx.config.audio_cutoff,
+            tx.status.timer_clock_hz, tx.status.timer_period)) {
+            return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
+        }
         if (ra_tx_is_voice_fm(&tx.config)) {
-            if (!ra_tx_core_fm_reset(&tx.dsp.fm, &tx.config,
+            if (!ra_tx_core_fm_reset(&tx.dsp.audio.mod.fm, &tx.config,
                 tx.status.timer_clock_hz, tx.status.timer_period)) {
                 return tx_error(RA_TX_ERROR_CONFIG, FSP_ERR_INVALID_ARGUMENT);
             }
         } else if (ra_tx_mode_is_ssb(tx.config.mode)) {
-            ra_tx_core_ssb_reset(&tx.dsp.ssb);
+            ra_tx_core_ssb_reset(&tx.dsp.audio.mod.ssb);
+        } else {
+            tx.dsp.audio.mod.am_clips = 0;
         }
         tx.status.dsp_samples = 0;
         tx.status.dsp_clips = 0;
@@ -771,7 +788,7 @@ bool ra_tx_hw_fm_configure(const ra_tx_config_t *config) {
     tx.config.deviation_hz = config->deviation_hz;
     tx.config.mic_gain = config->mic_gain;
     tx.config.amplitude = config->amplitude;
-    tx.dsp.fm.max_step = step;
+    tx.dsp.audio.mod.fm.max_step = step;
     FSP_CRITICAL_SECTION_EXIT;
     return true;
 }
@@ -785,14 +802,25 @@ bool ra_tx_hw_audio_configure(const ra_tx_config_t *config) {
         config->i_zero != tx.config.i_zero || config->q_zero != tx.config.q_zero) {
         return false;
     }
+    ra_tx_af_config_t prepared;
+    bool filter_change = config->audio_cutoff != tx.config.audio_cutoff;
+    if (filter_change && !ra_tx_core_af_prepare(&prepared, config->audio_cutoff,
+        tx.status.timer_clock_hz, tx.status.timer_period)) {
+        return false;
+    }
     /* Opt-in MIC/FILE AM and SSB all use the C sample callback, not a LUT.
      * Preserve ADC ownership, decoder position, scope and filter history.
-     * Three bounded scalars are published atomically between samples. */
+     * Publish scalars plus an optional prepared filter request between samples;
+     * no trigonometry or coefficient design is performed with IRQs masked. */
     FSP_CRITICAL_SECTION_DEFINE;
     FSP_CRITICAL_SECTION_ENTER;
     tx.config.audio_gain = config->audio_gain;
     tx.config.am_depth = config->am_depth;
     tx.config.amplitude = config->amplitude;
+    if (filter_change) {
+        ra_tx_core_af_request(&tx.dsp.audio.af, &prepared);
+        tx.config.audio_cutoff = config->audio_cutoff;
+    }
     FSP_CRITICAL_SECTION_EXIT;
     return true;
 }
@@ -923,6 +951,11 @@ void ra_tx_hw_get_status(ra_tx_status_t *status) {
     *status = tx.status;
     status->last_adc = tx.raw;
     status->phase = tx.phase;
+    if (ra_tx_uses_cpu(&tx.config)) {
+        status->audio_cutoff_active = tx.dsp.audio.af.bank[tx.dsp.audio.af.active].config.cutoff;
+        status->audio_filter_pending = tx.dsp.audio.af.pending_valid || tx.dsp.audio.af.fade_position;
+        status->audio_filter_clips = tx.dsp.audio.af.clips;
+    }
     if (tx.dac_open) {
         uint8_t enables = R_DAC->DACR & TX_DAC_OUTPUT_MASK;
         status->i_enabled = (enables & 0x40U) != 0;

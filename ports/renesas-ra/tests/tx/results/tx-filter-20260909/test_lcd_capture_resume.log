@@ -1,0 +1,2 @@
+PASS actual LCD capture gates/visibility prologue: HOME resume, fresh RX, 18 view/pending combinations, steady ticks, TX ownership and invalid object
+Host only: full timer, FFT, framebuffer, IRQ timing and hardware recovery NOT VERIFIED.

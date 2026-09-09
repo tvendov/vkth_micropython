@@ -28,6 +28,12 @@ bool ra_tx_core_validate(const ra_tx_config_t *config) {
         config->audio_gain > 1600U || config->am_depth > 100U)) {
         return false;
     }
+    if (config->audio_cutoff && (!config->audio_controls ||
+        config->audio_cutoff < 1800U || config->audio_cutoff > 6000U ||
+        (ra_tx_mode_is_ssb(config->mode) && config->audio_cutoff > 3000U) ||
+        2U * config->audio_cutoff >= config->sample_rate_hz)) {
+        return false;
+    }
     if (config->deviation_hz != 0 &&
         (config->mode != RA_TX_MODE_FM || config->deviation_hz < 100U ||
         config->deviation_hz > 5000U || config->mic_gain > 1600U ||
@@ -208,6 +214,103 @@ uint16_t ra_tx_core_fm_bias(const ra_tx_config_t *config) {
 static int32_t tx_fm_round(int64_t value, unsigned bits) {
     int64_t half = (int64_t)1 << (bits - 1U);
     return (int32_t)(value >= 0 ? (value + half) >> bits : -((-value + half) >> bits));
+}
+
+bool ra_tx_core_af_prepare(ra_tx_af_config_t *out, uint16_t cutoff,
+    uint32_t clock_hz, uint32_t period) {
+    if (!out || !clock_hz || !period || period > 65536U ||
+        (cutoff && (cutoff < 1800U || cutoff > 6000U ||
+                    2ULL * cutoff * period >= clock_hz))) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    out->cutoff = cutoff;
+    if (!cutoff) { return true; }
+    const float q[3] = {0.70710678118f, 0.54119610015f, 1.30656296488f};
+    float fs = (float)clock_hz / period;
+    for (unsigned k = 0; k < 3; ++k) {
+        float w = 2.0f * RA_TX_PI_F * (k ? cutoff : 100.0f) / fs;
+        float cosine = cosf(w), alpha = sinf(w) / (2.0f * q[k]);
+        float norm = 1.0f / (1.0f + alpha);
+        int32_t *c = out->coefficient[k];
+        c[0] = lroundf((1.0f + (k ? -cosine : cosine)) * 0.5f * norm * 268435456.0f);
+        c[1] = (k ? 2 : -2) * c[0];
+        c[2] = c[0];
+        c[3] = lroundf(-2.0f * cosine * norm * 268435456.0f);
+        c[4] = lroundf((1.0f - alpha) * norm * 268435456.0f);
+    }
+    return true;
+}
+
+bool ra_tx_core_af_reset(ra_tx_af_state_t *state, uint16_t cutoff,
+    uint32_t clock_hz, uint32_t period) {
+    if (!state) { return false; }
+    memset(state, 0, sizeof(*state));
+    if (!ra_tx_core_af_prepare(&state->bank[0].config, cutoff, clock_hz, period)) {
+        return false;
+    }
+    uint64_t divisor = 50ULL * period;
+    uint64_t length = ((uint64_t)clock_hz + divisor - 1U) / divisor;
+    if (!length || length > UINT16_MAX) { return false; }
+    state->fade_length = (uint16_t)length;
+    return true;
+}
+
+void ra_tx_core_af_request(ra_tx_af_state_t *state, const ra_tx_af_config_t *prepared) {
+    /* Caller serializes this bounded copy against the sample ISR. */
+    state->pending = *prepared;
+    state->pending_valid = true;
+}
+
+static int32_t tx_af_bank_sample(ra_tx_af_bank_t *bank, int32_t input) {
+    if (!bank->config.cutoff) { return input; }
+    if (!bank->primed) {
+        memset(bank->history, 0, sizeof(bank->history));
+        bank->history[0][0] = bank->history[0][1] = input;
+        bank->primed = true; /* high-pass starts at the input's DC equilibrium */
+    }
+    for (unsigned k = 0; k < 3; ++k) {
+        const int32_t *c = bank->config.coefficient[k];
+        int32_t *h = bank->history[k];
+        int32_t y = tx_fm_round((int64_t)c[0] * input + (int64_t)c[1] * h[0] +
+            (int64_t)c[2] * h[1] - (int64_t)c[3] * h[2] - (int64_t)c[4] * h[3], 28);
+        h[1] = h[0]; h[0] = input;
+        h[3] = h[2]; h[2] = y;
+        input = y;
+    }
+    return input;
+}
+
+uint16_t ra_tx_core_af_sample(ra_tx_af_state_t *state, uint16_t raw, uint16_t midpoint) {
+    if (!state->fade_position && state->pending_valid) {
+        if (state->pending.cutoff != state->bank[state->active].config.cutoff) {
+            ra_tx_af_bank_t *next = &state->bank[state->active ^ 1U];
+            next->config = state->pending;
+            next->primed = false;
+            state->fade_position = 1;
+        }
+        state->pending_valid = false;
+    }
+    /* Bypass is bit-identical to the old stream, including custom ADC midpoint. */
+    if (!state->fade_position && !state->bank[state->active].config.cutoff) {
+        return raw;
+    }
+    int32_t input = ((int32_t)(raw > RA_TX_DAC_MAX ? RA_TX_DAC_MAX : raw) - midpoint) * 4096;
+    int32_t output = tx_af_bank_sample(&state->bank[state->active], input);
+    if (state->fade_position) {
+        int32_t next = tx_af_bank_sample(&state->bank[state->active ^ 1U], input);
+        output += (int32_t)((int64_t)(next - output) * state->fade_position / state->fade_length);
+        if (state->fade_position++ == state->fade_length) {
+            state->active ^= 1U;
+            state->fade_position = 0;
+        }
+    }
+    int32_t code = midpoint + tx_fm_round(output, 12);
+    if (code < 0 || code > (int32_t)RA_TX_DAC_MAX) {
+        ++state->clips;
+        code = code < 0 ? 0 : RA_TX_DAC_MAX;
+    }
+    return (uint16_t)code;
 }
 
 uint32_t ra_tx_core_fm_step(uint32_t clock_hz, uint32_t period, uint16_t deviation_hz) {

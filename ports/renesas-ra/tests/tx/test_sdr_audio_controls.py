@@ -11,6 +11,7 @@ def run():
         app, calls = controls.new_app(env)
         app._tx.audio_configure = lambda **kw: calls.append(kw)
         app._trx_state, app._tx_mode = 'TX', mode
+        app._tx_rx_snapshot = {}
         app._tx_file_label = 'R:USB'
         owner = app._tx
         app._sync_tx_controls()
@@ -18,7 +19,8 @@ def run():
         assert app.ui.get('vol-value').text == '40%'
         app.open_settings()
         assert set(app._set_widgets) == keys | {'tx-source', 'tx-source-button',
-                                               'tx-loop', 'tx-loop-button'}
+                                               'tx-loop', 'tx-loop-button',
+                                               'tx-filter', 'tx-filter-button'}
         assert not app._gain_available('AF') and not app._apply_gain('AF', 100)
         before = dict(app.p)
         assert app._apply_gain('TX', 0) and app._apply_gain('MIC', 20)
@@ -53,6 +55,7 @@ def run():
     app, calls = controls.new_app(env)
     app._tx.audio_configure = lambda **kw: calls.append(kw)
     app._trx_state, app._tx_mode = 'TX', 'AM'
+    app._tx_rx_snapshot = {}
     app._sync_tx_controls()
     app._active_gain = app._gain_candidate = 'DEPTH'
     app.open_settings()
