@@ -150,7 +150,9 @@ static machine_dac_obj_t *machine_dac_find_channel(uint8_t ch) {
 }
 
 static bool machine_dac_stop_one(machine_dac_obj_t *self) {
+    #if MICROPY_HW_ENABLE_IQ_ADC
     bool was_iq_stream = self->iq_stream != 0U;
+    #endif
     if (!ra_dac_stream_stop(self->ch)) {
         return false;
     }

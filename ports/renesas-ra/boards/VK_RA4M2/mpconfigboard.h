@@ -54,13 +54,12 @@
 #define MICROPY_HW_ENABLE_RNG       (1)     // SCE9 hardware RNG + AES (LoRaWAN)
 #define MICROPY_HW_ENABLE_RTC       (1)
 #ifndef MICROPY_HW_RTC_SOURCE
-#define MICROPY_HW_RTC_SOURCE       (0)     // 0: subclock (SOSC 32.768 kHz crystal), 1: LOCO (RC ~32 kHz)
+#define MICROPY_HW_RTC_SOURCE       (1)     // Cold boot uses LOCO; external SOSC is selected at runtime.
 #endif
-// SOSC 32.768 kHz crystal physically populated on XCIN/XCOUT. Gates run-time
-// source='sosc' selection on machine.RTC() and machine.Timer() (see machine_rtc.c,
-// timer.c). Must match BSP_CLOCK_CFG_SUBCLOCK_POPULATED in ra_cfg/fsp_cfg/bsp/bsp_cfg.h.
+// One image supports both physical variants; this is capability, not detection.
+#define MICROPY_HW_RTC_OPTIONAL_SUBCLOCK (1)
 #ifndef MICROPY_HW_SUBCLK_POPULATED
-#define MICROPY_HW_SUBCLK_POPULATED (1)
+#define MICROPY_HW_SUBCLK_POPULATED (0)
 #endif
 #define MICROPY_HW_ENABLE_ADC       (1)
 #ifndef MICROPY_HW_ENABLE_DAC

@@ -64,6 +64,14 @@ bool ra_rtc_set_time(ra_rtc_t *time);
 bool ra_rtc_get_time(ra_rtc_t *time);
 bool ra_rtc_init(uint8_t source);
 bool ra_rtc_deinit(void);
+// Source 2 preserves a running calendar, otherwise initializes LOCO.
+#define RA_RTC_SOURCE_AUTO (2)
+bool ra_rtc_has_error(void);
+uint8_t ra_rtc_source(void);
+bool ra_rtc_irq_active(void);
+bool ra_rtc_subclock_start(void);
+bool ra_rtc_subclock_ready(void);
+void ra_rtc_subclock_abort(void);
 void rtc_alarm_periodic_isr(void);
 void rtc_carry_isr(void);
 

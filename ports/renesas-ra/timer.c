@@ -30,6 +30,7 @@
 
 #include "py/objfun.h"
 #include "py/runtime.h"
+#include "ra_rtc.h"
 #include "py/gc.h"
 #include "py/mperrno.h"
 #include "shared/runtime/mpirq.h"
@@ -289,7 +290,12 @@ static mp_obj_t pyb_timer_init_helper(pyb_timer_obj_t *self, size_t n_args, cons
         }
         qstr src = mp_obj_str_get_qstr(args[ARG_source].u_obj);
         if (src == MP_QSTR_sosc) {
-            #if !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
+            #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+            if (!ra_rtc_subclock_ready()) {
+                mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("select RTC(source='sosc') before SOSC Timer"));
+            }
+            self->clock_source = RA_AGT_CLOCK_SOSC;
+            #elif !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
             mp_raise_OSError(MP_EINVAL);
             #else
             self->clock_source = RA_AGT_CLOCK_SOSC;

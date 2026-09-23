@@ -29,13 +29,66 @@
 #include "ra_config.h"
 #include "ra_rtc.h"
 
-#include <stdio.h>
 #include <stdlib.h>
-#include "hal_data.h"
-#include "ra_rtc.h"
 
 static R_RTC_Type *rtc_reg = R_RTC;
-static R_SYSTEM_Type *system_reg = (R_SYSTEM_Type *)0x4001E000;
+static R_SYSTEM_Type *system_reg = R_SYSTEM;
+static bool rtc_fault;
+static bool subclock_verified;
+static bool subclock_shared;
+
+// A stopped peripheral clock must never turn a register handshake into a hang.
+// This also terminates before SysTick is available or with interrupts masked.
+#define RTC_WAIT(condition, failure) do { \
+    unsigned remaining = 2000; \
+    while (!(condition)) { \
+        if (remaining-- == 0) { rtc_fault = true; return failure; } \
+        R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MICROSECONDS); \
+    } \
+} while (0)
+
+bool ra_rtc_has_error(void) {
+    return rtc_fault;
+}
+
+uint8_t ra_rtc_source(void) {
+    return rtc_reg->RCR4_b.RCKSEL;
+}
+
+bool ra_rtc_irq_active(void) {
+    return (rtc_reg->RCR1 & 7) != 0;
+}
+
+bool ra_rtc_subclock_ready(void) {
+    return subclock_verified && system_reg->SOSCCR_b.SOSTP == 0;
+}
+
+bool ra_rtc_subclock_start(void) {
+    uint16_t protect = system_reg->PRCR;
+    system_reg->PRCR = 0xA503;
+    if (system_reg->SOSCCR_b.SOSTP) {
+        system_reg->SOMCR = (BSP_CLOCK_CFG_SUBCLOCK_DRIVE << BSP_FEATURE_CGC_SODRV_SHIFT) & BSP_FEATURE_CGC_SODRV_MASK;
+        system_reg->SOSCCR_b.SOSTP = 0;
+    }
+    bool started = system_reg->SOSCCR_b.SOSTP == 0;
+    system_reg->PRCR = 0xA500 | (protect & 0xF);
+    return started;
+}
+
+void ra_rtc_subclock_abort(void) {
+    #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+    // No AGT may select an unverified SOSC. Never stop a verified shared clock.
+    if (!subclock_shared && !subclock_verified && rtc_reg->RCR4_b.RCKSEL != 0
+        && system_reg->SCKSCR_b.CKSEL != 4) {
+        uint16_t protect = system_reg->PRCR;
+        system_reg->PRCR = 0xA503;
+        system_reg->SOSCCR_b.SOSTP = 1;
+        (void)system_reg->SOSCCR;
+        system_reg->PRCR = 0xA500 | (protect & 0xF);
+        R_BSP_SoftwareDelay(200, BSP_DELAY_UNITS_MICROSECONDS);
+    }
+    #endif
+}
 
 #if defined(VECTOR_NUMBER_RTC_ALARM)
 ra_rtc_cb_t ra_rtc_func_alarm = NULL;
@@ -87,9 +140,7 @@ int ra_rtc_get_weekday(void) {
 void ra_rtc_period_on() {
     // Enable periodic interrupt
     rtc_reg->RCR1_b.PIE = 1;
-    while (!rtc_reg->RCR1_b.PIE) {
-        ;
-    }
+    RTC_WAIT(rtc_reg->RCR1_b.PIE, );
     // Enable NVIC RTC Alarm interrupt
     R_BSP_IrqCfg((IRQn_Type const)RTC_PERIOD_IRQn, (uint32_t)RA_PRI_RTC_WKUP, (void *)NULL);
     R_BSP_IrqEnable((IRQn_Type const)RTC_PERIOD_IRQn);
@@ -100,9 +151,7 @@ void ra_rtc_period_off() {
     R_BSP_IrqDisable((IRQn_Type const)RTC_PERIOD_IRQn);
     // Disable periodic interrupt
     rtc_reg->RCR1_b.PIE = 0;
-    while (rtc_reg->RCR1_b.PIE) {
-        ;
-    }
+    RTC_WAIT(!rtc_reg->RCR1_b.PIE, );
 }
 
 // period
@@ -125,9 +174,7 @@ void ra_rtc_set_period_time(uint32_t period) {
     rcr1 &= (uint8_t) ~R_RTC_RCR1_PES_Msk;
     rcr1 |= (uint8_t)(period << R_RTC_RCR1_PES_Pos);
     rtc_reg->RCR1 = rcr1;
-    while (rtc_reg->RCR1 != rcr1) {
-        ;
-    }
+    RTC_WAIT(rtc_reg->RCR1 == rcr1, );
     ra_rtc_period_on();
 }
 
@@ -145,9 +192,7 @@ void ra_rtc_set_period_func(void *cb, void *param) {
 void ra_rtc_alarm_on() {
     // Enable alarm interrupt
     rtc_reg->RCR1_b.AIE = 1;
-    while (!rtc_reg->RCR1_b.AIE) {
-        ;
-    }
+    RTC_WAIT(rtc_reg->RCR1_b.AIE, );
     // Enable NVIC RTC Alarm interrupt
     R_BSP_IrqCfg((IRQn_Type const)RTC_ALARM_IRQn, (uint32_t)RA_PRI_RTC_WKUP, (void *)NULL);
     R_BSP_IrqEnable((IRQn_Type const)RTC_ALARM_IRQn);
@@ -158,9 +203,7 @@ void ra_rtc_alarm_off() {
     R_BSP_IrqDisable((IRQn_Type const)RTC_ALARM_IRQn);
     // Disable alarm interrupt
     rtc_reg->RCR1_b.AIE = 0;
-    while (rtc_reg->RCR1_b.AIE) {
-        ;
-    }
+    RTC_WAIT(!rtc_reg->RCR1_b.AIE, );
 }
 
 void ra_rtc_set_alarm_time(int hour, int min, int week_flag) {
@@ -182,10 +225,10 @@ void ra_rtc_set_alarm_time(int hour, int min, int week_flag) {
 }
 
 void ra_rtc_set_alarm_func(void *cb, void *param) {
-    ra_rtc_period_off();
+    ra_rtc_alarm_off();
     ra_rtc_func_alarm = (ra_rtc_cb_t)cb;
     ra_rtc_param_alarm = param;
-    ra_rtc_period_on();
+    ra_rtc_alarm_on();
 }
 
 #endif
@@ -203,51 +246,33 @@ void ra_rtc_set_adjustment(int adj, int aadjp) {
     if (adj == 0) {
         // no adjustment
         rtc_reg->RADJ = 0x00;
-        while (rtc_reg->RADJ != 0x00) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RADJ == 0x00, );
     } else if (adj > 0) {
         // plus adjustment
         rtc_reg->RADJ = 0x00;
-        while (rtc_reg->RADJ != 0x00) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RADJ == 0x00, );
         // enable auto adjustment
         rtc_reg->RCR2_b.AADJE = 1;
-        while (rtc_reg->RCR2_b.AADJE != 1) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RCR2_b.AADJE == 1, );
         rtc_reg->RCR2_b.AADJP =
             aadjp == RTC_PERIOD_MINUTE ? RTC_PERIOD_MINUTE : RTC_PERIOD_SECOND;
-        while (rtc_reg->RCR2_b.AADJP != aadjp) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RCR2_b.AADJP == aadjp, );
         tmp_int = 0x40 | (0x3F & adj);
         rtc_reg->RADJ = (uint8_t)tmp_int;
-        while (rtc_reg->RADJ != (uint8_t)tmp_int) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RADJ == (uint8_t)tmp_int, );
     } else {
         // minus adjustment
         rtc_reg->RADJ = 0x00;
-        while (rtc_reg->RADJ != 0x00) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RADJ == 0x00, );
         // enable adjustment
         rtc_reg->RCR2_b.AADJE = 1;
-        while (rtc_reg->RCR2_b.AADJE != 1) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RCR2_b.AADJE == 1, );
         rtc_reg->RCR2_b.AADJP =
             aadjp == RTC_PERIOD_MINUTE ? RTC_PERIOD_MINUTE : RTC_PERIOD_SECOND;
-        while (rtc_reg->RCR2_b.AADJP != aadjp) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RCR2_b.AADJP == aadjp, );
         tmp_int = 0x80 | (0x3F & abs(adj));
         rtc_reg->RADJ = (uint8_t)tmp_int;
-        while (rtc_reg->RADJ != (uint8_t)tmp_int) {
-            ;
-        }
+        RTC_WAIT(rtc_reg->RADJ == (uint8_t)tmp_int, );
     }
 }
 
@@ -259,9 +284,9 @@ bool ra_rtc_set_time(ra_rtc_t *time) {
     // Write 0 to RTC start bit
     rtc_reg->RCR2_b.START = 0x0;
     // Wait for start bit to clear
-    while (0 != rtc_reg->RCR2_b.START) {
-        ;
-    }
+    RTC_WAIT(rtc_reg->RCR2_b.START == 0, false);
+    rtc_reg->RCR2_b.RESET = 1;
+    RTC_WAIT(rtc_reg->RCR2_b.RESET == 0, false);
     // Alarm enable bits are undefined after a reset,
     //  disable non-required alarm features
     rtc_reg->RWKAR_b.ENB = 0;
@@ -280,110 +305,129 @@ bool ra_rtc_set_time(ra_rtc_t *time) {
     // Start the clock
     rtc_reg->RCR2_b.START = 0x1;
     // Wait until the start bit is set to 1
-    while (1 != rtc_reg->RCR2_b.START) {
-        ;
-    }
+    RTC_WAIT(rtc_reg->RCR2_b.START == 1, false);
     return true;
 }
 
 bool ra_rtc_get_time(ra_rtc_t *time) {
-    time->year = (uint16_t)(bcd_to_int((uint8_t)rtc_reg->RYRCNT) + 2000);
-    time->month = (uint8_t)bcd_to_int(rtc_reg->RMONCNT);
-    time->date = (uint8_t)bcd_to_int(rtc_reg->RDAYCNT);
-    time->hour = (uint8_t)bcd_to_int((uint8_t)(0x3f & rtc_reg->RHRCNT));
-    time->minute = (uint8_t)bcd_to_int((uint8_t)rtc_reg->RMINCNT);
-    time->second = (uint8_t)bcd_to_int((uint8_t)rtc_reg->RSECCNT);
-    time->weekday = (uint8_t)bcd_to_int((uint8_t)rtc_reg->RWKCNT);
-    return true;
-}
-
-static void wait(volatile int count) {
-    while (count--) {
-        __asm__ __volatile__ ("nop");
+    for (unsigned attempt = 0; attempt < 3; ++attempt) {
+        uint8_t second = rtc_reg->RSECCNT;
+        time->year = (uint16_t)(bcd_to_int((uint8_t)rtc_reg->RYRCNT) + 2000);
+        time->month = (uint8_t)bcd_to_int(rtc_reg->RMONCNT);
+        time->date = (uint8_t)bcd_to_int(rtc_reg->RDAYCNT);
+        time->hour = (uint8_t)bcd_to_int((uint8_t)(0x3f & rtc_reg->RHRCNT));
+        time->minute = (uint8_t)bcd_to_int((uint8_t)rtc_reg->RMINCNT);
+        time->second = (uint8_t)bcd_to_int(second);
+        time->weekday = (uint8_t)bcd_to_int((uint8_t)rtc_reg->RWKCNT);
+        if (second == rtc_reg->RSECCNT) {
+            return true;
+        }
     }
+    return false;
 }
 
-// source
-// 0: subclock
-// 1: LOCO
-static void ra_rtc_set_subclock(uint8_t source) {
-    // Set RTC clock input from sub-clock, and supply to RTC module
+static bool ra_rtc_counting(void) {
+    uint8_t first = rtc_reg->R64CNT;
+    // Presence test only, not frequency calibration or crystal qualification.
+    for (unsigned i = 0; i < 500; ++i) {
+        R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+        if (rtc_reg->R64CNT != first) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool ra_rtc_set_subclock(uint8_t source) {
+    // RA4M2 Fig. 23.3: select, supply six source clocks, stop, reset.
     rtc_reg->RCR4_b.RCKSEL = source;
-    if (0 == source) {
-        R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MILLISECONDS);
-    } else {
-        R_BSP_SoftwareDelay(200, BSP_DELAY_UNITS_MICROSECONDS);
-    }
-    // Stop the clock
+    R_BSP_SoftwareDelay(300, BSP_DELAY_UNITS_MICROSECONDS);
+    RTC_WAIT(rtc_reg->RCR4_b.RCKSEL == source, false);
     rtc_reg->RCR2_b.START = 0x0;
-    // Wait for start bit to clear
-    while (0 != rtc_reg->RCR2_b.START) {
-        ;
-    }
+    RTC_WAIT(rtc_reg->RCR2_b.START == 0, false);
     if (source == 1) {
         rtc_reg->RFRH = 0;
         rtc_reg->RFRL = (uint16_t)0x00ff;   // assume 32.768khz
     }
     rtc_reg->RCR2_b.CNTMD = 0;
-    while (0 != rtc_reg->RCR2_b.CNTMD) {
-        ;
-    }
-    // Reset the RTC unit
+    RTC_WAIT(rtc_reg->RCR2_b.CNTMD == 0, false);
     rtc_reg->RCR2_b.RESET = 0x1;
-    // Wait until reset is complete
-    while (0 != rtc_reg->RCR2_b.RESET) {
-        ;
-    }
-    // Start the clock
+    RTC_WAIT(rtc_reg->RCR2_b.RESET == 0, false);
     rtc_reg->RCR2_b.START = 0x1;
-    // Wait until the start bit is set to 1
-    while (1 != rtc_reg->RCR2_b.START) {
-        ;
+    RTC_WAIT(rtc_reg->RCR2_b.START == 1, false);
+    if (!ra_rtc_counting()) {
+        rtc_fault = true;
+        return false;
     }
+    return true;
 }
 
 bool ra_rtc_init(uint8_t source) {
+    rtc_fault = false;
+    if (source > RA_RTC_SOURCE_AUTO) {
+        return false;
+    }
+    ra_rtc_t saved;
+    bool calendar_valid = ra_rtc_get_time(&saved) && system_reg->RSTSR2_b.CWSF && !rtc_reg->RCR2_b.CNTMD
+        && saved.month >= 1 && saved.month <= 12 && saved.date >= 1 && saved.date <= 31;
+    if (source == RA_RTC_SOURCE_AUTO) {
+        if (calendar_valid && rtc_reg->RCR2_b.START && ra_rtc_counting()) {
+            subclock_verified = ra_rtc_source() == 0;
+            subclock_shared |= subclock_verified;
+            return true;
+        }
+        source = 1;
+    } else if (calendar_valid && rtc_reg->RCR2_b.START && ra_rtc_source() == source && ra_rtc_counting()) {
+        subclock_verified |= source == 0;
+        subclock_shared |= subclock_verified;
+        return true;
+    }
+
+    uint16_t protect = system_reg->PRCR;
     system_reg->PRCR = 0xA503;
-    // Check if the MCU has come from a cold start (power on reset)
-    if (0 == system_reg->RSTSR2_b.CWSF) {
-        // cold start
+    system_reg->LOCOCR_b.LCSTP = 0;
+    #if !MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+    if (!system_reg->RSTSR2_b.CWSF) {
         system_reg->VBTCR1_b.BPWSWSTP = 1;
-        // Set the warm start flag
-        system_reg->RSTSR2_b.CWSF = 1;
-        // Disable the sub-clock oscillator
-        system_reg->SOSCCR_b.SOSTP = 1;
-        // Wait for register modification to complete
-        while (1 != system_reg->SOSCCR_b.SOSTP) {
-            ;
+    }
+    #endif
+    system_reg->PRCR = 0xA500 | (protect & 0xF);
+    RTC_WAIT(system_reg->LOCOCR_b.LCSTP == 0, false);
+
+    #if !MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+    // Fixed-crystal boards retain their startup policy. Optional boards prepare
+    // SOSC cooperatively in the binding before entering this transaction.
+    if (source == 0 && !subclock_verified) {
+        if (!ra_rtc_subclock_start()) {
+            return false;
         }
-        // Start sub-clock
-        system_reg->SOSCCR_b.SOSTP = 0;
-        // Perform 8 delay iterations
-        for (uint8_t i = 0; i < 8; i++) {
-            // Wait in while loop for ~0.5 seconds
-            wait(0xFFFFE);
+        R_BSP_SoftwareDelay(BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS, BSP_DELAY_UNITS_MILLISECONDS);
+    }
+    #endif
+    rtc_reg->RCR1 = 0;
+    if (!ra_rtc_set_subclock(source)) {
+        // A failed optional crystal must not strand subsequent RTC accesses.
+        // The caller still receives failure even when LOCO recovery succeeds.
+        rtc_fault = false;
+        bool recovered = ra_rtc_set_subclock(1);
+        if (recovered && calendar_valid) {
+            recovered = ra_rtc_set_time(&saved);
         }
+        rtc_fault = !recovered;
+        subclock_verified = false;
+        ra_rtc_subclock_abort();
+        return false;
+    }
+    if (calendar_valid && !ra_rtc_set_time(&saved)) {
+        return false;
+    }
+    if (source == 0) {
+        subclock_verified = true;
+        subclock_shared = true;
     } else {
-        // Start sub-clock
-        system_reg->SOSCCR_b.SOSTP = 0;
-        // Wait for the register modification to complete
-        while (0 != system_reg->SOSCCR_b.SOSTP) {
-            ;
-        }
+        ra_rtc_subclock_abort();
     }
-    system_reg->PRCR = 0xA500;
-    // call back
-    #if defined(VECTOR_NUMBER_RTC_ALARM)
-    ra_rtc_func_alarm = NULL;
-    #endif
-    #if defined(VECTOR_NUMBER_RTC_PERIOD)
-    ra_rtc_func_period = NULL;
-    #endif
-    if ((rtc_reg->RCR2_b.START == 0) || (rtc_reg->RCR4_b.RCKSEL != source)) {
-        rtc_reg->RCR1 = 0;
-        rtc_reg->RCR2 = 0;
-        ra_rtc_set_subclock(source);
-    }
+    system_reg->RSTSR2_b.CWSF = 1;
     return true;
 }
 

@@ -29,14 +29,13 @@
 
 #include "py/runtime.h"
 #include "py/mperrno.h"
+#include "py/mphal.h"
 #include "extmod/modmachine.h"
 #include "shared/timeutils/timeutils.h"
 #include "extint.h"
 #include "rtc.h"
 #include "irq.h"
-#if defined(RA4M1) | defined(RA4M3) | defined(RA4W1) | defined(RA6M1) | defined(RA6M2) | defined(RA6M3)
 #include "ra_rtc.h"
-#endif
 
 #define RTC_INIT_YEAR   2019
 #define RTC_INIT_MONTH  1
@@ -66,6 +65,24 @@ static mp_uint_t rtc_info;
 static uint32_t rtc_startup_tick;
 static bool rtc_need_init_finalise = false;
 static uint32_t rtc_wakeup_param;
+static bool rtc_clock_busy;
+static bool rtc_initialized;
+
+void rtc_check_available(void) {
+    if (rtc_clock_busy) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+    if (!rtc_initialized || ra_rtc_has_error()) {
+        mp_raise_OSError(MP_EIO);
+    }
+}
+
+void rtc_check_standby(void) {
+    rtc_check_available();
+    if (!R_SYSTEM->SOSCCR_b.SOSTP && !ra_rtc_subclock_ready()) {
+        mp_raise_OSError(MP_EIO);
+    }
+}
 
 /* Active RTC clock source as last selected by either the board default
  * (MICROPY_HW_RTC_SOURCE) or an RTC(source='sosc'|'loco') ctor call.
@@ -85,7 +102,7 @@ static void rtc_calendar_config(void) {
     tm.hour = RTC_INIT_HOUR;
     tm.minute = RTC_INIT_MINUTE;
     tm.second = RTC_INIT_SECOND;
-    ra_rtc_set_time(&tm);
+    rtc_initialized = ra_rtc_set_time(&tm);
 }
 
 void rtc_get_time(RTC_TimeTypeDef *time) {
@@ -111,14 +128,32 @@ void rtc_get_date(RTC_DateTypeDef *date) {
 }
 
 void rtc_init_start(bool force_init) {
-    /* Configure RTC prescaler and RTC data registers.
-     * Source defaults to MICROPY_HW_RTC_SOURCE; runtime override via
-     * machine.RTC(source='sosc'|'loco') updates rtc_clock_source and re-inits. */
-    ra_rtc_init(rtc_clock_source);
+    #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+    rtc_initialized = ra_rtc_init(RA_RTC_SOURCE_AUTO);
+    #else
+    rtc_initialized = ra_rtc_init(rtc_clock_source);
+    #endif
+    rtc_clock_source = ra_rtc_source();
     rtc_need_init_finalise = false;
 
+    if (!rtc_initialized) {
+        // Startup must reach the VM even if the peripheral itself failed.
+        return;
+    }
+    // A new VM cannot inherit callbacks from the previous VM. Keep its calendar.
+    #if defined(VECTOR_NUMBER_RTC_PERIOD)
+    ra_rtc_period_off();
+    #endif
+    #if defined(VECTOR_NUMBER_RTC_ALARM)
+    ra_rtc_alarm_off();
+    #endif
+    ra_rtc_t now;
+    ra_rtc_get_time(&now);
+    if (now.month < 1 || now.month > 12 || now.date < 1 || now.date > 31) {
+        rtc_calendar_config();
+    }
+
     if (!force_init) {
-        // So far, this case (force_init == false) is not called.
         rtc_info |= 0x40000;
         // or rtc_info |= 0x80000;
         return;
@@ -163,14 +198,51 @@ typedef struct _machine_rtc_obj_t {
 
 static const machine_rtc_obj_t machine_rtc_obj = {{&machine_rtc_type}};
 
+static void machine_rtc_select_source(uint8_t source) {
+    if (rtc_clock_busy || __get_IPSR() != 0 || query_irq() != IRQ_STATE_ENABLED) {
+        mp_raise_OSError(MP_EBUSY);
+    }
+    if (source != ra_rtc_source() && ra_rtc_irq_active()) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("disable RTC wakeup before changing source"));
+    }
+    rtc_clock_busy = true;
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+        if (source == 0 && !ra_rtc_subclock_ready()) {
+            if (!ra_rtc_subclock_start()) {
+                mp_raise_OSError(MP_EIO);
+            }
+            // Only explicit selection waits for the board's stabilization time.
+            // VM events may run; reentrant RTC access and standby are rejected.
+            mp_hal_delay_ms(BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS);
+        }
+        #endif
+        bool selected = ra_rtc_init(source);
+        rtc_clock_source = ra_rtc_source();
+        rtc_initialized = !ra_rtc_has_error();
+        if (!selected) {
+            mp_raise_OSError(MP_ETIMEDOUT);
+        }
+        ra_rtc_t now;
+        ra_rtc_get_time(&now);
+        if (now.month < 1 || now.month > 12 || now.date < 1 || now.date > 31) {
+            rtc_calendar_config();
+        }
+        nlr_pop();
+        rtc_clock_busy = false;
+    } else {
+        ra_rtc_subclock_abort();
+        rtc_clock_busy = false;
+        nlr_jump(nlr.ret_val);
+    }
+}
+
 /// \classmethod \constructor(source=None)
 /// Create an RTC object.  Optional kwarg `source='sosc'` or `source='loco'`
 /// selects the RTC clock source at runtime:
-///   - 'sosc' = external 32.768 kHz sub-clock crystal (±20–50 ppm).
-///              Only valid when MICROPY_HW_SUBCLK_POPULATED == 1.
-///   - 'loco' = internal low-speed RC oscillator (±15%).
-/// If omitted, the RTC is initialised against the board default
-/// (MICROPY_HW_RTC_SOURCE).
+/// 'sosc' requires a physical crystal. 'loco' uses the internal RC oscillator.
+/// Without a source argument the current calendar and clock are retained.
 static mp_obj_t machine_rtc_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     enum { ARG_source };
     static const mp_arg_t allowed_args[] = {
@@ -188,7 +260,7 @@ static mp_obj_t machine_rtc_make_new(const mp_obj_type_t *type, size_t n_args, s
         qstr src = mp_obj_str_get_qstr(vals[ARG_source].u_obj);
         uint8_t new_src;
         if (src == MP_QSTR_sosc) {
-            #if !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
+            #if !MICROPY_HW_SUBCLK_POPULATED && !MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
             mp_raise_OSError(MP_EINVAL);
             #else
             new_src = 0;  /* ra_rtc_init() source code 0 = sub-clock */
@@ -198,22 +270,19 @@ static mp_obj_t machine_rtc_make_new(const mp_obj_type_t *type, size_t n_args, s
         } else {
             mp_raise_ValueError(MP_ERROR_TEXT("source must be 'sosc' or 'loco'"));
         }
-        if (new_src != rtc_clock_source) {
-            rtc_clock_source = new_src;
-            /* Re-initialise the RTC against the new clock; ra_rtc_init() is
-             * a no-op when source already matches and START is set. */
-            rtc_init_start(false);
-        }
+        machine_rtc_select_source(new_src);
     }
-
+    rtc_check_available();
     // return constant object
     return MP_OBJ_FROM_PTR(&machine_rtc_obj);
 }
 
 // force rtc to re-initialise
 mp_obj_t machine_rtc_init(mp_obj_t self_in) {
+    rtc_check_available();
     rtc_init_start(true);
     rtc_init_finalise();
+    rtc_check_available();
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(machine_rtc_init_obj, machine_rtc_init);
@@ -229,6 +298,12 @@ mp_obj_t machine_rtc_info(mp_obj_t self_in) {
     return mp_obj_new_int(rtc_info);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(machine_rtc_info_obj, machine_rtc_info);
+
+static mp_obj_t machine_rtc_source(mp_obj_t self_in) {
+    rtc_check_available();
+    return MP_OBJ_NEW_QSTR(ra_rtc_source() == 0 ? MP_QSTR_sosc : MP_QSTR_loco);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_rtc_source_obj, machine_rtc_source);
 
 /// \method datetime([datetimetuple])
 /// Get or set the date and time of the RTC.
@@ -262,10 +337,14 @@ uint32_t rtc_us_to_subsec(uint32_t us) {
 #endif
 
 mp_obj_t machine_rtc_datetime(size_t n_args, const mp_obj_t *args) {
+    rtc_check_available();
     rtc_init_finalise();
+    rtc_check_available();
     if (n_args == 1) {
         ra_rtc_t time;
-        ra_rtc_get_time(&time);
+        if (!ra_rtc_get_time(&time)) {
+            mp_raise_OSError(MP_EAGAIN);
+        }
         mp_obj_t tuple[8] = {
             mp_obj_new_int(time.year),
             mp_obj_new_int(time.month),
@@ -289,7 +368,9 @@ mp_obj_t machine_rtc_datetime(size_t n_args, const mp_obj_t *args) {
         tm.hour = mp_obj_get_int(items[4]);
         tm.minute = mp_obj_get_int(items[5]);
         tm.second = mp_obj_get_int(items[6]);
-        ra_rtc_set_time(&tm);
+        if (!ra_rtc_set_time(&tm)) {
+            mp_raise_OSError(MP_ETIMEDOUT);
+        }
         return mp_const_none;
     }
 }
@@ -299,6 +380,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_rtc_datetime_obj, 1, 2, machine_rtc_
 // wakeup(ms, callback=None) - ms should be between 4ms - 2000ms
 // wakeup(wucksel, wut, callback) - not implemented
 mp_obj_t machine_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
+    rtc_check_available();
     bool enable = false;
     mp_int_t ms;
     mp_obj_t callback = mp_const_none;
@@ -331,7 +413,7 @@ mp_obj_t machine_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
         }
         enable = true;
     }
-    if (n_args >= 2) {
+    if (n_args >= 3) {
         callback = args[2];
     }
     // set the callback
@@ -349,6 +431,7 @@ mp_obj_t machine_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
     } else {
         ra_rtc_period_off();
     }
+    rtc_check_available();
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_rtc_wakeup_obj, 2, 3, machine_rtc_wakeup);
@@ -358,6 +441,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_rtc_wakeup_obj, 2, 3, machine_rtc_wa
 // When an integer argument is provided, check that it falls in the range [-63(s) to 63(s)]
 // and set the calibration value; otherwise return calibration value
 mp_obj_t machine_rtc_calibration(size_t n_args, const mp_obj_t *args) {
+    rtc_check_available();
     rtc_init_finalise();
     mp_int_t cal;
     if (n_args == 2) {
@@ -366,6 +450,7 @@ mp_obj_t machine_rtc_calibration(size_t n_args, const mp_obj_t *args) {
             mp_raise_ValueError(MP_ERROR_TEXT("calibration value out of range"));
         } else {
             ra_rtc_set_adjustment(cal, 0); // calibration for second
+            rtc_check_available();
         }
         return mp_const_none;
     } else {
@@ -379,6 +464,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_rtc_calibration_obj, 1, 2, machine_r
 static const mp_rom_map_elem_t machine_rtc_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&machine_rtc_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&machine_rtc_info_obj) },
+    { MP_ROM_QSTR(MP_QSTR_source), MP_ROM_PTR(&machine_rtc_source_obj) },
     { MP_ROM_QSTR(MP_QSTR_datetime), MP_ROM_PTR(&machine_rtc_datetime_obj) },
     { MP_ROM_QSTR(MP_QSTR_wakeup), MP_ROM_PTR(&machine_rtc_wakeup_obj) },
     { MP_ROM_QSTR(MP_QSTR_calibration), MP_ROM_PTR(&machine_rtc_calibration_obj) },

@@ -136,6 +136,13 @@ void extint_callback(void *param) {
             return;
         }
 
+        // RTC shares this dispatcher but has no Pin.irq hard/soft setting.
+        if (irq_no < EXTI_RTC_WAKEUP && !pyb_extint_hard_irq[irq_no]) {
+            // A full queue drops this event, never falls back to Python in ISR.
+            mp_sched_schedule(*cb, pyb_extint_callback_arg[irq_no]);
+            return;
+        }
+
         mp_sched_lock();
         // When executing code within a handler we must lock the GC to prevent
         // any memory allocations.  We must also catch any exceptions.
@@ -429,11 +436,23 @@ MP_DEFINE_CONST_OBJ_TYPE(
     print, extint_obj_print
     );
 
+void extint_deinit(void) {
+    // Stop GPIO sources before clearing callbacks or releasing the VM heap.
+    ra_icu_deinit();
+    for (int i = 0; i < EXTI_RTC_WAKEUP; i++) {
+        MP_STATE_PORT(pyb_extint_callback)[i] = mp_const_none;
+        pyb_extint_callback_arg[i] = mp_const_none;
+        pyb_extint_hard_irq[i] = true;
+        extint_set_fast_state(i, false, NULL);
+    }
+}
+
 void extint_init0(void) {
     ra_icu_init();
     ra_icu_deinit();
     for (int i = 0; i < PYB_EXTI_NUM_VECTORS; i++) {
         MP_STATE_PORT(pyb_extint_callback)[i] = mp_const_none;
+        pyb_extint_hard_irq[i] = true;
         extint_set_fast_state(i, false, NULL);
     }
 }

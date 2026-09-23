@@ -28,6 +28,7 @@
 #include <string.h>
 #include "hal_data.h"
 #include "ra_config.h"
+#include "ra_rtc.h"
 #include "mpconfigboard.h"  // board-specific: MICROPY_HW_RTC_SOURCE etc. (-I$(BOARD_DIR) in CFLAGS)
 
 // AGTMR2 bit 7 (LPM): selects AGTSCLK source for AGT sub-clock path.
@@ -798,12 +799,13 @@ bool ra_agt_timer_set_freq_ex(uint32_t ch, float freq, ra_agt_clock_source_t clk
     if (!ra_agt_timer_is_valid(ch)) {
         return false;
     }
-    /* SOSC selection requires the board to actually have the sub-clock crystal
-     * populated AND the BSP to have started it. Reject at compile time on
-     * boards that don't (caller in the Python layer should also gate this so
-     * the user gets a clean error instead of a silent no-op). */
+    /* Optional SOSC is usable only after RTC has verified actual counting. */
     if (clk_src == RA_AGT_CLOCK_SOSC) {
-        #if !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
+        #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+        if (!ra_rtc_subclock_ready()) {
+            return false;
+        }
+        #elif !defined(MICROPY_HW_SUBCLK_POPULATED) || (MICROPY_HW_SUBCLK_POPULATED == 0)
         return false;
         #endif
     }

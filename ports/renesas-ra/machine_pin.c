@@ -43,6 +43,7 @@ void machine_pin_init(void) {
 }
 
 void machine_pin_deinit(void) {
+    extint_deinit();
 }
 
 // C API used to convert a user-supplied pin name into an ordinal pin number.

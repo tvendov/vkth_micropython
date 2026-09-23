@@ -105,8 +105,14 @@ void ra_i2c_irq_disable(R_IIC0_Type *i2c_inst);
 void ra_i2c_priority(R_IIC0_Type *i2c_inst, uint32_t ipl);
 void ra_i2c_set_baudrate(R_IIC0_Type *i2c_inst, uint32_t baudrate);
 void ra_i2c_clear_IR(R_IIC0_Type *i2c_inst);
-void ra_i2c_init(R_IIC0_Type *i2c_inst, uint32_t scl, uint32_t sda, uint32_t baudrate);
+bool ra_i2c_init(R_IIC0_Type *i2c_inst, uint32_t scl, uint32_t sda, uint32_t baudrate);
 void ra_i2c_deinit(R_IIC0_Type *i2c_inst);
+bool ra_i2c_recovery_begin(R_IIC0_Type *inst, xaction_t *action,
+    uint32_t scl, uint32_t sda, uint32_t freq, uint32_t now);
+bool ra_i2c_recovery_step(uint32_t now);
+int ra_i2c_recovery_result(void);
+bool ra_i2c_recovery_buffer_safe(void);
+bool ra_i2c_bus_faulted(R_IIC0_Type *inst);
 void ra_i2c_read_last_byte(R_IIC0_Type *i2c_inst);
 void ra_i2c_stop_condition(R_IIC0_Type *i2c_inst);
 void ra_i2c_abort(R_IIC0_Type *i2c_inst);

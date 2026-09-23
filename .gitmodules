@@ -44,7 +44,7 @@
 	url = https://github.com/raspberrypi/pico-sdk.git
 [submodule "lib/fsp"]
 	path = lib/fsp
-	url = https://github.com/renesas/fsp.git
+	url = https://github.com/tvendov/fsp.git
 [submodule "lib/wiznet"]
 	path = lib/wiznet5k
 	url = https://github.com/andrewleech/wiznet_ioLibrary_Driver.git

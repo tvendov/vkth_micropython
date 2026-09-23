@@ -61,6 +61,8 @@ typedef struct
 void rtc_get_time(RTC_TimeTypeDef *time);
 void rtc_get_date(RTC_DateTypeDef *date);
 void rtc_init_start(bool force_init);
+void rtc_check_available(void);
+void rtc_check_standby(void);
 void rtc_init_finalise(void);
 
 mp_obj_t machine_rtc_wakeup(size_t n_args, const mp_obj_t *args);

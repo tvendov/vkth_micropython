@@ -56,12 +56,10 @@ extern "C" {
 #define BSP_CLOCK_CFG_SUBCLOCK_DRIVE (0)
 #endif
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_POPULATED
-/* VK_RA4M2 carries a 32.768 kHz crystal on XCIN/XCOUT (SUBCLK pair). Setting
- * this to 1 makes FSP bsp_clocks.c start the SOSC oscillator at boot and wait
- * BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS for it to stabilise, so RTC and
- * AGTSCLK can use it. */
-#define BSP_CLOCK_CFG_SUBCLOCK_POPULATED (1)
+/* The MicroPython RTC driver owns the optional crystal, including warm reset. */
+#define BSP_CLOCK_CFG_SUBCLOCK_POPULATED (0)
 #endif
+#define BSP_CLOCK_CFG_SUBCLOCK_RUNTIME (1)
 #ifndef BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS
 #define BSP_CLOCK_CFG_SUBCLOCK_STABILIZATION_MS 1000
 #endif

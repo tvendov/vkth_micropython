@@ -318,6 +318,9 @@ static void mp_machine_idle(void) {
 }
 
 static void mp_machine_lightsleep(size_t n_args, const mp_obj_t *args) {
+    #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+    rtc_check_standby();
+    #endif
     if (n_args != 0) {
         mp_obj_t args2[2] = {MP_OBJ_NULL, args[0]};
         machine_rtc_wakeup(2, args2);
@@ -326,6 +329,9 @@ static void mp_machine_lightsleep(size_t n_args, const mp_obj_t *args) {
 }
 
 MP_NORETURN static void mp_machine_deepsleep(size_t n_args, const mp_obj_t *args) {
+    #if MICROPY_HW_RTC_OPTIONAL_SUBCLOCK
+    rtc_check_standby();
+    #endif
     if (n_args != 0) {
         mp_obj_t args2[2] = {MP_OBJ_NULL, args[0]};
         machine_rtc_wakeup(2, args2);
