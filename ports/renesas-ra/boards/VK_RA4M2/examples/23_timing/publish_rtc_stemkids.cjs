@@ -13,12 +13,13 @@ async function api(action,data,query={}) {
   const text=await r.text();if(!r.ok||!text)throw Error(action+': HTTP '+r.status+'; bytes='+text.length);
   const j=JSON.parse(text);if(j.csrf)csrf=j.csrf;return j;
 }
-async function backup(label) {
+async function backup(label,expectedRevision) {
   let f;
-  if(process.argv.includes('--reuse-backup')){
+  if(process.argv.includes('--reuse-backup')&&(label.startsWith('before')||process.argv.includes('--finish-backup'))){
     const list=await api('admin-backups');
-    const published=fs.statSync(path.join(out,'publication.json')).mtimeMs;
-    f=list.items.find(x=>Number(x.name.match(/manual-(\d+)-/)?.[1])>published);
+    const anchor=process.argv.includes('--update')?path.join(__dirname,'21_rtc_clock_bg.rst'):fs.existsSync(path.join(out,'description-update.json'))?path.join(out,'description-update.json'):path.join(out,'publication.json');
+    const published=fs.statSync(anchor).mtimeMs;
+    f=list.items.find(x=>label.startsWith('before')?x.name.includes('checkpoint-manual-'):Number(x.name.match(/manual-(\d+)-/)?.[1])>published);
     assert(f,'No checkpoint newer than publication; do not reuse an older backup');
   }else f=await api('admin-backup',{});
   const dir=path.join(site,'.backups/databases',new Date().toISOString().replace(/[:.]/g,'-')+'-rtc-'+label);fs.mkdirSync(dir,{recursive:true});
@@ -27,7 +28,7 @@ async function backup(label) {
   let last=0;
   await require(path.join(site,'tools/download-checkpoint-http.cjs')).download({url:origin+'/api/?'+new URLSearchParams({action:'admin-backup-download',name:f.name}),origin,cookie,file,bytes:f.bytes,progress:p=>{if(Date.now()-last>15000){last=Date.now();console.log('BACKUP '+p.completed+'/'+p.bytes);}}});
   const db=new(require('node:sqlite').DatabaseSync)(file,{readOnly:true});
-  try{assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');assert.equal(db.prepare('PRAGMA foreign_key_check').all().length,0);}finally{db.close();}
+  try{assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');assert.equal(db.prepare('PRAGMA foreign_key_check').all().length,0);if(expectedRevision!==undefined)assert.equal(Number(db.prepare('SELECT revision FROM sk_catalog_entries WHERE entity_key=?').get(key).revision),expectedRevision);}finally{db.close();}
   fs.writeFileSync(path.join(dir,'manifest.json'),JSON.stringify({label,source:origin,...f,integrity:'ok'},null,2));console.log('BACKUP OK '+dir);
 }
 function lessonMarkdown(text) {
@@ -49,10 +50,34 @@ function lessonMarkdown(text) {
     if(process.argv.includes('--finish-backup')){await backup('after');return;}
     let existing;
     try{existing=await api('catalog-view',undefined,{key});}catch(e){if(!e.message.includes('HTTP 404'))throw e;}
-    if(existing&&!process.argv.includes('--verify'))throw Error('Record already exists; use --verify, do not overwrite');
+    if(existing&&!process.argv.includes('--verify')&&!process.argv.includes('--update'))throw Error('Record already exists; use --verify or --update');
     const py=fs.readFileSync(path.join(__dirname,'21_rtc_clock.py'));
     const rst=fs.readFileSync(path.join(__dirname,'21_rtc_clock_bg.rst'));
     const files=[{kind:'code',name:'21_rtc_clock.py',path:'21_rtc_clock.py',mime:'text/x-python',data:py.toString('base64'),size:py.length,caption:'RTC: сверяване и четене с MicroPython'},{kind:'document',name:'RTC_VK_BG.txt',path:'RTC_VK_BG.txt',mime:'text/plain',data:rst.toString('base64'),size:rst.length,caption:'Урок и експеримент с резервно захранване'}];
+    if(process.argv.includes('--update')) {
+      assert(existing,'Cannot update a missing record');
+      await backup('before-description-update',existing.revision);
+      const current=await api('catalog-record',undefined,{key});
+      fs.writeFileSync(path.join(out,'description-before-r'+current.revision+'.json'),JSON.stringify(current,null,2));
+      const record=structuredClone(current.record);
+      const baseline=JSON.parse(fs.readFileSync(path.join(out,'publication.json'))).record.files.find(f=>f.name==='21_rtc_clock.py');
+      assert.equal(record.files.find(f=>f.name==='21_rtc_clock.py').data,baseline.data,'Published Python code differs from original publication');
+      const code=record.files.find(f=>f.name==='21_rtc_clock.py');code.data=files[0].data;code.size=files[0].size;
+      record.data.title='RTC на VK_RA4M2: сверяване и запазване на часа';
+      record.data.summary='Еднократно сверяване, четене приблизително през секунда и опит с резервно захранване на VK_RA4M2. За други VK RA платки са нужни съвместими схема и фърмуер.';
+      record.body=lessonMarkdown(rst.toString('utf8'))+'\n\n## Пълен код\n\n```python\n'+py.toString('utf8')+'\n```';
+      const document=record.files.find(f=>f.name==='RTC_VK_BG.txt');assert(document);document.data=files[1].data;document.size=files[1].size;
+      const saved=await api('catalog-save',{key,revision:current.revision,record});
+      console.log('UPDATED revision='+saved.revision);
+      const verified=await api('catalog-record',undefined,{key});assert.equal(verified.record.body,record.body);assert.equal(verified.record.data.title,record.data.title);assert.deepEqual(verified.record.files,record.files);
+      const guestResponse=await fetch(origin+'/api/?'+new URLSearchParams({action:'catalog-view',key}),{headers:{Connection:'close'},signal:AbortSignal.timeout(30000)});assert(guestResponse.ok);const guest=await guestResponse.json();assert.equal(guest.record.body,record.body);assert.equal(guest.revision,saved.revision);
+      const project=await api('team-project',undefined,{id:projectId});const task=project.archive.project.lifecycle.tasks.find(t=>t.id==='T153');assert(task);
+      task.evidence+='\nКорекция 19.10.2026: премахнато автоматичното сверяване и флагът SET_TIME. Сверяване само с ръчно извикване на set_clock(...); при старт main() само чете. Уточнени коментарите, приблизителният интервал на печат, обхватът VK_RA4M2 и границата на петминутния опит. Описание ревизия '+saved.revision+' прочетено като гост; двата файла са сравнени след вход.';
+      await api('team-save',{id:projectId,revision:project.revision,project:project.archive.project,target:project.archive.target});
+      fs.writeFileSync(path.join(out,'description-update.json'),JSON.stringify({revision:saved.revision,url:origin+'/index.html#content/items/'+id,guestBodyVerified:true,filesVerified:true},null,2));
+      await backup('after-description-update',saved.revision);
+      console.log('DESCRIPTION VERIFIED '+origin+'/index.html#content/items/'+id);return;
+    }
     if(!process.argv.includes('--verify')) {
       await backup('before');
       const current=await api('team-project',undefined,{id:projectId});const p=current.archive.project;
