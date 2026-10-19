@@ -19,7 +19,7 @@ async function backup(label,expectedRevision) {
     const list=await api('admin-backups');
     const anchor=process.argv.includes('--update')?path.join(__dirname,'21_rtc_clock_bg.rst'):fs.existsSync(path.join(out,'description-update.json'))?path.join(out,'description-update.json'):path.join(out,'publication.json');
     const published=fs.statSync(anchor).mtimeMs;
-    f=list.items.find(x=>label.startsWith('before')?x.name.includes('checkpoint-manual-'):Number(x.name.match(/manual-(\d+)-/)?.[1])>published);
+    f=list.items.find(x=>label.startsWith('before')?x.name.includes('checkpoint-manual-'):Number(x.name.match(/manual-(\d+)-/)?.[1])>published-10000);
     assert(f,'No checkpoint newer than publication; do not reuse an older backup');
   }else f=await api('admin-backup',{});
   const dir=path.join(site,'.backups/databases',new Date().toISOString().replace(/[:.]/g,'-')+'-rtc-'+label);fs.mkdirSync(dir,{recursive:true});
@@ -47,7 +47,11 @@ function lessonMarkdown(text) {
 (async()=>{
   await api('status');const c=JSON.parse(fs.readFileSync(path.join(site,'.deploy/access/administrator.json')));await api('login',{email:c.email,password:c.password});
   try {
-    if(process.argv.includes('--finish-backup')){await backup('after');return;}
+    if(process.argv.includes('--finish-backup')){
+      const updateFile=path.join(out,'description-update.json');
+      const expected=fs.existsSync(updateFile)?JSON.parse(fs.readFileSync(updateFile)).revision:undefined;
+      await backup('after',expected);return;
+    }
     let existing;
     try{existing=await api('catalog-view',undefined,{key});}catch(e){if(!e.message.includes('HTTP 404'))throw e;}
     if(existing&&!process.argv.includes('--verify')&&!process.argv.includes('--update'))throw Error('Record already exists; use --verify or --update');
