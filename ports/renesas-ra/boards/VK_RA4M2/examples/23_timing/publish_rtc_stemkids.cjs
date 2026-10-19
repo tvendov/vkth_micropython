@@ -22,6 +22,17 @@ async function backup(label,expectedRevision) {
     f=list.items.find(x=>label.startsWith('before')?x.name.includes('checkpoint-manual-'):Number(x.name.match(/manual-(\d+)-/)?.[1])>published-10000);
     assert(f,'No checkpoint newer than publication; do not reuse an older backup');
   }else f=await api('admin-backup',{});
+  if(process.argv.includes('--reuse-backup')){
+    const backupRoot=path.join(site,'.backups/databases');
+    for(const entry of fs.readdirSync(backupRoot,{withFileTypes:true})){
+      if(!entry.isDirectory())continue;
+      const candidate=path.join(backupRoot,entry.name,f.name);
+      if(!fs.existsSync(candidate)||fs.statSync(candidate).size!==f.bytes)continue;
+      const db=new(require('node:sqlite').DatabaseSync)(candidate,{readOnly:true});
+      try{assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');assert.equal(db.prepare('PRAGMA foreign_key_check').all().length,0);if(expectedRevision!==undefined)assert.equal(Number(db.prepare('SELECT revision FROM sk_catalog_entries WHERE entity_key=?').get(key).revision),expectedRevision);}finally{db.close();}
+      console.log('BACKUP REUSED '+candidate);return;
+    }
+  }
   const dir=path.join(site,'.backups/databases',new Date().toISOString().replace(/[:.]/g,'-')+'-rtc-'+label);fs.mkdirSync(dir,{recursive:true});
   const file=path.join(dir,f.name);assert.equal(path.dirname(file),dir);
   console.log('BACKUP '+label+' '+f.bytes+' bytes');
@@ -78,7 +89,9 @@ function lessonMarkdown(text) {
       const verified=await api('catalog-record',undefined,{key});assert.equal(verified.record.body,record.body);assert.equal(verified.record.data.title,record.data.title);assert.deepEqual(verified.record.files,record.files);
       const guestResponse=await fetch(origin+'/api/?'+new URLSearchParams({action:'catalog-view',key}),{headers:{Connection:'close'},signal:AbortSignal.timeout(30000)});assert(guestResponse.ok);const guest=await guestResponse.json();assert.equal(guest.record.body,record.body);assert.equal(guest.revision,saved.revision);
       const project=await api('team-project',undefined,{id:projectId});const task=project.archive.project.lifecycle.tasks.find(t=>t.id==='T153');assert(task);
-      task.evidence+='\nДопълнение 19.10.2026: пояснено неподдържаното поле за подсекунди. По RA4M2 HUM 11.2.4/11.2.5 добавени 128 байта VBATT backup регистри, разлика от 1 KB Standby SRAM и функции за достъп през PRCR/VBTBER с VBAE=0 след четене и запис. Автоматичното сверяване и запис на backup данни остават изключени. Ревизия '+saved.revision+' прочетена като гост; файловете са сравнени след вход. Резервираната памет е описана по ръководството; петминутен физически тест за тези байтове не е извършван.';
+      const noteIndex=process.argv.indexOf('--note');
+      const note=noteIndex!==-1?process.argv[noteIndex+1]:'Обновен RTC урок и приложени файлове.';
+      task.evidence+='\n'+note+' Ревизия '+saved.revision+' прочетена като гост; файловете са сравнени след вход.';
       await api('team-save',{id:projectId,revision:project.revision,project:project.archive.project,target:project.archive.target});
       fs.writeFileSync(path.join(out,'description-update.json'),JSON.stringify({revision:saved.revision,url:origin+'/index.html#content/items/'+id,guestBodyVerified:true,filesVerified:true},null,2));
       await backup('after-description-update',saved.revision);
