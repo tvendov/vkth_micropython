@@ -34,7 +34,7 @@ async function backup(label,expectedRevision) {
 function lessonMarkdown(text) {
   const lines=text.split(/\r?\n/),result=[];
   for(let i=0;i<lines.length;i++) {
-    if(i+1<lines.length&&/^[=-]{3,}$/.test(lines[i+1])){result.push('## '+lines[i]);i++;continue;}
+    if(i+1<lines.length&&/^(?:={3,}|-{3,}|~{3,})$/.test(lines[i+1])){result.push((lines[i+1][0]==='~'?'### ':'## ')+lines[i]);i++;continue;}
     if(lines[i].startsWith('.. code-block::')) {
       result.push('```'+lines[i].split('::')[1].trim());i++;
       while(i+1<lines.length&&(lines[i+1].startsWith('    ')||lines[i+1]==='')){i++;result.push(lines[i].replace(/^    /,''));}
@@ -60,15 +60,17 @@ function lessonMarkdown(text) {
     const files=[{kind:'code',name:'21_rtc_clock.py',path:'21_rtc_clock.py',mime:'text/x-python',data:py.toString('base64'),size:py.length,caption:'RTC: сверяване и четене с MicroPython'},{kind:'document',name:'RTC_VK_BG.txt',path:'RTC_VK_BG.txt',mime:'text/plain',data:rst.toString('base64'),size:rst.length,caption:'Урок и експеримент с резервно захранване'}];
     if(process.argv.includes('--update')) {
       assert(existing,'Cannot update a missing record');
+      const expectedIndex=process.argv.indexOf('--expect-revision');
+      if(expectedIndex!==-1)assert.equal(existing.revision,Number(process.argv[expectedIndex+1]),'Unexpected live revision; review it before updating');
       await backup('before-description-update',existing.revision);
       const current=await api('catalog-record',undefined,{key});
       fs.writeFileSync(path.join(out,'description-before-r'+current.revision+'.json'),JSON.stringify(current,null,2));
       const record=structuredClone(current.record);
-      const baseline=JSON.parse(fs.readFileSync(path.join(out,'publication.json'))).record.files.find(f=>f.name==='21_rtc_clock.py');
-      assert.equal(record.files.find(f=>f.name==='21_rtc_clock.py').data,baseline.data,'Published Python code differs from original publication');
+      assert.equal(current.revision,existing.revision,'Record changed while preparing backup');
+      if(expectedIndex===-1){const baseline=JSON.parse(fs.readFileSync(path.join(out,'publication.json'))).record.files.find(f=>f.name==='21_rtc_clock.py');assert.equal(record.files.find(f=>f.name==='21_rtc_clock.py').data,baseline.data,'Published Python code differs from original publication');}
       const code=record.files.find(f=>f.name==='21_rtc_clock.py');code.data=files[0].data;code.size=files[0].size;
       record.data.title='RTC на VK_RA4M2: сверяване и запазване на часа';
-      record.data.summary='Еднократно сверяване, четене приблизително през секунда и опит с резервно захранване на VK_RA4M2. За други VK RA платки са нужни съвместими схема и фърмуер.';
+      record.data.summary='Ръчно сверяване, четене на RTC и 128 байта за данни, запазвани от батерията на VK_RA4M2. Пример с функции за запис и четене на един байт.';
       record.body=lessonMarkdown(rst.toString('utf8'))+'\n\n## Пълен код\n\n```python\n'+py.toString('utf8')+'\n```';
       const document=record.files.find(f=>f.name==='RTC_VK_BG.txt');assert(document);document.data=files[1].data;document.size=files[1].size;
       const saved=await api('catalog-save',{key,revision:current.revision,record});
@@ -76,7 +78,7 @@ function lessonMarkdown(text) {
       const verified=await api('catalog-record',undefined,{key});assert.equal(verified.record.body,record.body);assert.equal(verified.record.data.title,record.data.title);assert.deepEqual(verified.record.files,record.files);
       const guestResponse=await fetch(origin+'/api/?'+new URLSearchParams({action:'catalog-view',key}),{headers:{Connection:'close'},signal:AbortSignal.timeout(30000)});assert(guestResponse.ok);const guest=await guestResponse.json();assert.equal(guest.record.body,record.body);assert.equal(guest.revision,saved.revision);
       const project=await api('team-project',undefined,{id:projectId});const task=project.archive.project.lifecycle.tasks.find(t=>t.id==='T153');assert(task);
-      task.evidence+='\nКорекция 19.10.2026: премахнато автоматичното сверяване и флагът SET_TIME. Сверяване само с ръчно извикване на set_clock(...); при старт main() само чете. Уточнени коментарите, приблизителният интервал на печат, обхватът VK_RA4M2 и границата на петминутния опит. Описание ревизия '+saved.revision+' прочетено като гост; двата файла са сравнени след вход.';
+      task.evidence+='\nДопълнение 19.10.2026: пояснено неподдържаното поле за подсекунди. По RA4M2 HUM 11.2.4/11.2.5 добавени 128 байта VBATT backup регистри, разлика от 1 KB Standby SRAM и функции за достъп през PRCR/VBTBER с VBAE=0 след четене и запис. Автоматичното сверяване и запис на backup данни остават изключени. Ревизия '+saved.revision+' прочетена като гост; файловете са сравнени след вход. Резервираната памет е описана по ръководството; петминутен физически тест за тези байтове не е извършван.';
       await api('team-save',{id:projectId,revision:project.revision,project:project.archive.project,target:project.archive.target});
       fs.writeFileSync(path.join(out,'description-update.json'),JSON.stringify({revision:saved.revision,url:origin+'/index.html#content/items/'+id,guestBodyVerified:true,filesVerified:true},null,2));
       await backup('after-description-update',saved.revision);
