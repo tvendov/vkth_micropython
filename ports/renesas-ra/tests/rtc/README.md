@@ -29,6 +29,16 @@ The explicit constructor is synchronous. The configured 1000 ms stabilization in
 
 ## FSP Dependency
 
+Runtime RTC availability checks also verify R64CNT progress. A stopped source
+raises EIO instead of returning a frozen calendar. This applies to RTC operations,
+time.time(), time.localtime() without an argument, and time.time_ns(). A detected
+fault is latched until explicit source selection or startup reinitializes the RTC.
+There is no background oscillator monitor. Each availability check polls for at
+most 50 ms (normally one 1/64-second counter tick); interrupt activity can extend
+wall time. Reads are therefore not appropriate for latency-critical IRQ code.
+ticks_ms/ticks_us and ordinary startup do not use this new availability check.
+Cold startup without a crystal still selects LOCO; RTC() on working LOCO is valid.
+
 This change includes `lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_clocks.c` in the FSP submodule, not just top-level port files. The runtime-owned startup and RTC-preservation branches are enabled only by `BSP_CLOCK_CFG_SUBCLOCK_RUNTIME` on VK_RA4M2. A stock FSP checkout without that patch is not the tested configuration. Keep the FSP patch alongside the port patch and apply it to the recorded FSP revision when reproducing the build. No upstream submodule commit has been created by this work.
 
 ## Tests

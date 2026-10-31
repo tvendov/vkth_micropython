@@ -72,7 +72,7 @@ void rtc_check_available(void) {
     if (rtc_clock_busy) {
         mp_raise_OSError(MP_EBUSY);
     }
-    if (!rtc_initialized || ra_rtc_has_error()) {
+    if (!rtc_initialized || !ra_rtc_is_running()) {
         mp_raise_OSError(MP_EIO);
     }
 }
@@ -106,8 +106,11 @@ static void rtc_calendar_config(void) {
 }
 
 void rtc_get_time(RTC_TimeTypeDef *time) {
+    rtc_check_available();
     ra_rtc_t dt;
-    ra_rtc_get_time(&dt);
+    if (!ra_rtc_get_time(&dt)) {
+        mp_raise_OSError(MP_EAGAIN);
+    }
     time->DayLightSaving = 0;
     time->Hours = dt.hour;
     time->Minutes = dt.minute;
@@ -119,8 +122,11 @@ void rtc_get_time(RTC_TimeTypeDef *time) {
 }
 
 void rtc_get_date(RTC_DateTypeDef *date) {
+    rtc_check_available();
     ra_rtc_t dt;
-    ra_rtc_get_time(&dt);
+    if (!ra_rtc_get_time(&dt)) {
+        mp_raise_OSError(MP_EAGAIN);
+    }
     date->Date = dt.date;
     date->Month = dt.month;
     date->WeekDay = dt.weekday;
@@ -179,11 +185,12 @@ uint64_t mp_hal_time_ns(void) {
     #if MICROPY_HW_ENABLE_RTC
     // Get current according to the RTC.
     rtc_init_finalise();
-    RTC_TimeTypeDef time;
-    RTC_DateTypeDef date;
-    rtc_get_time(&time);
-    rtc_get_date(&date);
-    ns = timeutils_seconds_since_epoch(2000 + date.Year, date.Month, date.Date, time.Hours, time.Minutes, time.Seconds);
+    rtc_check_available();
+    ra_rtc_t time;
+    if (!ra_rtc_get_time(&time)) {
+        mp_raise_OSError(MP_EAGAIN);
+    }
+    ns = timeutils_seconds_since_epoch(time.year, time.month, time.date, time.hour, time.minute, time.second);
     ns *= 1000000000ULL;
     #endif
     return ns;

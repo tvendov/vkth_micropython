@@ -67,6 +67,7 @@ bool ra_rtc_deinit(void);
 // Source 2 preserves a running calendar, otherwise initializes LOCO.
 #define RA_RTC_SOURCE_AUTO (2)
 bool ra_rtc_has_error(void);
+bool ra_rtc_is_running(void);
 uint8_t ra_rtc_source(void);
 bool ra_rtc_irq_active(void);
 bool ra_rtc_subclock_start(void);

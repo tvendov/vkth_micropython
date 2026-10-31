@@ -1,0 +1,3 @@
+# Preserve byte-exact firmware and recovery artifacts.
+build-VK_RA4M2/firmware.* -text -diff
+tests/rtc/artifacts/health-20261031/previous-firmware/firmware.* -text -diff

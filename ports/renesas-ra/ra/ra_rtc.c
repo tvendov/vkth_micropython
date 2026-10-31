@@ -338,6 +338,18 @@ static bool ra_rtc_counting(void) {
     return false;
 }
 
+bool ra_rtc_is_running(void) {
+    // START alone does not prove oscillation. Verify actual counter progress.
+    if (rtc_fault || !rtc_reg->RCR2_b.START || rtc_reg->RCR2_b.CNTMD || !ra_rtc_counting()) {
+        rtc_fault = true;
+        if (ra_rtc_source() == 0) {
+            subclock_verified = false;
+        }
+        return false;
+    }
+    return true;
+}
+
 static bool ra_rtc_set_subclock(uint8_t source) {
     // RA4M2 Fig. 23.3: select, supply six source clocks, stop, reset.
     rtc_reg->RCR4_b.RCKSEL = source;

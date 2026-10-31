@@ -1,0 +1,1 @@
+PASS actual C: 20 stop/error cases; pending and foreign-owner guards

@@ -164,6 +164,18 @@ int main(void) {
     ra_rtc_period_off(); assert(!mock_rtc.RCR1_b.PIE); ++cases;
     ra_rtc_set_adjustment(3,0); assert(ra_rtc_get_adjustment()==0x43); ++cases;
     ra_rtc_set_adjustment(-2,0); assert(ra_rtc_get_adjustment()==0x82); ++cases;
+    reset_model(); assert(ra_rtc_init(1)); assert(ra_rtc_is_running()); ++cases;
+    loco=false; before=elapsed; assert(!ra_rtc_is_running());
+    assert(ra_rtc_has_error() && elapsed-before<=50000); ++cases;
+    loco=true; assert(!ra_rtc_is_running());
+    assert(ra_rtc_init(1) && ra_rtc_is_running()); ++cases;
+    crystal=true; assert(ra_rtc_subclock_start()); assert(ra_rtc_init(0));
+    crystal=false; assert(!ra_rtc_is_running());
+    assert(!ra_rtc_subclock_ready() && ra_rtc_source()==0); ++cases;
+    assert(ra_rtc_init(1) && ra_rtc_is_running()); ++cases;
+    mock_rtc.RCR2_b.START=0; assert(!ra_rtc_is_running()); ++cases;
+    reset_model(); assert(ra_rtc_init(1)); mock_rtc.RCR2_b.CNTMD=1;
+    assert(!ra_rtc_is_running()); ++cases;
     printf("PASS actual RTC C: %d register-model scenarios; no hardware claim\n",cases);
     binding_tests();
 }
@@ -250,6 +262,16 @@ static void binding_tests(void) {
     machine_rtc_wakeup(3,args); assert(callbacks[0]==0xBAD && mock_rtc.RCR1_b.PIE); ++count;
     args[1]=mp_const_none; machine_rtc_wakeup(2,args);
     assert(callbacks[0]==mp_const_none && !mock_rtc.RCR1_b.PIE); ++count;
+    for(int source=0; source<2; ++source) {
+        reset_model(); crystal=true; rtc_initialized=ra_rtc_init(1);
+        assert(select_catching(source)==0);
+        if(source==0) crystal=false; else loco=false;
+        nlr_buf_t b;
+        if(nlr_push(&b)==0) {rtc_check_available(); assert(0);}
+        else assert((int)(uintptr_t)b.ret_val==MP_EIO);
+        ++count;
+        loco=true; assert(select_catching(1)==0); rtc_check_available(); ++count;
+    }
     printf("PASS actual binding C: %d exception/reentry/source scenarios\n",count);
 }
 '''.replace('BINDING', binding_functions)
@@ -274,6 +296,13 @@ static void binding_tests(void) {
         assert 'ra_rtc_subclock_ready()' in (PORT/name).read_text()
     bsp=(ROOT/'lib/fsp/ra/fsp/src/bsp/mcu/all/bsp_clocks.c').read_text()
     assert bsp.count('defined(BSP_CLOCK_CFG_SUBCLOCK_RUNTIME)')==2
+    modtime=(PORT/'modtime.c').read_text()
+    for signature in ['static void mp_time_localtime_get(', 'static mp_obj_t mp_time_time_get(']:
+        body=function(modtime,signature)
+        assert 'rtc_check_available();' in body and 'if (!ra_rtc_get_time(&time))' in body
+    for signature in ['uint64_t mp_hal_time_ns(', 'void rtc_get_time(', 'void rtc_get_date(']:
+        body=function(binding,signature)
+        assert 'rtc_check_available();' in body and 'mp_raise_OSError(MP_EAGAIN)' in body
     print('PASS source contracts: cooperative wait, cleanup, source query, AGT and FSP guards')
 
 

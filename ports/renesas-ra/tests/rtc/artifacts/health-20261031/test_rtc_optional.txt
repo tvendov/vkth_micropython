@@ -1,0 +1,4 @@
+PASS actual RTC C: 29 register-model scenarios; no hardware claim
+PASS actual binding C: 16 exception/reentry/source scenarios
+PASS FSP compile guards: 3 invalid clock configurations rejected
+PASS source contracts: cooperative wait, cleanup, source query, AGT and FSP guards

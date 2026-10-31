@@ -25,6 +25,8 @@
  */
 
 #include "py/obj.h"
+#include "py/runtime.h"
+#include "py/mperrno.h"
 #include "shared/timeutils/timeutils.h"
 #include "rtc.h"
 
@@ -32,8 +34,11 @@
 static void mp_time_localtime_get(timeutils_struct_time_t *tm) {
     // get current date and time
     rtc_init_finalise();
+    rtc_check_available();
     ra_rtc_t time;
-    ra_rtc_get_time(&time);
+    if (!ra_rtc_get_time(&time)) {
+        mp_raise_OSError(MP_EAGAIN);
+    }
     tm->tm_year = time.year;
     tm->tm_mon = time.month;
     tm->tm_mday = time.date;
@@ -48,7 +53,10 @@ static void mp_time_localtime_get(timeutils_struct_time_t *tm) {
 static mp_obj_t mp_time_time_get(void) {
     // get date and time
     rtc_init_finalise();
+    rtc_check_available();
     ra_rtc_t time;
-    ra_rtc_get_time(&time);
+    if (!ra_rtc_get_time(&time)) {
+        mp_raise_OSError(MP_EAGAIN);
+    }
     return timeutils_obj_from_timestamp(timeutils_seconds_since_epoch(time.year, time.month, time.date, time.hour, time.minute, time.second));
 }
