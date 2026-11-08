@@ -16,8 +16,8 @@ PERSIST_FILE = "/flash/ham_state.bin"
 
 PIN_DAC      = "P014"                          # ЦАП аудио изход.
 PIN_PTT_IN   = "P301"                          # PTT вход.
-PIN_SCL      = "P109"                          # I2C SCL.
-PIN_SDA      = "P110"                          # I2C SDA.
+PIN_SCL      = "P106"                          # I2C SCL.
+PIN_SDA      = "P107"                          # I2C SDA.
 PIN_RGB      = "P112"                          # WS2812 DATA.
 PIN_RGB_PWR  = "P500"                          # WS2812 PWR.
 PIN_BTN_MODE = "P206"                          # MODE бутон.
