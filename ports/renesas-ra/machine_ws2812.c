@@ -177,7 +177,20 @@ static void machine_ws2812_prepare_tx(machine_ws2812_obj_t *self) {
     }
 }
 
+// STEMKIDS T481: the driver object is static (.data), which the GC does not scan, but buf/txbuf live in the GC heap.
+// Without a root the first gc.collect() freed them and later writes went into other objects (HardFault / corrupted objects).
+// The two buffers are kept alive as port root pointers. After a soft reset the heap is new and the roots are NULL again,
+// while the static object still holds the old pointers: then they are dropped and the buffers are allocated afresh.
+MP_REGISTER_ROOT_POINTER(void *machine_ws2812_buffers[2]);
+
 static void machine_ws2812_resize_buffers(machine_ws2812_obj_t *self, size_t buf_len) {
+    if (MP_STATE_PORT(machine_ws2812_buffers)[0] != self->buf || MP_STATE_PORT(machine_ws2812_buffers)[1] != self->txbuf) {
+        // a new heap (soft reset) — the old pointers belong to the previous heap
+        self->buf = NULL;
+        self->txbuf = NULL;
+        self->buf_len = 0;
+        self->tx_len = 0;
+    }
     // Prefix absorbs the SCI visible-start artifact; suffix guarantees latch low.
     self->tx_prefix_len = MACHINE_WS2812_TX_PREFIX_BYTES;
     self->tx_suffix_len = machine_ws2812_calc_suffix_bytes(self);
@@ -200,6 +213,8 @@ static void machine_ws2812_resize_buffers(machine_ws2812_obj_t *self, size_t buf
 
     self->buf_len = buf_len;
     self->tx_len = tx_len;
+    MP_STATE_PORT(machine_ws2812_buffers)[0] = self->buf;  // T481: GC roots
+    MP_STATE_PORT(machine_ws2812_buffers)[1] = self->txbuf;
     memset(self->buf, 0, self->buf_len);
     memset(self->txbuf, 0, self->tx_len);
 }
@@ -437,5 +452,26 @@ MP_DEFINE_CONST_OBJ_TYPE(
     subscr, machine_ws2812_subscr,
     locals_dict, &machine_ws2812_locals_dict
     );
+
+// STEMKIDS T481: called from main.c on soft reset (before mp_deinit): stop the SCI/DTC transfer and forget the heap
+// buffers — the next heap is new, so the next WS2812(...) allocates fresh ones and registers them as GC roots again.
+void machine_ws2812_deinit_all(void) {
+    machine_ws2812_obj_t *self = &machine_ws2812_obj;
+    if (self->active) {
+        ra_sci_ws2812_deinit(self->ch, self->pin->pin);
+        self->active = false;
+    }
+    self->buf = NULL;
+    self->txbuf = NULL;
+    self->buf_len = 0;
+    self->tx_len = 0;
+    MP_STATE_PORT(machine_ws2812_buffers)[0] = NULL;
+    MP_STATE_PORT(machine_ws2812_buffers)[1] = NULL;
+}
+
+#else
+
+void machine_ws2812_deinit_all(void) {
+}
 
 #endif

@@ -127,9 +127,39 @@ static machine_pwm_obj_t machine_pwm_obj[] = {
     {{&machine_pwm_type}, R_GPT13, 0, 13, 'A', 0, 0ul, MICROPY_HW_PWM_13A},
     #endif
     #if defined(MICROPY_HW_PWM_13B)
-    {{&machine_pwm_type}, R_GPT13, 0, 13, 'B', 0, 0ul, MICROPY_HW_PWM_13B}
+    {{&machine_pwm_type}, R_GPT13, 0, 13, 'B', 0, 0ul, MICROPY_HW_PWM_13B},
+    #endif
+    #if defined(MICROPY_HW_PWM_1A_ALT)
+    {{&machine_pwm_type}, R_GPT1, 0, 1, 'A', 0, 0ul, MICROPY_HW_PWM_1A_ALT},
+    #endif
+    #if defined(MICROPY_HW_PWM_1B_ALT)
+    {{&machine_pwm_type}, R_GPT1, 0, 1, 'B', 0, 0ul, MICROPY_HW_PWM_1B_ALT},
+    #endif
+    #if defined(MICROPY_HW_PWM_4A_ALT)
+    {{&machine_pwm_type}, R_GPT4, 0, 4, 'A', 0, 0ul, MICROPY_HW_PWM_4A_ALT},
+    #endif
+    #if defined(MICROPY_HW_PWM_4B_ALT)
+    {{&machine_pwm_type}, R_GPT4, 0, 4, 'B', 0, 0ul, MICROPY_HW_PWM_4B_ALT},
+    #endif
+    #if defined(MICROPY_HW_PWM_5B_ALT)
+    {{&machine_pwm_type}, R_GPT5, 0, 5, 'B', 0, 0ul, MICROPY_HW_PWM_5B_ALT},
     #endif
 };
+
+// GPT channel ch runs PWM on any of its pins (used by machine.Encoder to refuse GPT4 while PWM runs there).
+bool machine_pwm_gpt_active(uint32_t ch) {
+    for (int i = 0; i < MP_ARRAY_SIZE(machine_pwm_obj); i++) {
+        if (machine_pwm_obj[i].ch == ch && machine_pwm_obj[i].active) {
+            return true;
+        }
+    }
+    return false;
+}
+// Weak default for boards without machine.Encoder.
+__attribute__((weak)) bool machine_encoder_gpt_active(uint32_t ch) {
+    (void)ch;
+    return false;
+}
 
 static uint8_t mp_machine_pwm_channel_has_other_active(const machine_pwm_obj_t *self) {
     for (int i = 0; i < MP_ARRAY_SIZE(machine_pwm_obj); i++) {
@@ -197,7 +227,7 @@ static void mp_machine_pwm_init_helper(machine_pwm_obj_t *self, size_t n_args, c
         }
     }
 
-    D = self->duty * ra_gpt_timer_get_period(self->ch);
+    D = (uint64_t)self->duty * ra_gpt_timer_get_period(self->ch);
     ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 100));
 
     if (self->duty && self->freq) {
@@ -235,6 +265,16 @@ static mp_obj_t mp_machine_pwm_make_new(const mp_obj_type_t *type, size_t n_args
         }
 
         if (self) {
+            // The same GTIOC output already runs on its other pin, or the encoder owns this GPT channel.
+            for (int i = 0; i < MP_ARRAY_SIZE(machine_pwm_obj); i++) {
+                machine_pwm_obj_t *o = &machine_pwm_obj[i];
+                if (o != self && o->ch == self->ch && o->id == self->id && o->active) {
+                    mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("GTIOC%d%c is used by Pin(%d)"), self->ch, self->id, o->pwm->pin);
+                }
+            }
+            if (machine_encoder_gpt_active(self->ch)) {
+                mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("GPT%d is used by Encoder"), self->ch);
+            }
             if (ra_gpt_timer_is_pwm_pin(self->pwm->pin)) {
                 // start the PWM running for this channel
                 mp_map_t kw_args;
@@ -285,7 +325,7 @@ static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
             mp_machine_pwm_channel_set_freq(self->ch, self->freq);
 
             if (self->duty) {
-                uint64_t D = self->duty * ra_gpt_timer_get_period(self->ch);
+                uint64_t D = (uint64_t)self->duty * ra_gpt_timer_get_period(self->ch);
                 ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 100));
             }
             if (self->duty && !self->active) {
@@ -305,7 +345,7 @@ static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
 
 static mp_obj_t mp_machine_pwm_duty_get(machine_pwm_obj_t *self) {
     // give the result in %
-    uint64_t Dc = ra_gpt_timer_get_duty(self->ch, self->id) * 100;
+    uint64_t Dc = (uint64_t)ra_gpt_timer_get_duty(self->ch, self->id) * 100;
     return MP_OBJ_NEW_SMALL_INT(Dc / ra_gpt_timer_get_period(self->ch));
 }
 
@@ -318,7 +358,7 @@ static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
             self->duty = (uint8_t)duty;
 
             if (self->freq) {
-                uint64_t D = self->duty * ra_gpt_timer_get_period(self->ch);
+                uint64_t D = (uint64_t)self->duty * ra_gpt_timer_get_period(self->ch);
                 ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 100));
 
                 if (!self->active) {
@@ -343,7 +383,7 @@ static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
 
 static mp_obj_t mp_machine_pwm_duty_get_u16(machine_pwm_obj_t *self) {
     // give the result in ratio (u16 / 65535)
-    uint64_t Dc = ra_gpt_timer_get_duty(self->ch, self->id) * 65535;
+    uint64_t Dc = (uint64_t)ra_gpt_timer_get_duty(self->ch, self->id) * 65535;
     return MP_OBJ_NEW_SMALL_INT(Dc / ra_gpt_timer_get_period(self->ch));
 }
 
@@ -356,7 +396,7 @@ static void mp_machine_pwm_duty_set_u16(machine_pwm_obj_t *self, mp_int_t duty_u
             self->duty = (uint8_t)((duty_u16 * 100) / 65535);
 
             if (self->freq) {
-                uint64_t D = duty_u16 * ra_gpt_timer_get_period(self->ch);
+                uint64_t D = (uint64_t)duty_u16 * ra_gpt_timer_get_period(self->ch); // 64-bit: 65535 × period overflows 32 bits
                 ra_gpt_timer_set_duty(self->ch, self->id, (uint32_t)(D / 65535));
 
                 if (!self->active) {

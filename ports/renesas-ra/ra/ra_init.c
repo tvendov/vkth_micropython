@@ -31,6 +31,11 @@
 void ra_init(void) {
     ra_int_init();
     SysTick_Config(MICROPY_HW_MCU_SYSCLK / 1000);
+    // STEMKIDS T460: SysTick_Config (CMSIS) leaves SysTick at the lowest priority (0xF0). mp_hal_quiet_timing_enter()
+    // raises BASEPRI to IRQ_PRI_QUIET_TIMING (1), which then masks SysTick, and mp_hal_ticks_us() corrects only the first
+    // read after a 1 ms wrap (COUNTFLAG) - _onewire and dht_readinto saw time jump back by 1 ms. Priority 0 (= IRQ_PRI_SYSTICK
+    // in irq.h) as intended by powerctrl_config_systick() in powerctrlboot.c, which this port never calls.
+    NVIC_SetPriority(SysTick_IRQn, 0);
     internal_flash_init();
 }
 

@@ -76,6 +76,16 @@ static inline void encoder_soft_state_reset(machine_encoder_obj_t *self) {
 // Static pool of encoder objects — one per GPT channel.
 static machine_encoder_obj_t encoder_pool[RA_ENCODER_MAX_CH];
 
+// GPT channel ch counts as an encoder (machine.PWM refuses that channel meanwhile).
+bool machine_encoder_gpt_active(uint32_t ch) {
+    return ch < RA_ENCODER_MAX_CH && encoder_pool[ch].in_use && encoder_pool[ch].cfg.active;
+}
+// Weak default when machine.PWM is not built.
+__attribute__((weak)) bool machine_pwm_gpt_active(uint32_t ch) {
+    (void)ch;
+    return false;
+}
+
 // Find or allocate a pool slot for the given GPT channel.
 // Returns NULL if channel is out of range.
 static machine_encoder_obj_t *encoder_pool_get(uint32_t gpt_ch) {
@@ -203,6 +213,11 @@ static mp_obj_t machine_encoder_make_new(const mp_obj_type_t *type, size_t n_arg
     uint32_t ch;
     if (!ra_encoder_find_channel(pin_a->pin, pin_b->pin, &ch)) {
         mp_raise_ValueError(MP_ERROR_TEXT("pins must be GTIOCA/B on same GPT channel"));
+    }
+
+    // PWM on the same GPT channel (e.g. PWM(Pin('P302'))) — the timer cannot count and generate PWM at once.
+    if (machine_pwm_gpt_active(ch)) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("GPT%u is used by PWM"), (unsigned)ch);
     }
 
     // Get per-channel pool slot

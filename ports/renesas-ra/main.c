@@ -100,6 +100,7 @@ bool machine_audioadc_deinit_all(void);
 #if MICROPY_PY_MACHINE_I2C
 void machine_i2c_deinit_all(void);
 #endif
+void machine_ws2812_deinit_all(void);  // STEMKIDS T481
 
 #if MICROPY_PY_THREAD
 static pyb_thread_t pyb_thread_main;
@@ -555,6 +556,7 @@ soft_reset_exit:
     #if MICROPY_PY_MACHINE_I2C
     machine_i2c_deinit_all();
     #endif
+    machine_ws2812_deinit_all();  // STEMKIDS T481: stop the pixel and drop its heap buffers before the heap is reset
     machine_pin_deinit();
     machine_deinit();
 

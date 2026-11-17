@@ -214,6 +214,15 @@
 // GPT6A: no conflict-free pin (P400=I2C0, P411=UART0, P601=UART9)
 #define MICROPY_HW_PWM_6B           (pin_P600) // GTIOC6B (P401=I2C0, P410=UART0)
 #define MICROPY_HW_PWM_7A           (pin_P304) // GTIOC7A (P603=UART9)
+// Second pins of the same GPT outputs on the board headers (FEMTO header: P109, P110, P111, P301, P302, P100).
+// One GTIOC output drives one pin at a time: PWM on the second pin fails while the first one runs.
+// GPT4 (P302/P301) is also the quadrature encoder: PWM on GPT4 and machine.Encoder exclude each other.
+#define MICROPY_HW_PWM_1A_ALT       (pin_P109) // GTIOC1A
+#define MICROPY_HW_PWM_1B_ALT       (pin_P110) // GTIOC1B
+#define MICROPY_HW_PWM_3A           (pin_P111) // GTIOC3A (SPI1 MISO when SPI(1) is used)
+#define MICROPY_HW_PWM_4A_ALT       (pin_P302) // GTIOC4A (encoder A)
+#define MICROPY_HW_PWM_4B_ALT       (pin_P301) // GTIOC4B (encoder B)
+#define MICROPY_HW_PWM_5B_ALT       (pin_P100) // GTIOC5B (I2C(1) SCL when I2C(1) is used)
 #define MICROPY_HW_PWM_7B           (pin_P303) // GTIOC7B (P602=UART9)
 
 // Switch

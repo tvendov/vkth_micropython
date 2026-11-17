@@ -56,6 +56,14 @@ and this is (The Lazy way)
 #include "ra_utils.h"
 #include "ra_gpt.h"
 
+// The GPT counts on PCLKD. On VK_RA4M2 PCLKD is 100 MHz (bsp_clock_cfg.h: PLL 200 MHz /2) while PCLK (MICROPY_HW_MCU_PCLK)
+// is PCLKB = 50 MHz, so periods computed from PCLK gave twice the requested PWM frequency.
+#if defined(RA4M2)
+#define GPT_CLK_HZ (R_FSP_SystemClockHzGet(FSP_PRIV_CLOCK_PCLKD))
+#else
+#define GPT_CLK_HZ (PCLK)
+#endif
+
 
 
 #if defined(RA4M1)
@@ -396,41 +404,41 @@ void ra_gpt_timer_set_freq(uint32_t ch, float freq) {
     #else
     #error What is the width of the timer? (How many bits)
         #endif
-        // float min_freq = ((float)PCLK)/4294967295.0f;
-        if ((freq > (float)(PCLK / 2)) || (freq <= 0.0f)) {
+        // float min_freq = ((float)GPT_CLK_HZ)/4294967295.0f;
+        if ((freq > (float)(GPT_CLK_HZ / 2)) || (freq <= 0.0f)) {
             return;
         } else {
             source = GPT_PCLKD;
-            period = (uint32_t)((float)(PCLK) / freq);
+            period = (uint32_t)((float)(GPT_CLK_HZ) / freq);
         }
     } else { // 16bit
-        float min_freq = ((float)PCLK) / 65535.0f;
+        float min_freq = ((float)GPT_CLK_HZ) / 65535.0f;
 
-        if (freq > (float)(PCLK / 2)) {
+        if (freq > (float)(GPT_CLK_HZ / 2)) {
             return;
         } else if (freq > min_freq) {
             source = GPT_PCLKD;
-            period = (uint16_t)((float)(PCLK) / freq);
+            period = (uint16_t)((float)(GPT_CLK_HZ) / freq);
         } else if (freq > (min_freq / 4.0f)) {
             source = GPT_PCLKD4;
             div = 4;
-            period = (uint16_t)(((float)(PCLK) / 4.0f) / freq);
+            period = (uint16_t)(((float)(GPT_CLK_HZ) / 4.0f) / freq);
         } else if (freq > (min_freq / 16.0f)) {
             source = GPT_PCLKD16;
             div = 16;
-            period = (uint16_t)(((float)(PCLK) / 16.0f) / freq);
+            period = (uint16_t)(((float)(GPT_CLK_HZ) / 16.0f) / freq);
         } else if (freq > (min_freq / 64.0f)) {
             source = GPT_PCLKD64;
             div = 64;
-            period = (uint16_t)(((float)(PCLK) / 64.0f) / freq);
+            period = (uint16_t)(((float)(GPT_CLK_HZ) / 64.0f) / freq);
         } else if (freq > (min_freq / 256.0f)) {
             source = GPT_PCLKD256;
             div = 256;
-            period = (uint16_t)(((float)(PCLK) / 256.0f) / freq);
+            period = (uint16_t)(((float)(GPT_CLK_HZ) / 256.0f) / freq);
         } else if (freq > (min_freq / 1024.0f)) {
             source = GPT_PCLKD1024;
             div = 1024;
-            period = (uint16_t)(((float)(PCLK) / 1024.0f) / freq);
+            period = (uint16_t)(((float)(GPT_CLK_HZ) / 1024.0f) / freq);
         } else {
             return;
         }
@@ -510,7 +518,7 @@ float ra_gpt_timer_tick_time(uint32_t ch) {
         if (ra_gpt_div[ch]) {
             NS *= (float)ra_gpt_div[ch];
         }
-        return NS / (float)(PCLK);
+        return NS / (float)(GPT_CLK_HZ);
     }
 }
 
