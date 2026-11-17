@@ -27,3 +27,12 @@ ports/cc3200/hal/des.c -text
 ports/cc3200/hal/i2s.c -text
 ports/cc3200/hal/i2s.h -text
 ports/cc3200/version.h -text
+
+# VK-RA4M2 board files: vendor documents, tools and archives are binary (avoids phantom CRLF changes on Windows)
+*.pdf binary
+*.exe binary
+*.rar binary
+*.eot binary
+*.ttf binary
+*.deploy binary
+ports/renesas-ra/tests/tx/**/*.log -text
